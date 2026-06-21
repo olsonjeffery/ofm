@@ -38,12 +38,12 @@ job is to decide, each time an agent finishes, what should happen next.
 Four agents make up the core pipeline. Each has its own spec; here is only what
 the loop needs to know about them.
 
-| Agent | Does | Signals "done" by |
+| Agent | Does | Signals "done" by (completion handler) |
 |---|---|---|
-| **planning** (`planification`) | Turns the task doc + original request into a structured plan, written back into the doc. Touches nothing but the doc. | Running `complete-plan.ts` → sets `planification_complete`. |
+| **planning** (`planification`) | Turns the task doc + original request into a structured plan, written back into the doc. Touches nothing but the doc. | Running `complete-plan.ts` (`bottega`) OR `omprint agent complete-plan <task-id>` → sets `planification_complete`. |
 | **implementation** | Implements the unchecked to-do items from the plan, inside the worktree. | Ending its turn. No script — completion is implicit. |
-| **review** | Verifies the implementation against the plan, runs tests, and decides READY / NEEDS_WORK / BLOCKED. | READY → `complete-workflow.ts` (sets `workflow_complete`). BLOCKED → `block-workflow.ts` (sets `workflow_blocked`). NEEDS_WORK → no script, just ends. |
-| **PR** (`pr`) | Opens the pull request, drives CI to green, resolves conflicts. Terminal. | Running `complete-pr.ts` → sets `pr_agent_complete`. |
+| **review** | Verifies the implementation against the plan, runs tests, and decides READY / NEEDS_WORK / BLOCKED. | READY → `complete-workflow.ts` (`bottega`) OR `omprint agent complete-workflow <task-id>` (sets `workflow_complete`). BLOCKED → `block-workflow.ts` (`bottega`) OR `omprint agent block-workflow <task-id>` (sets `workflow_blocked`). NEEDS_WORK → no script, just ends. |
+| **PR** (`pr`) | Opens the pull request, drives CI to green, resolves conflicts. Terminal. | Running `complete-pr.ts` (`bottega`) OR `omprint agent complete-pr` → sets `pr_agent_complete`. |
 
 The agent-type enum in the schema also contains `refinement` and `yolo`. Those
 are **extras** ([`refinement-agent.md`](../extra/refinement-agent.md),
@@ -112,13 +112,13 @@ does this:
 
 ### Why the loop alternates the way it does
 
-The alternation is a plain toggle: implementation's default next is review,
-review's default next is implementation. The crucial detail is *ordering* — the
-`workflow_complete` check runs **before** the toggle. So a review that signals
+The alternation is a plain toggle: `implementation`'s default next is `review`,
+`review`'s default next is `implementation`. The crucial detail is *ordering* — the
+`workflow_complete` check runs **before** the toggle. So a `review` that signals
 READY (by running `complete-workflow.ts`) diverts into the finish pipeline
-instead of bouncing back to implementation; a review that signals NEEDS_WORK
-simply doesn't set the flag, and the toggle sends it back to implementation for
-another pass. The implementation and review prompts use the task doc's "Review
+instead of bouncing back to `implementation`; a `review` that signals NEEDS_WORK
+simply doesn't set the flag, and the toggle sends it back to `implementation` for
+another pass. The `implementation` and `review` prompts use the task doc's "Review
 Findings" section as their shared scratchpad across iterations — see
 [`execution-loop.md`](./execution-loop.md).
 
@@ -132,13 +132,14 @@ those flags after the turn ends.
 
 | Script | Flag set | Run by |
 |---|---|---|
-| [`reference/scripts/complete-plan.ts`](../reference/scripts/complete-plan.ts) | `planification_complete` | planning agent |
-| [`reference/scripts/complete-workflow.ts`](../reference/scripts/complete-workflow.ts) | `workflow_complete` | review agent, on READY |
-| [`reference/scripts/block-workflow.ts`](../reference/scripts/block-workflow.ts) | `workflow_blocked` | review agent, on BLOCKED |
-| [`reference/scripts/complete-pr.ts`](../reference/scripts/complete-pr.ts) | `pr_agent_complete` | PR agent |
+| [`reference/scripts/complete-plan.ts`](../reference/scripts/complete-plan.ts) (`bottega`) OR `omprint agent complete-plan <task-id>` | `planification_complete` | planning agent |
+| [`reference/scripts/complete-workflow.ts`](../reference/scripts/complete-workflow.ts) (`bottega`) OR `omprint agent complete-workflow <task-id>` | `workflow_complete` | review agent, on READY |
+| [`reference/scripts/block-workflow.ts`](../reference/scripts/block-workflow.ts) (`bottega`) OR `omprint agent block-workflow <task-id>` | `workflow_blocked` | review agent, on BLOCKED |
+| [`reference/scripts/complete-pr.ts`](../reference/scripts/complete-pr.ts) (`bottega`) OR `omprint agent complete-pr <task-id>` | `pr_agent_complete` | PR agent |
 
 Each script is tiny: validate the task id, flip one boolean, exit. They run
-inside the agent's own sandbox (the agent has shell access) against the same
+inside the agent's own sandbox (`bottega`; the agent has shell access) OR
+via the `omprint agent <action> <task-id>` command against the same
 database the server uses. Build them as standalone entry points in `omprint`
 an agent can invoke as `omprint agent <action> <task-id>`; the agent should
 have access to the `omprint` bin.
@@ -172,7 +173,8 @@ and the obvious "pass success/failure into the handler" design is the wrong one.
   already running; chaining re-checks "is an agent running for this task?"
   immediately before starting the next run and bails if something is live.
 - **Settle before chaining.** Chaining starts the next run after a short delay
-  (the reference uses a ~1s `setTimeout`) so the finishing turn's status write
+  (the reference uses a ~1s `setTimeout`; `omprint` can use `tokio::time::sleep()`
+  and a 1,000 milisecond timeout) so the finishing turn's status write
   and broadcasts land first, and it **re-reads the task flags inside that
   callback** — the task may have been completed or blocked in the gap.
 - **Iteration cap.** Every run increments `workflow_run_count`. When it reaches
@@ -216,8 +218,8 @@ One function, in order (study
 
 The harness, model, and credential resolution that step 6 depends on are an
 extra ([`prompt-and-model-customization.md`](../extra/prompt-and-model-customization.md));
-core can hardcode a single harness. The contract that step calls is in
-[`harness-contract.md`](./harness-contract.md).
+core can hardcode a single harness (`omprint` will skip directly to implementing
+this `extra/` item). The contract that step calls is in [`harness-contract.md`](./harness-contract.md).
 
 ## Build checklist
 
@@ -232,7 +234,7 @@ core can hardcode a single harness. The contract that step calls is in
 - [ ] A completion handler wired as the streaming on-complete hook, implementing
       the transitions above (and reading state from the DB, not from an error
       flag).
-- [ ] The four signalling scripts.
+- [ ] The four signalling actions under `omprint agent ...`
 - [ ] The "one running agent per task" guard (manual 409 + pre-chain re-check).
 - [ ] The iteration cap and auto-block.
 - [ ] Orphan-run recovery on startup.

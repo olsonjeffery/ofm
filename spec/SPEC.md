@@ -1,6 +1,6 @@
 # Omprint — Specification
 
-[`omprint`][1] (or omprint, say it however you want) orchestrates a small team of
+[`omprint`][1] orchestrates a small team of
 coding agents that collaborate on a single task. You describe the work in a
 markdown file; a chain of agents plans it, implements it, reviews it, and
 opens a pull request — iterating on their own until the work is done or they
@@ -10,28 +10,75 @@ This repository is **spec-first**. The specification *is* the product. A
 complete, working implementation will be created in the enclosing repository, as
 the `omprint` application. A typescript `reference/` application is kept in
 this directory, for reference during the implementation of [`omprint`][1] (which
-will itself be bootstrapped in [vdaubry/bottega][0] until [omprint][1] is featureful enough
-to take over).
+will itself be bootstrapped in [vdaubry/bottega][0] until [omprint][1] is featureful
+enough to take over). It is an explicit goal to replace **ALL** citations into
+`spec/reference`/`reference/` with citations into the local `omprint` codebase
 
-## omprint rust implementation of the bottega spec
+## `omprint` rust implementation of the `bottega` spec
 
 We are shipping a single rust binary that uses this spec. The original bottega
-`reference/` implementation (a typescript codebase) is provided for reference.
-These files (SPEC.md, core/ and extra/) have been modified to suit the desired
-scope of omprint, and differs from bottega in many respects.
+`reference/` implementation (a typescript codebase) is provided for reference
+(with plans to remove as soon as `omprint` is mature).
+
+These files (`SPEC.md`, `core/` and `extra/`) have been modified to suit the desired
+scope of `omprint`, and they differ from `bottega` in many respects.
 
 All new code in the `omprint` workspace will be in the Rust programming language.
 
 `omprint` is a single binary application that:
 
 - Serves a web application implementing the client experience in this spec
-- Owns one or more oh-my-pi subprocesses, whose input/output and lifecycle
-that it drives via RPC over stdio
-- A system for driving the omp subprocesses, and integrating their input/output
+- Owns one or more `oh-my-pi`/`omp` subprocesses, whose input/output and lifecycle
+it drives via RPC over `STDIO`
+- A system for driving the `omp` subprocesses, and integrating their input/output
 into the `omprint` state
-- An embedded database ([`hiqlite`][3])
+- Hosts an embedded database ([`hiqlite`][3]) with built-in [High availability][8] features
+
+Key `omprint` stack/architectural choices:
+
+- `tokio` + `axum`
+  - the core web server
+  - OAuth token verification happens with `jsonwebtoken` in a Tower middleware
+  - Anchor-point for the `omprint` `leptos` web application
+  - Hosts API endpoints called by the `omprint` web application
+  - spawns background workers through `tokio` to own *PTY* sessions
+- `rustls` + `aws-lc-rs` [crate features][9] are used wherever relavant (tools
+doing IO requiring SSL); the goal is to completely eschew any system OpenSSL
+dependency (**NOTE:** this does not apply to `omp` itself)
+- [`leptos`][11], with SSR, as the web application framework
+  - Provides the client [OAUTH Authorization Code Flow + PKCE][5]
+  - The user onboarding & configuration experience is managed here
+  - The core [SDLC loop][10] is mediated through this UX
+- [`wezterm`'s `portable-pty` crate][4]
+  - A [cross-platform psuedoterminal][6] (aka `pty`), able to spawn
+  sub-processes and communicate over `STDIO`
+  - Spawn `pty`s to fetch tools during *onboarding*, or as-needed
+  - If configured, a `pty` will be created on startup to manage a
+  [rauthy][7] instance
+  - Usages of `git` happen via `pty` sub-processes
+  - Spawn instances of `omp` during the loop and manage their lifecycle
+
+## Details on the `omprint` server implementation
+
+- On startup, `omprint` will begin listening on the configured `HOSTNAME` +
+`PORT`
+- Requests to `/` or `/webapp` are for the `omprint` web application
+  - specifically: requests to `/` will redirect to `/webapp`
+  - all web routes, assets/content, etc lives under `/webapp`
+- Requests against `/api` are for the `omprint` `axum` backend server,
+which responds to user requests, oversees filesystem actions,
+spawns `pty`s, maintains database state, and so on
+- If configured to host a `rauthy` instance for OAuth, `omprint` will:
+  - Use a `pty` to start an instance of `rauthy`, at a random port
+  that differs from the configured `omprint` `PORT`
+  - Expose an [axum-based reverse proxy][12] that forwards requests
+  and responses to/from `rauthy`; this reverse proxy is exposed
+  at `/auth`
 
 ## How to build from this spec
+
+**FIXME: replace all occurances of `reference/` with links into the `omprint`
+rust codebase**
 
 Point a coding agent at this file and say "build this." Then:
 
@@ -64,15 +111,17 @@ plain file in a repo. That is exactly why the board is an *extra*, not core.
 
 ## Design philosophy: small and simple
 
-Bottega is meant to stay small. The core is a tight orchestration engine and
+`omprint` is meant to stay small. The core is a tight orchestration engine and
 nothing more. If your team needs something different — another harness, another
 agent role, a different task source — you **fork the behavior into your own
 extra**; you don't grow the core.
 
 This is a deliberate stance, and it shapes the spec:
 
-- **Core is universal.** Every Bottega deployment has it.
+- **Core is universal.** Every `omprint` deployment has it.
 - **Extra is preference.** Pick a subset; ignore the rest.
+  - `omprint` implements the _entire_ surface of `extra/`, undesired
+  modules from `bottega` have been removed, and new ones added
 - We would rather you build your own extra than ask the core to absorb your
   workflow.
 
@@ -91,25 +140,31 @@ Implement all of these for a minimal working tool. Read them in this order.
 
 ## Optional specifications — `extra/`
 
+**FIXME: This MUST be updated/trimmed to reflect what `extra/` modules
+`omprint` kept, removed or added**
+
 Opinionated features. Each is independent; implement what you want.
+
 
 | Spec | What it adds |
 |---|---|
 | [`extra/harnesses/overview.md`](./extra/harnesses/overview.md) | Shared patterns for implementing the core harness contract against a real tool: event mapping, transcript mirroring, credential storage, subprocess lifecycle, the capability matrix. |
-| [`extra/harnesses/opencode.md`](./extra/harnesses/omp.md) | oh-mu-pi integration. |
+| [`extra/harnesses/omp.md`](./extra/harnesses/omp.md) | `oh-my-pi`/`omp` integration. |
 | [`extra/kanban-board.md`](./extra/kanban-board.md) | The opinionated projects/tasks board and 4-screen UI for authoring tasks. |
 | [`extra/refinement-agent.md`](./extra/refinement-agent.md) | An extra agent that polishes the work between review and PR. |
 | [`extra/yolo-mode.md`](./extra/yolo-mode.md) | A single-agent alternative to the multi-step pipeline. |
-| [`extra/pr-comment-retrigger.md`](./extra/pr-comment-retrigger.md) | Re-run the PR agent automatically when a PR receives review comments (GitHub webhook). |
+| [`extra/pr-comment-retrigger.md`](./extra/pr-comment-retrigger.md) | Re-run the PR agent automatically when a PR receives review comments (periodic PR polling). |
 | [`extra/prompt-and-model-customization.md`](./extra/prompt-and-model-customization.md) | Per-agent prompt overrides and per-user model/effort selection. |
-| [`extra/auth-and-multi-user.md`](./extra/auth-and-multi-user.md) | Accounts, API keys, project membership, admin, and role-driven behavior (e.g. auto-advancing past the plan gate for non-technical users). |
+| [`extra/auth-and-multi-user.md`](./extra/auth-and-multi-user.md) | OAuth-integration, Accounts, API keys, project membership, admin, and role-driven behavior (e.g. auto-advancing past the plan gate for non-technical users). |
 | [`extra/chat-ux.md`](./extra/chat-ux.md) | Manual-chat conveniences: slash commands, file attachments, voice input, title generation, the context-usage meter. |
 
 ## The reference implementation
 
-> **⚠️IMPORTANT:** The `reference/` implementation LACKS any content related to
+> **⚠️IMPORTANT ⚠️:** The `reference/` implementation LACKS any content related to
 > `oh-my-pi` or `omprint`-specific features; Where it is referenced is
-> understood as prior behavior that was retained from [vdaubry/bottega][0]
+> understood as prior behavior that was retained from [vdaubry/bottega][0].
+> It is a standing **FIXME** that all instances of `reference/` be replaced
+> with links into the `omprint` codebase
 
 `reference/` is a complete, deployed implementation. Use it to resolve any
 ambiguity left by the spec.
@@ -120,9 +175,8 @@ ambiguity left by the spec.
   describes behavior — but the reference assumes it, so its citations are
   TypeScript.
 - **Where to start reading:** [`reference/server/database/init.sql`](./reference/server/database/init.sql)
-  (the whole data model in one file) and
-  [`reference/docs/project.md`](./reference/docs/project.md) (an architecture
-  tour).
+  (the whole data model in one file) and [`reference/docs/project.md`](./reference/docs/project.md)
+  (an architecture tour).
 - **Citations:** spec files link to specific files and, where it helps, methods
   or line ranges. Treat each as "here is how we solved it," not "copy this."
 
@@ -137,3 +191,12 @@ ambiguity left by the spec.
 [1]: https://github.com/olsonjeffery/omprint
 [2]: https://omp.sh/
 [3]: https://github.com/sebadob/hiqlite
+[4]: https://github.com/wezterm/wezterm/tree/main/pty
+[5]: https://auth0.com/docs/get-started/authentication-and-authorization-flow/authorization-code-flow-with-pkce
+[6]: https://en.wikipedia.org/wiki/Pseudoterminal
+[7]: https://github.com/sebadob/rauthy
+[8]: https://en.wikipedia.org/wiki/High_availability
+[9]: https://doc.rust-lang.org/cargo/reference/features.html
+[10]: https://en.wikipedia.org/wiki/Systems_development_life_cycle
+[11]: https://www.leptos.dev/
+[12]: https://github.com/tokio-rs/axum/blob/main/examples/reverse-proxy/src/main.rs
