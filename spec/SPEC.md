@@ -120,7 +120,7 @@ This is a deliberate stance, and it shapes the spec:
 
 - **Core is universal.** Every `omprint` deployment has it.
 - **Extra is preference.** Pick a subset; ignore the rest.
-  - `omprint` implements the _entire_ surface of `extra/`, undesired
+  - `omprint` implements the *entire* surface of `extra/`, undesired
   modules from `bottega` have been removed, and new ones added
 - We would rather you build your own extra than ask the core to absorb your
   workflow.
@@ -129,14 +129,14 @@ This is a deliberate stance, and it shapes the spec:
 
 Implement all of these for a minimal working tool. Read them in this order.
 
-| Spec | What it covers |
-|---|---|
-| [`core/orchestration-loop.md`](./core/orchestration-loop.md) | **The engine.** The state machine that drives plan → (implement ⇄ review) → PR: agent runs, chaining, the iteration cap, blocking, and how each step decides the next. Start here. |
-| [`core/task-and-workspace.md`](./core/task-and-workspace.md) | The unit of work: a markdown document plus an isolated git worktree. Lifecycle, and where the doc lives so it survives the PR merge. Deliberately silent on how the doc is authored. |
-| [`core/harness-contract.md`](./core/harness-contract.md) | The seam that makes "build your own" possible: the provider interface every coding harness must satisfy (start a turn, stream events, resume, load transcript, abort), plus the streaming runtime and the unified transcript stored as the single source of truth. |
-| [`core/planning-agent.md`](./core/planning-agent.md) | The agent that turns a prompt + task doc into a structured implementation plan written back into the doc. |
-| [`core/execution-loop.md`](./core/execution-loop.md) | The implementation agent and the thread-review agent, and how they alternate until the work passes review. |
-| [`core/pull-request-agent.md`](./core/pull-request-agent.md) | The terminal agent: open the PR, drive CI to green, resolve conflicts, and signal completion. |
+| Reviewd/Updated for `omprint`? | Spec | What it covers |
+|---|---|---|
+| **✅ Yes** | [`core/orchestration-loop.md`](./core/orchestration-loop.md) | **The engine.** The state machine that drives plan → (implement ⇄ review) → PR: agent runs, chaining, the iteration cap, blocking, and how each step decides the next. Start here. |
+| **✅ Yes** |  [`core/task-and-workspace.md`](./core/task-and-workspace.md) | The unit of work: a markdown document plus an isolated git worktree. Lifecycle, and where the doc lives so it survives the PR merge. Deliberately silent on how the doc is authored. |
+| **🚫 No** | [`core/harness-contract.md`](./core/harness-contract.md) | The seam that makes "build your own" possible: the provider interface every coding harness must satisfy (start a turn, stream events, resume, load transcript, abort), plus the streaming runtime and the unified transcript stored as the single source of truth. |
+| **🚫 No** | [`core/planning-agent.md`](./core/planning-agent.md) | The agent that turns a prompt + task doc into a structured implementation plan written back into the doc. |
+| **🚫 No** | [`core/execution-loop.md`](./core/execution-loop.md) | The implementation agent and the thread-review agent, and how they alternate until the work passes review. |
+| **🚫 No** | [`core/pull-request-agent.md`](./core/pull-request-agent.md) | The terminal agent: open the PR, drive CI to green, resolve conflicts, and signal completion. |
 
 ## Optional specifications — `extra/`
 
@@ -145,18 +145,17 @@ Implement all of these for a minimal working tool. Read them in this order.
 
 Opinionated features. Each is independent; implement what you want.
 
-
-| Spec | What it adds |
-|---|---|
-| [`extra/harnesses/overview.md`](./extra/harnesses/overview.md) | Shared patterns for implementing the core harness contract against a real tool: event mapping, transcript mirroring, credential storage, subprocess lifecycle, the capability matrix. |
-| [`extra/harnesses/omp.md`](./extra/harnesses/omp.md) | `oh-my-pi`/`omp` integration. |
-| [`extra/kanban-board.md`](./extra/kanban-board.md) | The opinionated projects/tasks board and 4-screen UI for authoring tasks. |
-| [`extra/refinement-agent.md`](./extra/refinement-agent.md) | An extra agent that polishes the work between review and PR. |
-| [`extra/yolo-mode.md`](./extra/yolo-mode.md) | A single-agent alternative to the multi-step pipeline. |
-| [`extra/pr-comment-retrigger.md`](./extra/pr-comment-retrigger.md) | Re-run the PR agent automatically when a PR receives review comments (periodic PR polling). |
-| [`extra/prompt-and-model-customization.md`](./extra/prompt-and-model-customization.md) | Per-agent prompt overrides and per-user model/effort selection. |
-| [`extra/auth-and-multi-user.md`](./extra/auth-and-multi-user.md) | OAuth-integration, Accounts, API keys, project membership, admin, and role-driven behavior (e.g. auto-advancing past the plan gate for non-technical users). |
-| [`extra/chat-ux.md`](./extra/chat-ux.md) | Manual-chat conveniences: slash commands, file attachments, voice input, title generation, the context-usage meter. |
+| Reviewd/Updated for `omprint`? | Spec | What it adds |
+|---|---|---|
+| **🚫 No** | [`extra/harnesses/overview.md`](./extra/harnesses/overview.md) | Shared patterns for implementing the core harness contract against a real tool: event mapping, transcript mirroring, credential storage, subprocess lifecycle, the capability matrix. |
+| **🚫 No** | [`extra/harnesses/omp.md`](./extra/harnesses/omp.md) | `oh-my-pi`/`omp` integration. |
+| **🚫 No** | [`extra/kanban-board.md`](./extra/kanban-board.md) | The opinionated projects/tasks board and 4-screen UI for authoring tasks. |
+| **🚫 No** | [`extra/refinement-agent.md`](./extra/refinement-agent.md) | An extra agent that polishes the work between review and PR. |
+| **🚫 No** | [`extra/yolo-mode.md`](./extra/yolo-mode.md) | A single-agent alternative to the multi-step pipeline. |
+| **🚫 No** | [`extra/pr-comment-retrigger.md`](./extra/pr-comment-retrigger.md) | Re-run the PR agent automatically when a PR receives review comments (periodic PR polling). |
+| **🚫 No** | [`extra/prompt-and-model-customization.md`](./extra/prompt-and-model-customization.md) | Per-agent prompt overrides and per-user model/effort selection. |
+| **🚫 No** | [`extra/auth-and-multi-user.md`](./extra/auth-and-multi-user.md) | OAuth-integration, Accounts, API keys, project membership, admin, and role-driven behavior (e.g. auto-advancing past the plan gate for non-technical users). |
+| **🚫 No** | [`extra/chat-ux.md`](./extra/chat-ux.md) | Manual-chat conveniences: slash commands, file attachments, voice input, title generation, the context-usage meter. |
 
 ## The reference implementation
 

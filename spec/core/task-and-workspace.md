@@ -15,9 +15,7 @@ plus a small set of **workflow flags** (owned by
 
 The tool is deliberately agnostic about *how* the markdown comes to exist.
 Authoring tasks through a board is an [extra](../extra/kanban-board.md); core
-only requires that the document is present at a known path. That single
-constraint is what lets a team point Bottega at Jira, Notion, or a plain file
-instead.
+only requires that the document is present at a known path.
 
 ## The domain model
 
@@ -40,8 +38,8 @@ flips `pending → in_progress` on the first agent activity (see
 ## The markdown document — the source of truth for "what to build"
 
 - **Location:** a central, per-user archive **outside the repo** —
-  `~/.bottega/projects/{projectId}/tasks/task-{taskId}.md` (root overridable via
-  `BOTTEGA_ARCHIVE_ROOT`).
+  `~/.omprint/projects/{projectId}/tasks/task-{taskId}.md` (root overridable via
+  `OMPRINT_ARCHIVE_ROOT`).
 - **Why outside the repo (the load-bearing decision):** the doc must survive the
   worktree being torn down when the task's PR merges. If it lived inside the
   worktree it would vanish with it. Keeping it in a separate archive means the
@@ -77,12 +75,19 @@ flips `pending → in_progress` on the first agent activity (see
   symlink the repo's `.env*` files into the worktree, create gitignored dirs,
   and copy `node_modules` / `.venv` in the background. See `createWorktree` in
   [`reference/server/services/worktree.ts`](../reference/server/services/worktree.ts).
+  - **NOTE**: Windows may require copying files, because it's support for
+  symlinks (and user creation/management) is conditional on system policies
+  - **`omprint` ONLY:** On a per-project basis allow the User to configure
+  zero-or-more additional files to copy/symlink from the repo to the worktree,
+  as above
 - **Effective working directory:** an agent runs with `cwd` = the worktree
   project path if the worktree exists, else the repo path (with
   `subproject_path` appended for monorepos). This resolution is done in
   `startAgentRun` — see [`orchestration-loop.md`](./orchestration-loop.md).
 - **Per-task dev-server port:** `3100 + (taskId % 900)`, handed to the agent in
   its context so parallel tasks don't fight over ports (`getDevServerPort`).
+  - **`omprint` ONLY:** This should be exposed at a well-known environment variable
+  that the target codebase can use in it's dev server automation
 - **Teardown:** `removeWorktree` (`git worktree remove --force` + delete the
   branch) plus `deleteTaskArchive` (doc + inputs + recording) on task delete.
   Merging the PR and cleaning up the worktree afterward is a separate action —
