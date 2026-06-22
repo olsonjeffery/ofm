@@ -129,7 +129,7 @@ This is a deliberate stance, and it shapes the spec:
 
 Implement all of these for a minimal working tool. Read them in this order.
 
-| Reviewd/Updated for `omprint`? | Spec | What it covers |
+| Reviewed/Updated for `omprint`? | Spec | What it covers |
 |---|---|---|
 | **✅ Yes** | [`core/orchestration-loop.md`](./core/orchestration-loop.md) | **The engine.** The state machine that drives plan → (implement ⇄ review) → PR: agent runs, chaining, the iteration cap, blocking, and how each step decides the next. Start here. |
 | **✅ Yes** |  [`core/task-and-workspace.md`](./core/task-and-workspace.md) | The unit of work: a markdown document plus an isolated git worktree. Lifecycle, and where the doc lives so it survives the PR merge. Deliberately silent on how the doc is authored. |
@@ -145,7 +145,7 @@ Implement all of these for a minimal working tool. Read them in this order.
 
 Opinionated features. Each is independent; implement what you want.
 
-| Reviewd/Updated for `omprint`? | Spec | What it adds |
+| Reviewed/Updated for `omprint`? | Spec | What it adds |
 |---|---|---|
 | **🚫 No** | [`extra/harnesses/overview.md`](./extra/harnesses/overview.md) | Shared patterns for implementing the core harness contract against a real tool: event mapping, transcript mirroring, credential storage, subprocess lifecycle, the capability matrix. |
 | **🚫 No** | [`extra/harnesses/omp.md`](./extra/harnesses/omp.md) | `oh-my-pi`/`omp` integration. |
