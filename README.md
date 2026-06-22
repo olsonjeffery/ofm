@@ -3,7 +3,7 @@
 This is the repository for `omprint`: An orchestration harness, built directly
 atop [`oh-my-pi`][0], for agentic code delivery.
 
-Pronounced like _imprint_, with a _'ohm'_ prefix instead of _'im'_.
+(Pronounced like _imprint_, with an _'ohm'_ prefix instead of _'im'_)
 
 ## Value Proposition
 
@@ -11,13 +11,13 @@ Pronounced like _imprint_, with a _'ohm'_ prefix instead of _'im'_.
 
 `omprint` provides a more rigid structure around the [_Ralph Wiggum Loop_][1] (hereafter
 referred to as _the loop_), helping agentic coders to spend more time
-producing high-quality software, instead of fighting with the agent harness
+producing high-quality software, instead of fighting with the agent harness.
 
 ### Builds upon `oh-my-pi`
 
-`omprint` leverages the high-level of polish provided by [`oh-my-pi`][0] (`omp`)
+`omprint` leverages the high level-of-polish provided by [`oh-my-pi`][0] (`omp`)
 to mediate all LLM model interactions; Users bring their own provider-
-configuration, with `omprint` and `omp` handling the rest
+configuration, with `omprint` and `omp` handling the rest.
 
 ### The `bottega` method
 
