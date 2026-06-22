@@ -1,5 +1,11 @@
 # Omprint — Specification
 
+> **⚠️`omprint` ONLY ⚠️:** Rust convention requires functions and `let` bindings
+> use `snake_case` as a naming convention; In all places where `camelCase`
+> occurs (referring to the typescript `reference/` implementation of `bottega`),
+> substitute for `snake_case` as appropriate; `PascalCase` is used for `trait`s,
+> `struct`s, `enum`s, etc
+
 [`omprint`][1] orchestrates a small team of
 coding agents that collaborate on a single task. You describe the work in a
 markdown file; a chain of agents plans it, implements it, reviews it, and
@@ -133,7 +139,7 @@ Implement all of these for a minimal working tool. Read them in this order.
 |---|---|---|
 | **✅ Yes** | [`core/orchestration-loop.md`](./core/orchestration-loop.md) | **The engine.** The state machine that drives plan → (implement ⇄ review) → PR: agent runs, chaining, the iteration cap, blocking, and how each step decides the next. Start here. |
 | **✅ Yes** |  [`core/task-and-workspace.md`](./core/task-and-workspace.md) | The unit of work: a markdown document plus an isolated git worktree. Lifecycle, and where the doc lives so it survives the PR merge. Deliberately silent on how the doc is authored. |
-| **🚫 No** | [`core/harness-contract.md`](./core/harness-contract.md) | The seam that makes "build your own" possible: the provider interface every coding harness must satisfy (start a turn, stream events, resume, load transcript, abort), plus the streaming runtime and the unified transcript stored as the single source of truth. |
+| **✅ Yes** | [`core/harness-contract.md`](./core/harness-contract.md) | The seam that makes "build your own" possible: the provider interface every coding harness must satisfy (start a turn, stream events, resume, load transcript, abort), plus the streaming runtime and the unified transcript stored as the single source of truth. |
 | **🚫 No** | [`core/planning-agent.md`](./core/planning-agent.md) | The agent that turns a prompt + task doc into a structured implementation plan written back into the doc. |
 | **🚫 No** | [`core/execution-loop.md`](./core/execution-loop.md) | The implementation agent and the thread-review agent, and how they alternate until the work passes review. |
 | **🚫 No** | [`core/pull-request-agent.md`](./core/pull-request-agent.md) | The terminal agent: open the PR, drive CI to green, resolve conflicts, and signal completion. |
@@ -147,7 +153,7 @@ Opinionated features. Each is independent; implement what you want.
 
 | Reviewed/Updated for `omprint`? | Spec | What it adds |
 |---|---|---|
-| **🚫 No** | [`extra/harnesses/overview.md`](./extra/harnesses/overview.md) | Shared patterns for implementing the core harness contract against a real tool: event mapping, transcript mirroring, credential storage, subprocess lifecycle, the capability matrix. |
+| **✅ Yes** | [`extra/harnesses/overview.md`](./extra/harnesses/overview.md) | Shared patterns for implementing the core harness contract against a real tool: event mapping, transcript mirroring, credential storage, subprocess lifecycle, the capability matrix. |
 | **🚫 No** | [`extra/harnesses/omp.md`](./extra/harnesses/omp.md) | `oh-my-pi`/`omp` integration. |
 | **🚫 No** | [`extra/kanban-board.md`](./extra/kanban-board.md) | The opinionated projects/tasks board and 4-screen UI for authoring tasks. |
 | **🚫 No** | [`extra/refinement-agent.md`](./extra/refinement-agent.md) | An extra agent that polishes the work between review and PR. |

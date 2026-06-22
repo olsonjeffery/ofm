@@ -1,5 +1,11 @@
 # Harnesses — Shared implementation patterns
 
+> **⚠️`omprint` ONLY ⚠️:** Rust convention requires functions and `let` bindings
+> use `snake_case` as a naming convention; In all places where `camelCase`
+> occurs (referring to the typescript `reference/` implementation of `bottega`),
+> substitute for `snake_case` as appropriate; `PascalCase` is used for `trait`s,
+> `struct`s, `enum`s, etc
+
 The core spec defines the [`harness-contract`](../../core/harness-contract.md):
 the `LlmProvider` interface, the unified vocabulary, and the runtime that
 consumes them. This file is about the other side of that seam — the patterns
@@ -7,15 +13,14 @@ consumes them. This file is about the other side of that seam — the patterns
 deliberately more technical than core: these are the integration problems the
 reference solved, written down so you don't rediscover them per provider.
 
-Three providers ship in the reference and are worked through in their own files:
+Three providers ship in the reference and are worked through in their own
+typescript files. But for `omprint`, we only have:
 
 | Provider | SDK shape | File |
 |---|---|---|
-| Claude Agent SDK | subprocess per `query()` | [`claude-code.md`](./claude-code.md) |
-| OpenAI Codex | subprocess per turn | [`codex.md`](./codex.md) |
-| OpenCode | long-lived `opencode serve` over HTTP | [`opencode.md`](./opencode.md) |
+| `oh-my-pi` | long-lived `omp rpc` over `STDIO` | [`omp.md`](./omp.md) |
 
-Read this for the shared spine; read a sibling for one tool's specifics.
+Read this for the shared spine; read a `omp.md` for one tool's specifics.
 
 ## What it adds
 
@@ -30,13 +35,27 @@ forced through six shared patterns:
 4. A per-provider credential store behind the credential registry.
 5. A subprocess/server lifecycle the provider owns and can abort.
 6. A capability matrix + guards that gate provider-specific features.
+7. A mechanism to pass a complete `models.yml` to `omp` through the
+`LlmProvider` interface; See [omp provider docs][0] for details
+on the format; This YAML content comes from the `ProviderRegistration`
+feature (`omprint` only, NOT in `reference/`)
 
-Get these six right and the contract is satisfied.
+Get these ~six~ seven right and the contract is satisfied.
 
-## 1. Registration — explicit, greppable
+## 1. ProviderRegistration — explicit, greppable
 
-A provider is a singleton implementing `LlmProvider`; it registers itself by
-name in a `Map`. The reference wires all three in *one* place at module load —
+Because `omprint` is an `omp`-only orchestration system, we repurpose
+the concept of `ProviderRegistration` to be a growable, arbitrary list
+of [`model.yml`][0] files (give the user an a textarea-input where they
+can write or paste the YAML content). This is kept in the top-level
+settings for `omprint`, and users Add `ProviderRegistration`s for
+every provider (e.g. OpenCode Zen/Go, llama.cpp, Tier-1 platforms, etc);
+We stand upon `omp`'s existing infrastructure for this to enable robust
+provider support within the context of `oh-my-pi`.
+
+So we want only a single `LlmProvider` implementation: for the `omp` bridge;
+it registers itself by name in a `Map`. The reference wires all three in
+*one* place at module load —
 [`reference/server/services/providers/registry.ts`](../../reference/server/services/providers/registry.ts)
 — rather than auto-discovering from the filesystem. The payoff is that
 `getProvider(name)` has a finite, grep-able import graph: the provider modules
@@ -45,8 +64,9 @@ name and on a `provider.name` that disagrees with its key, so a copy-paste
 mistake fails at boot, not mid-turn. The `Provider` union
 (`'anthropic' | 'openai' | 'opencode'` in
 [`reference/shared/providers/types.ts`](../../reference/shared/providers/types.ts))
-is the closed set of names.
+is the closed set of names (and does **not** apply to `omprint`).
 
+**FIXME: Evaluate if what follows is still true for `omprint`'s use case**;
 The credential registry mirrors this exactly — same shape, separate map — see
 [`reference/server/services/credentials/registry.ts`](../../reference/server/services/credentials/registry.ts).
 
@@ -58,12 +78,12 @@ union; anyone who must reach a provider-specific field reads `.raw`.
 
 - **One function, exhaustive switch.** Map the native event's discriminator to
   one *or more* `UnifiedMessage`s. Claude's `mapMessage`
-  ([`anthropic/mapMessage.ts`](../../reference/server/services/providers/anthropic/mapMessage.ts))
+  ([`anthropic/mapMessage.ts`](../../reference/server/services/providers/anthropic/mapMessage.ts) -- does not apply to `omprint`)
   fans a single SDK `assistant` message into an `assistant` plus child
   `tool_use`/`assistant_thinking` messages, and a `user` whose content is purely
   tool-results into `tool_result`s. Codex and OpenCode keep mapper *factories*
   (`createOpenCodeEventMapper(sessionId)`,
-  [`opencode/mapEvent.ts`](../../reference/server/services/providers/opencode/mapEvent.ts))
+  [`opencode/mapEvent.ts`](../../reference/server/services/providers/opencode/mapEvent.ts) -- again, maybe not apply to `omprint`)
   because their per-event SSE shapes need the session id threaded in.
 - **Default branch never drops.** Unknown variants map to a `system` message
   with `subtype: 'unknown'` so the stream keeps flowing when an SDK adds a
@@ -99,6 +119,9 @@ two ways a provider gets its events into that store, and both land in the same
   [`openai/messageMirror.ts`](../../reference/server/services/providers/openai/messageMirror.ts)
   and [`opencode/messageMirror.ts`](../../reference/server/services/providers/opencode/messageMirror.ts).
 
+> **⚠️ Regarding the guidance above ⚠️**: Use whichever mechanism makes sense for
+> `omp` integration; or design a new mechanism!
+
 `loadTranscript` reads back from the same tables and maps to `UnifiedMessage[]`.
 Claude maps each stored entry through `mapMessage`
 ([`anthropic/sessionStore.ts`](../../reference/server/services/providers/anthropic/sessionStore.ts));
@@ -120,7 +143,9 @@ Every provider implements `ProviderCredentialStore`
 `userId`. Credentials are **per user**, not global — there is no shared key.
 The contract draws one important line: the store **persists and reads** a token
 but never spawns a login subprocess; minting a credential is the auth-flow
-module's job (`claudeAuthFlow.ts`, `codexAuthFlow.ts`).
+module's job (`claudeAuthFlow.ts`, `codexAuthFlow.ts` -- not sure if/how this
+applies for `omp`, which allows provider configs with `ENV` var components,
+keys-in-`models.yml`, etc).
 
 The load-bearing method is `buildSdkEnv(userId)`: it returns the env the SDK
 invocation inherits, and it **must strip the provider's global auth env keys**
@@ -147,13 +172,9 @@ This is where the SDKs diverge most, and where `ProviderRunResult`'s
   `providerSessionId$` on first `session_id`. Because each subprocess loads its
   credential once at startup, long turns can hit a stale-credential 401 — the
   Claude file documents the automatic fresh-subprocess recovery.
-- **Long-lived server pool (OpenCode).** OpenCode talks to a per-user
-  `opencode serve` process kept alive in a pool; turns are HTTP calls
-  (`session.create` once, `session.prompt` per turn) and output streams over an
-  SSE subscription rather than a subprocess stdout. `abort()` must stop both the
-  local SSE listener **and** call the server's workspace-scoped abort endpoint,
-  or the out-of-process turn keeps running. See
-  [`opencode/index.ts`](../../reference/server/services/providers/opencode/index.ts).
+- (second example removed; not relevant)
+
+> **For `omprint`, we can likely adopt the above approach**
 
 Either way the provider tracks its own live turns in an in-memory map so
 `abortTurn(providerSessionId)` can find and cancel one — and `abortTurn` writes
@@ -172,6 +193,9 @@ five `false` (they ask in plain text, emit reasoning whole rather than as
 deltas, report only aggregate usage, and ship MCP layers Bottega doesn't wire
 in yet).
 
+`omprint` _should_ be able to support all of these. Examine [`omp` docs][1]
+to evaluate if this is the case.
+
 The matrix is only useful if call sites honour it. Three tiny helpers in
 [`reference/server/services/providers/featureGuards.ts`](../../reference/server/services/providers/featureGuards.ts)
 make that ergonomic: `hasCapability`, `withCapability` (run-or-skip), and
@@ -187,6 +211,9 @@ OpenCode turn from tripping behaviour its SDK can't do.
       provider registry, both with explicit boot-time registration.
 - [ ] For each provider: a mapper (exhaustive switch, non-dropping default,
       stable ids, threaded session id) that emits `UnifiedMessage`.
+- [ ] Provider Registration to allow a user to add/manage `models.yml` entries;
+      the contents of these drive how we can examine a given `omp` provider
+      to get its model list
 - [ ] Transcript persistence into one canonical store — via the SDK's
       `sessionStore` hook if it has one, else an explicit mirror that reuses the
       same tables and `loadTranscript` reader.
@@ -224,4 +251,8 @@ OpenCode turn from tripping behaviour its SDK can't do.
   from → [`prompt-and-model-customization.md`](../prompt-and-model-customization.md)
   and [`auth-and-multi-user.md`](../auth-and-multi-user.md).
 </content>
+
 </invoke>
+
+[0]: https://omp.sh/docs/custom-models
+[1]: https://omp.sh/docs
