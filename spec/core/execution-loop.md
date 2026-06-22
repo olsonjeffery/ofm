@@ -1,5 +1,11 @@
 # Core — The execution loop
 
+> **⚠️`omprint` ONLY ⚠️:** Rust convention requires functions and `let` bindings
+> use `snake_case` as a naming convention; In all places where `camelCase`
+> occurs (referring to the typescript `reference/` implementation of `bottega`),
+> substitute for `snake_case` as appropriate; `PascalCase` is used for `trait`s,
+> `struct`s, `enum`s, etc
+
 The autonomous heart of the pipeline: an **implementation** agent does the work
 from the plan, a **review** agent independently verifies it, and they alternate
 until the work is verified ready — or the loop hits something only a human can
@@ -108,6 +114,10 @@ keeps the loop dumb and reliable (see
 > for the user to watch (the `videoConfig` wired up in `agentRunner.ts`). That's
 > a nicety, not load-bearing — skip it if your harness has no browser-driving
 > MCP.
+
+For `omprint`:
+
+> **`omp` can handle this through the `npm:pi-playwright` package
 
 ## Reference map
 
