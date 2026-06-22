@@ -1,5 +1,11 @@
 # Core — Task and workspace
 
+> **⚠️`omprint` ONLY ⚠️:** Rust convention requires functions and `let` bindings
+> use `snake_case` as a naming convention; In all places where `camelCase`
+> occurs (referring to the typescript `reference/` implementation of `bottega`),
+> substitute for `snake_case` as appropriate; `PascalCase` is used for `trait`s,
+> `struct`s, `enum`s, etc
+
 This is the substrate the orchestration loop runs on. It defines the unit of
 work the agents collaborate on, and the isolated place they do that work.
 

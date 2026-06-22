@@ -1,5 +1,11 @@
 # Core — The harness contract
 
+> **⚠️`omprint` ONLY ⚠️:** Rust convention requires functions and `let` bindings
+> use `snake_case` as a naming convention; In all places where `camelCase`
+> occurs (referring to the typescript `reference/` implementation of `bottega`),
+> substitute for `snake_case` as appropriate; `PascalCase` is used for `trait`s,
+> `struct`s, `enum`s, etc
+
 This is the most important extension seam in the project. Implement this
 interface for a new coding tool and the entire pipeline — planning, the
 implementation/review loop, the PR agent — works against it unchanged.
@@ -7,8 +13,8 @@ implementation/review loop, the PR agent — works against it unchanged.
 ## Why it is core
 
 The orchestration loop and the agents are useless without *something* that
-actually runs a coding-agent turn — a **harness** (Claude Code, OpenAI Codex,
-OpenCode, or your own). But the loop must not know or care which one. So **core
+actually runs a coding-agent turn — a **harness** (for `omprint`: [`omp`/`oh-my-pi`][0]).
+But the loop must not know or care which one. So **core
 owns the contract** every harness implements, and the **runtime** that drives
 it; the concrete integrations live in [`extra/harnesses/`](../extra/harnesses/overview.md).
 
@@ -23,14 +29,15 @@ files state this contract in code and are worth reading first —
 The contract has three pieces: the **provider interface**, the **unified
 vocabulary** it speaks, and the **runtime** that consumes it.
 
-## 1. The provider interface
+## 1. The provider interface/trait
 
 `LlmProvider` (see `reference/server/services/providers/types.ts`). Every harness
 implements:
 
 - `name` — the provider's identifier.
 - `getCapabilities()` → `ProviderCapabilities` — a static feature matrix (below).
-- `startTurn(options)` → `ProviderRunResult` — begin a new session/turn.
+- `startTurn(options)` → `ProviderRunResult` — begin a new session/turn; for
+  `omprint` should also be where the given `models.yml` is provided
 - `sendTurnMessage(options & { resumeSessionId })` → `ProviderRunResult` — resume
   an existing session with a follow-up message.
 - `loadTranscript({ providerSessionId, projectFolderPath })` →
@@ -73,9 +80,7 @@ Provider-neutral types every layer above the SDK speaks
 - **`ProviderCapabilities`** — the feature matrix: `supportsAskUserQuestion`,
   `supportsThinkingDelta`, `supportsContextUsageBreakdown`, `supportsMcpServers`,
   `supportsImages`. **Any call site that uses a provider-specific feature must
-  check the flag first.** This is what stops Claude-only paths (thinking deltas,
-  `AskUserQuestion`, the live context-usage breakdown) from leaking onto a
-  provider that can't do them. See
+  check the flag first.** See
   [`reference/server/services/providers/featureGuards.ts`](../reference/server/services/providers/featureGuards.ts).
 
 ## 3. The runtime
@@ -137,14 +142,14 @@ lives in the database, not in SDK files.
 - **How entries get there:** the Claude SDK accepts a custom `sessionStore`, so
   the reference registers `SqliteSessionStore`
   ([`reference/server/services/sqliteSessionStore.ts`](../reference/server/services/sqliteSessionStore.ts))
-  and the SDK writes through to SQLite. Providers without such a hook (Codex,
-  OpenCode) **mirror** their events into the same tables explicitly. Either way
+  and the SDK writes through to SQLite. Providers without such a hook **mirror**
+  their events into the same tables explicitly. Either way
   the tables are authoritative; any JSONL the SDK writes on disk is private
   scratch the app never reads.
 - **`loadTranscript`** reads these tables back into `UnifiedMessage[]` for
   history loads and resume; `project_key` is derived from the conversation's
   working directory.
-- **For your build:** use whatever persistence you like, but keep the rule —
+- **For `omprint`:** use `hiqlite` for persistence, but keep the rule —
   *one normalized transcript store that is the single source of truth*, written
   as events stream and read on history load and resume.
 
@@ -154,9 +159,7 @@ lives in the database, not in SDK files.
       resolve-by-name).
 - [ ] The unified vocabulary: `ProviderRunOptions`, `ProviderRunResult`,
       `UnifiedMessage`, `ProviderCapabilities`.
-- [ ] At least one concrete provider implementing the interface (three worked
-      examples + the common-patterns guide are in
-      [`extra/harnesses/`](../extra/harnesses/overview.md)).
+- [ ] A concrete implementation targetting `omp`; see [`extra/harnesses/omp.md`](../extra/harnesses/overview.md)
 - [ ] A streaming runtime: `start` + `resume` entry points feeding one event
       consumer that broadcasts live, persists the transcript, captures the
       session id, and fires `onComplete`.
@@ -191,3 +194,5 @@ lives in the database, not in SDK files.
   [`orchestration-loop.md`](./orchestration-loop.md).
 - Chat-only conveniences (slash commands, attachments, voice, title generation,
   the context-usage meter) → [`chat-ux.md`](../extra/chat-ux.md).
+
+[0] <https://omp.sh>
