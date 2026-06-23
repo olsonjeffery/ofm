@@ -63,6 +63,8 @@ dependency (**NOTE:** this does not apply to `omp` itself)
   [rauthy][7] instance
   - Usages of `git` happen via `pty` sub-processes
   - Spawn instances of `omp` during the loop and manage their lifecycle
+- Determine if `omp`'s git/github support is sufficient to replace the
+`bottega` dependency on the `gh` cli tool
 
 ## Details on the `omprint` server implementation
 
@@ -142,7 +144,7 @@ Implement all of these for a minimal working tool. Read them in this order.
 | **✅ Yes** | [`core/harness-contract.md`](./core/harness-contract.md) | The seam that makes "build your own" possible: the provider interface every coding harness must satisfy (start a turn, stream events, resume, load transcript, abort), plus the streaming runtime and the unified transcript stored as the single source of truth. |
 | **✅ Yes** | [`core/planning-agent.md`](./core/planning-agent.md) | The agent that turns a prompt + task doc into a structured implementation plan written back into the doc. |
 | **✅ Yes** | [`core/execution-loop.md`](./core/execution-loop.md) | The implementation agent and the thread-review agent, and how they alternate until the work passes review. |
-| **🚫 No** | [`core/pull-request-agent.md`](./core/pull-request-agent.md) | The terminal agent: open the PR, drive CI to green, resolve conflicts, and signal completion. |
+| **✅ Yes** | [`core/pull-request-agent.md`](./core/pull-request-agent.md) | The terminal agent: open the PR, drive CI to green, resolve conflicts, and signal completion. |
 
 ## Optional specifications — `extra/`
 

@@ -1,5 +1,11 @@
 # Core — The pull-request agent
 
+> **⚠️`omprint` ONLY ⚠️:** Rust convention requires functions and `let` bindings
+> use `snake_case` as a naming convention; In all places where `camelCase`
+> occurs (referring to the typescript `reference/` implementation of `bottega`),
+> substitute for `snake_case` as appropriate; `PascalCase` is used for `trait`s,
+> `struct`s, `enum`s, etc
+
 The terminal agent. It takes the verified work sitting in the task's worktree
 and gets it to a green, mergeable pull request — opening the PR, driving CI to
 pass, resolving conflicts — then signals the pipeline complete. It does **not**
@@ -28,6 +34,9 @@ below. See `generatePrAgentMessage` / `buildPrCreateOrVerifyBlock` in
 [`reference/server/constants/agentPrompts.ts`](../reference/server/constants/agentPrompts.ts).
 
 ## The procedure
+
+> **For `omprint`: Determine if `omp`'s git/github support is sufficient to
+> replace `bottega`'s dependency on the `gh` cli tool
 
 1. **Create or verify the PR.**
    - If a PR already exists for the branch → skip to CI.
@@ -64,7 +73,13 @@ human-initiated action (`mergeAndCleanup` in
 [`reference/server/services/worktree.ts`](../reference/server/services/worktree.ts));
 the agent never does it.
 
+> **For `omprint` RE: `mergeAndCleanup`: Mimic the GitHub Merge dropdown that
+allows multiple options for how to close the PR (merge vs squash, etc)
+
 ## The git surface it relies on
+
+> **NOTE for `omprint`: `omp` has its own github tool; it should be evaluated
+to confirm that the `gh` dependency is unneeded**
 
 The agent works through the `gh` CLI and git inside the worktree, so its sandbox
 needs `gh` auth and push rights (wiring those credentials is a harness/extra
@@ -84,7 +99,7 @@ not.
 - [ ] The PR prompt: a create-or-verify opening, the CI poll loop, the fix loop,
       conflict resolution, and the completion call — all bounded.
 - [ ] Server helpers: detect existing PR + URL, create PR, commit/push, wrapping
-      git + `gh`.
+      git + `gh` (`bottega`) OR `omp`'s `github` tool (`omprint`).
 - [ ] A completion script that sets `pr_agent_complete`.
 - [ ] Compute the PR status at run start and pass it into the prompt.
 
