@@ -67,10 +67,13 @@ the agent never does it.
 ## The git surface it relies on
 
 The agent works through the `gh` CLI and git inside the worktree, so its sandbox
-needs `gh` auth and push rights (wiring those credentials is a harness/extra
-concern). The server side provides: detect-existing-PR-and-URL, create-PR, and
-commit/push helpers — see `getPullRequestStatus`, `createPullRequest`,
-`commitAllChanges`, `pushChanges` in `worktree.ts`.
+needs `gh` auth and push rights. `omp` inherits the spawn environment omprint
+gives it (see [`omp-integration.md`](./omp-integration.md)), so `gh`/git
+credentials present in that environment are available to the agent's shell — keep
+`GH_*`/git config reachable when building the per-run environment. The server
+side provides: detect-existing-PR-and-URL, create-PR, and commit/push helpers —
+see `getPullRequestStatus`, `createPullRequest`, `commitAllChanges`,
+`pushChanges` in `worktree.ts`.
 
 ## Why the PR agent is core (but refinement isn't)
 

@@ -1,8 +1,8 @@
 # Extra — Prompt and model customization
 
 Two independent customization layers sit on top of the core agents. Neither is
-required; core ships fixed prompts and can hardcode a single provider/model
-(see [`../core/harness-contract.md`](../core/harness-contract.md)). This extra
+required; core ships fixed prompts and can hardcode a single model
+(see [`../core/omp-integration.md`](../core/omp-integration.md)). This extra
 makes both **configurable** — the *what an agent says* and the *what runs it*.
 
 ## What it adds
@@ -12,16 +12,19 @@ makes both **configurable** — the *what an agent says* and the *what runs it*.
    can drop a same-named file in an override directory to replace any one of them
    without touching code. A small template engine renders them per run.
 2. **Per-user model/effort selection.** Each user stores a full
-   `Record<AgentType, {provider, model, effort}>` — which LLM backend, which
-   model, and how much reasoning effort each of the six agent roles runs on.
-   Core resolves this at run start. The cardinal rule: **the model is always
-   explicit and resolved deterministically**, never defaulted or inferred at the
-   SDK boundary.
+   `Record<AgentType, {provider, model, thinkingLevel}>` — which model-provider,
+   which model, and what thinking level each of the six agent roles runs on. This
+   selects the underlying model omp routes to, **not** the coding-agent backend
+   (that is always `omp`); see Layer 2. Core resolves this at run start. The
+   cardinal rule: **the model is always explicit and resolved deterministically**,
+   never defaulted or inferred.
 
 The two layers are orthogonal — you can take prompt overrides without per-user
 models, or vice versa — but they share one seam: the agent's turn input. The
 prompt layer decides the *message* the agent receives; the model layer decides
-the `(provider, model, effort)` triple the harness receives. Both are assembled
+the `(provider, model, thinkingLevel)` triple `omprint` applies to the `omp`
+subprocess (via `set_model` + `set_thinking_level`, or launch flags — see
+[`../core/omp-integration.md`](../core/omp-integration.md)). Both are assembled
 in `startAgentRun` (the function core's
 [`orchestration-loop.md`](../core/orchestration-loop.md) defers to this spec for
 steps 2 and 6).
@@ -104,43 +107,48 @@ into the conversation. The tech/non-tech planning split
 
 ---
 
-## Layer 2 — Per-user model and effort
+## Layer 2 — Per-user model and thinking level
 
 ### One settings blob per user, six agents each
 
 Each user owns one row in `user_agent_model_settings` (`user_id` PK,
 `settings_json` TEXT) holding their full
-`Record<AgentType, {provider, model, effort}>` for the six agent types with
-settings (`planification`, `implementation`, `refinement`, `review`, `pr`,
+`Record<AgentType, {provider, model, thinkingLevel}>` for the six agent types
+with settings (`planification`, `implementation`, `refinement`, `review`, `pr`,
 `yolo`). See the table in
 [`../reference/server/database/init.sql`](../reference/server/database/init.sql)
 and the type in
 [`../reference/shared/types/agentModelSettings.ts`](../reference/shared/types/agentModelSettings.ts).
 This **replaced** a single global `app_settings.agent_model_settings` blob — the
-point of going per-user is that each user runs agents on a provider/model they
+point of going per-user is that each user runs agents on a model-provider they
 actually hold credentials for.
 
-### The per-provider enums
+`provider`/`model` here name an **omp model provider and model** — Anthropic,
+OpenAI, OpenAI Codex, Google, xAI, Groq, OpenRouter, and the rest of omp's
+forty-plus providers — **not** a coding-agent backend. The coding agent is always
+`omp`; this layer only selects which underlying model omp routes the turn to.
 
-`provider ∈ {anthropic, openai, opencode}`. Each provider owns its own model and
-effort namespaces — there is deliberately **no common subset**
-([`../reference/shared/providers/models.ts`](../reference/shared/providers/models.ts)):
+### The model namespace is omp's
 
-- **Anthropic** — models `sonnet`/`opus`; efforts `low`…`max`.
-- **OpenAI (Codex)** — models `gpt-5.5`/`gpt-5.4`/`gpt-5.4-mini`; efforts
-  `minimal`…`xhigh`.
-- **OpenCode** — models are a **live, upstream-owned Zen catalog**, so the enum
-  is intentionally *empty*; storage uses an `opencode/<id>` prefix and validation
-  only checks that shape. **Never hardcode a Zen model id** — a guessed id fails
-  loud at the SDK boundary (`Model not found`). OpenCode has no effort dimension
-  (reasoning is baked into the model id), so `effort` is `null` and the UI hides
-  the dropdown. `isModelForProvider`/`isEffortForProvider` are the validators;
-  `MODELS_FOR_UI`/`EFFORTS_FOR_UI` are the dropdown sources.
+omp owns the catalog of providers and models. `omprint` does **not** maintain its
+own hardcoded per-provider model enums; it reads what the active credentials
+unlock from omp at runtime:
 
-Capabilities ([`../reference/shared/providers/capabilities.ts`](../reference/shared/providers/capabilities.ts))
-are separate from the model/effort enums — that matrix gates Claude-only
-features (see the harness contract). This spec only picks the
-`(provider, model, effort)`; capability guards are core.
+- `{ type: "get_available_models" }` over the RPC channel returns the models the
+  current omp agent dir can reach; the settings UI populates its dropdowns from
+  this live list rather than a baked-in array. **Never hardcode a model id** that
+  could drift — a stale id fails loud (`set_model` returns
+  `success: false, error: "Model not found: provider/model"`).
+- A setting is stored as `(provider, model)` matching omp's
+  `set_model { provider, modelId }` shape, plus a `thinkingLevel` from omp's
+  `off|minimal|low|medium|high|xhigh` scale (the analogue of the old per-provider
+  "effort" dimension; omp normalizes it via `set_thinking_level`). A provider/model
+  with no reasoning dimension simply pins `thinkingLevel: off`.
+
+There is no capability matrix to consult — omp's features (streaming deltas,
+context usage, MCP, images, the mid-turn question gate) are uniformly available
+(see [`../core/omp-integration.md`](../core/omp-integration.md)); this spec only
+picks the `(provider, model, thinkingLevel)`.
 
 ### Resolution at run start — `loadAgentModelSettings(userId)`
 
@@ -152,48 +160,52 @@ a silent default**. `startAgentRun` then:
 
 1. Resolves the acting user (fails if there is none — there's no user to resolve
    settings for).
-2. Pulls `loadAgentModelSettings(userId)[agentType]` → `(provider, model, effort)`.
-3. **Validates credentials up front** via `getCredentialStore(provider).read(userId)`,
-   re-throwing as `ProviderCredentialsMissingError` so the route layer can render
-   a "Connect &lt;provider&gt;" prompt (HTTP 403) instead of a stacktrace — this is
-   the 403 the core trigger surface mentions.
-4. **Stamps `(provider, model, effort)` onto the new `task_agent_runs` and
-   `conversations` rows** before starting the turn, then passes them into the
-   harness as part of `ProviderRunOptions`.
+2. Pulls `loadAgentModelSettings(userId)[agentType]` →
+   `(provider, model, thinkingLevel)`.
+3. **Validates credentials up front** — checks that the acting user has a usable
+   omp credential for the selected `provider` (a stored token in their per-user
+   omp agent dir, or an env-supplied key omprint will inject), re-throwing as
+   `OmpCredentialsMissing` so the route layer can render a "Connect &lt;provider&gt;"
+   prompt (HTTP 403) instead of a stacktrace — this is the 403 the core trigger
+   surface mentions.
+4. **Stamps `(provider, model, thinkingLevel)` onto the new `task_agent_runs` and
+   `conversations` rows** before starting the turn, then applies them to the
+   spawned `omp` subprocess via `set_model` / `set_thinking_level` (or launch
+   flags).
 
 See `agentRunner.ts` around the `loadAgentModelSettings` call and the
-`conversationsDb.create(taskId, provider, model, effort)` line. Stamping the
-conversation row is what makes the model **deterministic on resume**.
+`conversationsDb.create(taskId, provider, model, thinkingLevel)` line. Stamping
+the conversation row is what makes the model **deterministic on resume**.
 
 ### The deterministic-model rule
 
-This is the load-bearing invariant, and it mirrors the harness contract: a turn
-**never runs on a defaulted or inferred model**. On start, the model comes from
-the user's setting; on resume, it comes from the stored conversation row, never
-re-derived. `resolveResumeModelEffort` re-resolves `(model, effort)` from the
-**resuming** user's setting only when that setting targets the *same provider*
-the conversation was created with — **provider is session-bound** and cannot be
-switched mid-conversation (cross-provider resume is out of scope). Any
-mismatch, an unseeded resuming user, a manual chat, or a programmatic resume
-falls back to the row's stored values. The failure mode this prevents is feeding
-an OpenAI model name into the Anthropic SDK; the rule is "fail loud, don't guess."
+This is the load-bearing invariant: a turn **never runs on a defaulted or
+inferred model**. On start, the model comes from the user's setting; on resume, it
+comes from the stored conversation row, never re-derived. `resolveResumeModel`
+re-resolves `(model, thinkingLevel)` from the **resuming** user's setting only
+when that setting targets the *same* provider the conversation was created
+with; any mismatch, an unseeded resuming user, a manual chat, or a programmatic
+resume falls back to the row's stored values. The failure mode this prevents is
+sending an unreachable model id to `set_model`; the rule is "fail loud, don't
+guess." (omp itself can be configured with per-role fallback chains for resilience
+— see [`../core/omp-integration.md`](../core/omp-integration.md) — but the
+*selection* omprint stamps is always explicit.)
 
 ### Seeding and backfill
 
 Because resolution fails loud, every user must be seeded **before** they can run
 an agent. Two mechanisms:
 
-- **Seed on first provider-connect.** After a successful credential write,
+- **Seed on first provider-connect.** After a successful credential write (or an
+  omp `/login` that attaches a subscription credential),
   `ensureUserAgentModelSettings(userId)` (via the non-throwing
-  `seedAgentSettingsAfterConnect` wrapper) seeds all six agents to the highest-
-  priority connected provider's default model (`anthropic`→sonnet,
-  `openai`→gpt-5.5, `opencode`→the *first live* Zen model — declining to seed if
-  none resolves, since guessing an id is forbidden). See `buildSeedSettings` /
+  `seedAgentSettingsAfterConnect` wrapper) seeds all six agents to a sensible
+  default model for the connected provider — resolved from omp's live
+  `get_available_models` for that provider, declining to seed if none resolves
+  (guessing an id is forbidden). See `buildSeedSettings` /
   `defaultSettingForProvider`.
-- **Backfill.** A one-shot migration replicates the historical global default
-  (`DEFAULT_AGENT_MODEL_SETTINGS`, all-Opus/high) into a per-user row for
-  pre-existing users. The legacy `provider ?? 'anthropic'` coercion in
-  `loadAgentModelSettings` keeps those rows valid.
+- **Backfill.** A one-shot migration replicates a historical global default into
+  a per-user row for pre-existing users.
 
 A **blocking first-login provider modal** is the UX that guarantees a seed
 exists: a brand-new user with no connected provider can't dismiss it, so they
@@ -208,8 +220,9 @@ when the user is unseeded, which the UI uses to show the connect-provider state.
 See
 [`../reference/server/routes/userAgentModelSettings.ts`](../reference/server/routes/userAgentModelSettings.ts).
 The settings tab (a "Agent Models" tab, one row per agent type) filters its
-provider dropdown to `connected-providers` and its model/effort dropdowns to the
-selected provider's `MODELS_FOR_UI`/`EFFORTS_FOR_UI`. Prompt overrides get their
+provider dropdown to `connected-providers` and its model/thinking-level dropdowns
+to what omp's `get_available_models` reports for the selected provider (plus omp's
+`off|minimal|…|xhigh` thinking-level scale). Prompt overrides get their
 own settings surface backed by `GET/PUT/DELETE /api/settings/prompts[/:name]`
 (list with `isCustomized`, fetch content + default + variable allowlist + mtime,
 save with optimistic-concurrency `expectedMtime` 409 and unknown-variable 400,
@@ -230,21 +243,22 @@ delete to revert) — see
 - [ ] Per-agent message composition that pre-builds dynamic sections in code and
       injects them via render — and a way to reference one active prompt's path
       from another (the plan-template path).
-- [ ] A per-user `Record<AgentType, {provider, model, effort}>` store (one JSON
-      row per user) with strict load-time validation that **fails loud**, no
+- [ ] A per-user `Record<AgentType, {provider, model, thinkingLevel}>` store (one
+      JSON row per user) with strict load-time validation that **fails loud**, no
       silent default.
-- [ ] Per-provider model + effort enums, with OpenCode treated as a live,
-      prefix-validated, upstream-owned catalog (never a hardcoded list).
-- [ ] Run-start resolution: load the setting, validate provider credentials
-      (typed missing-credentials error), stamp `(provider, model, effort)` on the
-      run + conversation rows, pass them into the harness.
+- [ ] Model namespace sourced live from omp's `get_available_models` (never a
+      hardcoded list), with thinking levels from omp's `off…xhigh` scale.
+- [ ] Run-start resolution: load the setting, validate the user's omp credential
+      for the provider (typed missing-credentials error), stamp
+      `(provider, model, thinkingLevel)` on the run + conversation rows, apply them
+      to the omp subprocess via `set_model` / `set_thinking_level`.
 - [ ] Deterministic resume: read model off the stored row; only re-resolve from
-      the resuming user when the provider matches; never infer at the SDK
-      boundary.
+      the resuming user when the provider matches; never infer.
 - [ ] Seed-on-connect + a one-shot backfill, gated by a blocking first-login
       provider modal so no unseeded user can trigger a run.
-- [ ] Settings UI: an Agent Models tab (provider/model/effort per agent, dropdowns
-      scoped to connected providers) and a prompt-editor surface.
+- [ ] Settings UI: an Agent Models tab (provider/model/thinking-level per agent,
+      dropdowns scoped to connected providers + omp's live model list) and a
+      prompt-editor surface.
 
 ## Reference map
 
@@ -256,22 +270,19 @@ delete to revert) — see
 | Per-user settings type + seeding helpers | `reference/shared/types/agentModelSettings.ts` |
 | Settings load/save/seed/resume resolution | `reference/server/services/agentModelSettings.ts` |
 | Run-start resolution + stamping | `reference/server/services/agentRunner.ts` (`loadAgentModelSettings`, `conversationsDb.create`) |
-| Per-provider model + effort enums | `reference/shared/providers/models.ts` |
 | Settings table | `reference/server/database/init.sql` (`user_agent_model_settings`) |
 | Prompt-override HTTP routes | `reference/server/routes/settings.ts` |
 | Per-user model HTTP routes | `reference/server/routes/userAgentModelSettings.ts` |
-| Missing-credentials error | `reference/server/services/credentials/types.ts` (`ProviderCredentialsMissingError`) |
+| omp model list / model + thinking-level selection | [`../core/omp-integration.md`](../core/omp-integration.md) (`get_available_models`, `set_model`, `set_thinking_level`) |
 
 ## Boundaries (not in this spec)
 
-- The provider interface, the `ProviderRunOptions` shape `(model, effort, env)`
-  feeds, and the capability matrix that gates provider-specific features →
-  [`../core/harness-contract.md`](../core/harness-contract.md).
-- Where per-user credentials come from and how `env` is built for the SDK, and
-  the tech/non-tech role logic behind the planning-prompt split →
+- How `(provider, model, thinkingLevel)` is applied to the omp subprocess, the
+  per-user agent dir, env-injected credentials, and the uniform feature set →
+  [`../core/omp-integration.md`](../core/omp-integration.md).
+- Where per-user credentials are collected (the provider-connect / omp `/login`
+  flow), and the tech/non-tech role logic behind the planning-prompt split →
   [`./auth-and-multi-user.md`](./auth-and-multi-user.md).
-- Concrete provider/credential integrations (Anthropic OAuth, Codex, OpenCode
-  Zen, the live Zen catalog endpoint) → [`./harnesses/overview.md`](./harnesses/overview.md).
 - The `startAgentRun` entry point itself, chaining, and the run/conversation row
   lifecycle → [`../core/orchestration-loop.md`](../core/orchestration-loop.md).
 - The prompt *content* and the agents' behavioral contracts →

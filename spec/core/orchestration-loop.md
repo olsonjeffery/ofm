@@ -24,12 +24,12 @@ job is to decide, each time an agent finishes, what should happen next.
 - **Task** — a unit of work backed by a markdown document and an isolated git
   worktree. See [`task-and-workspace.md`](./task-and-workspace.md).
 - **Agent** — a role (planning, implementation, review, PR) expressed as a
-  prompt run on a coding harness (always `omp`)
+  prompt run on the coding agent (always `omp`)
 - **Agent run** — one execution of one agent against one task: a row in
   `task_agent_runs`, linked to a conversation.
-- **Conversation** — one streaming session with a harness; how an agent run
-  actually executes and persists its transcript. See
-  [`harness-contract.md`](./harness-contract.md).
+- **Conversation** — one streaming session with an `omp` subprocess; how an agent
+  run actually executes and persists its transcript. See
+  [`omp-integration.md`](./omp-integration.md).
 - **Workflow flags** — booleans on the task row that gate the loop. They are the
   orchestrator's entire memory of "where are we."
 
@@ -157,7 +157,7 @@ when the stream ends:
   chain.
 - A user Stop writes status `failed` *before* the stream ends → handler sees
   `failed` → no chain.
-- A catastrophic harness crash also leaves status `running` → treated as
+- A catastrophic `omp` subprocess crash also leaves status `running` → treated as
   "completed" → chains to the next agent, which reads the synthetic error
   message left in the transcript and decides whether to retry. Failures heal
   *inside* the loop instead of dead-ending it.
@@ -191,8 +191,9 @@ and the obvious "pass success/failure into the handler" design is the wrong one.
 
 - **Start a run (manual):** `POST /api/tasks/:taskId/agent-runs` with
   `{ agentType }`. Returns 201 with the created run, 409 if one is already
-  running, 403 if the user has no credentials for the harness this agent is
-  configured to use. See
+  running, 403 if the acting user has no usable model-provider credentials for the
+  `omp` turn this agent is configured to run (see
+  [`omp-integration.md`](./omp-integration.md), credentials). See
   [`reference/server/routes/agent-runs.ts`](../reference/server/routes/agent-runs.ts).
 - **Start a run (chaining):** internal only. The completion handler calls the
   same entry point — there is no separate code path. Manual and chained starts
@@ -213,13 +214,14 @@ One function, in order (study
 3. Increment the task's run counter.
 4. Create the `task_agent_runs` row (`running`) and a linked conversation.
 5. Flip task status `pending → in_progress` on first activity.
-6. Start the conversation/turn through the harness contract, wiring the
-   completion handler as the stream's on-complete hook.
+6. Start the conversation/turn by spawning an `omp` subprocess in RPC mode and
+   sending the prompt, wiring the completion handler as the stream's on-complete
+   hook (fired on omp's `agent_end`).
 
-The harness, model, and credential resolution that step 6 depends on are an
+The model and credential resolution that step 6 depends on are an
 extra ([`prompt-and-model-customization.md`](../extra/prompt-and-model-customization.md));
-core can hardcode a single harness (`omprint` will skip directly to implementing
-this `extra/` item). The contract that step calls is in [`harness-contract.md`](./harness-contract.md).
+core can hardcode a single env-supplied credential. How step 6 actually spawns
+and drives `omp` is in [`omp-integration.md`](./omp-integration.md).
 
 ## Build checklist
 
@@ -256,8 +258,8 @@ this `extra/` item). The contract that step calls is in [`harness-contract.md`](
 - The plan's content and the implementation/review prompt design →
   [`planning-agent.md`](./planning-agent.md),
   [`execution-loop.md`](./execution-loop.md).
-- How a turn actually streams and persists its transcript →
-  [`harness-contract.md`](./harness-contract.md).
+- How a turn actually spawns `omp`, streams its events, and persists the
+  transcript → [`omp-integration.md`](./omp-integration.md).
 - The refinement step, YOLO single-agent mode, model/effort selection, the
   non-technical auto-advance, the task-authoring board, and webhook re-trigger →
   the corresponding `extra/` specs.

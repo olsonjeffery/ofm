@@ -112,9 +112,9 @@ plain file in a repo. That is exactly why the board is an *extra*, not core.
 ## Design philosophy: small and simple
 
 `omprint` is meant to stay small. The core is a tight orchestration engine and
-nothing more. If your team needs something different — another harness, another
-agent role, a different task source — you **fork the behavior into your own
-extra**; you don't grow the core.
+nothing more. If your team needs something different — a different coding agent,
+another agent role, a different task source — you **fork the behavior into your
+own extra**; you don't grow the core.
 
 This is a deliberate stance, and it shapes the spec:
 
@@ -125,6 +125,11 @@ This is a deliberate stance, and it shapes the spec:
 - We would rather you build your own extra than ask the core to absorb your
   workflow.
 
+`omprint` is bound to a single coding agent — [`oh-my-pi`/`omp`][2]. It does
+**not** abstract over multiple agent backends; the integration is direct and
+lives in [`core/omp-integration.md`](./core/omp-integration.md). Wanting a
+different agent means forking, not growing the core.
+
 ## Core specifications — `core/`
 
 Implement all of these for a minimal working tool. Read them in this order.
@@ -133,22 +138,21 @@ Implement all of these for a minimal working tool. Read them in this order.
 |---|---|---|
 | **✅ Yes** | [`core/orchestration-loop.md`](./core/orchestration-loop.md) | **The engine.** The state machine that drives plan → (implement ⇄ review) → PR: agent runs, chaining, the iteration cap, blocking, and how each step decides the next. Start here. |
 | **✅ Yes** |  [`core/task-and-workspace.md`](./core/task-and-workspace.md) | The unit of work: a markdown document plus an isolated git worktree. Lifecycle, and where the doc lives so it survives the PR merge. Deliberately silent on how the doc is authored. |
-| **🚫 No** | [`core/harness-contract.md`](./core/harness-contract.md) | The seam that makes "build your own" possible: the provider interface every coding harness must satisfy (start a turn, stream events, resume, load transcript, abort), plus the streaming runtime and the unified transcript stored as the single source of truth. |
+| **✅ Yes** | [`core/omp-integration.md`](./core/omp-integration.md) | The seam between the engine and the coding agent: how `omprint` spawns `omp` in RPC mode over `STDIO` via `portable-pty`, drives sessions/turns, consumes omp's native event stream, persists the transcript, aborts, and handles credentials — direct integration, no abstraction layer. |
 | **🚫 No** | [`core/planning-agent.md`](./core/planning-agent.md) | The agent that turns a prompt + task doc into a structured implementation plan written back into the doc. |
 | **🚫 No** | [`core/execution-loop.md`](./core/execution-loop.md) | The implementation agent and the thread-review agent, and how they alternate until the work passes review. |
 | **🚫 No** | [`core/pull-request-agent.md`](./core/pull-request-agent.md) | The terminal agent: open the PR, drive CI to green, resolve conflicts, and signal completion. |
 
 ## Optional specifications — `extra/`
 
-**FIXME: This MUST be updated/trimmed to reflect what `extra/` modules
-`omprint` kept, removed or added**
-
-Opinionated features. Each is independent; implement what you want.
+Opinionated features. Each is independent; implement what you want. (The old
+`extra/harnesses/` modules — a shared multi-harness overview plus per-tool
+provider integrations — are **gone**: `omprint` integrates `omp` directly in
+[`core/omp-integration.md`](./core/omp-integration.md), so there is no harness
+layer to make optional.)
 
 | Reviewd/Updated for `omprint`? | Spec | What it adds |
 |---|---|---|
-| **🚫 No** | [`extra/harnesses/overview.md`](./extra/harnesses/overview.md) | Shared patterns for implementing the core harness contract against a real tool: event mapping, transcript mirroring, credential storage, subprocess lifecycle, the capability matrix. |
-| **🚫 No** | [`extra/harnesses/omp.md`](./extra/harnesses/omp.md) | `oh-my-pi`/`omp` integration. |
 | **🚫 No** | [`extra/kanban-board.md`](./extra/kanban-board.md) | The opinionated projects/tasks board and 4-screen UI for authoring tasks. |
 | **🚫 No** | [`extra/refinement-agent.md`](./extra/refinement-agent.md) | An extra agent that polishes the work between review and PR. |
 | **🚫 No** | [`extra/yolo-mode.md`](./extra/yolo-mode.md) | A single-agent alternative to the multi-step pipeline. |

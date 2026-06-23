@@ -11,13 +11,14 @@ that scopes every task/project/agent-run to the people allowed to see it, an
 the manual plan-review gate).
 
 **Scope note up front — this is *app-level* auth: who is allowed to use
-Bottega.** It is **not** the per-provider coding-harness credentials (Claude
-OAuth, Codex, OpenCode Zen) an agent needs to actually run a turn. Those are a
-different concern and live in the harness specs
-([`harnesses/overview.md`](./harnesses/overview.md) and the per-tool files) and
-in [`prompt-and-model-customization.md`](./prompt-and-model-customization.md).
-The seam: this spec resolves *which user* a request belongs to; those specs
-resolve *which provider credentials* that user runs agents with.
+Bottega.** It is **not** the model-provider credentials `omp` needs to actually
+run a turn (the Anthropic / OpenAI / etc. tokens omp resolves from its per-user
+agent dir or the injected environment). Those are a different concern and live in
+the omp integration
+([`../core/omp-integration.md`](../core/omp-integration.md), credentials) and in
+[`prompt-and-model-customization.md`](./prompt-and-model-customization.md). The
+seam: this spec resolves *which user* a request belongs to; those specs resolve
+*which model-provider credentials* that user runs agents with.
 
 ## Why it's an extra (not core)
 
@@ -307,10 +308,9 @@ become per-user / membership-gated:
 
 ## Boundaries (not in this spec)
 
-- **Per-provider coding-harness credentials** (Claude OAuth / Codex / OpenCode
-  Zen) — how a resolved user actually authenticates an agent turn →
-  [`harnesses/overview.md`](./harnesses/overview.md) and the per-tool harness
-  specs.
+- **Model-provider credentials** (the Anthropic / OpenAI / etc. tokens omp uses)
+  — how a resolved user actually authenticates an agent turn →
+  [`../core/omp-integration.md`](../core/omp-integration.md) (credentials).
 - **Per-user provider/model selection**, the provider-connect flow, and the
   first-login provider modal that flips `has_completed_onboarding` →
   [`prompt-and-model-customization.md`](./prompt-and-model-customization.md).

@@ -1,0 +1,153 @@
+# =============================================================================
+# omp configuration — example for omprint integration
+# =============================================================================
+#
+# omprint drives `omp` (oh-my-pi) as a subprocess in RPC mode over STDIO. See
+# `core/omp-integration.md` for how the subprocess is spawned and driven.
+#
+# This file is an EXAMPLE of an omp config (`config.yml`) shape, annotated for
+# how omprint uses it. It is NOT consumed verbatim by omprint; omprint applies
+# most per-run settings dynamically over the RPC channel (set_model,
+# set_thinking_level, prompts) rather than from a static file. Use this as a
+# reference for the per-user omp agent dir omprint provisions, and as a starting
+# point an operator can drop into a user's omp agent directory.
+#
+# omp's own config lives at `<agent-dir>/config.yml`, where <agent-dir> defaults
+# to `~/.omp/agent`. omprint relocates this per user (one isolated agent dir per
+# omprint user) via the PI_CODING_AGENT_DIR environment variable, e.g.
+#   PI_CODING_AGENT_DIR=~/.config/omprint/users/<userId>/omp
+# so each user's stored credentials (in `<agent-dir>/agent.db`) never leak across
+# users. Settings keys are dotted paths into this YAML (e.g. `memory.backend`).
+#
+# Two files matter:
+#   - config.yml  (this file)  — settings + behaviour
+#   - models.yml  (sibling)    — custom providers/models (see the bottom section)
+#
+# Credentials are NOT stored in this file. They live in `agent.db` (attached via
+# omp `/login`, which omprint can drive over RPC), or are supplied as environment
+# variables omprint injects into the spawned subprocess (see "Credentials"
+# below).
+# =============================================================================
+
+
+# -----------------------------------------------------------------------------
+# Default model + per-role routing
+# -----------------------------------------------------------------------------
+# omp routes work by ROLE. omprint maps each agent role's stored
+# (provider, model) onto omp at spawn time via `set_model` (or launch flags),
+# so these are effectively defaults the RPC selection overrides per run.
+#
+#   default — normal turns (implementation, review, pr, manual chat)
+#   plan    — plan mode (the planning agent)
+#   smol    — cheap sub-agent fan-out (research/refinement sub-agents)
+#   slow    — deep reasoning, when a role wants it
+#   commit  — changelog/commit-message generation
+#
+# `provider/modelId` form. The model id must be one omp's active credentials can
+# reach; a stale id fails loud (`set_model` -> "Model not found: provider/model").
+models:
+  default: anthropic/claude-sonnet-4-5
+  plan: anthropic/claude-opus-4-1
+  smol: anthropic/claude-haiku-4-5
+  slow: openai/gpt-5.5
+  commit: anthropic/claude-haiku-4-5
+
+
+# -----------------------------------------------------------------------------
+# Reasoning / thinking level
+# -----------------------------------------------------------------------------
+# omp's thinking scale: off | minimal | low | medium | high | xhigh.
+# omprint sets this per run over RPC via `set_thinking_level` (its analogue of
+# the per-agent "effort" dimension). This is the static default.
+thinking:
+  level: medium
+
+
+# -----------------------------------------------------------------------------
+# Approval / permission posture
+# -----------------------------------------------------------------------------
+# Orchestrated omprint runs are non-interactive: the agent works inside an
+# isolated task worktree and should write files and run commands WITHOUT parking
+# on a human. Run omp in a full-auto posture for these turns. (Where a host does
+# want a gate, it routes through omp's extension-UI sub-protocol — surfaced to
+# omprint as `extension_ui_request` frames it answers; see omp-integration.md.)
+approval:
+  mode: auto            # auto-approve edits + command execution in the sandbox
+
+
+# -----------------------------------------------------------------------------
+# RPC-mode behaviour notes (informational)
+# -----------------------------------------------------------------------------
+# omp --mode rpc already overrides several workflow settings to safe defaults,
+# regardless of what is set here:
+#   - automatic session-title generation is DISABLED (omprint titles instead)
+#   - todo.* / task.* / memory.* / advisor.* / async.* / bash.autoBackground.*
+#     are reset to built-in defaults rather than inheriting user overrides
+# So there is no need to tune those for orchestrated runs.
+
+
+# -----------------------------------------------------------------------------
+# Tools
+# -----------------------------------------------------------------------------
+# omp ships a flat tool surface (read, search, edit, bash, debugger, LSP,
+# subprocesses, GitHub, sub-agents). omprint disables specific tools PER RUN at
+# spawn time rather than here — e.g. the implementation and yolo agents forbid
+# the sub-agent (Agent/Task) tool to keep work in one observable conversation,
+# while planning and refinement keep it enabled. This section is for any
+# instance-wide defaults an operator wants.
+tools:
+  # disabled: []        # e.g. ["agent"] to globally forbid sub-agent fan-out
+
+
+# -----------------------------------------------------------------------------
+# Memory (left at omp defaults; RPC mode resets these anyway)
+# -----------------------------------------------------------------------------
+# memory:
+#   backend: none
+
+
+# -----------------------------------------------------------------------------
+# Credentials — NOT stored here
+# -----------------------------------------------------------------------------
+# omp resolves model-provider credentials in this precedence:
+#   1. runtime override (CLI --api-key) — never persisted
+#   2. stored API key in agent.db
+#   3. stored OAuth credential in agent.db (refreshed as needed)
+#   4. provider environment variable
+#   5. models.yml fallback resolver
+#
+# omprint supplies credentials two ways:
+#   - OAuth `/login` over RPC: omprint drives `get_login_providers` + `login`,
+#     surfacing the `open_url` extension-UI request to the user. The resulting
+#     token lands in this user's `agent.db`.
+#   - Environment variables injected into the spawned subprocess (omprint strips
+#     inherited global keys it does not intend to forward). Common ones:
+#       ANTHROPIC_OAUTH_TOKEN   then ANTHROPIC_API_KEY   (Anthropic)
+#       OPENAI_API_KEY                                   (OpenAI)
+#       OPENAI_CODEX_OAUTH_TOKEN                         (OpenAI Codex)
+#       GEMINI_API_KEY                                   (Google)
+#       OPENROUTER_API_KEY / GROQ_API_KEY / XAI_API_KEY  (others)
+#     Full table: https://omp.sh/docs/providers
+
+
+# =============================================================================
+# models.yml (sibling file) — custom providers / models, FYI
+# =============================================================================
+# Custom or self-hosted providers go in `<agent-dir>/models.yml`, not here. omp
+# discovers them at startup. omprint reads the EFFECTIVE catalog at runtime via
+# the RPC `get_available_models` command rather than parsing this file, so the
+# settings UI always reflects what the active credentials actually unlock.
+#
+# Example `models.yml`:
+#
+#   providers:
+#     my-gateway:
+#       baseUrl: https://api.example.com/v1
+#       apiKey: MY_GATEWAY_API_KEY      # env-var name (do not inline literal secrets)
+#       api: openai-completions
+#       models:
+#         - id: my-model-id
+#           name: My Model
+#           contextWindow: 200000
+#           maxTokens: 16384
+# =============================================================================

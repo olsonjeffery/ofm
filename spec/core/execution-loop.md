@@ -106,8 +106,9 @@ keeps the loop dumb and reliable (see
 
 > The reference also records a Playwright video of the review's manual testing
 > for the user to watch (the `videoConfig` wired up in `agentRunner.ts`). That's
-> a nicety, not load-bearing — skip it if your harness has no browser-driving
-> MCP.
+> a nicety, not load-bearing. `omp` drives a Playwright MCP for browser capture,
+> so the review agent can record its manual scenarios; the recording lands in the
+> task archive (see [`task-and-workspace.md`](./task-and-workspace.md)).
 
 ## Reference map
 

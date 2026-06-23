@@ -41,8 +41,10 @@ written, the original is gone.)
 1. **Explore (research sub-agent).** Spawn a read-only sub-agent to map the
    relevant code and return files with line numbers, the current architecture,
    dependencies, and any ambiguities. It must not write files, run scripts, or
-   ask questions — research only. (If your harness has no sub-agents, the agent
-   explores directly; the constraint that exploration is read-only still holds.)
+   ask questions — research only. `omp` provides sub-agents (the planning agent
+   keeps the Agent/sub-agent tool *enabled*, unlike implementation; see
+   [`omp-integration.md`](./omp-integration.md)), so this exploration runs as a
+   real sub-agent fan-out.
 2. **Clarify (the agent itself).** Ask the user questions **only** for genuine
    ambiguity with real trade-offs (e.g. "JWT or sessions?"), not for things with
    an obvious answer. Always propose and confirm a **testing strategy**. Make

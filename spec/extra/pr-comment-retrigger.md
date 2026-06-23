@@ -142,7 +142,7 @@ ready" errors back to `200 ignored` rather than `500`):
   per task" rail core enforces, re-checked here because the webhook is an
   out-of-band start.
 - The task has an **owning user**; the run executes *as the task owner*
-  (`userId: taskOwner.id`) so it resolves that user's harness/model/credentials —
+  (`userId: taskOwner.id`) so it resolves that user's omp model/credentials —
   there is no acting browser session to infer identity from.
 
 On success the route returns `200 {status: "triggered", taskId, conversationId}`.

@@ -15,22 +15,24 @@ runtime a human drives by hand:
 - **File attachments** — drop a file into a conversation (it lands in the
   worktree's `tmp/` dir, or a task's `input_files/`); the agent reads it from
   disk.
-- **Image attachments** — paste/upload images onto a message (Claude-only).
+- **Image attachments** — paste/upload images onto a message; they ride along on
+  the `prompt`/`steer`/`follow_up` frame as `images`.
 - **Voice input** — hold to record, transcribe speech to text, drop it in the
   input box.
 - **Title generation** — auto-name a conversation from its first message.
-- **Context-usage meter** — a live token/context breakdown shown in the chat UI
-  (Claude-only for the detailed breakdown).
+- **Context-usage meter** — a live token/context breakdown shown in the chat UI,
+  fed by omp's `get_state.contextUsage`.
 
 ## Why it's an extra (not core)
 
 The [orchestration loop](../core/orchestration-loop.md) never sees any of this:
 agents run from prompts the orchestrator builds, not from a human typing into a
 box. These are conveniences for the manual-chat conversation runtime described
-in the [harness contract](../core/harness-contract.md). Skip them and core still
-plans, implements, reviews, and ships. Several are also **provider-gated** — the
-capability matrix in the harness contract decides which ones light up for which
-harness.
+in the [omp integration](../core/omp-integration.md). Skip them and core still
+plans, implements, reviews, and ships. They lean on omp's RPC surface directly —
+image attachments on the `prompt` frame, the context meter on
+`get_state.contextUsage` — without any capability gating, because omp is the only
+backend.
 
 ## Slash commands
 
@@ -92,33 +94,32 @@ read it, and tell the agent where it is.
 Both paths just persist bytes and surface a path; the agent reads them with its
 ordinary file tools.
 
-## Image attachments — Claude-only
+## Image attachments
 
 Images ride along on a message rather than being uploaded separately. The
 WebSocket message carries `images: Array<{ data: string; mimeType: string }>`
 (`data` is a base64 data-URI; see
 [`reference/server/services/conversation/types.ts`](../reference/server/services/conversation/types.ts),
-`ConversationImage`). `handleImages(command, images, cwd)`
-([`reference/server/services/conversation/media.ts`](../reference/server/services/conversation/media.ts))
-decodes each data-URI to a temp file under `<cwd>/.tmp/images/<ts>/` and appends
-an `[Images provided at the following paths:]` note to the message so the agent
-reads them off disk; `cleanupTempFiles` removes them after the turn.
+`ConversationImage`).
 
-This is gated on **`supportsImages`** from the capability matrix
-([`reference/shared/providers/capabilities.ts`](../reference/shared/providers/capabilities.ts)).
-Anthropic sets it `true`; Codex and OpenCode set it `false` and **silently strip
-attached images** (see the comments around the `handleImages` call in
-[`startCodexConversation.ts`](../reference/server/services/conversation/startCodexConversation.ts)
-and
-[`startOpenCodeConversation.ts`](../reference/server/services/conversation/startOpenCodeConversation.ts)).
-The chat UI should disable the image affordance when the active provider can't do
-images, so a user never silently loses an attachment.
+omp's RPC `prompt` / `steer` / `follow_up` commands accept an
+`images?: ImageContent[]` field directly, so the cleanest path is to pass the
+decoded images on the command frame. (Fallback, when on-frame images aren't
+wired: the reference's `handleImages` decodes each data-URI to a temp file under
+`<cwd>/.tmp/images/<ts>/` and appends an `[Images provided at the following
+paths:]` note for the agent to read off disk, cleaned up by `cleanupTempFiles`
+after the turn.)
+
+Vision support depends on the **selected model**, not on omp, and there is no
+provider-level capability flag to consult — so the chat UI disables the affordance
+per model where the chosen model lacks vision.
 
 ## Voice input — needs `OPENAI_API_KEY`
 
 Record audio in the browser, transcribe it server-side, drop the text in the
 input box (the user still presses send). It is **independent of the coding
-harness** — it always uses OpenAI, regardless of which provider runs the turn.
+agent** — it always uses OpenAI for transcription, regardless of which model omp
+runs the turn on.
 
 - **Backend:** `POST /transcribe` (multer memory upload of an `audio` field, in
   [`reference/server/index.ts`](../reference/server/index.ts) ~L306) calls
@@ -151,10 +152,11 @@ the task channel (the task viewer's conversation list). It is invoked from the
 (~L233). If credentials are missing or the CLI errors/times out (20s) it just
 logs and returns — the conversation is unaffected.
 
-> The reference titler shells out to the `claude` CLI directly rather than going
-> through the `LlmProvider` interface. That keeps it Claude-coupled; if you want
-> titles for non-Claude conversations, route it through your harness contract
-> instead. It is a cosmetic nicety either way.
+> The reference titler shells out to the `claude` CLI directly. In `omprint`,
+> generate the title through `omp` instead — either a short one-shot `omp -p`
+> invocation on the first user message, or a cheap `smol`-role prompt over the
+> RPC channel. (omp disables its *own* automatic session titling in RPC mode, so
+> this stays omprint's job.) It is a cosmetic nicety either way.
 
 ## Context-usage meter
 
@@ -163,17 +165,13 @@ per-category breakdown (system prompt, MCP tools, memory files, …) in a modal.
 
 `createContextUsageTracker({ conversationId, broadcastFn })`
 ([`reference/server/services/contextUsageTracker.ts`](../reference/server/services/contextUsageTracker.ts))
-is created per streaming session and fed by the shared event consumer. It uses a
-**hybrid baseline+breakdown** design, and the *why* is load-bearing:
+is created per streaming session and fed by the shared event consumer:
 
-- The **baseline** (total/max tokens, percentage, model) is computed from the
-  terminal `result` event's `modelUsage` — this **always works**.
-- The **breakdown** (categories, MCP tools, system-prompt sections) comes from
-  the SDK's `getContextUsage()` control call, captured mid-stream on a master
-  assistant event. Because Bottega spawns a one-shot subprocess per turn, that
-  call frequently loses the race against subprocess teardown, so the breakdown is
-  only *folded in when it wins*. Sub-agent assistant events (non-null
-  `parent_tool_use_id`) are skipped so they can't clobber the master's totals.
+- omp's `{ type: "get_state" }` response carries
+  `contextUsage: { tokens, contextWindow, percent }`, which is the baseline
+  readout (current tokens, the model's context window, and the fill percentage).
+  Poll/read it as the turn streams to keep the meter live.
+- Per-turn usage in omp's terminal events refines the count at turn end.
 
 The result is persisted to `conversations.context_usage_json` and broadcast as a
 `context-usage` WebSocket message; the frontend
@@ -182,10 +180,8 @@ The result is persisted to `conversations.context_usage_json` and broadcast as a
 [`reference/src/components/ContextDetailModal.tsx`](../reference/src/components/ContextDetailModal.tsx))
 renders it and refetches the last snapshot on load.
 
-The detailed breakdown is gated on **`supportsContextUsageBreakdown`** (Claude
-only). On Codex/OpenCode the tracker still emits a baseline from aggregate usage,
-but there is no per-category detail — the modal should degrade to the bar, not
-break.
+There is no provider capability gate: omp always reports `contextUsage` via
+`get_state`, so the meter is always available.
 
 ## What to build
 
@@ -195,15 +191,16 @@ break.
       frontend.
 - [ ] File upload to the worktree `tmp/` dir and to a task's central
       `input_files/`, with the latter announced in the task context prompt.
-- [ ] Image attachments decoded to temp files and referenced by path — gated on
-      `supportsImages`, silently dropped (and UI-disabled) otherwise.
+- [ ] Image attachments passed on the omp `prompt`/`steer`/`follow_up` frame's
+      `images` field (or decoded to temp files and referenced by path as a
+      fallback); UI-disabled per-model where the chosen model lacks vision.
 - [ ] A `/transcribe` endpoint backed by `gpt-4o-transcribe` (+ a cleanup pass),
       a browser recorder, requiring `OPENAI_API_KEY`.
 - [ ] Fire-and-forget title generation on first message, broadcast on both the
       conversation and task channels; never blocking the turn.
-- [ ] A per-session context-usage tracker with a baseline-from-`result` path and
-      an optional breakdown folded in when the control call wins; persist +
-      broadcast; gate the detailed breakdown on `supportsContextUsageBreakdown`.
+- [ ] A per-session context-usage tracker fed by omp's `get_state.contextUsage`
+      (`{ tokens, contextWindow, percent }`), refined by per-turn usage at turn
+      end; persist + broadcast.
 
 ## Reference map
 
@@ -219,16 +216,13 @@ break.
 | Title generation | `reference/server/services/titleGenerator.ts` |
 | Context-usage tracker | `reference/server/services/contextUsageTracker.ts` |
 | Context-usage UI | `reference/src/components/ChatInterface.tsx`, `reference/src/components/ContextDetailModal.tsx` |
-| Capability matrix (gates images + breakdown) | `reference/shared/providers/capabilities.ts` |
 
 ## Boundaries (not in this spec)
 
-- The conversation runtime that these hook into — streaming, transcript
-  persistence, the `LlmProvider` contract, and the `ProviderCapabilities` matrix
-  itself → [`../core/harness-contract.md`](../core/harness-contract.md).
+- The conversation runtime that these hook into — how omp is spawned and driven,
+  streaming, the event format, and transcript persistence →
+  [`../core/omp-integration.md`](../core/omp-integration.md).
 - The autonomous agent pipeline (none of these features touch it) →
   [`../core/orchestration-loop.md`](../core/orchestration-loop.md).
 - The task doc and `input_files/` lifecycle and where the archive lives →
   [`../core/task-and-workspace.md`](../core/task-and-workspace.md).
-- Per-provider capability values and how a provider advertises them →
-  [`./harnesses/overview.md`](./harnesses/overview.md).

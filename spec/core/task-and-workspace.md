@@ -26,8 +26,8 @@ itself lives on disk (the doc in an archive, the code in a worktree).
   Optional `subproject_path` for monorepos.
 - **task** — belongs to a project. Carries `title`, `status`, and the workflow
   flags. Backed by a markdown doc and a worktree.
-- **conversation** — belongs to a task. One streaming session, whether a manual
-  chat or an agent run. See [`harness-contract.md`](./harness-contract.md).
+- **conversation** — belongs to a task. One streaming `omp` session, whether a
+  manual chat or an agent run. See [`omp-integration.md`](./omp-integration.md).
 
 Schema: [`reference/server/database/init.sql`](../reference/server/database/init.sql).
 
@@ -138,8 +138,8 @@ path in the prompt is authoritative — agents are told not to look elsewhere.
 
 - The workflow flags and the loop that reads them →
   [`orchestration-loop.md`](./orchestration-loop.md).
-- How a conversation streams and persists its transcript →
-  [`harness-contract.md`](./harness-contract.md).
+- How a conversation drives `omp`, streams its events, and persists the
+  transcript → [`omp-integration.md`](./omp-integration.md).
 - How tasks get authored (board UI, Jira/Notion import) →
   [`kanban-board.md`](../extra/kanban-board.md).
 - Opening the PR and merging/cleaning up the worktree →
