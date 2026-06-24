@@ -15,7 +15,7 @@ machine described here.
 ## What it delivers
 
 > I describe a task in a markdown file and press **Run** once. A chain of agents
-> (each a new `omp` session, with the apropriate model(s)) plans the work,
+> (each a new `omp` session, with the appropriate model(s)) plans the work,
 > implements it, reviews it, and opens a pull request —
 > iterating between implementation and review on their own until the work passes
 > or they hit something only I can resolve. I watch it happen live and step in
@@ -33,9 +33,9 @@ job is to decide, each time an agent finishes, what should happen next.
   prompt run on a coding harness (always `omp`)
 - **Agent run** — one execution of one agent against one task: a row in
   `task_agent_runs`, linked to a conversation.
-- **Conversation** — one streaming session with a harness; how an agent run
+- **Conversation** — one streaming session with `omp`; how an agent run
   actually executes and persists its transcript. See
-  [`harness-contract.md`](./harness-contract.md).
+  [`omp-integration.md`](./omp-integration.md).
 - **Workflow flags** — booleans on the task row that gate the loop. They are the
   orchestrator's entire memory of "where are we."
 
@@ -180,7 +180,7 @@ and the obvious "pass success/failure into the handler" design is the wrong one.
   immediately before starting the next run and bails if something is live.
 - **Settle before chaining.** Chaining starts the next run after a short delay
   (the reference uses a ~1s `setTimeout`; `omprint` can use `tokio::time::sleep()`
-  and a 1,000 milisecond timeout) so the finishing turn's status write
+  and a 1,000 millisecond timeout) so the finishing turn's status write
   and broadcasts land first, and it **re-reads the task flags inside that
   callback** — the task may have been completed or blocked in the gap.
 - **Iteration cap.** Every run increments `workflow_run_count`. When it reaches
@@ -222,10 +222,9 @@ One function, in order (study
 6. Start the conversation/turn through the harness contract, wiring the
    completion handler as the stream's on-complete hook.
 
-The harness, model, and credential resolution that step 6 depends on are an
-extra ([`prompt-and-model-customization.md`](../extra/prompt-and-model-customization.md));
-core can hardcode a single harness (`omprint` will skip directly to implementing
-this `extra/` item). The contract that step calls is in [`harness-contract.md`](./harness-contract.md).
+The model and credential resolution that step 6 depends on are an
+extra ([`prompt-and-model-customization.md`](../extra/prompt-and-model-customization.md)).
+The direct `omp` integration that step calls is in [`omp-integration.md`](./omp-integration.md).
 
 ## Build checklist
 
@@ -263,7 +262,7 @@ this `extra/` item). The contract that step calls is in [`harness-contract.md`](
   [`planning-agent.md`](./planning-agent.md),
   [`execution-loop.md`](./execution-loop.md).
 - How a turn actually streams and persists its transcript →
-  [`harness-contract.md`](./harness-contract.md).
+  [`omp-integration.md`](./omp-integration.md).
 - The refinement step, YOLO single-agent mode, model/effort selection, the
   non-technical auto-advance, the task-authoring board, and webhook re-trigger →
   the corresponding `extra/` specs.

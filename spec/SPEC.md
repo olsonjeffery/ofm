@@ -18,7 +18,7 @@ the `omprint` application. A typescript `reference/` application is kept in
 this directory, for reference during the implementation of [`omprint`][1] (which
 will itself be bootstrapped in [vdaubry/bottega][0] until [omprint][1] is featureful
 enough to take over). It is an explicit goal to replace **ALL** citations into
-`spec/reference`/`reference/` with citations into the local `omprint` codebase
+`spec/reference/` / `reference/` with citations into the local `omprint` codebase
 
 ## `omprint` rust implementation of the `bottega` spec
 
@@ -48,7 +48,7 @@ Key `omprint` stack/architectural choices:
   - Anchor-point for the `omprint` `leptos` web application
   - Hosts API endpoints called by the `omprint` web application
   - spawns background workers through `tokio` to own *PTY* sessions
-- `rustls` + `aws-lc-rs` [crate features][9] are used wherever relavant (tools
+- `rustls` + `aws-lc-rs` [crate features][9] are used wherever relevant (tools
 doing IO requiring SSL); the goal is to completely eschew any system OpenSSL
 dependency (**NOTE:** this does not apply to `omp` itself)
 - [`leptos`][11], with SSR, as the web application framework
@@ -85,7 +85,7 @@ spawns `pty`s, maintains database state, and so on
 
 ## How to build from this spec
 
-**FIXME: replace all occurances of `reference/` with links into the `omprint`
+**FIXME: replace all occurrences of `reference/` with links into the `omprint`
 rust codebase**
 
 Point a coding agent at this file and say "build this." Then:
@@ -141,7 +141,7 @@ Implement all of these for a minimal working tool. Read them in this order.
 |---|---|---|
 | **✅ Yes** | [`core/orchestration-loop.md`](./core/orchestration-loop.md) | **The engine.** The state machine that drives plan → (implement ⇄ review) → PR: agent runs, chaining, the iteration cap, blocking, and how each step decides the next. Start here. |
 | **✅ Yes** |  [`core/task-and-workspace.md`](./core/task-and-workspace.md) | The unit of work: a markdown document plus an isolated git worktree. Lifecycle, and where the doc lives so it survives the PR merge. Deliberately silent on how the doc is authored. |
-| **✅ Yes** | [`core/harness-contract.md`](./core/harness-contract.md) | The seam that makes "build your own" possible: the provider interface every coding harness must satisfy (start a turn, stream events, resume, load transcript, abort), plus the streaming runtime and the unified transcript stored as the single source of truth. |
+| **✅ Yes** | [`core/omp-integration.md`](./core/omp-integration.md) | The direct `omp` integration: spawning via `portable-pty`, the RPC message protocol, per-turn input, the streaming runtime, transcript persistence, session management, `models.yml` passthrough, and orphan recovery. |
 | **✅ Yes** | [`core/planning-agent.md`](./core/planning-agent.md) | The agent that turns a prompt + task doc into a structured implementation plan written back into the doc. |
 | **✅ Yes** | [`core/execution-loop.md`](./core/execution-loop.md) | The implementation agent and the thread-review agent, and how they alternate until the work passes review. |
 | **✅ Yes** | [`core/pull-request-agent.md`](./core/pull-request-agent.md) | The terminal agent: open the PR, drive CI to green, resolve conflicts, and signal completion. |
@@ -155,8 +155,7 @@ Opinionated features. Each is independent; implement what you want.
 
 | Reviewed/Updated for `omprint`? | Spec | What it adds |
 |---|---|---|
-| **✅ Yes** | [`extra/harnesses/overview.md`](./extra/harnesses/overview.md) | Shared patterns for implementing the core harness contract against a real tool: event mapping, transcript mirroring, credential storage, subprocess lifecycle, the capability matrix. |
-| **🚫 No** | [`extra/harnesses/omp.md`](./extra/harnesses/omp.md) | `oh-my-pi`/`omp` integration. |
+| **✅ Yes** | [`extra/harnesses/omp.md`](./extra/harnesses/omp.md) | `oh-my-pi`/`omp` integration: subprocess lifecycle, event mapping, transcript mirroring, credential delegation, and capabilities. |
 | **🚫 No** | [`extra/kanban-board.md`](./extra/kanban-board.md) | The opinionated projects/tasks board and 4-screen UI for authoring tasks. |
 | **🚫 No** | [`extra/refinement-agent.md`](./extra/refinement-agent.md) | An extra agent that polishes the work between review and PR. |
 | **🚫 No** | [`extra/yolo-mode.md`](./extra/yolo-mode.md) | A single-agent alternative to the multi-step pipeline. |
@@ -167,7 +166,7 @@ Opinionated features. Each is independent; implement what you want.
 
 ## The reference implementation
 
-> **⚠️IMPORTANT ⚠️:** The `reference/` implementation LACKS any content related to
+> **⚠️ IMPORTANT ⚠️:** The `reference/` implementation LACKS any content related to
 > `oh-my-pi` or `omprint`-specific features; Where it is referenced is
 > understood as prior behavior that was retained from [vdaubry/bottega][0].
 > It is a standing **FIXME** that all instances of `reference/` be replaced

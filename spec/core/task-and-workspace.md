@@ -33,7 +33,7 @@ itself lives on disk (the doc in an archive, the code in a worktree).
 - **task** — belongs to a project. Carries `title`, `status`, and the workflow
   flags. Backed by a markdown doc and a worktree.
 - **conversation** — belongs to a task. One streaming session, whether a manual
-  chat or an agent run. See [`harness-contract.md`](./harness-contract.md).
+  chat or an agent run. See [`omp-integration.md`](./omp-integration.md).
 
 Schema: [`reference/server/database/init.sql`](../reference/server/database/init.sql).
 
@@ -81,7 +81,7 @@ flips `pending → in_progress` on the first agent activity (see
   symlink the repo's `.env*` files into the worktree, create gitignored dirs,
   and copy `node_modules` / `.venv` in the background. See `createWorktree` in
   [`reference/server/services/worktree.ts`](../reference/server/services/worktree.ts).
-  - **NOTE**: Windows may require copying files, because it's support for
+  - **NOTE**: Windows may require copying files, because its support for
   symlinks (and user creation/management) is conditional on system policies
   - **`omprint` ONLY:** On a per-project basis allow the User to configure
   zero-or-more additional files to copy/symlink from the repo to the worktree,
@@ -93,7 +93,7 @@ flips `pending → in_progress` on the first agent activity (see
 - **Per-task dev-server port:** `3100 + (taskId % 900)`, handed to the agent in
   its context so parallel tasks don't fight over ports (`getDevServerPort`).
   - **`omprint` ONLY:** This should be exposed at a well-known environment variable
-  that the target codebase can use in it's dev server automation
+  that the target codebase can use in its dev server automation
 - **Teardown:** `removeWorktree` (`git worktree remove --force` + delete the
   branch) plus `deleteTaskArchive` (doc + inputs + recording) on task delete.
   Merging the PR and cleaning up the worktree afterward is a separate action —
@@ -145,7 +145,7 @@ path in the prompt is authoritative — agents are told not to look elsewhere.
 - The workflow flags and the loop that reads them →
   [`orchestration-loop.md`](./orchestration-loop.md).
 - How a conversation streams and persists its transcript →
-  [`harness-contract.md`](./harness-contract.md).
+  [`omp-integration.md`](./omp-integration.md).
 - How tasks get authored (board UI, Jira/Notion import) →
   [`kanban-board.md`](../extra/kanban-board.md).
 - Opening the PR and merging/cleaning up the worktree →
