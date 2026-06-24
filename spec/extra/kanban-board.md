@@ -188,16 +188,16 @@ screen, and re-renders on the events those tasks emit.
 
 Subscriptions are scoped on purpose: task events only reach subscribers, so a
 screen must subscribe the ids it renders or its indicators go stale. (The
-WebSocket runtime and broadcast contract are core — see
-[`harness-contract.md`](../core/harness-contract.md).)
+WebSocket runtime and broadcast contract are part of the streaming runtime — see
+[`omp-integration.md`](../core/omp-integration.md).)
 
 ## The Chat screen
 
 Chat renders one conversation's streaming transcript and an input box. A
-conversation is created either manually (the "New Chat" modal, picking provider +
-model) or implicitly by an agent run, and is always reached by its row id in the
+conversation is created either manually (the "New Chat" modal, picking model) or
+implicitly by an agent run, and is always reached by its row id in the
 URL. The streaming/transcript mechanics belong to
-[`harness-contract.md`](../core/harness-contract.md); manual-chat conveniences
+[`omp-integration.md`](../core/omp-integration.md); manual-chat conveniences
 (slash commands, attachments, voice, title generation, the context meter) are
 their own extra — this spec only places Chat as the fourth screen and routes to
 it.
@@ -242,7 +242,7 @@ it.
 - What "Run" actually triggers — agent runs, chaining, the plan gate, blocking →
   [`orchestration-loop.md`](../core/orchestration-loop.md).
 - How a conversation streams and how WebSocket broadcasts work →
-  [`harness-contract.md`](../core/harness-contract.md).
+  [`omp-integration.md`](../core/omp-integration.md).
 - Manual-chat UX (slash commands, attachments, voice, title generation, context
   meter) → `chat-ux.md`.
 - Per-agent prompt overrides and per-user model/effort pickers in the modals →

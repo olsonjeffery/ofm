@@ -1,8 +1,8 @@
 # Extra — Prompt and model customization
 
-Two independent customization layers sit on top of the core agents. Neither is
-required; core ships fixed prompts and can hardcode a single provider/model
-(see [`../core/harness-contract.md`](../core/harness-contract.md)). This extra
+Two independent customization layers sit on top of `omp`. Neither is
+required; core ships fixed prompts and `omp` is the single harness
+(see [`../core/omp-integration.md`](../core/omp-integration.md)). This extra
 makes both **configurable** — the *what an agent says* and the *what runs it*.
 
 ## What it adds
@@ -40,20 +40,20 @@ it loads a named template and renders it.
 
 A **prompt definition registry** is the source of truth for what prompts exist:
 each entry carries a `name`, a human `label`, a `kind` (`prompt` or `template`),
-the on-disk `file`, and the **allowlisted variable set** that template may
+the on-disk `file`, and the **allowlisted variable set** that the template may
 reference. See the `PROMPT_DEFINITIONS` array in
 [`../reference/server/services/promptRenderer.ts`](../reference/server/services/promptRenderer.ts).
 The registry is what the settings UI lists and what variable-validation checks
 against.
 
-### The override lookup: default vs `~/.bottega/prompts/`
+### The override lookup: default vs `~/.omprint/prompts/`
 
 Resolution is two-tier and dead simple. For a prompt named `X`:
 
 - The **default** lives at `server/constants/{prompts,templates}/X.md` (bundled
-  with the app).
+  with the app via `include_str!`).
 - An **override** may live at `<archiveRoot>/{prompts,templates}/X.md`, where
-  `archiveRoot` is `$BOTTEGA_ARCHIVE_ROOT` or `~/.bottega` by default.
+  `archiveRoot` is `$BOTTEGA_ARCHIVE_ROOT` or `~/.omprint` by default.
 
 `loadPrompt(name)` returns the override file if it exists, otherwise the default
 (`loadOverride` → `loadDefault`). That is the entire override mechanism — file
@@ -120,27 +120,14 @@ This **replaced** a single global `app_settings.agent_model_settings` blob — t
 point of going per-user is that each user runs agents on a provider/model they
 actually hold credentials for.
 
-### The per-provider enums
+### The model and effort namespaces
 
-`provider ∈ {anthropic, openai, opencode}`. Each provider owns its own model and
-effort namespaces — there is deliberately **no common subset**
-([`../reference/shared/providers/models.ts`](../reference/shared/providers/models.ts)):
+`omp` models the available models through its `models.yml` configuration. Each
+model entry specifies its provider, model id, and supported features. The
+settings UI reads available models from `omp`'s model catalog.
 
-- **Anthropic** — models `sonnet`/`opus`; efforts `low`…`max`.
-- **OpenAI (Codex)** — models `gpt-5.5`/`gpt-5.4`/`gpt-5.4-mini`; efforts
-  `minimal`…`xhigh`.
-- **OpenCode** — models are a **live, upstream-owned Zen catalog**, so the enum
-  is intentionally *empty*; storage uses an `opencode/<id>` prefix and validation
-  only checks that shape. **Never hardcode a Zen model id** — a guessed id fails
-  loud at the SDK boundary (`Model not found`). OpenCode has no effort dimension
-  (reasoning is baked into the model id), so `effort` is `null` and the UI hides
-  the dropdown. `isModelForProvider`/`isEffortForProvider` are the validators;
-  `MODELS_FOR_UI`/`EFFORTS_FOR_UI` are the dropdown sources.
-
-Capabilities ([`../reference/shared/providers/capabilities.ts`](../reference/shared/providers/capabilities.ts))
-are separate from the model/effort enums — that matrix gates Claude-only
-features (see the harness contract). This spec only picks the
-`(provider, model, effort)`; capability guards are core.
+Capabilities are compile-time constants (see [`../extra/harnesses/omp.md`](../extra/harnesses/omp.md)).
+This spec only picks the `(model, effort)`; capability guards are core.
 
 ### Resolution at run start — `loadAgentModelSettings(userId)`
 
@@ -152,14 +139,12 @@ a silent default**. `startAgentRun` then:
 
 1. Resolves the acting user (fails if there is none — there's no user to resolve
    settings for).
-2. Pulls `loadAgentModelSettings(userId)[agentType]` → `(provider, model, effort)`.
-3. **Validates credentials up front** via `getCredentialStore(provider).read(userId)`,
-   re-throwing as `ProviderCredentialsMissingError` so the route layer can render
-   a "Connect &lt;provider&gt;" prompt (HTTP 403) instead of a stacktrace — this is
-   the 403 the core trigger surface mentions.
-4. **Stamps `(provider, model, effort)` onto the new `task_agent_runs` and
-   `conversations` rows** before starting the turn, then passes them into the
-   harness as part of `ProviderRunOptions`.
+2. Pulls `loadAgentModelSettings(userId)[agentType]` → `(model, effort)`.
+3. **Validates credentials up front** via `omp`'s configuration mechanism
+   (`models.yml`), surfacing a typed error if the model's auth is not configured.
+4. **Stamps `(model, effort)` onto the new `task_agent_runs` and
+   `conversations` rows** before starting the turn, then passes them into
+   `omp` as part of the turn input.
 
 See `agentRunner.ts` around the `loadAgentModelSettings` call and the
 `conversationsDb.create(taskId, provider, model, effort)` line. Stamping the
@@ -167,33 +152,23 @@ conversation row is what makes the model **deterministic on resume**.
 
 ### The deterministic-model rule
 
-This is the load-bearing invariant, and it mirrors the harness contract: a turn
-**never runs on a defaulted or inferred model**. On start, the model comes from
-the user's setting; on resume, it comes from the stored conversation row, never
-re-derived. `resolveResumeModelEffort` re-resolves `(model, effort)` from the
-**resuming** user's setting only when that setting targets the *same provider*
-the conversation was created with — **provider is session-bound** and cannot be
-switched mid-conversation (cross-provider resume is out of scope). Any
-mismatch, an unseeded resuming user, a manual chat, or a programmatic resume
-falls back to the row's stored values. The failure mode this prevents is feeding
-an OpenAI model name into the Anthropic SDK; the rule is "fail loud, don't guess."
+This is the load-bearing invariant, and it mirrors the core `omp-integration.md`
+contract: a turn **never runs on a defaulted or inferred model**. On start, the
+model comes from the user's setting; on resume, it comes from the stored
+conversation row, never re-derived. Any mismatch, an unseeded resuming user, a
+manual chat, or a programmatic resume falls back to the row's stored values.
+The rule is "fail loud, don't guess."
 
 ### Seeding and backfill
 
 Because resolution fails loud, every user must be seeded **before** they can run
 an agent. Two mechanisms:
 
-- **Seed on first provider-connect.** After a successful credential write,
-  `ensureUserAgentModelSettings(userId)` (via the non-throwing
-  `seedAgentSettingsAfterConnect` wrapper) seeds all six agents to the highest-
-  priority connected provider's default model (`anthropic`→sonnet,
-  `openai`→gpt-5.5, `opencode`→the *first live* Zen model — declining to seed if
-  none resolves, since guessing an id is forbidden). See `buildSeedSettings` /
-  `defaultSettingForProvider`.
-- **Backfill.** A one-shot migration replicates the historical global default
-  (`DEFAULT_AGENT_MODEL_SETTINGS`, all-Opus/high) into a per-user row for
-  pre-existing users. The legacy `provider ?? 'anthropic'` coercion in
-  `loadAgentModelSettings` keeps those rows valid.
+- **Seed on first configuration.** A user's first visit to the settings page
+  seeds default model selections for each agent type, sourced from `omp`'s
+  available models.
+- **Backfill.** Existing users without a settings row are seeded with sensible
+  defaults on first access.
 
 A **blocking first-login provider modal** is the UX that guarantees a seed
 exists: a brand-new user with no connected provider can't dismiss it, so they
@@ -230,21 +205,17 @@ delete to revert) — see
 - [ ] Per-agent message composition that pre-builds dynamic sections in code and
       injects them via render — and a way to reference one active prompt's path
       from another (the plan-template path).
-- [ ] A per-user `Record<AgentType, {provider, model, effort}>` store (one JSON
+- [ ] A per-user `Record<AgentType, {model, effort}>` store (one JSON
       row per user) with strict load-time validation that **fails loud**, no
       silent default.
-- [ ] Per-provider model + effort enums, with OpenCode treated as a live,
-      prefix-validated, upstream-owned catalog (never a hardcoded list).
-- [ ] Run-start resolution: load the setting, validate provider credentials
-      (typed missing-credentials error), stamp `(provider, model, effort)` on the
-      run + conversation rows, pass them into the harness.
-- [ ] Deterministic resume: read model off the stored row; only re-resolve from
-      the resuming user when the provider matches; never infer at the SDK
-      boundary.
-- [ ] Seed-on-connect + a one-shot backfill, gated by a blocking first-login
-      provider modal so no unseeded user can trigger a run.
-- [ ] Settings UI: an Agent Models tab (provider/model/effort per agent, dropdowns
-      scoped to connected providers) and a prompt-editor surface.
+- [ ] Run-start resolution: load the setting, validate model availability
+      through `omp`'s configuration, stamp `(model, effort)` on the
+      run + conversation rows, pass them into the turn input.
+- [ ] Deterministic resume: read model off the stored row; never infer.
+- [ ] Seed-on-first-configuration: create default settings for a new user on
+      first access so no unseeded user can trigger a run.
+- [ ] Settings UI: a Model/Effort picker per agent type, dropdowns scoped to
+      models available via `omp`, and a prompt-editor surface.
 
 ## Reference map
 
@@ -254,24 +225,22 @@ delete to revert) — see
 | Per-agent message composition | `reference/server/constants/agentPrompts.ts` |
 | Default prompts / templates | `reference/server/constants/{prompts,templates}/*.md` |
 | Per-user settings type + seeding helpers | `reference/shared/types/agentModelSettings.ts` |
-| Settings load/save/seed/resume resolution | `reference/server/services/agentModelSettings.ts` |
+| Settings load/save/resume resolution | `reference/server/services/agentModelSettings.ts` |
 | Run-start resolution + stamping | `reference/server/services/agentRunner.ts` (`loadAgentModelSettings`, `conversationsDb.create`) |
-| Per-provider model + effort enums | `reference/shared/providers/models.ts` |
 | Settings table | `reference/server/database/init.sql` (`user_agent_model_settings`) |
 | Prompt-override HTTP routes | `reference/server/routes/settings.ts` |
 | Per-user model HTTP routes | `reference/server/routes/userAgentModelSettings.ts` |
-| Missing-credentials error | `reference/server/services/credentials/types.ts` (`ProviderCredentialsMissingError`) |
 
 ## Boundaries (not in this spec)
 
-- The provider interface, the `ProviderRunOptions` shape `(model, effort, env)`
-  feeds, and the capability matrix that gates provider-specific features →
-  [`../core/harness-contract.md`](../core/harness-contract.md).
+- The direct `omp` integration, the per-turn input shape `(model, effort, prompt)`
+  feeds, and the capability constants that gate `omp`-specific features →
+  [`../core/omp-integration.md`](../core/omp-integration.md).
 - Where per-user credentials come from and how `env` is built for the SDK, and
   the tech/non-tech role logic behind the planning-prompt split →
   [`./auth-and-multi-user.md`](./auth-and-multi-user.md).
-- Concrete provider/credential integrations (Anthropic OAuth, Codex, OpenCode
-  Zen, the live Zen catalog endpoint) → [`./harnesses/overview.md`](./harnesses/overview.md).
+- Concrete `omp` integration patterns (subprocess lifecycle, event mapping,
+  transcript mirroring, credential delegation) → [`./harnesses/omp.md`](./harnesses/omp.md).
 - The `startAgentRun` entry point itself, chaining, and the run/conversation row
   lifecycle → [`../core/orchestration-loop.md`](../core/orchestration-loop.md).
 - The prompt *content* and the agents' behavioral contracts →

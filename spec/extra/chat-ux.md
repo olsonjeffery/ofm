@@ -27,10 +27,9 @@ runtime a human drives by hand:
 The [orchestration loop](../core/orchestration-loop.md) never sees any of this:
 agents run from prompts the orchestrator builds, not from a human typing into a
 box. These are conveniences for the manual-chat conversation runtime described
-in the [harness contract](../core/harness-contract.md). Skip them and core still
-plans, implements, reviews, and ships. Several are also **provider-gated** — the
-capability matrix in the harness contract decides which ones light up for which
-harness.
+in [`omp-integration.md`](../core/omp-integration.md). Skip them and core still
+plans, implements, reviews, and ships. Several are also **capability-gated** — the
+capability constants in [`omp.md`](./harnesses/omp.md) decide which ones light up.
 
 ## Slash commands
 
@@ -74,7 +73,7 @@ read it, and tell the agent where it is.
 - **Per-conversation upload** → the worktree's `tmp/` dir.
   `saveConversationUpload(repoPath, filename, buffer)`
   ([`reference/server/services/documentation.ts`](../reference/server/services/documentation.ts))
-  sanitises the filename, writes it under `<repo>/tmp/`, and returns a
+  sanitizes the filename, writes it under `<repo>/tmp/`, and returns a
   `relativePath` like `./tmp/foo.txt`. The HTTP entry point is
   `POST /projects/:id/upload`
   ([`reference/server/routes/projects.ts`](../reference/server/routes/projects.ts),
@@ -152,9 +151,8 @@ the task channel (the task viewer's conversation list). It is invoked from the
 logs and returns — the conversation is unaffected.
 
 > The reference titler shells out to the `claude` CLI directly rather than going
-> through the `LlmProvider` interface. That keeps it Claude-coupled; if you want
-> titles for non-Claude conversations, route it through your harness contract
-> instead. It is a cosmetic nicety either way.
+> through the streaming runtime. For `omprint`, route title generation through
+> the `omp` RPC session instead. It is a cosmetic nicety either way.
 
 ## Context-usage meter
 
@@ -224,11 +222,10 @@ break.
 ## Boundaries (not in this spec)
 
 - The conversation runtime that these hook into — streaming, transcript
-  persistence, the `LlmProvider` contract, and the `ProviderCapabilities` matrix
-  itself → [`../core/harness-contract.md`](../core/harness-contract.md).
+  persistence, and the `omp` RPC protocol → [`../core/omp-integration.md`](../core/omp-integration.md).
 - The autonomous agent pipeline (none of these features touch it) →
   [`../core/orchestration-loop.md`](../core/orchestration-loop.md).
 - The task doc and `input_files/` lifecycle and where the archive lives →
   [`../core/task-and-workspace.md`](../core/task-and-workspace.md).
-- Per-provider capability values and how a provider advertises them →
-  [`./harnesses/overview.md`](./harnesses/overview.md).
+- `omp`'s capability values and how they are advertised →
+  [`./harnesses/omp.md`](./harnesses/omp.md).
