@@ -1,8 +1,14 @@
 # Extra — Auth and multi-user
 
+> **⚠️`omprint` ONLY ⚠️:** Rust convention requires functions and `let` bindings
+> use `snake_case` as a naming convention; In all places where `camelCase`
+> occurs (referring to the typescript `reference/` implementation of `bottega`),
+> substitute for `snake_case` as appropriate; `PascalCase` is used for `trait`s,
+> `struct`s, `enum`s, etc
+
 ## What it adds
 
-Turns Bottega from a single-operator tool into something a small company can
+Turns `omprint` from a single-operator tool into something a small company can
 deploy: real **user accounts**, **login** that issues a long-lived token,
 per-user **API keys** for scripted access, **project-membership authorization**
 that scopes every task/project/agent-run to the people allowed to see it, an
@@ -11,13 +17,12 @@ that scopes every task/project/agent-run to the people allowed to see it, an
 the manual plan-review gate).
 
 **Scope note up front — this is *app-level* auth: who is allowed to use
-Bottega.** It is **not** the per-provider coding-harness credentials (Claude
-OAuth, Codex, OpenCode Zen) an agent needs to actually run a turn. Those are a
-different concern and live in the harness specs
-([`harnesses/overview.md`](./harnesses/overview.md) and the per-tool files) and
-in [`prompt-and-model-customization.md`](./prompt-and-model-customization.md).
+~Bottega~ `omprint`.** It is **not** the `omp` provider credentials an agent needs to
+actually run a turn. Those are a different concern and live in the harness spec
+([`harnesses/omp.md`](./harnesses/omp.md)) and in
+[`prompt-and-model-customization.md`](./prompt-and-model-customization.md).
 The seam: this spec resolves *which user* a request belongs to; those specs
-resolve *which provider credentials* that user runs agents with.
+resolve *which model credentials* that user runs agents with.
 
 ## Why it's an extra (not core)
 
@@ -307,10 +312,8 @@ become per-user / membership-gated:
 
 ## Boundaries (not in this spec)
 
-- **Per-provider coding-harness credentials** (Claude OAuth / Codex / OpenCode
-  Zen) — how a resolved user actually authenticates an agent turn →
-  [`harnesses/overview.md`](./harnesses/overview.md) and the per-tool harness
-  specs.
+- **`omp` provider credentials** — how a resolved user's configured `models.yml`
+  authenticates an agent turn → [`harnesses/omp.md`](./harnesses/omp.md).
 - **Per-user provider/model selection**, the provider-connect flow, and the
   first-login provider modal that flips `has_completed_onboarding` →
   [`prompt-and-model-customization.md`](./prompt-and-model-customization.md).
