@@ -1,6 +1,6 @@
 # Extra — Prompt and model customization
 
-Two independent customization layers sit on top of the core agents. Neither is
+Two independent customization layers sit on top of `omp`. Neither is
 required; core ships fixed prompts and `omp` is the single harness
 (see [`../core/omp-integration.md`](../core/omp-integration.md)). This extra
 makes both **configurable** — the *what an agent says* and the *what runs it*.
@@ -46,14 +46,14 @@ reference. See the `PROMPT_DEFINITIONS` array in
 The registry is what the settings UI lists and what variable-validation checks
 against.
 
-### The override lookup: default vs `~/.bottega/prompts/`
+### The override lookup: default vs `~/.omprint/prompts/`
 
 Resolution is two-tier and dead simple. For a prompt named `X`:
 
 - The **default** lives at `server/constants/{prompts,templates}/X.md` (bundled
-  with the app).
+  with the app via `include_str!`).
 - An **override** may live at `<archiveRoot>/{prompts,templates}/X.md`, where
-  `archiveRoot` is `$BOTTEGA_ARCHIVE_ROOT` or `~/.bottega` by default.
+  `archiveRoot` is `$BOTTEGA_ARCHIVE_ROOT` or `~/.omprint` by default.
 
 `loadPrompt(name)` returns the override file if it exists, otherwise the default
 (`loadOverride` → `loadDefault`). That is the entire override mechanism — file

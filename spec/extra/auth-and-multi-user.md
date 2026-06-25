@@ -1,8 +1,14 @@
 # Extra — Auth and multi-user
 
+> **⚠️`omprint` ONLY ⚠️:** Rust convention requires functions and `let` bindings
+> use `snake_case` as a naming convention; In all places where `camelCase`
+> occurs (referring to the typescript `reference/` implementation of `bottega`),
+> substitute for `snake_case` as appropriate; `PascalCase` is used for `trait`s,
+> `struct`s, `enum`s, etc
+
 ## What it adds
 
-Turns Bottega from a single-operator tool into something a small company can
+Turns `omprint` from a single-operator tool into something a small company can
 deploy: real **user accounts**, **login** that issues a long-lived token,
 per-user **API keys** for scripted access, **project-membership authorization**
 that scopes every task/project/agent-run to the people allowed to see it, an
@@ -11,7 +17,7 @@ that scopes every task/project/agent-run to the people allowed to see it, an
 the manual plan-review gate).
 
 **Scope note up front — this is *app-level* auth: who is allowed to use
-Bottega.** It is **not** the `omp` provider credentials an agent needs to
+~Bottega~ `omprint`.** It is **not** the `omp` provider credentials an agent needs to
 actually run a turn. Those are a different concern and live in the harness spec
 ([`harnesses/omp.md`](./harnesses/omp.md)) and in
 [`prompt-and-model-customization.md`](./prompt-and-model-customization.md).

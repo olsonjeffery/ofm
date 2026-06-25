@@ -120,7 +120,7 @@ plain file in a repo. That is exactly why the board is an *extra*, not core.
 ## Design philosophy: small and simple
 
 `omprint` is meant to stay small. The core is a tight orchestration engine and
-nothing more. If your team needs something different — another harness, another
+nothing more. If your team needs something different — ~another harness~, another
 agent role, a different task source — you **fork the behavior into your own
 extra**; you don't grow the core.
 
@@ -162,7 +162,7 @@ Opinionated features. Each is independent; implement what you want.
 | **🚫 No** | [`extra/pr-comment-retrigger.md`](./extra/pr-comment-retrigger.md) | Re-run the PR agent automatically when a PR receives review comments (periodic PR polling). |
 | **🚫 No** | [`extra/prompt-and-model-customization.md`](./extra/prompt-and-model-customization.md) | Per-agent prompt overrides and per-user model/effort selection. |
 | **🚫 No** | [`extra/auth-and-multi-user.md`](./extra/auth-and-multi-user.md) | OAuth-integration, Accounts, API keys, project membership, admin, and role-driven behavior (e.g. auto-advancing past the plan gate for non-technical users). |
-| **🚫 No** | [`extra/chat-ux.md`](./extra/chat-ux.md) | Manual-chat conveniences: slash commands, file attachments, voice input, title generation, the context-usage meter. |
+| **✅ Yes** | [`extra/chat-ux.md`](./extra/chat-ux.md) | Manual-chat conveniences: slash commands, file attachments, voice input, title generation, the context-usage meter. |
 
 ## The reference implementation
 

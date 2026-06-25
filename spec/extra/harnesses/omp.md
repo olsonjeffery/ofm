@@ -20,8 +20,9 @@ The core spec defines *what* the integration does; this file defines *how*.
 
 ### Spawning
 
-`omprint` uses [`portable-pty`][0] to create a pseudoterminal, fork `omp rpc`,
+`omprint` uses [`portable-pty`][0] to create a pseudoterminal, fork `omp mode --rpc`,
 and obtain:
+
 - `pid` — the subprocess process id (for audit and abort)
 - `STDIN` writer — to send RPC messages
 - `STDOUT` reader — to receive RPC events
@@ -38,6 +39,7 @@ let stdout = child.take_stdout()?;
 ### Per-turn lifecycle
 
 Each agent turn gets a **fresh `omp` subprocess**. The subprocess:
+
 1. Is spawned at turn start
 2. Receives the turn input (start/resume message) via `STDIN`
 3. Streams events back via `STDOUT`
@@ -49,6 +51,7 @@ simple and avoids state leakage between turns.
 ### Abortion
 
 On abort:
+
 1. `omprint` kills the pty subprocess with `SIGKILL`
 2. The agent run row is written to `failed` **synchronously**
 3. The completion handler sees the `failed` status and does not chain
@@ -65,6 +68,7 @@ fn abort(pid: u32) {
 ### Cleanup
 
 When a turn ends normally:
+
 - The `omp` subprocess exits on its own
 - `omprint` closes its `STDIN` writer and `STDOUT` reader
 - The pty handle is dropped, releasing system resources
@@ -190,9 +194,11 @@ are **compile-time constants**, not a runtime matrix:
 
 Verify these against [`omp` documentation][1] for the current state.
 
+> **NOTE regarding `ask` in RPC mode:** `omp`'s `ask` tool is tightly coupled to the TUI and is unavailable in RPC mode; we need to build an ask tool and inject it into `omp` on startup (we will probably need to build several tools for custom/tight-integration)
+
 ## What to build
 
-- [ ] `portable-pty` subprocess spawning for `omp rpc` with `pid`, `STDIN`
+- [ ] `portable-pty` subprocess spawning for `omp --mode rpc` with `pid`, `STDIN`
       writer, `STDOUT` reader
 - [ ] Per-turn subprocess lifecycle (fresh subprocess per turn, cleanup on end)
 - [ ] Abort: `SIGKILL` + synchronous `failed` write on agent run
@@ -209,7 +215,6 @@ Verify these against [`omp` documentation][1] for the current state.
 
 | Concern | File |
 |---|---|
-| `portable-pty` usage | `reference/server/services/providers/anthropic/index.ts` (pattern) |
 | Event mapping pattern | `reference/server/services/providers/anthropic/mapMessage.ts` (pattern) |
 | Transcript mirror pattern | `reference/server/services/providers/openai/messageMirror.ts` (pattern) |
 | Session store pattern | `reference/server/services/sqliteSessionStore.ts` (pattern) |
