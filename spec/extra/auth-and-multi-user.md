@@ -128,7 +128,7 @@ When no `OIDC_ISSUER_URL` is provided (or `RAUTHY_ENABLED=true` is set),
 
 ### PTY lifecycle
 
-- On startup, `omprint` spawns rauthy in a PTY at a random free port.
+- On startup, `omprint` spawns rauthy in a PTY at `omprint` PORT + 199.
 - `omprint` configures rauthy via environment variables passed to the
   subprocess (rauthy's config surface is mapped from `omprint`'s own config).
 - An axum reverse proxy at `/auth` forwards requests to the rauthy port.
@@ -240,6 +240,7 @@ A Tower middleware in axum handles all request authentication. It replaces the
 reference's JWT+bcrypt middleware with JWKS-based OAuth token verification.
 
 **Startup:**
+
 1. OIDC discovery: fetch `{issuer}/.well-known/openid-configuration`.
 2. Extract `jwks_uri` from the discovery document.
 3. Fetch the JWKS (JSON Web Key Set) from `jwks_uri`.
@@ -248,6 +249,7 @@ reference's JWT+bcrypt middleware with JWKS-based OAuth token verification.
    server fails loud and refuses to start.
 
 **Per-request (`authenticate_token`):**
+
 1. Extract the token from the `Authorization: Bearer <token>` header (or from
    the `?token=` query parameter for WebSocket / compatibility clients).
 2. Check the token prefix:
@@ -268,6 +270,7 @@ reference's JWT+bcrypt middleware with JWKS-based OAuth token verification.
    user, etc.), return 401 Unauthorized.
 
 **Key rotation:**
+
 - If a token's `kid` is not present in the cached JWKS, fetch a fresh JWKS
   from the provider and re-attempt verification.
 - A periodic background refresh re-fetches the JWKS every hour.
@@ -306,6 +309,7 @@ page.
    - Store the `code_verifier` in a short-lived server-side session (or
      encrypted cookie).
 3. Redirect the browser to the provider's `authorization_endpoint` with:
+
    ```
    ?response_type=code
    &client_id={client_id}
@@ -323,6 +327,7 @@ The callback route (`GET /webapp/auth/callback`) is an SSR endpoint that:
 1. Extracts `code` and `state` from query parameters. Validates `state` against
    the stored value (anti-forgery).
 2. POSTs to the provider's `token_endpoint` with:
+
    ```
    grant_type=authorization_code
    &code={code}
@@ -331,6 +336,7 @@ The callback route (`GET /webapp/auth/callback`) is an SSR endpoint that:
    &client_secret={client_secret}
    &code_verifier={verifier}
    ```
+
 3. Receives `access_token`, `refresh_token`, and `id_token`.
 4. Validates the ID token using the same JWKS verification as the server
    middleware (signature, `iss`, `aud`, `exp`).
@@ -374,12 +380,14 @@ The auth route table is updated to reflect OAuth-based authentication:
 | `/api/auth/profile` | PUT | authenticate_token | Toggle `is_technical` (unchanged). |
 
 Routes **removed** from the reference:
+
 - `POST /api/auth/register` — no local registration; user provisioning is
-  handled through the OIDC provider.
+  handled through the OIDC provider (except in case of rauthy)
 - `POST /api/auth/login` — no local password login; authentication is handled
   entirely through OIDC.
 
 Routes **unchanged** from the reference:
+
 - `GET /api/auth/user` — returns the safe user record for the current session.
 - `PUT /api/auth/profile` — toggles `is_technical` for the current user.
 
