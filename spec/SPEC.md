@@ -68,7 +68,7 @@ dependency (**NOTE:** this does not apply to `omp` itself)
 
 ## Details on the `omprint` server implementation
 
-- On startup, `omprint` will begin listening on the configured `HOSTNAME` +
+- On startup, `omprint` will begin listening on the configured `OMPRINT_HOSTNAME` +
 `PORT`
 - Requests to `/` or `/webapp` are for the `omprint` web application
   - specifically: requests to `/` will redirect to `/webapp`
