@@ -108,6 +108,36 @@ the CLI or be set up via a superviser system (e.g. [systemd][8])
 - Several subtle tweaks on _vanilla_ `bottega` that reflect the tastes
 of `omprint`'s maintainership
 
+## Project Status
+
+**Ground Zero** — This project is in its earliest stages. Database schema and migration system are in place; server and agent orchestration are coming next.
+
+## Quick Start
+
+### Prerequisites
+
+- [Rust toolchain](https://rustup.rs/) (edition 2021, minimum Rust 1.75+)
+
+### Build & Run
+
+```sh
+cargo build
+cargo run
+```
+
+On first run, this will:
+1. Create a `data/` directory for the embedded database
+2. Apply all pending migrations to initialize the schema
+3. Print the number of migrations applied
+
+### Run Tests
+
+```sh
+cargo test
+```
+
+For more details on the project architecture, see [ARCHITECTURE.md](./ARCHITECTURE.md).
+
 ## Installation
 
 1. `cargo install --git https://github.com/olsonjeffery/omprint`
