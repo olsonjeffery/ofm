@@ -21,7 +21,7 @@ pub fn sanitize_title(title: &str) -> String {
     s
 }
 
-pub fn valid_branch_name(name: &str) -> Result<&str, Box<dyn std::error::Error>> {
+pub fn valid_branch_name(name: &str) -> Result<(), Box<dyn std::error::Error>> {
     if name.is_empty() {
         return Err(format!("invalid branch name: {name}").into());
     }
@@ -37,18 +37,18 @@ pub fn valid_branch_name(name: &str) -> Result<&str, Box<dyn std::error::Error>>
             return Err(format!("invalid branch name: {name}").into());
         }
     }
-    Ok(name)
+    Ok(())
 }
 
 pub fn get_worktree_path(repo_path: &str, project_id: u32, task_id: u32) -> PathBuf {
     let worktrees_root = format!("{}-worktrees", repo_path.trim_end_matches('/'));
-    PathBuf::from(worktrees_root)
-        .join(format!("project-{project_id}/task-{task_id}/"))
+    PathBuf::from(worktrees_root).join(format!("project-{project_id}/task-{task_id}/"))
 }
 
 pub async fn detect_default_branch(repo_path: &str) -> Result<String, Box<dyn std::error::Error>> {
     let output = Command::new("git")
         .args(["symbolic-ref", "refs/remotes/origin/HEAD"])
+        .env("GIT_DISABLE_HOOKS", "1")
         .current_dir(repo_path)
         .output()
         .await?;
@@ -63,6 +63,7 @@ pub async fn detect_default_branch(repo_path: &str) -> Result<String, Box<dyn st
 
     let output = Command::new("git")
         .args(["rev-parse", "--abbrev-ref", "HEAD"])
+        .env("GIT_DISABLE_HOOKS", "1")
         .current_dir(repo_path)
         .output()
         .await?;
@@ -85,11 +86,10 @@ pub async fn create_worktree(
     title: &str,
     base_branch: Option<&str>,
 ) -> Result<CreateWorktreeResult, Box<dyn std::error::Error>> {
-    let worktrees_root = format!("{}-worktrees", repo_path.trim_end_matches('/'));
-    let worktrees_dir = PathBuf::from(&worktrees_root);
-    tokio::fs::create_dir_all(&worktrees_dir).await?;
-
     let worktree_path = get_worktree_path(repo_path, project_id, task_id);
+    if let Some(parent) = worktree_path.parent() {
+        tokio::fs::create_dir_all(parent).await?;
+    }
     let sanitized = sanitize_title(title);
     let branch = format!("task/{task_id}-{sanitized}");
     valid_branch_name(&branch)?;
@@ -109,6 +109,7 @@ pub async fn create_worktree(
             &worktree_path.to_string_lossy(),
             &base,
         ])
+        .env("GIT_DISABLE_HOOKS", "1")
         .current_dir(repo_path)
         .output()
         .await?;
@@ -153,7 +154,10 @@ async fn symlink_env_files(repo_path: &str, worktree_path: &Path) {
 
         #[cfg(not(unix))]
         {
-            tracing::warn!("symlink not supported on this platform, skipping {}", filename);
+            tracing::warn!(
+                "symlink not supported on this platform, skipping {}",
+                filename
+            );
         }
     }
 }
@@ -208,6 +212,7 @@ pub async fn remove_worktree(
 
     let branch_output = Command::new("git")
         .args(["branch", "--show-current"])
+        .env("GIT_DISABLE_HOOKS", "1")
         .current_dir(&worktree_path)
         .output()
         .await?;
@@ -215,13 +220,23 @@ pub async fn remove_worktree(
     let branch = if branch_output.status.success() {
         let stdout = String::from_utf8_lossy(&branch_output.stdout);
         let b = stdout.trim().to_string();
-        if b.is_empty() { None } else { Some(b) }
+        if b.is_empty() {
+            None
+        } else {
+            Some(b)
+        }
     } else {
         None
     };
 
     let remove_output = Command::new("git")
-        .args(["worktree", "remove", "--force", &worktree_path.to_string_lossy()])
+        .args([
+            "worktree",
+            "remove",
+            "--force",
+            &worktree_path.to_string_lossy(),
+        ])
+        .env("GIT_DISABLE_HOOKS", "1")
         .current_dir(repo_path)
         .output()
         .await?;
@@ -234,6 +249,7 @@ pub async fn remove_worktree(
     if let Some(b) = branch {
         let _ = Command::new("git")
             .args(["branch", "-D", &b])
+            .env("GIT_DISABLE_HOOKS", "1")
             .current_dir(repo_path)
             .output()
             .await;
@@ -315,19 +331,13 @@ mod tests {
     #[test]
     fn test_get_worktree_path() {
         let path = get_worktree_path("/repo", 1, 42);
-        assert_eq!(
-            path,
-            PathBuf::from("/repo-worktrees/project-1/task-42/")
-        );
+        assert_eq!(path, PathBuf::from("/repo-worktrees/project-1/task-42/"));
     }
 
     #[test]
     fn test_get_worktree_path_trailing_slash() {
         let path = get_worktree_path("/repo/", 2, 99);
-        assert_eq!(
-            path,
-            PathBuf::from("/repo-worktrees/project-2/task-99/")
-        );
+        assert_eq!(path, PathBuf::from("/repo-worktrees/project-2/task-99/"));
     }
 
     #[test]

@@ -153,7 +153,8 @@ pub fn ensure_default_user(conn: &Connection) -> Result<Uuid, rusqlite::Error> {
     let mut stmt = conn.prepare("SELECT id FROM users WHERE username = 'default'")?;
     let existing: Option<String> = stmt.query_row([], |row| row.get(0)).optional()?;
     if let Some(id) = existing {
-        return Ok(Uuid::parse_str(&id).map_err(|e| rusqlite::Error::ToSqlConversionFailure(Box::new(e)))?);
+        return Uuid::parse_str(&id)
+            .map_err(|e| rusqlite::Error::ToSqlConversionFailure(Box::new(e)));
     }
     let id = Uuid::new_v4();
     conn.execute(
