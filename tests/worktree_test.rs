@@ -10,7 +10,11 @@ async fn init_test_repo(dir: &Path) {
         .output()
         .await
         .expect("git init failed");
-    assert!(output.status.success(), "git init failed: {:?}", output.stderr);
+    assert!(
+        output.status.success(),
+        "git init failed: {:?}",
+        output.stderr
+    );
 
     tokio::process::Command::new("git")
         .args(["config", "user.email", "test@test.com"])
@@ -58,7 +62,10 @@ async fn test_create_and_remove_worktree() {
         .await
         .expect("create_worktree failed");
 
-    assert!(result.worktree_path.exists(), "worktree directory should exist");
+    assert!(
+        result.worktree_path.exists(),
+        "worktree directory should exist"
+    );
     assert_eq!(result.branch, "task/42-test-feature");
 
     let branch_list = tokio::process::Command::new("git")
@@ -82,7 +89,10 @@ async fn test_create_and_remove_worktree() {
         .await
         .expect("remove_worktree failed");
 
-    assert!(!result.worktree_path.exists(), "worktree directory should be removed");
+    assert!(
+        !result.worktree_path.exists(),
+        "worktree directory should be removed"
+    );
 
     let branch_list = tokio::process::Command::new("git")
         .args(["branch", "--list", "task/42-test-feature"])
@@ -151,7 +161,10 @@ async fn test_symlink_env_files() {
         .expect("create_worktree failed");
 
     let symlink_path = result.worktree_path.join(".env");
-    assert!(symlink_path.exists(), ".env symlink should exist in worktree");
+    assert!(
+        symlink_path.exists(),
+        ".env symlink should exist in worktree"
+    );
 
     #[cfg(unix)]
     {
@@ -177,7 +190,10 @@ async fn test_remove_nonexistent_worktree() {
     init_test_repo(tmp.path()).await;
 
     let result = remove_worktree(&repo_path(&tmp), 999, 999).await;
-    assert!(result.is_ok(), "removing nonexistent worktree should succeed");
+    assert!(
+        result.is_ok(),
+        "removing nonexistent worktree should succeed"
+    );
 }
 
 #[tokio::test]
