@@ -1,10 +1,12 @@
 #[cfg(unix)]
 use std::os::unix::fs::PermissionsExt;
+use std::sync::{Arc, Mutex};
 
 mod config;
 mod db;
 mod logging;
 mod server;
+mod services;
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
@@ -28,8 +30,17 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let count = db::run_migrations(&conn)?;
     tracing::info!("Migrations complete: {} applied", count);
 
+    // Ensure a default user exists (auth not yet implemented)
+    let default_user_id = db::ensure_default_user(&conn)?;
+    tracing::info!("Default user id: {}", default_user_id);
+
+    let state = server::state::AppState {
+        db: Arc::new(Mutex::new(conn)),
+        default_user_id,
+    };
+
     // Server
-    let app = server::router();
+    let app = server::router(state);
     let addr = format!("{}:{}", cfg.hostname, cfg.port);
     tracing::info!("Starting server on {}", addr);
 

@@ -1,6 +1,8 @@
 pub mod schema;
 
 use rusqlite::Connection;
+use rusqlite::OptionalExtension;
+use uuid::Uuid;
 
 const MIGRATIONS: &[(&str, &str)] = &[
     (
@@ -114,6 +116,10 @@ const MIGRATIONS: &[(&str, &str)] = &[
             settings_json TEXT NOT NULL
         )",
     ),
+    (
+        "unique_project_repo_path",
+        "CREATE UNIQUE INDEX IF NOT EXISTS idx_projects_repo_folder_path ON projects(repo_folder_path)",
+    ),
 ];
 
 pub fn run_migrations(conn: &Connection) -> Result<usize, Box<dyn std::error::Error>> {
@@ -141,4 +147,18 @@ pub fn run_migrations(conn: &Connection) -> Result<usize, Box<dyn std::error::Er
     }
 
     Ok(count)
+}
+
+pub fn ensure_default_user(conn: &Connection) -> Result<Uuid, rusqlite::Error> {
+    let mut stmt = conn.prepare("SELECT id FROM users WHERE username = 'default'")?;
+    let existing: Option<String> = stmt.query_row([], |row| row.get(0)).optional()?;
+    if let Some(id) = existing {
+        return Ok(Uuid::parse_str(&id).map_err(|e| rusqlite::Error::ToSqlConversionFailure(Box::new(e)))?);
+    }
+    let id = Uuid::new_v4();
+    conn.execute(
+        "INSERT INTO users (id, username, is_admin, is_technical) VALUES (?1, 'default', 1, 1)",
+        rusqlite::params![id.to_string()],
+    )?;
+    Ok(id)
 }
