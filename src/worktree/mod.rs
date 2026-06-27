@@ -42,8 +42,7 @@ pub fn valid_branch_name(name: &str) -> Result<(), Box<dyn std::error::Error>> {
 
 pub fn get_worktree_path(repo_path: &str, project_id: u32, task_id: u32) -> PathBuf {
     let worktrees_root = format!("{}-worktrees", repo_path.trim_end_matches('/'));
-    PathBuf::from(worktrees_root)
-        .join(format!("project-{project_id}/task-{task_id}/"))
+    PathBuf::from(worktrees_root).join(format!("project-{project_id}/task-{task_id}/"))
 }
 
 pub async fn detect_default_branch(repo_path: &str) -> Result<String, Box<dyn std::error::Error>> {
@@ -155,7 +154,10 @@ async fn symlink_env_files(repo_path: &str, worktree_path: &Path) {
 
         #[cfg(not(unix))]
         {
-            tracing::warn!("symlink not supported on this platform, skipping {}", filename);
+            tracing::warn!(
+                "symlink not supported on this platform, skipping {}",
+                filename
+            );
         }
     }
 }
@@ -218,13 +220,22 @@ pub async fn remove_worktree(
     let branch = if branch_output.status.success() {
         let stdout = String::from_utf8_lossy(&branch_output.stdout);
         let b = stdout.trim().to_string();
-        if b.is_empty() { None } else { Some(b) }
+        if b.is_empty() {
+            None
+        } else {
+            Some(b)
+        }
     } else {
         None
     };
 
     let remove_output = Command::new("git")
-        .args(["worktree", "remove", "--force", &worktree_path.to_string_lossy()])
+        .args([
+            "worktree",
+            "remove",
+            "--force",
+            &worktree_path.to_string_lossy(),
+        ])
         .env("GIT_DISABLE_HOOKS", "1")
         .current_dir(repo_path)
         .output()
@@ -320,19 +331,13 @@ mod tests {
     #[test]
     fn test_get_worktree_path() {
         let path = get_worktree_path("/repo", 1, 42);
-        assert_eq!(
-            path,
-            PathBuf::from("/repo-worktrees/project-1/task-42/")
-        );
+        assert_eq!(path, PathBuf::from("/repo-worktrees/project-1/task-42/"));
     }
 
     #[test]
     fn test_get_worktree_path_trailing_slash() {
         let path = get_worktree_path("/repo/", 2, 99);
-        assert_eq!(
-            path,
-            PathBuf::from("/repo-worktrees/project-2/task-99/")
-        );
+        assert_eq!(path, PathBuf::from("/repo-worktrees/project-2/task-99/"));
     }
 
     #[test]

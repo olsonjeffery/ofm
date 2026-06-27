@@ -19,7 +19,10 @@ impl IntoResponse for ServerError {
             ServerError::Conflict(msg) => (StatusCode::CONFLICT, msg),
             ServerError::Internal(msg) => {
                 tracing::error!("Internal server error: {msg}");
-                (StatusCode::INTERNAL_SERVER_ERROR, "Internal server error".to_string())
+                (
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    "Internal server error".to_string(),
+                )
             }
         };
         (status, Json(json!({ "error": message }))).into_response()

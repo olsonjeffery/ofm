@@ -26,11 +26,16 @@ pub fn get_project_archive_path(project_id: &str) -> Result<PathBuf, Box<dyn std
     Ok(get_archive_root().join("projects").join(project_id))
 }
 
-pub fn get_archive_tasks_folder_path(project_id: &str) -> Result<PathBuf, Box<dyn std::error::Error>> {
+pub fn get_archive_tasks_folder_path(
+    project_id: &str,
+) -> Result<PathBuf, Box<dyn std::error::Error>> {
     Ok(get_project_archive_path(project_id)?.join("tasks"))
 }
 
-pub fn get_task_doc_path(project_id: &str, task_id: &str) -> Result<PathBuf, Box<dyn std::error::Error>> {
+pub fn get_task_doc_path(
+    project_id: &str,
+    task_id: &str,
+) -> Result<PathBuf, Box<dyn std::error::Error>> {
     Ok(get_archive_tasks_folder_path(project_id)?.join(format!("task-{task_id}.md")))
 }
 
@@ -69,10 +74,7 @@ mod tests {
         let previous = env::var("OMPRINT_ARCHIVE_ROOT").ok();
         env::set_var("OMPRINT_ARCHIVE_ROOT", "/base");
         let result = get_task_doc_path("42", "7").unwrap();
-        assert_eq!(
-            result,
-            PathBuf::from("/base/projects/42/tasks/task-7.md")
-        );
+        assert_eq!(result, PathBuf::from("/base/projects/42/tasks/task-7.md"));
         if let Some(val) = previous {
             env::set_var("OMPRINT_ARCHIVE_ROOT", val);
         } else {
@@ -119,10 +121,7 @@ mod tests {
     #[test]
     fn test_expand_tilde() {
         let home = env::var("HOME").unwrap();
-        assert_eq!(
-            expand_tilde("~/.omprint"),
-            format!("{}/.omprint", home)
-        );
+        assert_eq!(expand_tilde("~/.omprint"), format!("{}/.omprint", home));
         assert_eq!(expand_tilde("/absolute/path"), "/absolute/path");
         assert_eq!(expand_tilde("relative/path"), "relative/path");
     }

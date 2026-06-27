@@ -31,18 +31,12 @@ impl ArchiveRoot {
         std::fs::create_dir_all(&tasks_path)?;
         #[cfg(unix)]
         {
-            let _ = std::fs::set_permissions(
-                &tasks_path,
-                std::fs::Permissions::from_mode(0o700),
-            );
+            let _ = std::fs::set_permissions(&tasks_path, std::fs::Permissions::from_mode(0o700));
         }
         Ok(())
     }
 
-    pub fn read_task_doc(
-        &self,
-        path: &Path,
-    ) -> Result<String, Box<dyn std::error::Error>> {
+    pub fn read_task_doc(&self, path: &Path) -> Result<String, Box<dyn std::error::Error>> {
         if !path.exists() {
             return Ok(String::new());
         }
@@ -91,7 +85,9 @@ impl ArchiveRoot {
         let proj_root = self.root.join("projects").join(project_id);
         let doc_path = proj_root.join("tasks").join(format!("task-{task_id}.md"));
         let task_dir = proj_root.join("tasks").join(format!("task-{task_id}"));
-        let recording_file = proj_root.join("recordings").join(format!("task-{task_id}.webm"));
+        let recording_file = proj_root
+            .join("recordings")
+            .join(format!("task-{task_id}.webm"));
 
         if doc_path.exists() {
             std::fs::remove_file(&doc_path)?;
@@ -139,7 +135,9 @@ Note: any `.bottega/tasks/*.md` files inside the repo itself are legacy from bef
 
         // Input Files section
         let tasks_root = paths::get_archive_tasks_folder_path(project_id)?;
-        let input_dir = tasks_root.join(format!("task-{task_id}")).join("input_files");
+        let input_dir = tasks_root
+            .join(format!("task-{task_id}"))
+            .join("input_files");
         if input_dir.exists() && input_dir.is_dir() {
             let mut entries: Vec<String> = Vec::new();
             for entry in std::fs::read_dir(&input_dir)? {

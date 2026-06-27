@@ -2,8 +2,8 @@ pub mod error;
 pub mod routes;
 pub mod state;
 
-use axum::{routing::get, Router};
 use crate::server::state::AppState;
+use axum::{routing::get, Router};
 
 pub fn router(state: AppState) -> Router {
     Router::new()

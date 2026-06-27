@@ -14,10 +14,8 @@ impl OmprintConfig {
                 .ok()
                 .and_then(|s| s.parse().ok())
                 .unwrap_or(3183),
-            archive_root: std::env::var("OMPRINT_ARCHIVE_ROOT")
-                .unwrap_or("storage/".into()),
-            db_path: std::env::var("OMPRINT_DB_PATH")
-                .unwrap_or("data/omprint.db".into()),
+            archive_root: std::env::var("OMPRINT_ARCHIVE_ROOT").unwrap_or("storage/".into()),
+            db_path: std::env::var("OMPRINT_DB_PATH").unwrap_or("data/omprint.db".into()),
         }
     }
 }
