@@ -39,6 +39,12 @@ async fn create_project(
         return Err(ServerError::BadRequest("repo_folder_path is required".into()));
     }
     validate_repo_path(body.repo_folder_path.trim())?;
+    if let Some(ref sp) = body.subproject_path {
+        let trimmed = sp.trim();
+        if !trimmed.is_empty() {
+            validate_subproject_path(trimmed)?;
+        }
+    }
     let conn = state.db.lock().map_err(|e| ServerError::Internal(e.to_string()))?;
     let project = services::projects::create_project(
         &conn,
@@ -80,14 +86,20 @@ async fn update_project(
     Path(id): Path<Uuid>,
     Json(body): Json<UpdateProjectRequest>,
 ) -> Result<Json<Project>, ServerError> {
-    if body.name.as_deref().map_or(false, |n| n.trim().is_empty()) {
+    if body.name.as_deref().is_some_and(|n| n.trim().is_empty()) {
         return Err(ServerError::BadRequest("name must not be empty".into()));
     }
-    if body.repo_folder_path.as_deref().map_or(false, |r| r.trim().is_empty()) {
+    if body.repo_folder_path.as_deref().is_some_and(|r| r.trim().is_empty()) {
         return Err(ServerError::BadRequest("repo_folder_path must not be empty".into()));
     }
     if let Some(ref path) = body.repo_folder_path {
         validate_repo_path(path.trim())?;
+    }
+    if let Some(ref sp) = body.subproject_path {
+        let trimmed = sp.trim();
+        if !trimmed.is_empty() {
+            validate_subproject_path(trimmed)?;
+        }
     }
     let conn = state.db.lock().map_err(|e| ServerError::Internal(e.to_string()))?;
     let project = services::projects::update_project(
@@ -95,7 +107,7 @@ async fn update_project(
         &id,
         body.name.as_deref().map(|s| s.trim()),
         body.repo_folder_path.as_deref().map(|s| s.trim()),
-        body.subproject_path.as_ref().map(|s| s.as_str()),
+        body.subproject_path.as_deref(),
     ).map_err(|e| {
         if e.to_string().contains("UNIQUE") {
             ServerError::Conflict("A project with this repository path already exists".into())
@@ -135,6 +147,20 @@ fn validate_repo_path(path: &str) -> Result<(), ServerError> {
     if path.len() > 4096 {
         return Err(ServerError::BadRequest(
             "repo_folder_path is too long".into(),
+        ));
+    }
+    Ok(())
+}
+
+fn validate_subproject_path(path: &str) -> Result<(), ServerError> {
+    if path.contains("..") {
+        return Err(ServerError::BadRequest(
+            "subproject_path must not contain path traversal sequences".into(),
+        ));
+    }
+    if path.len() > 4096 {
+        return Err(ServerError::BadRequest(
+            "subproject_path is too long".into(),
         ));
     }
     Ok(())

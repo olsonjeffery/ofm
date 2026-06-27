@@ -1,9 +1,9 @@
 use std::path::PathBuf;
 
 fn expand_tilde(path: &str) -> String {
-    if path.starts_with("~/") {
+    if let Some(stripped) = path.strip_prefix("~/") {
         if let Ok(home) = std::env::var("HOME") {
-            return format!("{}/{}", home, &path[2..]);
+            return format!("{home}/{stripped}");
         }
     }
     path.to_string()

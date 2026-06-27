@@ -1,6 +1,7 @@
 pub struct OmprintConfig {
     pub hostname: String,
     pub port: u16,
+    #[allow(dead_code)]
     pub archive_root: String,
     pub db_path: String,
 }
