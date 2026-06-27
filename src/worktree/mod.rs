@@ -8,25 +8,21 @@ pub struct CreateWorktreeResult {
 }
 
 pub fn sanitize_title(title: &str) -> String {
-    let sanitized: String = title
+    let sanitized = title
         .to_lowercase()
         .chars()
         .map(|c| if c.is_alphanumeric() { c } else { '-' })
-        .collect();
-    let trimmed = sanitized.trim_matches('-').to_string();
-    if trimmed.is_empty() {
+        .collect::<String>();
+    let mut s = sanitized.trim_matches('-').to_string();
+    if s.is_empty() {
         return "task".into();
     }
-    let mut s = trimmed;
     s.truncate(30);
     s
 }
 
 pub fn valid_branch_name(name: &str) -> Result<&str, Box<dyn std::error::Error>> {
     if name.is_empty() {
-        return Err(format!("invalid branch name: {name}").into());
-    }
-    if name.starts_with('-') {
         return Err(format!("invalid branch name: {name}").into());
     }
     if name.contains("..") {

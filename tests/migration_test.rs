@@ -17,8 +17,8 @@ fn test_all_migrations_apply() {
     let conn = setup_db();
     let count = db::run_migrations(&conn).unwrap();
     assert_eq!(
-        count, 10,
-        "All 10 DDL migrations should be applied on first run"
+        count, 11,
+        "All 11 DDL migrations should be applied on first run"
     );
 }
 
