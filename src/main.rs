@@ -2,11 +2,13 @@
 use std::os::unix::fs::PermissionsExt;
 use std::sync::{Arc, Mutex};
 
+mod archive;
 mod config;
 mod db;
 mod logging;
 mod server;
 mod services;
+mod worktree;
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {

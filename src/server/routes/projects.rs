@@ -6,6 +6,7 @@ use crate::server::state::AppState;
 use crate::services;
 use axum::{
     extract::{Path, State},
+    http::StatusCode,
     routing::get,
     Json, Router,
 };
@@ -75,7 +76,7 @@ async fn create_project(
             ServerError::Internal(e.to_string())
         }
     })?;
-    Ok((axum::http::StatusCode::CREATED, Json(project)))
+    Ok((StatusCode::CREATED, Json(project)))
 }
 
 async fn list_projects(State(state): State<AppState>) -> Result<Json<Vec<Project>>, ServerError> {
