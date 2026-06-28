@@ -41,9 +41,9 @@ pub fn get_task_doc_path(
 
 #[cfg(test)]
 mod tests {
-    use std::sync::LazyLock;
     use super::*;
     use std::env;
+    use std::sync::LazyLock;
 
     static ENV_LOCK: LazyLock<std::sync::Mutex<()>> = LazyLock::new(|| std::sync::Mutex::new(()));
 

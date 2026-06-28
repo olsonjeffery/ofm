@@ -22,8 +22,8 @@ impl OmprintConfig {
 
 #[cfg(test)]
 mod tests {
-    use std::sync::LazyLock;
     use super::*;
+    use std::sync::LazyLock;
 
     /// Serializes tests that manipulate env vars to prevent races.
     static ENV_LOCK: LazyLock<std::sync::Mutex<()>> = LazyLock::new(|| std::sync::Mutex::new(()));
@@ -47,10 +47,18 @@ mod tests {
         assert_eq!(cfg.archive_root, "storage/");
         assert_eq!(cfg.db_path, "data/omprint.db");
 
-        if let Some(v) = prev_hostname { std::env::set_var("OMPRINT_HOSTNAME", v); }
-        if let Some(v) = prev_port { std::env::set_var("PORT", v); }
-        if let Some(v) = prev_archive_root { std::env::set_var("OMPRINT_ARCHIVE_ROOT", v); }
-        if let Some(v) = prev_db_path { std::env::set_var("OMPRINT_DB_PATH", v); }
+        if let Some(v) = prev_hostname {
+            std::env::set_var("OMPRINT_HOSTNAME", v);
+        }
+        if let Some(v) = prev_port {
+            std::env::set_var("PORT", v);
+        }
+        if let Some(v) = prev_archive_root {
+            std::env::set_var("OMPRINT_ARCHIVE_ROOT", v);
+        }
+        if let Some(v) = prev_db_path {
+            std::env::set_var("OMPRINT_DB_PATH", v);
+        }
     }
 
     #[test]
