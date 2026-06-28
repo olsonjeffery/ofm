@@ -466,11 +466,9 @@ async fn test_delete_task() {
         "worktree should exist before delete"
     );
 
-    let archive_path = omprint::archive::paths::get_task_doc_path(
-        &int_proj.to_string(),
-        &int_task.to_string(),
-    )
-    .unwrap();
+    let archive_path =
+        omprint::archive::paths::get_task_doc_path(&int_proj.to_string(), &int_task.to_string())
+            .unwrap();
     assert!(
         archive_path.exists(),
         "archive doc should exist before delete"

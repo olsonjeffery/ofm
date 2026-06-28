@@ -3,11 +3,7 @@ pub mod routes;
 pub mod state;
 
 use crate::server::state::AppState;
-use axum::{
-    extract::DefaultBodyLimit,
-    routing::get,
-    Router,
-};
+use axum::{extract::DefaultBodyLimit, routing::get, Router};
 
 pub fn router(state: AppState) -> Router {
     Router::new()

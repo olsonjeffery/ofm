@@ -57,7 +57,13 @@ pub fn create_task(
 ) -> Result<Task, rusqlite::Error> {
     conn.execute(
         "INSERT INTO tasks (id, project_id, user_id, title, status) VALUES (?1, ?2, ?3, ?4, ?5)",
-        rusqlite::params![id.to_string(), project_id.to_string(), user_id.to_string(), title, status],
+        rusqlite::params![
+            id.to_string(),
+            project_id.to_string(),
+            user_id.to_string(),
+            title,
+            status
+        ],
     )?;
     get_task(conn, id)
 }

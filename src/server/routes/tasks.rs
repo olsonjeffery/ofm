@@ -48,13 +48,12 @@ const VALID_STATUSES: &[&str] = &["pending", "in_progress", "in_review", "comple
 pub fn tasks_router() -> Router<AppState> {
     Router::new()
         .route("/", get(list_tasks).post(create_task))
-        .route(
-            "/{id}",
-            get(get_task).put(update_task).delete(delete_task),
-        )
+        .route("/{id}", get(get_task).put(update_task).delete(delete_task))
 }
 
-fn lock_db(state: &AppState) -> Result<std::sync::MutexGuard<'_, rusqlite::Connection>, ServerError> {
+fn lock_db(
+    state: &AppState,
+) -> Result<std::sync::MutexGuard<'_, rusqlite::Connection>, ServerError> {
     state
         .db
         .lock()
@@ -69,10 +68,14 @@ async fn create_task(
         return Err(ServerError::BadRequest("title is required".into()));
     }
     if body.title.len() > MAX_TITLE_LENGTH {
-        return Err(ServerError::BadRequest("title must not exceed 200 characters".into()));
+        return Err(ServerError::BadRequest(
+            "title must not exceed 200 characters".into(),
+        ));
     }
     if body.original_request.len() > MAX_ORIGINAL_REQUEST_LENGTH {
-        return Err(ServerError::BadRequest("original_request must not exceed 10KB".into()));
+        return Err(ServerError::BadRequest(
+            "original_request must not exceed 10KB".into(),
+        ));
     }
 
     let task_id = Uuid::new_v4();
@@ -225,7 +228,9 @@ async fn update_task(
 
     if let Some(ref title) = body.title {
         if title.len() > MAX_TITLE_LENGTH {
-            return Err(ServerError::BadRequest("title must not exceed 200 characters".into()));
+            return Err(ServerError::BadRequest(
+                "title must not exceed 200 characters".into(),
+            ));
         }
     }
 
@@ -239,19 +244,15 @@ async fn update_task(
     }
 
     let conn = lock_db(&state)?;
-    let task = services::tasks::update_task(
-        &conn,
-        &id,
-        body.title.as_deref(),
-        body.status.as_deref(),
-    )
-    .map_err(|e| {
-        if e.to_string().contains("returned no rows") {
-            ServerError::NotFound("Task not found".into())
-        } else {
-            ServerError::Internal(e.to_string())
-        }
-    })?;
+    let task =
+        services::tasks::update_task(&conn, &id, body.title.as_deref(), body.status.as_deref())
+            .map_err(|e| {
+                if e.to_string().contains("returned no rows") {
+                    ServerError::NotFound("Task not found".into())
+                } else {
+                    ServerError::Internal(e.to_string())
+                }
+            })?;
     Ok(Json(task))
 }
 
