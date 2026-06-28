@@ -117,6 +117,7 @@ pub fn delete_task(conn: &Connection, task_id: &Uuid) -> Result<bool, rusqlite::
     Ok(rows > 0)
 }
 
+#[allow(clippy::too_many_arguments)]
 pub fn insert_worktree(
     conn: &Connection,
     id: &Uuid,
