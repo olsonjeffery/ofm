@@ -124,6 +124,19 @@ pub struct Message {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct Worktree {
+    pub id: Uuid,
+    pub project_uuid: Uuid,
+    pub task_uuid: Uuid,
+    pub project_id: u32,
+    pub task_id: u32,
+    pub worktree_path: String,
+    pub repo_path: String,
+    pub branch: String,
+    pub created_at: NaiveDateTime,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct SessionSummary {
     pub project_key: String,
     pub session_id: String,

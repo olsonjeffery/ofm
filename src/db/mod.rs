@@ -120,6 +120,23 @@ const MIGRATIONS: &[(&str, &str)] = &[
         "unique_project_repo_path",
         "CREATE UNIQUE INDEX IF NOT EXISTS idx_projects_repo_folder_path ON projects(repo_folder_path)",
     ),
+    (
+        "create_worktrees",
+        "CREATE TABLE IF NOT EXISTS worktrees (
+            id TEXT PRIMARY KEY,
+            project_uuid TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+            task_uuid TEXT NOT NULL REFERENCES tasks(id) ON DELETE CASCADE,
+            project_id INTEGER NOT NULL,
+            task_id INTEGER NOT NULL,
+            worktree_path TEXT NOT NULL,
+            branch TEXT NOT NULL,
+            created_at TEXT NOT NULL DEFAULT (datetime('now'))
+        )",
+    ),
+    (
+        "worktrees_add_repo_path",
+        "ALTER TABLE worktrees ADD COLUMN repo_path TEXT NOT NULL DEFAULT ''",
+    ),
 ];
 
 pub fn run_migrations(conn: &Connection) -> Result<usize, Box<dyn std::error::Error>> {
