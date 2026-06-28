@@ -22,19 +22,40 @@ impl OmprintConfig {
 
 #[cfg(test)]
 mod tests {
+    use std::sync::LazyLock;
     use super::*;
+
+    /// Serializes tests that manipulate env vars to prevent races.
+    static ENV_LOCK: LazyLock<std::sync::Mutex<()>> = LazyLock::new(|| std::sync::Mutex::new(()));
 
     #[test]
     fn test_defaults() {
+        let _guard = ENV_LOCK.lock().unwrap();
+        // Save env vars that may be set by CI
+        let prev_hostname = std::env::var("OMPRINT_HOSTNAME").ok();
+        let prev_port = std::env::var("PORT").ok();
+        let prev_archive_root = std::env::var("OMPRINT_ARCHIVE_ROOT").ok();
+        let prev_db_path = std::env::var("OMPRINT_DB_PATH").ok();
+        std::env::remove_var("OMPRINT_HOSTNAME");
+        std::env::remove_var("PORT");
+        std::env::remove_var("OMPRINT_ARCHIVE_ROOT");
+        std::env::remove_var("OMPRINT_DB_PATH");
+
         let cfg = OmprintConfig::from_env();
         assert_eq!(cfg.hostname, "127.0.0.1");
         assert_eq!(cfg.port, 3183);
         assert_eq!(cfg.archive_root, "storage/");
         assert_eq!(cfg.db_path, "data/omprint.db");
+
+        if let Some(v) = prev_hostname { std::env::set_var("OMPRINT_HOSTNAME", v); }
+        if let Some(v) = prev_port { std::env::set_var("PORT", v); }
+        if let Some(v) = prev_archive_root { std::env::set_var("OMPRINT_ARCHIVE_ROOT", v); }
+        if let Some(v) = prev_db_path { std::env::set_var("OMPRINT_DB_PATH", v); }
     }
 
     #[test]
     fn test_env_override() {
+        let _guard = ENV_LOCK.lock().unwrap();
         std::env::set_var("OMPRINT_HOSTNAME", "0.0.0.0");
         std::env::set_var("PORT", "9090");
         std::env::set_var("OMPRINT_ARCHIVE_ROOT", "/tmp/storage/");
@@ -54,6 +75,7 @@ mod tests {
 
     #[test]
     fn test_port_invalid_fallback() {
+        let _guard = ENV_LOCK.lock().unwrap();
         std::env::set_var("PORT", "not-a-number");
 
         let cfg = OmprintConfig::from_env();
