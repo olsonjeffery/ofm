@@ -1,6 +1,7 @@
 use std::path::{Path, PathBuf};
 
 use tokio::process::Command;
+use uuid::Uuid;
 
 pub struct CreateWorktreeResult {
     pub worktree_path: PathBuf,
@@ -19,6 +20,12 @@ pub fn sanitize_title(title: &str) -> String {
     }
     s.truncate(30);
     s
+}
+
+/// XOR-fold a UUID's 128 bits into a 32-bit integer for worktree path/branch naming.
+pub fn uuid_to_u32(uuid: &Uuid) -> u32 {
+    let v = uuid.as_u128();
+    (v as u32) ^ ((v >> 32) as u32) ^ ((v >> 64) as u32) ^ ((v >> 96) as u32)
 }
 
 pub fn valid_branch_name(name: &str) -> Result<(), Box<dyn std::error::Error>> {
@@ -180,14 +187,13 @@ async fn copy_dependencies_background(repo_path: &str, project_path: &Path) {
         let src = Path::new(repo_path).join(dir);
         let dst = project_path.join(dir);
 
-        if !src.exists() {
-            continue;
-        }
-
         let src_s = src.to_string_lossy().to_string();
         let dst_s = dst.to_string_lossy().to_string();
         let dir_s = dir.to_string();
         tokio::spawn(async move {
+            if !Path::new(&src_s).exists() {
+                return;
+            }
             let result = Command::new("cp")
                 .args(["-a", &src_s, &dst_s])
                 .output()

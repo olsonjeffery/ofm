@@ -43,22 +43,35 @@ pub fn get_task_doc_path(
 mod tests {
     use super::*;
     use std::env;
+    use std::sync::LazyLock;
 
-    #[test]
-    fn test_get_archive_root_env_set() {
+    static ENV_LOCK: LazyLock<std::sync::Mutex<()>> = LazyLock::new(|| std::sync::Mutex::new(()));
+
+    fn with_archive_root<F>(val: &str, f: F)
+    where
+        F: FnOnce(),
+    {
+        let _guard = ENV_LOCK.lock().unwrap();
         let previous = env::var("OMPRINT_ARCHIVE_ROOT").ok();
-        env::set_var("OMPRINT_ARCHIVE_ROOT", "/custom/archive");
-        let result = get_archive_root();
-        assert_eq!(result, PathBuf::from("/custom/archive"));
-        if let Some(val) = previous {
-            env::set_var("OMPRINT_ARCHIVE_ROOT", val);
+        env::set_var("OMPRINT_ARCHIVE_ROOT", val);
+        f();
+        if let Some(v) = previous {
+            env::set_var("OMPRINT_ARCHIVE_ROOT", v);
         } else {
             env::remove_var("OMPRINT_ARCHIVE_ROOT");
         }
     }
 
     #[test]
+    fn test_get_archive_root_env_set() {
+        with_archive_root("/custom/archive", || {
+            assert_eq!(get_archive_root(), PathBuf::from("/custom/archive"));
+        });
+    }
+
+    #[test]
     fn test_get_archive_root_env_unset() {
+        let _guard = ENV_LOCK.lock().unwrap();
         let previous = env::var("OMPRINT_ARCHIVE_ROOT").ok();
         env::remove_var("OMPRINT_ARCHIVE_ROOT");
         let home = env::var("HOME").unwrap();
@@ -71,41 +84,26 @@ mod tests {
 
     #[test]
     fn test_get_task_doc_path() {
-        let previous = env::var("OMPRINT_ARCHIVE_ROOT").ok();
-        env::set_var("OMPRINT_ARCHIVE_ROOT", "/base");
-        let result = get_task_doc_path("42", "7").unwrap();
-        assert_eq!(result, PathBuf::from("/base/projects/42/tasks/task-7.md"));
-        if let Some(val) = previous {
-            env::set_var("OMPRINT_ARCHIVE_ROOT", val);
-        } else {
-            env::remove_var("OMPRINT_ARCHIVE_ROOT");
-        }
+        with_archive_root("/base", || {
+            let result = get_task_doc_path("42", "7").unwrap();
+            assert_eq!(result, PathBuf::from("/base/projects/42/tasks/task-7.md"));
+        });
     }
 
     #[test]
     fn test_get_project_archive_path() {
-        let previous = env::var("OMPRINT_ARCHIVE_ROOT").ok();
-        env::set_var("OMPRINT_ARCHIVE_ROOT", "/base");
-        let result = get_project_archive_path("proj-1").unwrap();
-        assert_eq!(result, PathBuf::from("/base/projects/proj-1"));
-        if let Some(val) = previous {
-            env::set_var("OMPRINT_ARCHIVE_ROOT", val);
-        } else {
-            env::remove_var("OMPRINT_ARCHIVE_ROOT");
-        }
+        with_archive_root("/base", || {
+            let result = get_project_archive_path("proj-1").unwrap();
+            assert_eq!(result, PathBuf::from("/base/projects/proj-1"));
+        });
     }
 
     #[test]
     fn test_get_archive_tasks_folder_path() {
-        let previous = env::var("OMPRINT_ARCHIVE_ROOT").ok();
-        env::set_var("OMPRINT_ARCHIVE_ROOT", "/base");
-        let result = get_archive_tasks_folder_path("p1").unwrap();
-        assert_eq!(result, PathBuf::from("/base/projects/p1/tasks"));
-        if let Some(val) = previous {
-            env::set_var("OMPRINT_ARCHIVE_ROOT", val);
-        } else {
-            env::remove_var("OMPRINT_ARCHIVE_ROOT");
-        }
+        with_archive_root("/base", || {
+            let result = get_archive_tasks_folder_path("p1").unwrap();
+            assert_eq!(result, PathBuf::from("/base/projects/p1/tasks"));
+        });
     }
 
     #[test]
