@@ -36,11 +36,7 @@ pub fn spawn_omp(
     let child = pair.slave.spawn_command(cmd)?;
     let pid = child.process_id().unwrap_or(0);
 
-    Ok(OmpSession {
-        pid,
-        child,
-        pair,
-    })
+    Ok(OmpSession { pid, child, pair })
 }
 
 impl OmpSession {
@@ -149,8 +145,8 @@ mod tests {
     use std::path::PathBuf;
     use std::time::Duration;
 
-    use tokio::sync::mpsc;
     use tempfile::TempDir;
+    use tokio::sync::mpsc;
 
     use super::*;
 
@@ -210,10 +206,7 @@ mod tests {
                 r#"{"type":"error","error":"fail"}"#,
                 |e| matches!(e, OmpRpcEvent::Error { error } if error == "fail"),
             ),
-            (
-                r#"{"type":"done"}"#,
-                |e| matches!(e, OmpRpcEvent::Done(_)),
-            ),
+            (r#"{"type":"done"}"#, |e| matches!(e, OmpRpcEvent::Done(_))),
         ];
 
         for (json, validator) in cases {
@@ -407,7 +400,12 @@ mod tests {
             }
         }
 
-        assert_eq!(events.len(), 3, "expected 3 valid events, got {}", events.len());
+        assert_eq!(
+            events.len(),
+            3,
+            "expected 3 valid events, got {}",
+            events.len()
+        );
         assert!(matches!(events[0], OmpRpcEvent::Text { .. }));
         assert!(matches!(events[1], OmpRpcEvent::Text { .. }));
         assert!(matches!(events[2], OmpRpcEvent::Done(_)));
