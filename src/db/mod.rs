@@ -1,7 +1,6 @@
 pub mod schema;
 
-use rusqlite::Connection;
-use rusqlite::OptionalExtension;
+use hiqlite::Client;
 use uuid::Uuid;
 
 const MIGRATIONS: &[(&str, &str)] = &[
@@ -29,7 +28,7 @@ const MIGRATIONS: &[(&str, &str)] = &[
             name TEXT NOT NULL,
             repo_folder_path TEXT NOT NULL,
             subproject_path TEXT,
-            created_at TEXT NOT NULL DEFAULT (datetime('now'))
+            created_at TEXT NOT NULL DEFAULT ''
         )",
     ),
     (
@@ -56,7 +55,7 @@ const MIGRATIONS: &[(&str, &str)] = &[
             pr_agent_complete INTEGER NOT NULL DEFAULT 0,
             refinement_complete INTEGER NOT NULL DEFAULT 0,
             yolo_mode INTEGER NOT NULL DEFAULT 0,
-            created_at TEXT NOT NULL DEFAULT (datetime('now'))
+            created_at TEXT NOT NULL DEFAULT ''
         )",
     ),
     (
@@ -67,7 +66,7 @@ const MIGRATIONS: &[(&str, &str)] = &[
             omp_session_id TEXT,
             model TEXT NOT NULL,
             effort TEXT NOT NULL DEFAULT 'medium',
-            created_at TEXT NOT NULL DEFAULT (datetime('now'))
+            created_at TEXT NOT NULL DEFAULT ''
         )",
     ),
     (
@@ -78,7 +77,7 @@ const MIGRATIONS: &[(&str, &str)] = &[
             agent_type TEXT NOT NULL,
             status TEXT NOT NULL DEFAULT 'pending',
             conversation_id TEXT REFERENCES conversations(id) ON DELETE SET NULL,
-            created_at TEXT NOT NULL DEFAULT (datetime('now')),
+            created_at TEXT NOT NULL DEFAULT '',
             completed_at TEXT
         )",
     ),
@@ -130,7 +129,7 @@ const MIGRATIONS: &[(&str, &str)] = &[
             task_id INTEGER NOT NULL,
             worktree_path TEXT NOT NULL,
             branch TEXT NOT NULL,
-            created_at TEXT NOT NULL DEFAULT (datetime('now'))
+            created_at TEXT NOT NULL DEFAULT ''
         )",
     ),
     (
@@ -139,44 +138,63 @@ const MIGRATIONS: &[(&str, &str)] = &[
     ),
 ];
 
-pub fn run_migrations(conn: &Connection) -> Result<usize, Box<dyn std::error::Error>> {
-    conn.execute(
-        "CREATE TABLE IF NOT EXISTS _migrations (
+pub async fn run_migrations(client: &Client) -> Result<usize, Box<dyn std::error::Error>> {
+    client
+        .execute(
+            "CREATE TABLE IF NOT EXISTS _migrations (
             name TEXT PRIMARY KEY,
-            applied_at TEXT NOT NULL DEFAULT (datetime('now'))
+            applied_at TEXT NOT NULL DEFAULT ''
         )",
-        [],
-    )?;
+            hiqlite::params!(),
+        )
+        .await?;
 
-    let mut stmt = conn.prepare("SELECT name FROM _migrations ORDER BY name")?;
-    let applied: Vec<String> = stmt
-        .query_map([], |row| row.get(0))?
-        .collect::<Result<Vec<_>, _>>()?;
+    let mut rows = client
+        .query_raw(
+            "SELECT name FROM _migrations ORDER BY name",
+            hiqlite::params!(),
+        )
+        .await?;
+    let applied: Vec<String> = rows
+        .iter_mut()
+        .map(|row| row.get::<String>("name"))
+        .collect();
 
     let mut count = 0;
     for (name, sql) in MIGRATIONS {
         if applied.iter().any(|a| a == name) {
             continue;
         }
-        conn.execute_batch(sql)?;
-        conn.execute("INSERT INTO _migrations (name) VALUES (?1)", [name])?;
+        client.batch(*sql).await?;
+        client
+            .execute(
+                "INSERT INTO _migrations (name) VALUES ($1)",
+                hiqlite::params!(*name),
+            )
+            .await?;
         count += 1;
     }
 
     Ok(count)
 }
 
-pub fn ensure_default_user(conn: &Connection) -> Result<Uuid, rusqlite::Error> {
-    let mut stmt = conn.prepare("SELECT id FROM users WHERE username = 'default'")?;
-    let existing: Option<String> = stmt.query_row([], |row| row.get(0)).optional()?;
-    if let Some(id) = existing {
-        return Uuid::parse_str(&id)
-            .map_err(|e| rusqlite::Error::ToSqlConversionFailure(Box::new(e)));
+pub async fn ensure_default_user(client: &Client) -> Result<Uuid, Box<dyn std::error::Error>> {
+    let mut rows = client
+        .query_raw(
+            "SELECT id FROM users WHERE username = 'default'",
+            hiqlite::params!(),
+        )
+        .await?;
+    if let Some(row) = rows.first_mut() {
+        let id_str: String = row.get("id");
+        return Ok(Uuid::parse_str(&id_str)?);
     }
     let id = Uuid::new_v4();
-    conn.execute(
-        "INSERT INTO users (id, username, is_admin, is_technical) VALUES (?1, 'default', 1, 1)",
-        rusqlite::params![id.to_string()],
-    )?;
+    client
+        .execute(
+            "INSERT INTO users (id, username, is_admin, is_technical) VALUES ($1, 'default', 1, 1)",
+            hiqlite::params!(id.to_string()),
+        )
+        .await?;
     Ok(id)
 }

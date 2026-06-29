@@ -1,6 +1,5 @@
-#![allow(dead_code)]
-
 use chrono::NaiveDateTime;
+use hiqlite::Row;
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
@@ -176,6 +175,66 @@ pub struct AppSetting {
 pub struct UserAgentModelSetting {
     pub user_id: Uuid,
     pub settings_json: serde_json::Value,
+}
+
+// hiqlite Row conversions
+
+fn uuid_from_row(row: &mut Row<'_>, col: &str) -> Uuid {
+    let s: String = row.get(col);
+    Uuid::parse_str(&s).expect("invalid UUID in database")
+}
+
+fn parse_naive_datetime(s: &str) -> NaiveDateTime {
+    NaiveDateTime::parse_from_str(s, "%Y-%m-%d %H:%M:%S").unwrap_or_default()
+}
+
+impl From<&mut Row<'_>> for Project {
+    fn from(row: &mut Row<'_>) -> Self {
+        Self {
+            id: uuid_from_row(row, "id"),
+            user_id: uuid_from_row(row, "user_id"),
+            name: row.get("name"),
+            repo_folder_path: row.get("repo_folder_path"),
+            subproject_path: row.get("subproject_path"),
+            created_at: parse_naive_datetime(&row.get::<String>("created_at")),
+        }
+    }
+}
+
+impl From<&mut Row<'_>> for Task {
+    fn from(row: &mut Row<'_>) -> Self {
+        Self {
+            id: uuid_from_row(row, "id"),
+            project_id: uuid_from_row(row, "project_id"),
+            user_id: uuid_from_row(row, "user_id"),
+            title: row.get("title"),
+            status: row.get("status"),
+            workflow_complete: row.get::<i64>("workflow_complete") != 0,
+            workflow_blocked: row.get::<i64>("workflow_blocked") != 0,
+            workflow_run_count: row.get::<i64>("workflow_run_count") as i32,
+            planification_complete: row.get::<i64>("planification_complete") != 0,
+            pr_agent_complete: row.get::<i64>("pr_agent_complete") != 0,
+            refinement_complete: row.get::<i64>("refinement_complete") != 0,
+            yolo_mode: row.get::<i64>("yolo_mode") != 0,
+            created_at: parse_naive_datetime(&row.get::<String>("created_at")),
+        }
+    }
+}
+
+impl From<&mut Row<'_>> for Worktree {
+    fn from(row: &mut Row<'_>) -> Self {
+        Self {
+            id: uuid_from_row(row, "id"),
+            project_uuid: uuid_from_row(row, "project_uuid"),
+            task_uuid: uuid_from_row(row, "task_uuid"),
+            project_id: row.get::<i64>("project_id") as u32,
+            task_id: row.get::<i64>("task_id") as u32,
+            worktree_path: row.get("worktree_path"),
+            repo_path: row.get("repo_path"),
+            branch: row.get("branch"),
+            created_at: parse_naive_datetime(&row.get::<String>("created_at")),
+        }
+    }
 }
 
 #[cfg(test)]

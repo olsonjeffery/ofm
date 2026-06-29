@@ -1,45 +1,57 @@
 use std::env;
-use std::sync::{Arc, Mutex};
 
 use omprint::db;
 use omprint::server;
 use omprint::server::state::AppState;
 
+use hiqlite::Client;
 use tempfile::TempDir;
 use uuid::Uuid;
 
 struct TestApp {
     addr: String,
     _handle: tokio::task::JoinHandle<()>,
-    db: Arc<Mutex<rusqlite::Connection>>,
+    db: Client,
     project_id: Uuid,
+    _db_dir: TempDir,
     _git_dir: Option<TempDir>,
     _archive_dir: Option<TempDir>,
 }
 
 async fn setup_app() -> TestApp {
-    let conn = rusqlite::Connection::open_in_memory().unwrap();
-    conn.execute_batch("PRAGMA foreign_keys = ON;").unwrap();
-    db::run_migrations(&conn).unwrap();
-    let user_id = db::ensure_default_user(&conn).unwrap();
-
-    let db = Arc::new(Mutex::new(conn));
-    let state = AppState {
-        db: db.clone(),
-        default_user_id: user_id,
+    let db_dir = TempDir::new().unwrap();
+    let config = hiqlite::NodeConfig {
+        node_id: 1,
+        nodes: vec![hiqlite::Node {
+            id: 1,
+            addr_raft: "127.0.0.1:0".into(),
+            addr_api: "127.0.0.1:0".into(),
+        }],
+        data_dir: db_dir.path().to_str().unwrap().to_string().into(),
+        secret_raft: "test-raft-secret-123".into(),
+        secret_api: "test-api-secret-123".into(),
+        ..Default::default()
     };
+    let client = hiqlite::start_node(config).await.unwrap();
+    client.wait_until_healthy_db().await;
+    db::run_migrations(&client).await.unwrap();
+    let user_id = db::ensure_default_user(&client).await.unwrap();
 
-    let project_id = {
-        let conn = db.lock().unwrap();
+    let project_id =
         omprint::services::projects::create_project(
-            &conn,
+            &client,
             &user_id,
             "test-project",
             "/tmp/test-repo",
             None,
         )
+        .await
         .unwrap()
-        .id
+        .id;
+
+    let state = AppState {
+        db: client.clone(),
+        default_user_id: user_id,
     };
 
     let app = server::router(state);
@@ -52,8 +64,9 @@ async fn setup_app() -> TestApp {
     TestApp {
         addr,
         _handle: handle,
-        db,
+        db: client,
         project_id,
+        _db_dir: db_dir,
         _git_dir: None,
         _archive_dir: None,
     }
@@ -100,28 +113,39 @@ async fn setup_app_with_git() -> TestApp {
         archive_dir.path().to_string_lossy().as_ref(),
     );
 
-    let conn = rusqlite::Connection::open_in_memory().unwrap();
-    conn.execute_batch("PRAGMA foreign_keys = ON;").unwrap();
-    db::run_migrations(&conn).unwrap();
-    let user_id = db::ensure_default_user(&conn).unwrap();
-
-    let db = Arc::new(Mutex::new(conn));
-    let state = AppState {
-        db: db.clone(),
-        default_user_id: user_id,
+    let db_dir = TempDir::new().unwrap();
+    let config = hiqlite::NodeConfig {
+        node_id: 1,
+        nodes: vec![hiqlite::Node {
+            id: 1,
+            addr_raft: "127.0.0.1:0".into(),
+            addr_api: "127.0.0.1:0".into(),
+        }],
+        data_dir: db_dir.path().to_str().unwrap().to_string().into(),
+        secret_raft: "test-raft-secret-123".into(),
+        secret_api: "test-api-secret-123".into(),
+        ..Default::default()
     };
+    let client = hiqlite::start_node(config).await.unwrap();
+    client.wait_until_healthy_db().await;
+    db::run_migrations(&client).await.unwrap();
+    let user_id = db::ensure_default_user(&client).await.unwrap();
 
-    let project_id = {
-        let conn = db.lock().unwrap();
+    let project_id =
         omprint::services::projects::create_project(
-            &conn,
+            &client,
             &user_id,
             "test-project",
             &git_path,
             None,
         )
+        .await
         .unwrap()
-        .id
+        .id;
+
+    let state = AppState {
+        db: client.clone(),
+        default_user_id: user_id,
     };
 
     let app = server::router(state);
@@ -134,8 +158,9 @@ async fn setup_app_with_git() -> TestApp {
     TestApp {
         addr,
         _handle: handle,
-        db,
+        db: client,
         project_id,
+        _db_dir: db_dir,
         _git_dir: Some(git_dir),
         _archive_dir: Some(archive_dir),
     }
@@ -172,10 +197,10 @@ async fn test_create_task() {
 
     let task_uuid = Uuid::parse_str(body["id"].as_str().unwrap()).unwrap();
 
-    let worktree = {
-        let conn = app.db.lock().unwrap();
-        omprint::services::tasks::get_worktree_by_task(&conn, &task_uuid).unwrap()
-    };
+    let worktree =
+        omprint::services::tasks::get_worktree_by_task(&app.db, &task_uuid)
+            .await
+            .unwrap();
 
     assert!(std::path::Path::new(&worktree.worktree_path).exists());
 
@@ -242,11 +267,12 @@ async fn test_create_task_rollback_on_worktree_failure() {
 
     assert_eq!(resp.status(), 500);
 
-    let count: i32 = {
-        let conn = app.db.lock().unwrap();
-        conn.query_row("SELECT COUNT(*) FROM tasks", [], |row| row.get(0))
-            .unwrap()
-    };
+    let mut rows = app
+        .db
+        .query_raw("SELECT COUNT(*) as cnt FROM tasks", hiqlite::params!())
+        .await
+        .unwrap();
+    let count: i64 = rows.first_mut().map(|r| r.get("cnt")).unwrap_or(0);
     assert_eq!(count, 0, "task row should have been rolled back");
 }
 
@@ -454,8 +480,9 @@ async fn test_delete_task() {
     let int_proj;
     let int_task;
     {
-        let conn = app.db.lock().unwrap();
-        let w = omprint::services::tasks::get_worktree_by_task(&conn, &task_uuid).unwrap();
+        let w = omprint::services::tasks::get_worktree_by_task(&app.db, &task_uuid)
+            .await
+            .unwrap();
         worktree_path = w.worktree_path.clone();
         int_proj = w.project_id;
         int_task = w.task_id;
@@ -490,26 +517,30 @@ async fn test_delete_task() {
     assert!(!archive_path.exists(), "archive doc should be deleted");
 
     let task_exists: bool = {
-        let conn = app.db.lock().unwrap();
-        conn.query_row(
-            "SELECT COUNT(*) FROM tasks WHERE id = ?1",
-            [task_id.clone()],
-            |row| row.get::<_, i32>(0),
-        )
-        .map(|count| count > 0)
-        .unwrap()
+        let mut rows = app
+            .db
+            .query_raw(
+                "SELECT COUNT(*) as cnt FROM tasks WHERE id = $1",
+                hiqlite::params!(&task_id),
+            )
+            .await
+            .unwrap();
+        let count: i64 = rows.first_mut().map(|r| r.get("cnt")).unwrap_or(0);
+        count > 0
     };
     assert!(!task_exists, "task row should be deleted");
 
     let worktree_exists: bool = {
-        let conn = app.db.lock().unwrap();
-        conn.query_row(
-            "SELECT COUNT(*) FROM worktrees WHERE task_uuid = ?1",
-            [task_id],
-            |row| row.get::<_, i32>(0),
-        )
-        .map(|count| count > 0)
-        .unwrap()
+        let mut rows = app
+            .db
+            .query_raw(
+                "SELECT COUNT(*) as cnt FROM worktrees WHERE task_uuid = $1",
+                hiqlite::params!(&task_id),
+            )
+            .await
+            .unwrap();
+        let count: i64 = rows.first_mut().map(|r| r.get("cnt")).unwrap_or(0);
+        count > 0
     };
     assert!(!worktree_exists, "worktree row should be deleted");
 }

@@ -21,7 +21,7 @@ The workspace has a single member crate (`omprint` binary) defined inline. Futur
 
 ## Database
 
-- **Engine**: [rusqlite](https://crates.io/crates/rusqlite) (with bundled SQLite) — embedded SQLite database accessed via synchronous Rust API.
+- **Engine**: [hiqlite](https://crates.io/crates/hiqlite) — async, Raft-capable embedded SQLite with built-in durability via WAL + auto-heal crash recovery. Single-node deployment eliminates the Mutex bottleneck in axum handlers.
 - **Schema**: 11 tables defined via raw SQL DDL in `src/db/mod.rs`. UUIDs are stored as `TEXT`, booleans as `INTEGER` (0/1), JSON as `TEXT`, and timestamps as ISO 8601 `TEXT` strings.
 - **Migration system**: A `_migrations` tracking table records which migrations have been applied. Each migration is a named SQL DDL statement; only unapplied migrations execute on startup.
 
@@ -46,7 +46,7 @@ The workspace has a single member crate (`omprint` binary) defined inline. Futur
 |-------|---------|---------|
 | tokio | 1 (full) | Async runtime |
 | axum | 0.8 | Web framework (future use) |
-| rusqlite | 0.40 | Embedded SQLite database (bundled) |
+| hiqlite | 0.13 | Async embedded SQLite (Raft-capable, WAL + auto-heal) |
 | serde | 1 (derive) | Serialization/deserialization |
 | serde_json | 1 | JSON support |
 | uuid | 1 (v4) | UUID generation |
@@ -54,7 +54,7 @@ The workspace has a single member crate (`omprint` binary) defined inline. Futur
 
 ## Application Lifecycle
 
-1. **Startup**: Open rusqlite connection to `data/omprint.db`, enable WAL mode and foreign keys
+1. **Startup**: Start hiqlite node with `data_dir`, auto-heal enables WAL + foreign keys internally
 2. **Migrations**: Run `db::run_migrations()` — applies any pending DDL
 3. **Future**: Server startup (axum), subprocess management (omp supervision)
 
@@ -66,7 +66,7 @@ The workspace has a single member crate (`omprint` binary) defined inline. Futur
 
 ## Design Decisions
 
-- **rusqlite over async DB drivers**: rusqlite with bundled SQLite provides the simplest embedded database setup with zero external dependencies. Future tasks may evaluate hiqlite for higher-level async abstractions if needed.
+- **hiqlite over rusqlite**: hiqlite provides an async, Raft-capable SQLite database with built-in durability via WAL + auto-heal crash recovery. Single-node deployment eliminates the Mutex bottleneck in axum handlers.
 - **OIDC over password auth**: Production-ready authentication without implementing bespoke password handling. Supports enterprise SSO.
-- **Embedded DB over client-server**: Eliminates external database infrastructure for development and small-scale deployments. `data/omprint.db` is the single state file.
+- **Embedded DB over client-server**: Eliminates external database infrastructure for development and small-scale deployments. hiqlite manages state files inside the configured `data_dir`.
 - **Raw SQL DDL over migration framework**: DDL is wrapped in a simple `_migrations` tracking table, keeping the migration system self-contained.
