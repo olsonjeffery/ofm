@@ -237,6 +237,43 @@ impl From<&mut Row<'_>> for Worktree {
     }
 }
 
+impl From<&mut Row<'_>> for Message {
+    fn from(row: &mut Row<'_>) -> Self {
+        Self {
+            project_key: row.get("project_key"),
+            session_id: row.get("session_id"),
+            seq: row.get::<i64>("seq") as i32,
+            entry_json: serde_json::from_str(&row.get::<String>("entry_json"))
+                .unwrap_or_default(),
+        }
+    }
+}
+
+impl From<&mut Row<'_>> for SessionSummary {
+    fn from(row: &mut Row<'_>) -> Self {
+        Self {
+            project_key: row.get("project_key"),
+            session_id: row.get("session_id"),
+            mtime: parse_naive_datetime(&row.get::<String>("mtime")),
+            summary_json: serde_json::from_str(&row.get::<String>("summary_json"))
+                .unwrap_or_default(),
+        }
+    }
+}
+
+impl From<&mut Row<'_>> for Conversation {
+    fn from(row: &mut Row<'_>) -> Self {
+        Self {
+            id: uuid_from_row(row, "id"),
+            task_id: uuid_from_row(row, "task_id"),
+            omp_session_id: row.get("omp_session_id"),
+            model: row.get("model"),
+            effort: row.get("effort"),
+            created_at: parse_naive_datetime(&row.get::<String>("created_at")),
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

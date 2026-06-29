@@ -3,7 +3,10 @@ use omprint::server;
 use omprint::server::state::AppState;
 
 use hiqlite::Client;
+use std::collections::HashMap;
+use std::sync::Arc;
 use tempfile::TempDir;
+use tokio::sync::Mutex;
 use uuid::Uuid;
 
 struct TestApp {
@@ -51,6 +54,7 @@ async fn setup_app() -> TestApp {
         db: client.clone(),
         default_user_id: user_id,
         archive_root: "storage/".into(),
+        omp_sessions: Arc::new(Mutex::new(HashMap::new())),
     };
 
     let app = server::router(state);
@@ -144,6 +148,7 @@ async fn setup_app_with_git() -> TestApp {
         db: client.clone(),
         default_user_id: user_id,
         archive_root: app_archive_root,
+        omp_sessions: Arc::new(Mutex::new(HashMap::new())),
     };
 
     let app = server::router(state);
