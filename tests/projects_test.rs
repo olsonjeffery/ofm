@@ -25,6 +25,7 @@ async fn setup_app() -> (String, tokio::task::JoinHandle<()>) {
     let state = AppState {
         db: client,
         default_user_id: user_id,
+        archive_root: "storage/".into(),
     };
 
     let app = server::router(state);

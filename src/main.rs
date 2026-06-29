@@ -49,6 +49,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let state = server::state::AppState {
         db: client,
         default_user_id,
+        archive_root: cfg.archive_root,
     };
 
     // Server

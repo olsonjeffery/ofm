@@ -1,5 +1,3 @@
-use std::env;
-
 use omprint::db;
 use omprint::server;
 use omprint::server::state::AppState;
@@ -13,6 +11,7 @@ struct TestApp {
     _handle: tokio::task::JoinHandle<()>,
     db: Client,
     project_id: Uuid,
+    archive_root: String,
     _db_dir: TempDir,
     _git_dir: Option<TempDir>,
     _archive_dir: Option<TempDir>,
@@ -51,6 +50,7 @@ async fn setup_app() -> TestApp {
     let state = AppState {
         db: client.clone(),
         default_user_id: user_id,
+        archive_root: "storage/".into(),
     };
 
     let app = server::router(state);
@@ -65,6 +65,7 @@ async fn setup_app() -> TestApp {
         _handle: handle,
         db: client,
         project_id,
+        archive_root: "storage/".into(),
         _db_dir: db_dir,
         _git_dir: None,
         _archive_dir: None,
@@ -107,10 +108,7 @@ async fn setup_app_with_git() -> TestApp {
     assert!(output.status.success(), "git commit failed");
 
     let archive_dir = TempDir::new().unwrap();
-    env::set_var(
-        "OMPRINT_ARCHIVE_ROOT",
-        archive_dir.path().to_string_lossy().as_ref(),
-    );
+    let archive_root = archive_dir.path().to_string_lossy().to_string();
 
     let db_dir = TempDir::new().unwrap();
     let config = hiqlite::NodeConfig {
@@ -141,9 +139,11 @@ async fn setup_app_with_git() -> TestApp {
     .unwrap()
     .id;
 
+    let app_archive_root = archive_root.clone();
     let state = AppState {
         db: client.clone(),
         default_user_id: user_id,
+        archive_root: app_archive_root,
     };
 
     let app = server::router(state);
@@ -158,6 +158,7 @@ async fn setup_app_with_git() -> TestApp {
         _handle: handle,
         db: client,
         project_id,
+        archive_root,
         _db_dir: db_dir,
         _git_dir: Some(git_dir),
         _archive_dir: Some(archive_dir),
@@ -201,11 +202,11 @@ async fn test_create_task() {
 
     assert!(std::path::Path::new(&worktree.worktree_path).exists());
 
-    let doc_path = omprint::archive::paths::get_task_doc_path(
-        &worktree.project_id.to_string(),
-        &worktree.task_id.to_string(),
-    )
-    .unwrap();
+    let doc_path = std::path::PathBuf::from(&app.archive_root)
+        .join("projects")
+        .join(worktree.project_id.to_string())
+        .join("tasks")
+        .join(format!("task-{}.md", worktree.task_id));
     assert!(doc_path.exists());
     let doc_content = std::fs::read_to_string(&doc_path).unwrap();
     assert_eq!(doc_content, "Implement feature X");
@@ -490,9 +491,11 @@ async fn test_delete_task() {
         "worktree should exist before delete"
     );
 
-    let archive_path =
-        omprint::archive::paths::get_task_doc_path(&int_proj.to_string(), &int_task.to_string())
-            .unwrap();
+    let archive_path = std::path::PathBuf::from(&app.archive_root)
+        .join("projects")
+        .join(int_proj.to_string())
+        .join("tasks")
+        .join(format!("task-{}.md", int_task));
     assert!(
         archive_path.exists(),
         "archive doc should exist before delete"

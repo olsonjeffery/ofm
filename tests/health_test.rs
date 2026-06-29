@@ -24,6 +24,7 @@ async fn make_state() -> (AppState, TempDir) {
     let state = AppState {
         db: client,
         default_user_id: user_id,
+        archive_root: "storage/".into(),
     };
     (state, tmp)
 }

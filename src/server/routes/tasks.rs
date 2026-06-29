@@ -127,12 +127,11 @@ async fn create_task(
 
     let int_proj_str = int_proj.to_string();
     let int_task_str = int_task.to_string();
-    let archive = archive::ArchiveRoot::from_config();
+    let archive = archive::ArchiveRoot::new(std::path::PathBuf::from(&state.archive_root));
     archive
         .ensure_project_archive(&int_proj_str)
         .map_err(|e| ServerError::Internal(e.to_string()))?;
-    let doc_path = archive::paths::get_task_doc_path(&int_proj_str, &int_task_str)
-        .map_err(|e| ServerError::Internal(e.to_string()))?;
+    let doc_path = archive.task_doc_path(&int_proj_str, &int_task_str);
     archive
         .write_task_doc(&doc_path, &body.original_request)
         .map_err(|e| ServerError::Internal(format!("failed to seed doc: {e}")))?;
@@ -167,9 +166,8 @@ async fn get_task(
     if let Some(w) = worktree {
         let int_proj = w.project_id.to_string();
         let int_task = w.task_id.to_string();
-        let archive = archive::ArchiveRoot::from_config();
-        let doc_path = archive::paths::get_task_doc_path(&int_proj, &int_task)
-            .map_err(|e| ServerError::Internal(e.to_string()))?;
+        let archive = archive::ArchiveRoot::new(std::path::PathBuf::from(&state.archive_root));
+        let doc_path = archive.task_doc_path(&int_proj, &int_task);
         let doc_content = archive
             .read_task_doc(&doc_path)
             .map_err(|e| ServerError::Internal(e.to_string()))?;
@@ -270,7 +268,7 @@ async fn delete_task(
                 .await
                 .map_err(|e| tracing::warn!("failed to remove worktree: {e}"));
         }
-        let _ = archive::ArchiveRoot::from_config()
+        let _ = archive::ArchiveRoot::new(std::path::PathBuf::from(&state.archive_root))
             .delete_task_archive(&w.project_id.to_string(), &w.task_id.to_string())
             .map_err(|e| tracing::warn!("failed to delete archive: {e}"));
     }
