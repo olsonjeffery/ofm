@@ -106,12 +106,20 @@ impl ArchiveRoot {
         Ok(3100 + (id % 900) as u16)
     }
 
+    pub fn task_doc_path(&self, project_id: &str, task_id: &str) -> PathBuf {
+        self.root
+            .join("projects")
+            .join(project_id)
+            .join("tasks")
+            .join(format!("task-{task_id}.md"))
+    }
+
     pub fn build_context_prompt(
         &self,
         project_id: &str,
         task_id: &str,
     ) -> Result<String, Box<dyn std::error::Error>> {
-        let task_doc_path = paths::get_task_doc_path(project_id, task_id)?;
+        let task_doc_path = self.task_doc_path(project_id, task_id);
         let port = Self::get_dev_server_port(task_id)?;
 
         let mut sections: Vec<String> = Vec::new();
@@ -134,7 +142,7 @@ Note: any `.bottega/tasks/*.md` files inside the repo itself are legacy from bef
         sections.push(task_plan);
 
         // Input Files section
-        let tasks_root = paths::get_archive_tasks_folder_path(project_id)?;
+        let tasks_root = self.root.join("projects").join(project_id).join("tasks");
         let input_dir = tasks_root
             .join(format!("task-{task_id}"))
             .join("input_files");

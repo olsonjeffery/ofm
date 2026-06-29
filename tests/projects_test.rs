@@ -1,17 +1,31 @@
 use omprint::db;
 use omprint::server;
 use omprint::server::state::AppState;
-use std::sync::{Arc, Mutex};
+use tempfile::TempDir;
 
 async fn setup_app() -> (String, tokio::task::JoinHandle<()>) {
-    let conn = rusqlite::Connection::open_in_memory().unwrap();
-    conn.execute_batch("PRAGMA foreign_keys = ON;").unwrap();
-    db::run_migrations(&conn).unwrap();
-    let user_id = db::ensure_default_user(&conn).unwrap();
+    let tmp = TempDir::new().unwrap();
+    let config = hiqlite::NodeConfig {
+        node_id: 1,
+        nodes: vec![hiqlite::Node {
+            id: 1,
+            addr_raft: "127.0.0.1:0".into(),
+            addr_api: "127.0.0.1:0".into(),
+        }],
+        data_dir: tmp.path().to_str().unwrap().to_string().into(),
+        secret_raft: "test-raft-secret-123".into(),
+        secret_api: "test-api-secret-123".into(),
+        ..Default::default()
+    };
+    let client = hiqlite::start_node(config).await.unwrap();
+    client.wait_until_healthy_db().await;
+    db::run_migrations(&client).await.unwrap();
+    let user_id = db::ensure_default_user(&client).await.unwrap();
 
     let state = AppState {
-        db: Arc::new(Mutex::new(conn)),
+        db: client,
         default_user_id: user_id,
+        archive_root: "storage/".into(),
     };
 
     let app = server::router(state);

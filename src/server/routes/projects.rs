@@ -39,7 +39,7 @@ pub fn projects_router() -> Router<AppState> {
 async fn create_project(
     State(state): State<AppState>,
     Json(body): Json<CreateProjectRequest>,
-) -> Result<(axum::http::StatusCode, Json<Project>), ServerError> {
+) -> Result<(StatusCode, Json<Project>), ServerError> {
     if body.name.trim().is_empty() {
         return Err(ServerError::BadRequest("name is required".into()));
     }
@@ -55,12 +55,8 @@ async fn create_project(
             validate_subproject_path(trimmed)?;
         }
     }
-    let conn = state
-        .db
-        .lock()
-        .map_err(|e| ServerError::Internal(e.to_string()))?;
     let project = services::projects::create_project(
-        &conn,
+        &state.db,
         &state.default_user_id,
         body.name.trim(),
         body.repo_folder_path.trim(),
@@ -69,6 +65,7 @@ async fn create_project(
             .map(|s| s.trim())
             .filter(|s| !s.is_empty()),
     )
+    .await
     .map_err(|e| {
         if e.to_string().contains("UNIQUE") {
             ServerError::Conflict("A project with this repository path already exists".into())
@@ -80,11 +77,8 @@ async fn create_project(
 }
 
 async fn list_projects(State(state): State<AppState>) -> Result<Json<Vec<Project>>, ServerError> {
-    let conn = state
-        .db
-        .lock()
-        .map_err(|e| ServerError::Internal(e.to_string()))?;
-    let projects = services::projects::list_projects(&conn, &state.default_user_id)
+    let projects = services::projects::list_projects(&state.db, &state.default_user_id)
+        .await
         .map_err(|e| ServerError::Internal(e.to_string()))?;
     Ok(Json(projects))
 }
@@ -93,11 +87,8 @@ async fn get_project(
     State(state): State<AppState>,
     Path(id): Path<Uuid>,
 ) -> Result<Json<Project>, ServerError> {
-    let conn = state
-        .db
-        .lock()
-        .map_err(|e| ServerError::Internal(e.to_string()))?;
-    let project = services::projects::get_project(&conn, &id)
+    let project = services::projects::get_project(&state.db, &id)
+        .await
         .map_err(|_| ServerError::NotFound("Project not found".into()))?;
     Ok(Json(project))
 }
@@ -128,21 +119,18 @@ async fn update_project(
             validate_subproject_path(trimmed)?;
         }
     }
-    let conn = state
-        .db
-        .lock()
-        .map_err(|e| ServerError::Internal(e.to_string()))?;
     let project = services::projects::update_project(
-        &conn,
+        &state.db,
         &id,
         body.name.as_deref().map(|s| s.trim()),
         body.repo_folder_path.as_deref().map(|s| s.trim()),
         body.subproject_path.as_deref(),
     )
+    .await
     .map_err(|e| {
         if e.to_string().contains("UNIQUE") {
             ServerError::Conflict("A project with this repository path already exists".into())
-        } else if e.to_string().contains("returned no rows") {
+        } else if e.to_string().contains("no rows returned") {
             ServerError::NotFound("Project not found".into())
         } else {
             ServerError::Internal(e.to_string())
@@ -155,11 +143,8 @@ async fn delete_project(
     State(state): State<AppState>,
     Path(id): Path<Uuid>,
 ) -> Result<Json<serde_json::Value>, ServerError> {
-    let conn = state
-        .db
-        .lock()
-        .map_err(|e| ServerError::Internal(e.to_string()))?;
-    let deleted = services::projects::delete_project(&conn, &id)
+    let deleted = services::projects::delete_project(&state.db, &id)
+        .await
         .map_err(|e| ServerError::Internal(e.to_string()))?;
     if !deleted {
         return Err(ServerError::NotFound("Project not found".into()));

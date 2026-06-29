@@ -2,7 +2,6 @@
 
 #[cfg(unix)]
 use std::os::unix::fs::PermissionsExt;
-use std::sync::{Arc, Mutex};
 
 mod archive;
 mod config;
@@ -19,28 +18,38 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let cfg = config::OmprintConfig::from_env();
 
     // DB setup
-    if let Some(parent) = std::path::Path::new(&cfg.db_path).parent() {
-        std::fs::create_dir_all(parent)?;
-        #[cfg(unix)]
-        std::fs::set_permissions(parent, std::fs::Permissions::from_mode(0o700))?;
-    }
-
-    let conn = rusqlite::Connection::open(&cfg.db_path)?;
+    std::fs::create_dir_all(&cfg.data_dir)?;
     #[cfg(unix)]
-    std::fs::set_permissions(&cfg.db_path, std::fs::Permissions::from_mode(0o600))?;
+    std::fs::set_permissions(&cfg.data_dir, std::fs::Permissions::from_mode(0o700))?;
 
-    conn.execute_batch("PRAGMA journal_mode=WAL; PRAGMA foreign_keys=ON;")?;
+    let node_config = hiqlite::NodeConfig {
+        node_id: 1,
+        nodes: vec![hiqlite::Node {
+            id: 1,
+            addr_raft: "127.0.0.1:0".into(),
+            addr_api: "127.0.0.1:0".into(),
+        }],
+        data_dir: cfg.data_dir.clone().into(),
+        secret_raft: std::env::var("OMPRINT_RAFT_SECRET")
+            .unwrap_or_else(|_| "omprint-raft-secret".into()),
+        secret_api: std::env::var("OMPRINT_API_SECRET")
+            .unwrap_or_else(|_| "omprint-api-secret".into()),
+        ..Default::default()
+    };
 
-    let count = db::run_migrations(&conn)?;
+    let client = hiqlite::start_node(node_config).await?;
+    client.wait_until_healthy_db().await;
+
+    let count = db::run_migrations(&client).await?;
     tracing::info!("Migrations complete: {} applied", count);
 
-    // Ensure a default user exists (auth not yet implemented)
-    let default_user_id = db::ensure_default_user(&conn)?;
+    let default_user_id = db::ensure_default_user(&client).await?;
     tracing::info!("Default user id: {}", default_user_id);
 
     let state = server::state::AppState {
-        db: Arc::new(Mutex::new(conn)),
+        db: client,
         default_user_id,
+        archive_root: cfg.archive_root,
     };
 
     // Server
