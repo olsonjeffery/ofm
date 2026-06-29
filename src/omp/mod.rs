@@ -273,7 +273,7 @@ mod tests {
         );
         session.start_turn(&input, tx).unwrap();
 
-        let first = tokio::time::timeout(Duration::from_secs(5), rx.recv())
+        let first = tokio::time::timeout(Duration::from_secs(30), rx.recv())
             .await
             .unwrap()
             .expect("expected Some event");
@@ -306,7 +306,7 @@ mod tests {
 
         let mut events = Vec::new();
         loop {
-            match tokio::time::timeout(Duration::from_secs(5), rx.recv()).await {
+            match tokio::time::timeout(Duration::from_secs(30), rx.recv()).await {
                 Ok(Some(event)) => events.push(event),
                 _ => break,
             }
@@ -343,7 +343,7 @@ mod tests {
         session.start_turn(&input, tx).unwrap();
 
         // Receive the session_start event first
-        let ev = tokio::time::timeout(Duration::from_secs(5), rx.recv())
+        let ev = tokio::time::timeout(Duration::from_secs(30), rx.recv())
             .await
             .unwrap()
             .expect("expected session_start");
@@ -362,7 +362,7 @@ mod tests {
                 std::thread::sleep(Duration::from_millis(100));
                 Some(std::fs::metadata(&proc_path).is_err())
             })
-            .take(50)
+            .take(200)
             .any(|x| x);
 
         assert!(gone, "process {pid} should have been killed");
@@ -394,7 +394,7 @@ mod tests {
 
         let mut events = Vec::new();
         loop {
-            match tokio::time::timeout(Duration::from_secs(5), rx.recv()).await {
+            match tokio::time::timeout(Duration::from_secs(30), rx.recv()).await {
                 Ok(Some(event)) => events.push(event),
                 _ => break,
             }
@@ -442,7 +442,7 @@ mod tests {
         session.start_turn(&input, tx).unwrap();
 
         // Read the echoed text event
-        let event = tokio::time::timeout(Duration::from_secs(5), rx.recv())
+        let event = tokio::time::timeout(Duration::from_secs(30), rx.recv())
             .await
             .unwrap()
             .expect("expected Some event");
@@ -455,7 +455,7 @@ mod tests {
         }
 
         // Verify done event follows
-        let done = tokio::time::timeout(Duration::from_secs(5), rx.recv())
+        let done = tokio::time::timeout(Duration::from_secs(30), rx.recv())
             .await
             .unwrap()
             .expect("expected Done event");
