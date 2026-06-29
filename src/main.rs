@@ -7,6 +7,7 @@ mod archive;
 mod config;
 mod db;
 mod logging;
+mod omp;
 mod server;
 mod services;
 mod worktree;
