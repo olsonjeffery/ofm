@@ -243,8 +243,7 @@ impl From<&mut Row<'_>> for Message {
             project_key: row.get("project_key"),
             session_id: row.get("session_id"),
             seq: row.get::<i64>("seq") as i32,
-            entry_json: serde_json::from_str(&row.get::<String>("entry_json"))
-                .unwrap_or_default(),
+            entry_json: serde_json::from_str(&row.get::<String>("entry_json")).unwrap_or_default(),
         }
     }
 }

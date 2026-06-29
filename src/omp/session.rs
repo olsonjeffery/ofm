@@ -97,7 +97,10 @@ pub async fn register_session(
     session_id: &str,
     session: OmpSession,
 ) {
-    sessions.lock().await.insert(session_id.to_string(), session);
+    sessions
+        .lock()
+        .await
+        .insert(session_id.to_string(), session);
 }
 
 #[cfg(test)]
@@ -138,7 +141,12 @@ mod tests {
         client
             .execute(
                 "INSERT INTO tasks (id, project_id, user_id, title) VALUES ($1, $2, $3, $4)",
-                hiqlite::params!(task_id.to_string(), project_id.to_string(), user_id.to_string(), "test-task"),
+                hiqlite::params!(
+                    task_id.to_string(),
+                    project_id.to_string(),
+                    user_id.to_string(),
+                    "test-task"
+                ),
             )
             .await
             .unwrap();
@@ -150,9 +158,15 @@ mod tests {
     async fn test_start_session_creates_conversation() {
         let (client, task_id, _tmp) = make_client().await;
 
-        let result = start_session(&client, task_id, "test-model", "balanced", AgentType::Implementation)
-            .await
-            .unwrap();
+        let result = start_session(
+            &client,
+            task_id,
+            "test-model",
+            "balanced",
+            AgentType::Implementation,
+        )
+        .await
+        .unwrap();
 
         let conv: Conversation = client
             .query_map_one(
@@ -173,9 +187,15 @@ mod tests {
     async fn test_start_session_creates_task_agent_run() {
         let (client, task_id, _tmp) = make_client().await;
 
-        let result = start_session(&client, task_id, "test-model", "balanced", AgentType::Implementation)
-            .await
-            .unwrap();
+        let result = start_session(
+            &client,
+            task_id,
+            "test-model",
+            "balanced",
+            AgentType::Implementation,
+        )
+        .await
+        .unwrap();
 
         let mut runs = client
             .query_raw(
@@ -196,9 +216,15 @@ mod tests {
     async fn test_resume_session() {
         let (client, task_id, _tmp) = make_client().await;
 
-        let result = start_session(&client, task_id, "resume-model", "fast", AgentType::Planification)
-            .await
-            .unwrap();
+        let result = start_session(
+            &client,
+            task_id,
+            "resume-model",
+            "fast",
+            AgentType::Planification,
+        )
+        .await
+        .unwrap();
 
         let conv = resume_session(&client, result.conversation_id)
             .await
@@ -215,17 +241,27 @@ mod tests {
         let fake_id = Uuid::new_v4();
 
         let result = resume_session(&client, fake_id).await;
-        assert!(result.is_err(), "expected error for nonexistent conversation");
+        assert!(
+            result.is_err(),
+            "expected error for nonexistent conversation"
+        );
     }
 
     #[tokio::test]
     async fn test_abort_session_marks_run_failed() {
         let (client, task_id, _tmp) = make_client().await;
-        let sessions: Arc<Mutex<HashMap<String, OmpSession>>> = Arc::new(Mutex::new(HashMap::new()));
+        let sessions: Arc<Mutex<HashMap<String, OmpSession>>> =
+            Arc::new(Mutex::new(HashMap::new()));
 
-        let result = start_session(&client, task_id, "abort-model", "balanced", AgentType::Implementation)
-            .await
-            .unwrap();
+        let result = start_session(
+            &client,
+            task_id,
+            "abort-model",
+            "balanced",
+            AgentType::Implementation,
+        )
+        .await
+        .unwrap();
 
         abort_session(&client, &result.session_id, &sessions)
             .await
@@ -243,17 +279,27 @@ mod tests {
         let status: String = runs[0].get("status");
         let completed_at: Option<String> = runs[0].get("completed_at");
         assert_eq!(status, "failed");
-        assert!(completed_at.is_some(), "completed_at should be set after abort");
+        assert!(
+            completed_at.is_some(),
+            "completed_at should be set after abort"
+        );
     }
 
     #[tokio::test]
     async fn test_abort_session_removes_from_map() {
         let (client, task_id, _tmp) = make_client().await;
-        let sessions: Arc<Mutex<HashMap<String, OmpSession>>> = Arc::new(Mutex::new(HashMap::new()));
+        let sessions: Arc<Mutex<HashMap<String, OmpSession>>> =
+            Arc::new(Mutex::new(HashMap::new()));
 
-        let result = start_session(&client, task_id, "map-model", "balanced", AgentType::Implementation)
-            .await
-            .unwrap();
+        let result = start_session(
+            &client,
+            task_id,
+            "map-model",
+            "balanced",
+            AgentType::Implementation,
+        )
+        .await
+        .unwrap();
 
         // create a mock session to register
         let system = portable_pty::native_pty_system();
@@ -261,11 +307,7 @@ mod tests {
         let cmd = portable_pty::CommandBuilder::new("true");
         let child = pair.slave.spawn_command(cmd).unwrap();
         let pid = child.process_id().unwrap_or(0);
-        let mock_session = OmpSession {
-            pid,
-            child,
-            pair,
-        };
+        let mock_session = OmpSession { pid, child, pair };
 
         register_session(&sessions, &result.session_id, mock_session).await;
 

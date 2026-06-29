@@ -134,9 +134,36 @@ mod tests {
         let session_id = "sess-seq";
         let project_key = "proj-seq";
 
-        persist_event(&client, &OmpRpcEvent::Text { text: "first".into() }, session_id, project_key).await.unwrap();
-        persist_event(&client, &OmpRpcEvent::Text { text: "second".into() }, session_id, project_key).await.unwrap();
-        persist_event(&client, &OmpRpcEvent::Text { text: "third".into() }, session_id, project_key).await.unwrap();
+        persist_event(
+            &client,
+            &OmpRpcEvent::Text {
+                text: "first".into(),
+            },
+            session_id,
+            project_key,
+        )
+        .await
+        .unwrap();
+        persist_event(
+            &client,
+            &OmpRpcEvent::Text {
+                text: "second".into(),
+            },
+            session_id,
+            project_key,
+        )
+        .await
+        .unwrap();
+        persist_event(
+            &client,
+            &OmpRpcEvent::Text {
+                text: "third".into(),
+            },
+            session_id,
+            project_key,
+        )
+        .await
+        .unwrap();
 
         let messages = client
             .query_map::<Message, _>(
@@ -157,11 +184,33 @@ mod tests {
         let (client, _tmp) = make_client().await;
         let project_key = "proj-multi";
 
-        persist_event(&client, &OmpRpcEvent::Text { text: "sess1-event".into() }, "sess-a", project_key).await.unwrap();
-        persist_event(&client, &OmpRpcEvent::Text { text: "sess2-event".into() }, "sess-b", project_key).await.unwrap();
+        persist_event(
+            &client,
+            &OmpRpcEvent::Text {
+                text: "sess1-event".into(),
+            },
+            "sess-a",
+            project_key,
+        )
+        .await
+        .unwrap();
+        persist_event(
+            &client,
+            &OmpRpcEvent::Text {
+                text: "sess2-event".into(),
+            },
+            "sess-b",
+            project_key,
+        )
+        .await
+        .unwrap();
 
-        let loaded_a = load_transcript(&client, "sess-a", project_key).await.unwrap();
-        let loaded_b = load_transcript(&client, "sess-b", project_key).await.unwrap();
+        let loaded_a = load_transcript(&client, "sess-a", project_key)
+            .await
+            .unwrap();
+        let loaded_b = load_transcript(&client, "sess-b", project_key)
+            .await
+            .unwrap();
 
         assert_eq!(loaded_a.len(), 1);
         assert_eq!(loaded_b.len(), 1);
@@ -178,7 +227,9 @@ mod tests {
     #[tokio::test]
     async fn test_load_empty_transcript() {
         let (client, _tmp) = make_client().await;
-        let loaded = load_transcript(&client, "nonexistent", "noproj").await.unwrap();
+        let loaded = load_transcript(&client, "nonexistent", "noproj")
+            .await
+            .unwrap();
         assert!(loaded.is_empty());
     }
 }
