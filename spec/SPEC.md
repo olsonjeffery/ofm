@@ -4,7 +4,11 @@
 > use `snake_case` as a naming convention; In all places where `camelCase`
 > occurs (referring to the typescript `reference/` implementation of `bottega`),
 > substitute for `snake_case` as appropriate; `PascalCase` is used for `trait`s,
-> `struct`s, `enum`s, etc
+> `struct`s, `enum`s, etc.
+> 
+> **Note:** The `omprint` Rust codebase at `src/` now provides implementations
+> for many of the features described in the spec. Prefer citations to `src/`
+> over `reference/` wherever equivalents exist.
 
 [`omprint`][1] orchestrates a small team of
 coding agents that collaborate on a single task. You describe the work in a
@@ -15,10 +19,11 @@ hit something only you can resolve.
 This repository is **spec-first**. The specification *is* the product. A
 complete, working implementation will be created in the enclosing repository, as
 the `omprint` application. A typescript `reference/` application is kept in
-this directory, for reference during the implementation of [`omprint`][1] (which
-will itself be bootstrapped in [vdaubry/bottega][0] until [omprint][1] is featureful
-enough to take over). It is an explicit goal to replace **ALL** citations into
-`spec/reference/` / `reference/` with citations into the local `omprint` codebase
+this directory, for reference during the implementation of [`omprint`][1]. The
+Rust codebase's foundational layer (DB schema, CRUD API, worktree management,
+OMP subprocess integration, task archive) is now implemented at `src/`. The
+orchestration loop and agents remain to be built; the reference is retained
+for those unimplemented features.
 
 ## `omprint` rust implementation of the `bottega` spec
 
@@ -85,16 +90,21 @@ spawns `pty`s, maintains database state, and so on
 
 ## How to build from this spec
 
-**FIXME: replace all occurrences of `reference/` with links into the `omprint`
-rust codebase**
+**FIXME: remaining `reference/` citations — orchestration, agents, transcript
+persistence, WebSocket — have not yet been replaced with Rust equivalents.
+References for task-and-workspace and omp-integration have been updated to
+point at `src/` where implementations exist.**
 
 Point a coding agent at this file and say "build this." Then:
 
 1. Read this file top to bottom.
 2. Implement everything in [`core/`](./core). That is the whole product at its
    smallest. The core docs are written as **behavior** — what the tool does and
-   why — with technical guidance and pointers into `reference/` for the parts
-   that were genuinely hard to get right.
+   why — with technical guidance and pointers into `reference/` (and increasingly `src/`)
+   for the parts that were genuinely hard to get right. Direct Rust implementations
+   exist in `src/omp/mod.rs` (PTY subprocess lifecycle), `src/worktree/mod.rs`
+   (worktree create/remove/status), and `src/archive/mod.rs` (task doc I/O, archive
+   cleanup, context prompt assembly).
 3. Implement whichever [`extra/`](./extra) features you want. These are
    **opinionated**: they reflect one company's preferences, not universal
    truths. Skip any of them and core still works.
@@ -175,11 +185,11 @@ Opinionated features. Each is independent; implement what you want.
 `reference/` is a complete, deployed implementation. Use it to resolve any
 ambiguity left by the spec.
 
-- **Stack as built:** TypeScript end to end. React 18 + Vite frontend; Node +
-  Express + `ws` backend; SQLite (`better-sqlite3`) for all state, including
-  conversation transcripts. You are not required to match this stack — the spec
-  describes behavior — but the reference assumes it, so its citations are
-  TypeScript.
+- **Stack as built:** TypeScript end to end (React 18 + Vite frontend; Node +
+  Express + `ws` backend; SQLite (`better-sqlite3`) for all state). The
+  `omprint` Rust implementation uses `tokio` + `axum` + `hiqlite` instead.
+  You are not required to match either stack — the spec describes behavior —
+  but the reference assumes TypeScript, so its citations use that language.
 - **Where to start reading:** [`reference/server/database/init.sql`](./reference/server/database/init.sql)
   (the whole data model in one file) and [`reference/docs/project.md`](./reference/docs/project.md)
   (an architecture tour).

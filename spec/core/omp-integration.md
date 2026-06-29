@@ -4,7 +4,11 @@
 > use `snake_case` as a naming convention; In all places where `camelCase`
 > occurs (referring to the typescript `reference/` implementation of `bottega`),
 > substitute for `snake_case` as appropriate; `PascalCase` is used for `trait`s,
-> `struct`s, `enum`s, etc
+> `struct`s, `enum`s, etc.
+> 
+> **Note:** The `omprint` Rust codebase at `src/` now provides implementations
+> for many of the features described in this spec. Prefer citations to `src/`
+> over `reference/` wherever equivalents exist.
 
 This is the seam that makes the pipeline work. `omprint` runs all coding-agent
 turns through [`omp` (`oh-my-pi`)][0] — there is exactly one harness, and this
@@ -93,6 +97,9 @@ discrete event:
 | `context_usage` | Context usage breakdown |
 | `error` | An error occurred |
 | `done` | The turn is complete; carries the final result |
+
+> **Rust implementation:** `src/omp/protocol.rs` defines all RPC event types
+> (`OmpRpcEvent`, `TurnInput`, `ResumeInput`).
 
 ### Turn resume
 
@@ -306,30 +313,31 @@ On `omprint` restart:
 
 ## Reference map
 
-| Concern | File |
-|---|---|
-| `portable-pty` spawn and lifecycle | `reference/server/services/providers/anthropic/index.ts` (pattern reference; `omprint` will own its own impl) |
-| Streaming loop pattern | `reference/server/services/conversation/runStreamingLoop.ts` |
-| WebSocket broadcast | `reference/server/websocket/broadcast.ts` |
-| Transcript persistence | `reference/server/services/sqliteSessionStore.ts`, `reference/server/database/init.sql` |
-| Active session management | `reference/server/services/conversation/sessionControl.ts` |
-| `omp` RPC documentation | [https://omp.sh/docs](https://omp.sh/docs) |
-| `models.yml` format | [https://omp.sh/docs/custom-models](https://omp.sh/docs/custom-models) |
+| Concern | Rust (implemented) | Legacy reference |
+|---|---|---|
+| PTY spawn and lifecycle | `src/omp/mod.rs` (`spawn_omp`, `OmpSession`) | `reference/server/services/providers/anthropic/index.ts` |
+| Streaming reader loop | `src/omp/mod.rs` (`spawn_reader`) | `reference/server/services/conversation/runStreamingLoop.ts` |
+| RPC protocol types | `src/omp/protocol.rs` | — |
+| WebSocket broadcast | Not yet implemented | `reference/server/websocket/broadcast.ts` |
+| Transcript persistence | Not yet implemented | `reference/server/services/sqliteSessionStore.ts`, `reference/server/database/init.sql` |
+| Active session management | Not yet implemented | `reference/server/services/conversation/sessionControl.ts` |
+| `omp` RPC documentation | — | [https://omp.sh/docs](https://omp.sh/docs) |
+| `models.yml` format | — | [https://omp.sh/docs/custom-models](https://omp.sh/docs/custom-models) |
 
-**FIXME:** All `reference/` citations above will eventually point into the
-`omprint` Rust codebase.
+**FIXME:** Partially addressed. PTY spawn, RPC protocol, and reader loop now
+point at `src/omp/mod.rs` and `src/omp/protocol.rs`. Transcript persistence,
+WebSocket, and session tracking remain to be implemented.
 
 ## What to build
 
-- [ ] `omp` subprocess spawning via `portable-pty` with configurable `cwd` and
-      environment variables
-- [ ] The RPC message write/read loop (JSON-lines protocol over `STDIO`)
-- [ ] The streaming runtime with WebSocket broadcast
-- [ ] Transcript persistence to `hiqlite` (`messages` + `session_summaries` tables)
-- [ ] `load_transcript` — read back from `hiqlite` for history and resume
-- [ ] Session management: start, resume, abort
-- [ ] `models.yml` passthrough mechanism (`OMP_MODELS_YML` env var injection)
-- [ ] Orphan recovery on startup (kill orphan subprocesses, sweep stale runs)
+- [x] `omp` subprocess spawning via `portable-pty` → `src/omp/mod.rs`
+- [x] RPC message write/read loop → `src/omp/mod.rs` (`spawn_reader`), `src/omp/protocol.rs`
+- [ ] Full streaming runtime with WebSocket broadcast (reader loop exists; broadcast TBD)
+- [ ] Transcript persistence to `hiqlite` (schema exists; persistence TBD)
+- [ ] `load_transcript` (TBD)
+- [x] Session management: start, abort (resume TBD)
+- [ ] `models.yml` passthrough (TBD)
+- [ ] Orphan recovery on startup (TBD)
 
 ## Boundaries (not in this spec)
 

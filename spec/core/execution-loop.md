@@ -1,10 +1,14 @@
 # Core — The execution loop
 
 > **⚠️`omprint` ONLY ⚠️:** Rust convention requires functions and `let` bindings
-> use `snake_case` as a naming convention; In all places where `camelCase`
-> occurs (referring to the typescript `reference/` implementation of `bottega`),
+> use `snake_case` as a naming convention. In all places where `camelCase`
+> occurs (in citations from the legacy typescript `reference/` implementation),
 > substitute for `snake_case` as appropriate; `PascalCase` is used for `trait`s,
-> `struct`s, `enum`s, etc
+> `struct`s, `enum`s, etc.
+> 
+> **Implementation status:** This spec module is not yet implemented in the Rust
+> codebase. Citations into `reference/` are retained as guidance; they will be
+> replaced with Rust equivalents when implementation begins.
 
 The autonomous heart of the pipeline: an **implementation** agent does the work
 from the plan, a **review** agent independently verifies it, and they alternate
