@@ -158,7 +158,9 @@ async fn get_task(
         let task = services::tasks::get_task(&state.db, &id)
             .await
             .map_err(|_| ServerError::NotFound("Task not found".into()))?;
-        let worktree = services::tasks::get_worktree_by_task(&state.db, &id).await.ok();
+        let worktree = services::tasks::get_worktree_by_task(&state.db, &id)
+            .await
+            .ok();
         (task, worktree)
     };
 
@@ -250,7 +252,9 @@ async fn delete_task(
     let task = services::tasks::get_task(&state.db, &id)
         .await
         .map_err(|_| ServerError::NotFound("Task not found".into()))?;
-    let worktree = services::tasks::get_worktree_by_task(&state.db, &id).await.ok();
+    let worktree = services::tasks::get_worktree_by_task(&state.db, &id)
+        .await
+        .ok();
 
     if let Some(w) = worktree {
         let repo_path = if w.repo_path.is_empty() {

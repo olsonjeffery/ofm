@@ -52,7 +52,9 @@ pub fn get_worktree_path(repo_path: &str, project_id: u32, task_id: u32) -> Path
     PathBuf::from(worktrees_root).join(format!("project-{project_id}/task-{task_id}/"))
 }
 
-pub async fn detect_default_branch(repo_path: &str) -> Result<String, Box<dyn std::error::Error + Send + Sync>> {
+pub async fn detect_default_branch(
+    repo_path: &str,
+) -> Result<String, Box<dyn std::error::Error + Send + Sync>> {
     let output = Command::new("git")
         .args(["symbolic-ref", "refs/remotes/origin/HEAD"])
         .env("GIT_DISABLE_HOOKS", "1")

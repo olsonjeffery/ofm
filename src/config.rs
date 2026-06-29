@@ -8,8 +8,7 @@ pub struct OmprintConfig {
 
 impl OmprintConfig {
     pub fn from_env() -> Self {
-        let db_path =
-            std::env::var("OMPRINT_DB_PATH").unwrap_or_else(|_| "data/omprint.db".into());
+        let db_path = std::env::var("OMPRINT_DB_PATH").unwrap_or_else(|_| "data/omprint.db".into());
         let data_dir = std::path::Path::new(&db_path)
             .parent()
             .map(|p| p.to_string_lossy().to_string())
@@ -20,7 +19,8 @@ impl OmprintConfig {
                 .ok()
                 .and_then(|s| s.parse().ok())
                 .unwrap_or(3183),
-            archive_root: std::env::var("OMPRINT_ARCHIVE_ROOT").unwrap_or_else(|_| "storage/".into()),
+            archive_root: std::env::var("OMPRINT_ARCHIVE_ROOT")
+                .unwrap_or_else(|_| "storage/".into()),
             data_dir,
         }
     }
