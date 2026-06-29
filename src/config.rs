@@ -1,21 +1,26 @@
 pub struct OmprintConfig {
     pub hostname: String,
     pub port: u16,
-    #[allow(dead_code)]
     pub archive_root: String,
-    pub db_path: String,
+    pub data_dir: String,
 }
 
 impl OmprintConfig {
     pub fn from_env() -> Self {
+        let db_path = std::env::var("OMPRINT_DB_PATH").unwrap_or_else(|_| "data/omprint.db".into());
+        let data_dir = std::path::Path::new(&db_path)
+            .parent()
+            .map(|p| p.to_string_lossy().to_string())
+            .unwrap_or_else(|| "data".into());
         Self {
-            hostname: std::env::var("OMPRINT_HOSTNAME").unwrap_or("127.0.0.1".into()),
+            hostname: std::env::var("OMPRINT_HOSTNAME").unwrap_or_else(|_| "127.0.0.1".into()),
             port: std::env::var("PORT")
                 .ok()
                 .and_then(|s| s.parse().ok())
                 .unwrap_or(3183),
-            archive_root: std::env::var("OMPRINT_ARCHIVE_ROOT").unwrap_or("storage/".into()),
-            db_path: std::env::var("OMPRINT_DB_PATH").unwrap_or("data/omprint.db".into()),
+            archive_root: std::env::var("OMPRINT_ARCHIVE_ROOT")
+                .unwrap_or_else(|_| "storage/".into()),
+            data_dir,
         }
     }
 }
@@ -45,7 +50,7 @@ mod tests {
         assert_eq!(cfg.hostname, "127.0.0.1");
         assert_eq!(cfg.port, 3183);
         assert_eq!(cfg.archive_root, "storage/");
-        assert_eq!(cfg.db_path, "data/omprint.db");
+        assert_eq!(cfg.data_dir, "data");
 
         if let Some(v) = prev_hostname {
             std::env::set_var("OMPRINT_HOSTNAME", v);
@@ -73,11 +78,20 @@ mod tests {
         assert_eq!(cfg.hostname, "0.0.0.0");
         assert_eq!(cfg.port, 9090);
         assert_eq!(cfg.archive_root, "/tmp/storage/");
-        assert_eq!(cfg.db_path, "/tmp/omprint.db");
+        assert_eq!(cfg.data_dir, "/tmp");
 
         std::env::remove_var("OMPRINT_HOSTNAME");
         std::env::remove_var("PORT");
         std::env::remove_var("OMPRINT_ARCHIVE_ROOT");
+        std::env::remove_var("OMPRINT_DB_PATH");
+    }
+
+    #[test]
+    fn test_data_dir_default_uses_parent_of_db_path() {
+        let _guard = ENV_LOCK.lock().unwrap();
+        std::env::set_var("OMPRINT_DB_PATH", "/some/deep/path/db.sqlite3");
+        let cfg = OmprintConfig::from_env();
+        assert_eq!(cfg.data_dir, "/some/deep/path");
         std::env::remove_var("OMPRINT_DB_PATH");
     }
 

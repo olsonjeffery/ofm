@@ -28,7 +28,7 @@ pub fn uuid_to_u32(uuid: &Uuid) -> u32 {
     (v as u32) ^ ((v >> 32) as u32) ^ ((v >> 64) as u32) ^ ((v >> 96) as u32)
 }
 
-pub fn valid_branch_name(name: &str) -> Result<(), Box<dyn std::error::Error>> {
+pub fn valid_branch_name(name: &str) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     if name.is_empty() {
         return Err(format!("invalid branch name: {name}").into());
     }
@@ -52,7 +52,9 @@ pub fn get_worktree_path(repo_path: &str, project_id: u32, task_id: u32) -> Path
     PathBuf::from(worktrees_root).join(format!("project-{project_id}/task-{task_id}/"))
 }
 
-pub async fn detect_default_branch(repo_path: &str) -> Result<String, Box<dyn std::error::Error>> {
+pub async fn detect_default_branch(
+    repo_path: &str,
+) -> Result<String, Box<dyn std::error::Error + Send + Sync>> {
     let output = Command::new("git")
         .args(["symbolic-ref", "refs/remotes/origin/HEAD"])
         .env("GIT_DISABLE_HOOKS", "1")
@@ -92,7 +94,7 @@ pub async fn create_worktree(
     task_id: u32,
     title: &str,
     base_branch: Option<&str>,
-) -> Result<CreateWorktreeResult, Box<dyn std::error::Error>> {
+) -> Result<CreateWorktreeResult, Box<dyn std::error::Error + Send + Sync>> {
     let worktree_path = get_worktree_path(repo_path, project_id, task_id);
     if let Some(parent) = worktree_path.parent() {
         tokio::fs::create_dir_all(parent).await?;
@@ -209,7 +211,7 @@ pub async fn remove_worktree(
     repo_path: &str,
     project_id: u32,
     task_id: u32,
-) -> Result<(), Box<dyn std::error::Error>> {
+) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     let worktree_path = get_worktree_path(repo_path, project_id, task_id);
 
     if !worktree_path.exists() {
