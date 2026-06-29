@@ -8,6 +8,10 @@ mod config;
 mod db;
 mod logging;
 mod omp;
+use std::collections::HashMap;
+use std::sync::Arc;
+use tokio::sync::Mutex;
+
 mod server;
 mod services;
 mod worktree;
@@ -51,6 +55,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         db: client,
         default_user_id,
         archive_root: cfg.archive_root,
+        omp_sessions: Arc::new(Mutex::new(HashMap::new())),
     };
 
     // Server

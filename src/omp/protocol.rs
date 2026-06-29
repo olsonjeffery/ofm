@@ -1,6 +1,6 @@
 use serde::{Deserialize, Serialize};
 
-#[derive(Debug, Clone, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(tag = "type", rename_all = "snake_case")]
 pub enum OmpRpcEvent {
     SessionStart {
@@ -103,7 +103,7 @@ impl ResumeInput {
 impl OmpRpcEvent {
     pub fn session_id(&self) -> Option<&str> {
         match self {
-            OmpRpcEvent::SessionStart { session_id } => Some(session_id.as_str()),
+            OmpRpcEvent::SessionStart { session_id } => Some(session_id),
             _ => None,
         }
     }

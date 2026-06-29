@@ -1,7 +1,10 @@
 use omprint::db;
 use omprint::server;
 use omprint::server::state::AppState;
+use std::collections::HashMap;
+use std::sync::Arc;
 use tempfile::TempDir;
+use tokio::sync::Mutex;
 
 async fn setup_app() -> (String, tokio::task::JoinHandle<()>) {
     let tmp = TempDir::new().unwrap();
@@ -26,6 +29,7 @@ async fn setup_app() -> (String, tokio::task::JoinHandle<()>) {
         db: client,
         default_user_id: user_id,
         archive_root: "storage/".into(),
+        omp_sessions: Arc::new(Mutex::new(HashMap::new())),
     };
 
     let app = server::router(state);
