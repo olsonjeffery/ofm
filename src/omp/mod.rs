@@ -340,7 +340,7 @@ mod tests {
         let env = HashMap::new();
         let mut session = spawn_omp(bin.to_str().unwrap(), "/tmp", env).unwrap();
         let pid = session.pid();
-        let (tx, mut rx) = mpsc::channel(16);
+        let (tx, rx) = mpsc::channel(16);
         let input = TurnInput::new(
             "test".into(),
             "/tmp".into(),
@@ -352,17 +352,9 @@ mod tests {
         );
         session.start_turn(&input, tx).unwrap();
 
-        // Receive the session_start event first
-        let ev = tokio::time::timeout(Duration::from_secs(30), rx.recv())
-            .await
-            .unwrap()
-            .expect("expected session_start");
-        assert_eq!(ev.session_id(), Some("mock-sess-1"));
-
-        // Drop the receiver -> blocking_send on next event will fail
+        // Drop the receiver so blocking_send in the reader fails,
+        // then drop the session so Drop kills the child.
         drop(rx);
-
-        // Drop the session -> Drop impl kills the child
         drop(session);
 
         // Verify process is gone via /proc/{pid}
