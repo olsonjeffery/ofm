@@ -86,39 +86,29 @@ impl Drop for OmpSession {
 
 fn spawn_reader(
     reader: Box<dyn std::io::Read + Send>,
-    killer: Box<dyn portable_pty::ChildKiller + Send>,
+    mut killer: Box<dyn portable_pty::ChildKiller + Send>,
     tx: mpsc::Sender<OmpRpcEvent>,
 ) {
-    tokio::spawn(async move {
-        const MAX_LINE_LEN: usize = 10 * 1024 * 1024;
-        const READ_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(300);
+    const MAX_LINE_LEN: usize = 10 * 1024 * 1024;
+    const READ_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(300);
 
-        let (line_tx, mut line_rx) = mpsc::channel::<String>(128);
-        let mut killer = killer;
-
-        tokio::task::spawn_blocking(move || {
-            let reader = BufReader::new(reader);
-            for line in reader.lines() {
-                let line = match line {
-                    Ok(l) => l,
-                    Err(e) => {
-                        tracing::warn!("omp: read error: {e}");
-                        break;
-                    }
-                };
-                if line_tx.blocking_send(line).is_err() {
-                    return;
-                }
-            }
-        });
-
+    tokio::task::spawn_blocking(move || {
         let start = std::time::Instant::now();
-        while let Some(line) = line_rx.recv().await {
+        let reader = BufReader::new(reader);
+        for line in reader.lines() {
             if start.elapsed() > READ_TIMEOUT {
                 tracing::warn!("omp: read timeout exceeded, killing subprocess");
                 let _ = killer.kill();
                 return;
             }
+
+            let line = match line {
+                Ok(l) => l,
+                Err(e) => {
+                    tracing::warn!("omp: read error: {e}");
+                    break;
+                }
+            };
 
             if line.trim().is_empty() {
                 continue;
@@ -132,7 +122,7 @@ fn spawn_reader(
             match serde_json::from_str::<OmpRpcEvent>(&line) {
                 Ok(event) => {
                     let is_done = matches!(event, OmpRpcEvent::Done(_));
-                    if tx.send(event).await.is_err() {
+                    if tx.blocking_send(event).is_err() {
                         let _ = killer.kill();
                         return;
                     }
