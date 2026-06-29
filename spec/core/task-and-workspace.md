@@ -4,7 +4,11 @@
 > use `snake_case` as a naming convention; In all places where `camelCase`
 > occurs (referring to the typescript `reference/` implementation of `bottega`),
 > substitute for `snake_case` as appropriate; `PascalCase` is used for `trait`s,
-> `struct`s, `enum`s, etc
+> `struct`s, `enum`s, etc.
+> 
+> **Note:** The `omprint` Rust codebase at `src/` now provides implementations
+> for many of the features described in this spec. Prefer citations to `src/`
+> over `reference/` wherever equivalents exist.
 
 This is the substrate the orchestration loop runs on. It defines the unit of
 work the agents collaborate on, and the isolated place they do that work.
@@ -35,7 +39,7 @@ itself lives on disk (the doc in an archive, the code in a worktree).
 - **conversation** — belongs to a task. One streaming session, whether a manual
   chat or an agent run. See [`omp-integration.md`](./omp-integration.md).
 
-Schema: [`reference/server/database/init.sql`](../reference/server/database/init.sql).
+Schema: `src/db/schema.rs` (Rust domain model) and `src/db/mod.rs` (13 DDL migrations). See also the reference [`reference/server/database/init.sql`](../reference/server/database/init.sql).
 
 Task `status` moves `pending → in_progress → in_review → completed`. The loop
 flips `pending → in_progress` on the first agent activity (see
@@ -50,8 +54,7 @@ flips `pending → in_progress` on the first agent activity (see
   worktree being torn down when the task's PR merges. If it lived inside the
   worktree it would vanish with it. Keeping it in a separate archive means the
   plan, the to-do checklist, and the review history outlive any single
-  worktree. See `getArchiveRoot` / `getTaskDocPath` in
-  [`reference/server/services/documentation.ts`](../reference/server/services/documentation.ts).
+   worktree. See `get_archive_root` / `get_task_doc_path` in [`src/archive/paths.rs`](../src/archive/paths.rs) and `ArchiveRoot` in [`src/archive/mod.rs`](../src/archive/mod.rs).
 - **Seeding:** created at task creation with the user's original request (the
   task description), or empty/title-only if there is none. The planning agent
   later rewrites it into a full plan but must quote the original request
@@ -62,8 +65,8 @@ flips `pending → in_progress` on the first agent activity (see
 - **Companions in the archive:** per-task **input files** (attachments) and the
   review **recording** (`recordings/task-{taskId}.webm`) live alongside the doc,
   for the same survive-the-merge reason.
-- Helpers: `readTaskDoc` / `writeTaskDoc` / `deleteTaskDoc` / `deleteTaskArchive`
-  in `documentation.ts`.
+- Helpers: `read_task_doc` / `write_task_doc` / `delete_task_doc` / `delete_task_archive`
+  in [`src/archive/mod.rs`](../src/archive/mod.rs).
 
 ## The worktree — the isolated workspace
 
@@ -75,12 +78,12 @@ flips `pending → in_progress` on the first agent activity (see
   directory, so concurrent tasks never collide on the filesystem and the user's
   main checkout is never disturbed.
 - **Created at task creation** when the project path is a git repo; if worktree
-  creation fails, the task row is rolled back (see the create handler in
-  [`reference/server/routes/tasks.ts`](../reference/server/routes/tasks.ts)).
+   creation fails, the task row is rolled back (see the create handler in
+   [`src/server/routes/tasks.rs`](../src/server/routes/tasks.rs) (`create_task` handler, includes worktree creation with rollback)).
 - **Create-time conveniences** so an agent can build and test immediately:
   symlink the repo's `.env*` files into the worktree, create gitignored dirs,
-  and copy `node_modules` / `.venv` in the background. See `createWorktree` in
-  [`reference/server/services/worktree.ts`](../reference/server/services/worktree.ts).
+   and copy `node_modules` / `.venv` in the background. See `create_worktree` in
+   [`src/worktree/mod.rs`](../src/worktree/mod.rs) (branch naming, default-branch detection, env symlinks, gitignored dirs, dependency copy).
   - **NOTE**: Windows may require copying files, because its support for
   symlinks (and user creation/management) is conditional on system policies
   - **`omprint` ONLY:** On a per-project basis allow the User to configure
@@ -103,7 +106,7 @@ flips `pending → in_progress` on the first agent activity (see
 ## How the document becomes agent context
 
 When an agent run starts, the orchestrator assembles a context system-prompt
-from the archive (`buildContextPrompt` in `documentation.ts`). It:
+from the archive (`build_context_prompt` in `src/archive/mod.rs`). It:
 
 - names the authoritative task-doc path and instructs the agent to **read it in
   full first**,
@@ -116,29 +119,23 @@ path in the prompt is authoritative — agents are told not to look elsewhere.
 
 ## What to build
 
-- [ ] `projects` / `tasks` / `conversations` tables (metadata only) — see
-      [`init.sql`](../reference/server/database/init.sql).
-- [ ] A configurable archive root with this layout: `tasks/task-{id}.md`,
-      `tasks/task-{id}/input_files/`, `recordings/task-{id}.webm`.
-- [ ] Doc read/write/delete + whole-archive cleanup helpers.
-- [ ] Worktree create / remove / status helpers wrapping `git worktree`: branch
-      naming, default-branch detection, env-symlink and dependency-copy
-      conveniences.
-- [ ] Task create: insert row → create worktree (roll back the row on failure) →
-      seed the doc with the original request.
-- [ ] Task delete: remove worktree + branch → delete the archive.
-- [ ] `buildContextPrompt` assembling the agent's task context.
-- [ ] Effective-cwd resolution (worktree if present, else repo).
+- [x] `projects` / `tasks` / `conversations` tables → implemented in `src/db/schema.rs`
+- [x] Configurable archive root → `src/archive/paths.rs`, `src/config.rs`
+- [x] Doc read/write/delete + archive cleanup → `src/archive/mod.rs`
+- [x] Worktree create/remove/status → `src/worktree/mod.rs`
+- [x] Task create with rollback and doc seeding → `src/server/routes/tasks.rs`
+- [x] Task delete with worktree/archive cleanup → `src/server/routes/tasks.rs`
+- [x] `buildContextPrompt` → `build_context_prompt` in `src/archive/mod.rs`
+- [ ] Effective-cwd resolution (not yet wired into agent runs)
 
 ## Reference map
 
-| Concern | File |
-|---|---|
-| Archive paths, doc I/O, context prompt | `reference/server/services/documentation.ts` |
-| Worktree primitives (create/remove/status, PR, merge-and-cleanup) | `reference/server/services/worktree.ts` |
-| Task CRUD + worktree/doc wiring | `reference/server/routes/tasks.ts` |
-| Task access helpers | `reference/server/services/taskService.ts` |
-| Tables | `reference/server/database/init.sql` |
+| Concern | Rust (implemented) | Legacy reference |
+|---|---|---|
+| Archive paths, doc I/O, context prompt | `src/archive/paths.rs`, `src/archive/mod.rs` | `reference/server/services/documentation.ts` |
+| Worktree primitives (create/remove) | `src/worktree/mod.rs` | `reference/server/services/worktree.ts` |
+| Task CRUD + worktree/doc wiring | `src/server/routes/tasks.rs`, `src/services/tasks.rs` | `reference/server/routes/tasks.ts` |
+| Data model / tables | `src/db/schema.rs`, `src/db/mod.rs` | `reference/server/database/init.sql` |
 
 ## Boundaries (not in this spec)
 
