@@ -19,7 +19,10 @@ pub async fn create_project(
     get_project(client, &id).await
 }
 
-pub async fn list_projects(client: &Client, user_id: &Uuid) -> Result<Vec<Project>, hiqlite::Error> {
+pub async fn list_projects(
+    client: &Client,
+    user_id: &Uuid,
+) -> Result<Vec<Project>, hiqlite::Error> {
     client
         .query_map::<Project, _>(
             "SELECT id, user_id, name, repo_folder_path, subproject_path, created_at FROM projects WHERE user_id = $1 ORDER BY created_at DESC",

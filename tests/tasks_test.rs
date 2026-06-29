@@ -37,17 +37,16 @@ async fn setup_app() -> TestApp {
     db::run_migrations(&client).await.unwrap();
     let user_id = db::ensure_default_user(&client).await.unwrap();
 
-    let project_id =
-        omprint::services::projects::create_project(
-            &client,
-            &user_id,
-            "test-project",
-            "/tmp/test-repo",
-            None,
-        )
-        .await
-        .unwrap()
-        .id;
+    let project_id = omprint::services::projects::create_project(
+        &client,
+        &user_id,
+        "test-project",
+        "/tmp/test-repo",
+        None,
+    )
+    .await
+    .unwrap()
+    .id;
 
     let state = AppState {
         db: client.clone(),
@@ -131,17 +130,16 @@ async fn setup_app_with_git() -> TestApp {
     db::run_migrations(&client).await.unwrap();
     let user_id = db::ensure_default_user(&client).await.unwrap();
 
-    let project_id =
-        omprint::services::projects::create_project(
-            &client,
-            &user_id,
-            "test-project",
-            &git_path,
-            None,
-        )
-        .await
-        .unwrap()
-        .id;
+    let project_id = omprint::services::projects::create_project(
+        &client,
+        &user_id,
+        "test-project",
+        &git_path,
+        None,
+    )
+    .await
+    .unwrap()
+    .id;
 
     let state = AppState {
         db: client.clone(),
@@ -197,10 +195,9 @@ async fn test_create_task() {
 
     let task_uuid = Uuid::parse_str(body["id"].as_str().unwrap()).unwrap();
 
-    let worktree =
-        omprint::services::tasks::get_worktree_by_task(&app.db, &task_uuid)
-            .await
-            .unwrap();
+    let worktree = omprint::services::tasks::get_worktree_by_task(&app.db, &task_uuid)
+        .await
+        .unwrap();
 
     assert!(std::path::Path::new(&worktree.worktree_path).exists());
 
