@@ -92,7 +92,7 @@ fn spawn_reader(
     const MAX_LINE_LEN: usize = 10 * 1024 * 1024;
     const READ_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(300);
 
-    tokio::task::spawn_blocking(move || {
+    std::thread::spawn(move || {
         let start = std::time::Instant::now();
         let reader = BufReader::new(reader);
         for line in reader.lines() {
