@@ -2,6 +2,10 @@ use crate::db::schema::{AgentType, RunStatus, Task, TaskAgentRun, Worktree};
 use hiqlite::Client;
 use uuid::Uuid;
 
+fn utc_now() -> String {
+    chrono::Utc::now().naive_utc().to_string()
+}
+
 pub async fn create_task(
     client: &Client,
     id: &Uuid,
@@ -130,7 +134,7 @@ pub async fn create_agent_run(
     conversation_id: &Uuid,
 ) -> Result<TaskAgentRun, hiqlite::Error> {
     let id = Uuid::new_v4();
-    let now = chrono::Utc::now().naive_utc().to_string();
+    let now = utc_now();
     client
         .execute(
             "INSERT INTO task_agent_runs (id, task_id, agent_type, status, conversation_id, created_at) VALUES ($1, $2, $3, $4, $5, $6)",
@@ -197,33 +201,34 @@ pub async fn list_agent_runs_for_task(
         .await
 }
 
+async fn set_agent_run_status(
+    client: &Client,
+    run_id: &Uuid,
+    status: &RunStatus,
+) -> Result<(), hiqlite::Error> {
+    let now = utc_now();
+    client
+        .execute(
+            "UPDATE task_agent_runs SET status = $1, completed_at = $2 WHERE id = $3",
+            hiqlite::params!(status.to_string(), &now, run_id.to_string()),
+        )
+        .await?;
+    Ok(())
+}
+
 pub async fn mark_agent_run_completed(
     client: &Client,
     run_id: &Uuid,
 ) -> Result<(), hiqlite::Error> {
-    let now = chrono::Utc::now().naive_utc().to_string();
-    client
-        .execute(
-            "UPDATE task_agent_runs SET status = $1, completed_at = $2 WHERE id = $3",
-            hiqlite::params!(RunStatus::Completed.to_string(), &now, run_id.to_string()),
-        )
-        .await?;
-    Ok(())
+    set_agent_run_status(client, run_id, &RunStatus::Completed).await
 }
 
 pub async fn mark_agent_run_failed(client: &Client, run_id: &Uuid) -> Result<(), hiqlite::Error> {
-    let now = chrono::Utc::now().naive_utc().to_string();
-    client
-        .execute(
-            "UPDATE task_agent_runs SET status = $1, completed_at = $2 WHERE id = $3",
-            hiqlite::params!(RunStatus::Failed.to_string(), &now, run_id.to_string()),
-        )
-        .await?;
-    Ok(())
+    set_agent_run_status(client, run_id, &RunStatus::Failed).await
 }
 
 pub async fn sweep_running_agent_runs_to_failed(client: &Client) -> Result<usize, hiqlite::Error> {
-    let now = chrono::Utc::now().naive_utc().to_string();
+    let now = utc_now();
     let rows = client
         .execute(
             "UPDATE task_agent_runs SET status = $1, completed_at = $2 WHERE status = $3",
@@ -250,12 +255,131 @@ pub async fn increment_workflow_run_count(
     Ok(())
 }
 
-pub async fn mark_task_blocked(client: &Client, task_id: &Uuid) -> Result<(), hiqlite::Error> {
+async fn set_task_flag(client: &Client, task_id: &Uuid, column: &str) -> Result<(), hiqlite::Error> {
     client
         .execute(
-            "UPDATE tasks SET workflow_blocked = 1 WHERE id = $1",
+            format!("UPDATE tasks SET {column} = 1 WHERE id = $1"),
             hiqlite::params!(task_id.to_string()),
         )
         .await?;
     Ok(())
+}
+
+pub async fn mark_task_blocked(client: &Client, task_id: &Uuid) -> Result<(), hiqlite::Error> {
+    set_task_flag(client, task_id, "workflow_blocked").await
+}
+
+pub async fn mark_planification_complete(client: &Client, task_id: &Uuid) -> Result<(), hiqlite::Error> {
+    set_task_flag(client, task_id, "planification_complete").await
+}
+
+pub async fn mark_workflow_complete(client: &Client, task_id: &Uuid) -> Result<(), hiqlite::Error> {
+    set_task_flag(client, task_id, "workflow_complete").await
+}
+
+pub async fn mark_pr_agent_complete(client: &Client, task_id: &Uuid) -> Result<(), hiqlite::Error> {
+    set_task_flag(client, task_id, "pr_agent_complete").await
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::db;
+    use crate::services::projects;
+    use tempfile::TempDir;
+    use uuid::Uuid;
+
+    async fn make_client() -> (Client, TempDir) {
+        let db_dir = TempDir::new().unwrap();
+        let config = hiqlite::NodeConfig {
+            node_id: 1,
+            nodes: vec![hiqlite::Node {
+                id: 1,
+                addr_raft: "127.0.0.1:0".into(),
+                addr_api: "127.0.0.1:0".into(),
+            }],
+            data_dir: db_dir.path().to_str().unwrap().to_string().into(),
+            secret_raft: "test-raft-secret-12345".into(),
+            secret_api: "test-api-secret-12345".into(),
+            ..Default::default()
+        };
+        let client = hiqlite::start_node(config).await.unwrap();
+        client.wait_until_healthy_db().await;
+        db::run_migrations(&client).await.unwrap();
+        (client, db_dir)
+    }
+
+    async fn seed_task(client: &Client) -> (Uuid, Uuid) {
+        let user_id = db::ensure_default_user(client).await.unwrap();
+        let project_id = projects::create_project(client, &user_id, "test", "/tmp/test", None)
+            .await
+            .unwrap()
+            .id;
+        let task_id = Uuid::new_v4();
+        create_task(client, &task_id, &project_id, &user_id, "test task", "pending")
+            .await
+            .unwrap();
+        (project_id, task_id)
+    }
+
+    type FlagState = (bool, bool, bool, bool);
+
+    async fn assert_flags(client: &Client, task_id: &Uuid, expected: FlagState) {
+        let task = get_task(client, task_id).await.unwrap();
+        assert_eq!(task.planification_complete, expected.0, "planification_complete");
+        assert_eq!(task.workflow_complete, expected.1, "workflow_complete");
+        assert_eq!(task.workflow_blocked, expected.2, "workflow_blocked");
+        assert_eq!(task.pr_agent_complete, expected.3, "pr_agent_complete");
+    }
+
+    #[tokio::test]
+    async fn test_mark_planification_complete() {
+        let (client, _tmp) = make_client().await;
+        let (_, task_id) = seed_task(&client).await;
+
+        mark_planification_complete(&client, &task_id).await.unwrap();
+
+        assert_flags(&client, &task_id, (true, false, false, false)).await;
+    }
+
+    #[tokio::test]
+    async fn test_mark_workflow_complete() {
+        let (client, _tmp) = make_client().await;
+        let (_, task_id) = seed_task(&client).await;
+
+        mark_workflow_complete(&client, &task_id).await.unwrap();
+
+        assert_flags(&client, &task_id, (false, true, false, false)).await;
+    }
+
+    #[tokio::test]
+    async fn test_mark_pr_agent_complete() {
+        let (client, _tmp) = make_client().await;
+        let (_, task_id) = seed_task(&client).await;
+
+        mark_pr_agent_complete(&client, &task_id).await.unwrap();
+
+        assert_flags(&client, &task_id, (false, false, false, true)).await;
+    }
+
+    #[tokio::test]
+    async fn test_mark_task_blocked() {
+        let (client, _tmp) = make_client().await;
+        let (_, task_id) = seed_task(&client).await;
+
+        mark_task_blocked(&client, &task_id).await.unwrap();
+
+        assert_flags(&client, &task_id, (false, false, true, false)).await;
+    }
+
+    #[tokio::test]
+    async fn test_mark_flags_are_independent() {
+        let (client, _tmp) = make_client().await;
+        let (_, task_id) = seed_task(&client).await;
+
+        mark_planification_complete(&client, &task_id).await.unwrap();
+        mark_pr_agent_complete(&client, &task_id).await.unwrap();
+
+        assert_flags(&client, &task_id, (true, false, false, true)).await;
+    }
 }
