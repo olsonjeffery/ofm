@@ -108,7 +108,10 @@ async fn create_task(
         Ok(r) => r,
         Err(e) => {
             let _ = services::tasks::delete_task(&state.db, &task_id).await;
-            return Err(ServerError::Internal(format!("worktree creation failed: {}", e)));
+            return Err(ServerError::Internal(format!(
+                "worktree creation failed: {}",
+                e
+            )));
         }
     };
 

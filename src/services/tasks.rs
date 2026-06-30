@@ -255,7 +255,11 @@ pub async fn increment_workflow_run_count(
     Ok(())
 }
 
-async fn set_task_flag(client: &Client, task_id: &Uuid, column: &str) -> Result<(), hiqlite::Error> {
+async fn set_task_flag(
+    client: &Client,
+    task_id: &Uuid,
+    column: &str,
+) -> Result<(), hiqlite::Error> {
     client
         .execute(
             format!("UPDATE tasks SET {column} = 1 WHERE id = $1"),
@@ -269,7 +273,10 @@ pub async fn mark_task_blocked(client: &Client, task_id: &Uuid) -> Result<(), hi
     set_task_flag(client, task_id, "workflow_blocked").await
 }
 
-pub async fn mark_planification_complete(client: &Client, task_id: &Uuid) -> Result<(), hiqlite::Error> {
+pub async fn mark_planification_complete(
+    client: &Client,
+    task_id: &Uuid,
+) -> Result<(), hiqlite::Error> {
     set_task_flag(client, task_id, "planification_complete").await
 }
 
@@ -316,9 +323,16 @@ mod tests {
             .unwrap()
             .id;
         let task_id = Uuid::new_v4();
-        create_task(client, &task_id, &project_id, &user_id, "test task", "pending")
-            .await
-            .unwrap();
+        create_task(
+            client,
+            &task_id,
+            &project_id,
+            &user_id,
+            "test task",
+            "pending",
+        )
+        .await
+        .unwrap();
         (project_id, task_id)
     }
 
@@ -326,7 +340,10 @@ mod tests {
 
     async fn assert_flags(client: &Client, task_id: &Uuid, expected: FlagState) {
         let task = get_task(client, task_id).await.unwrap();
-        assert_eq!(task.planification_complete, expected.0, "planification_complete");
+        assert_eq!(
+            task.planification_complete, expected.0,
+            "planification_complete"
+        );
         assert_eq!(task.workflow_complete, expected.1, "workflow_complete");
         assert_eq!(task.workflow_blocked, expected.2, "workflow_blocked");
         assert_eq!(task.pr_agent_complete, expected.3, "pr_agent_complete");
@@ -337,7 +354,9 @@ mod tests {
         let (client, _tmp) = make_client().await;
         let (_, task_id) = seed_task(&client).await;
 
-        mark_planification_complete(&client, &task_id).await.unwrap();
+        mark_planification_complete(&client, &task_id)
+            .await
+            .unwrap();
 
         assert_flags(&client, &task_id, (true, false, false, false)).await;
     }
@@ -377,7 +396,9 @@ mod tests {
         let (client, _tmp) = make_client().await;
         let (_, task_id) = seed_task(&client).await;
 
-        mark_planification_complete(&client, &task_id).await.unwrap();
+        mark_planification_complete(&client, &task_id)
+            .await
+            .unwrap();
         mark_pr_agent_complete(&client, &task_id).await.unwrap();
 
         assert_flags(&client, &task_id, (true, false, false, true)).await;

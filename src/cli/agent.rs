@@ -8,8 +8,7 @@ pub async fn handle_command(cmd: Command) -> Result<(), String> {
         AgentAction::BlockWorkflow { task_id } => ("block-workflow", task_id),
         AgentAction::CompletePr { task_id } => ("complete-pr", task_id),
     };
-    let base_url = std::env::var("OMPRINT_URL")
-        .unwrap_or_else(|_| "http://127.0.0.1:3183".into());
+    let base_url = std::env::var("OMPRINT_URL").unwrap_or_else(|_| "http://127.0.0.1:3183".into());
     let url = format!("{}/api/tasks/{}/{}", base_url, task_id, endpoint);
     let client = reqwest::Client::new();
     let resp = client.post(&url).send().await.map_err(|e| e.to_string())?;

@@ -86,8 +86,17 @@ fn client() -> reqwest::Client {
     reqwest::Client::new()
 }
 
-async fn assert_task_flags(db: &Client, task_id: &Uuid, plan: bool, workflow: bool, blocked: bool, pr: bool) {
-    let task = omprint::services::tasks::get_task(db, task_id).await.unwrap();
+async fn assert_task_flags(
+    db: &Client,
+    task_id: &Uuid,
+    plan: bool,
+    workflow: bool,
+    blocked: bool,
+    pr: bool,
+) {
+    let task = omprint::services::tasks::get_task(db, task_id)
+        .await
+        .unwrap();
     assert_eq!(task.planification_complete, plan, "planification_complete");
     assert_eq!(task.workflow_complete, workflow, "workflow_complete");
     assert_eq!(task.workflow_blocked, blocked, "workflow_blocked");
@@ -98,7 +107,10 @@ async fn assert_task_flags(db: &Client, task_id: &Uuid, plan: bool, workflow: bo
 async fn test_complete_plan() {
     let app = setup_app().await;
     let resp = client()
-        .post(format!("{}/api/tasks/{}/complete-plan", app.addr, app.task_id))
+        .post(format!(
+            "{}/api/tasks/{}/complete-plan",
+            app.addr, app.task_id
+        ))
         .send()
         .await
         .unwrap();
@@ -110,7 +122,10 @@ async fn test_complete_plan() {
 async fn test_complete_workflow() {
     let app = setup_app().await;
     let resp = client()
-        .post(format!("{}/api/tasks/{}/complete-workflow", app.addr, app.task_id))
+        .post(format!(
+            "{}/api/tasks/{}/complete-workflow",
+            app.addr, app.task_id
+        ))
         .send()
         .await
         .unwrap();
@@ -122,7 +137,10 @@ async fn test_complete_workflow() {
 async fn test_block_workflow() {
     let app = setup_app().await;
     let resp = client()
-        .post(format!("{}/api/tasks/{}/block-workflow", app.addr, app.task_id))
+        .post(format!(
+            "{}/api/tasks/{}/block-workflow",
+            app.addr, app.task_id
+        ))
         .send()
         .await
         .unwrap();
@@ -134,7 +152,10 @@ async fn test_block_workflow() {
 async fn test_complete_pr() {
     let app = setup_app().await;
     let resp = client()
-        .post(format!("{}/api/tasks/{}/complete-pr", app.addr, app.task_id))
+        .post(format!(
+            "{}/api/tasks/{}/complete-pr",
+            app.addr, app.task_id
+        ))
         .send()
         .await
         .unwrap();
@@ -147,12 +168,18 @@ async fn test_flags_are_independent() {
     let app = setup_app().await;
     // Set planification_complete and pr_agent_complete
     client()
-        .post(format!("{}/api/tasks/{}/complete-plan", app.addr, app.task_id))
+        .post(format!(
+            "{}/api/tasks/{}/complete-plan",
+            app.addr, app.task_id
+        ))
         .send()
         .await
         .unwrap();
     client()
-        .post(format!("{}/api/tasks/{}/complete-pr", app.addr, app.task_id))
+        .post(format!(
+            "{}/api/tasks/{}/complete-pr",
+            app.addr, app.task_id
+        ))
         .send()
         .await
         .unwrap();
@@ -176,13 +203,23 @@ async fn test_unknown_task_returns_404() {
 async fn test_unknown_task_for_all_endpoints_return_404() {
     let app = setup_app().await;
     let fake_id = Uuid::new_v4();
-    for endpoint in &["complete-plan", "complete-workflow", "block-workflow", "complete-pr"] {
+    for endpoint in &[
+        "complete-plan",
+        "complete-workflow",
+        "block-workflow",
+        "complete-pr",
+    ] {
         let resp = client()
             .post(format!("{}/api/tasks/{}/{}", app.addr, fake_id, endpoint))
             .send()
             .await
             .unwrap();
-        assert_eq!(resp.status(), 404, "endpoint /{} should return 404", endpoint);
+        assert_eq!(
+            resp.status(),
+            404,
+            "endpoint /{} should return 404",
+            endpoint
+        );
     }
 }
 
@@ -193,7 +230,11 @@ async fn test_cli_complete_plan_exits_zero_and_flips_flag() {
 
     let binary = std::env::current_exe()
         .ok()
-        .and_then(|p| p.parent().and_then(|p| p.parent()).map(|p| p.join("omprint")))
+        .and_then(|p| {
+            p.parent()
+                .and_then(|p| p.parent())
+                .map(|p| p.join("omprint"))
+        })
         .expect("could not locate omprint binary");
 
     let output = tokio::process::Command::new(&binary)
@@ -203,7 +244,11 @@ async fn test_cli_complete_plan_exits_zero_and_flips_flag() {
         .await
         .unwrap();
 
-    assert!(output.status.success(), "CLI exited with: {:?}", output.status);
+    assert!(
+        output.status.success(),
+        "CLI exited with: {:?}",
+        output.status
+    );
     assert_task_flags(&app.db, &app.task_id, true, false, false, false).await;
 }
 
@@ -214,7 +259,11 @@ async fn test_cli_all_commands_exit_zero() {
 
     let binary = std::env::current_exe()
         .ok()
-        .and_then(|p| p.parent().and_then(|p| p.parent()).map(|p| p.join("omprint")))
+        .and_then(|p| {
+            p.parent()
+                .and_then(|p| p.parent())
+                .map(|p| p.join("omprint"))
+        })
         .expect("could not locate omprint binary");
 
     for (action, plan, workflow, blocked, pr) in &[
@@ -229,7 +278,12 @@ async fn test_cli_all_commands_exit_zero() {
             .output()
             .await
             .unwrap();
-        assert!(output.status.success(), "agent {} failed: {:?}", action, output.status);
+        assert!(
+            output.status.success(),
+            "agent {} failed: {:?}",
+            action,
+            output.status
+        );
         assert_task_flags(&app.db, &app.task_id, *plan, *workflow, *blocked, *pr).await;
     }
 }
