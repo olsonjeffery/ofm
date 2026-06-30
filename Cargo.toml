@@ -29,6 +29,11 @@ tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 # omp RPC subprocess integration
 portable-pty = "0.9"
 
-[dev-dependencies]
+# CLI
+clap = { version = "4", features = ["derive"] }
+
+# HTTP client for CLI agent subcommand
 reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls"] }
+
+[dev-dependencies]
 tempfile = "3"

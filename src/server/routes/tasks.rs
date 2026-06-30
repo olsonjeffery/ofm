@@ -50,6 +50,7 @@ pub fn tasks_router() -> Router<AppState> {
         .route("/", get(list_tasks).post(create_task))
         .route("/{id}", get(get_task).put(update_task).delete(delete_task))
         .nest("/{id}/agent-runs", super::agent_runs::agent_runs_router())
+        .nest("/{id}", super::agent_flags::agent_flags_router())
 }
 
 async fn create_task(
@@ -106,9 +107,11 @@ async fn create_task(
     {
         Ok(r) => r,
         Err(e) => {
-            let err_msg = format!("worktree creation failed: {}", e);
             let _ = services::tasks::delete_task(&state.db, &task_id).await;
-            return Err(ServerError::Internal(err_msg));
+            return Err(ServerError::Internal(format!(
+                "worktree creation failed: {}",
+                e
+            )));
         }
     };
 
@@ -165,12 +168,14 @@ async fn get_task(
 
     let (doc_content, context_prompt) = if let Some(w) = worktree {
         let archive = archive::ArchiveRoot::new(std::path::PathBuf::from(&state.archive_root));
-        let doc_path = archive.task_doc_path(&w.project_id.to_string(), &w.task_id.to_string());
+        let proj_str = w.project_id.to_string();
+        let task_str = w.task_id.to_string();
+        let doc_path = archive.task_doc_path(&proj_str, &task_str);
         let doc = archive
             .read_task_doc(&doc_path)
             .map_err(|e| ServerError::Internal(e.to_string()))?;
         let ctx = archive
-            .build_context_prompt(&w.project_id.to_string(), &w.task_id.to_string())
+            .build_context_prompt(&proj_str, &task_str)
             .map_err(|e| ServerError::Internal(e.to_string()))?;
         (
             (!doc.is_empty()).then_some(doc),
@@ -244,7 +249,7 @@ async fn delete_task(
         .ok();
 
     if let Some(w) = worktree {
-        let repo_path = if w.repo_path.is_empty() {
+        let repo = if w.repo_path.is_empty() {
             services::projects::get_project(&state.db, &task.project_id)
                 .await
                 .ok()
@@ -252,7 +257,7 @@ async fn delete_task(
         } else {
             Some(w.repo_path)
         };
-        if let Some(ref rp) = repo_path {
+        if let Some(ref rp) = repo {
             let _ = worktree::remove_worktree(rp, w.project_id, w.task_id)
                 .await
                 .map_err(|e| tracing::warn!("failed to remove worktree: {e}"));
