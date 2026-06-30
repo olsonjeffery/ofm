@@ -5,6 +5,8 @@ use portable_pty::{native_pty_system, CommandBuilder, PtySize};
 use tokio::sync::mpsc;
 
 mod protocol;
+pub mod session;
+pub mod transcript;
 pub use protocol::*;
 
 type BoxError = Box<dyn std::error::Error + Send + Sync>;
