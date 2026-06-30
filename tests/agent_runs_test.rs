@@ -75,7 +75,10 @@ fn client() -> reqwest::Client {
 
 async fn default_user_id(db: &hiqlite::Client) -> Uuid {
     let mut rows = db
-        .query_raw("SELECT id FROM users WHERE username = 'default'", hiqlite::params!())
+        .query_raw(
+            "SELECT id FROM users WHERE username = 'default'",
+            hiqlite::params!(),
+        )
         .await
         .unwrap();
     let id_str: String = rows[0].get("id");
@@ -138,10 +141,7 @@ async fn test_create_agent_run_201() {
     assert_eq!(resp.status(), 201);
     let body: serde_json::Value = resp.json().await.unwrap();
     assert_eq!(body["status"], "running");
-    assert_eq!(
-        body["task_id"].as_str().unwrap(),
-        task_id.to_string()
-    );
+    assert_eq!(body["task_id"].as_str().unwrap(), task_id.to_string());
     assert_eq!(body["agent_type"], "implementation");
     assert!(body["id"].as_str().unwrap().len() > 0);
 }

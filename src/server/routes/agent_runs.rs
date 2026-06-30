@@ -22,8 +22,7 @@ struct StartAgentRunRequest {
 }
 
 pub fn agent_runs_router() -> Router<AppState> {
-    Router::new()
-        .route("/", post(post_create_agent_run).get(list_agent_runs))
+    Router::new().route("/", post(post_create_agent_run).get(list_agent_runs))
 }
 
 async fn post_create_agent_run(
@@ -31,8 +30,7 @@ async fn post_create_agent_run(
     Path(task_id): Path<Uuid>,
     Json(body): Json<StartAgentRunRequest>,
 ) -> Result<(StatusCode, Json<TaskAgentRun>), ServerError> {
-    let agent_type =
-        AgentType::from_str(&body.agent_type).map_err(ServerError::BadRequest)?;
+    let agent_type = AgentType::from_str(&body.agent_type).map_err(ServerError::BadRequest)?;
 
     let task = tasks::get_task(&state.db, &task_id)
         .await
@@ -48,20 +46,15 @@ async fn post_create_agent_run(
         .await
         .map_err(|e| ServerError::Internal(e.to_string()))?;
 
-    let session_result = session::start_session(
-        &state.db,
-        task_id,
-        "default",
-        "balanced",
-        agent_type,
-    )
-    .await
-    .map_err(|e| match &e {
-        hiqlite::Error::ConstraintViolation(_) => {
-            ServerError::Conflict("an agent is already running for this task".into())
-        }
-        _ => ServerError::Internal(e.to_string()),
-    })?;
+    let session_result =
+        session::start_session(&state.db, task_id, "default", "balanced", agent_type)
+            .await
+            .map_err(|e| match &e {
+                hiqlite::Error::ConstraintViolation(_) => {
+                    ServerError::Conflict("an agent is already running for this task".into())
+                }
+                _ => ServerError::Internal(e.to_string()),
+            })?;
 
     let run = tasks::get_agent_run_by_conversation(&state.db, &session_result.conversation_id)
         .await

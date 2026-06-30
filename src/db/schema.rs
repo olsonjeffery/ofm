@@ -307,9 +307,7 @@ impl From<&mut Row<'_>> for Conversation {
 impl From<&mut Row<'_>> for TaskAgentRun {
     fn from(row: &mut Row<'_>) -> Self {
         let agent_type_str: String = row.get("agent_type");
-        let agent_type = agent_type_str
-            .parse()
-            .unwrap_or(AgentType::Implementation);
+        let agent_type = agent_type_str.parse().unwrap_or(AgentType::Implementation);
         let status_str: String = row.get("status");
         let status = status_str.parse().unwrap_or(RunStatus::Pending);
         Self {

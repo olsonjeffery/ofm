@@ -147,10 +147,7 @@ pub async fn create_agent_run(
     get_agent_run(client, &id).await
 }
 
-pub async fn get_agent_run(
-    client: &Client,
-    run_id: &Uuid,
-) -> Result<TaskAgentRun, hiqlite::Error> {
+pub async fn get_agent_run(client: &Client, run_id: &Uuid) -> Result<TaskAgentRun, hiqlite::Error> {
     client
         .query_map_one::<TaskAgentRun, _>(
             "SELECT id, task_id, agent_type, status, conversation_id, created_at, completed_at FROM task_agent_runs WHERE id = $1",
@@ -214,10 +211,7 @@ pub async fn mark_agent_run_completed(
     Ok(())
 }
 
-pub async fn mark_agent_run_failed(
-    client: &Client,
-    run_id: &Uuid,
-) -> Result<(), hiqlite::Error> {
+pub async fn mark_agent_run_failed(client: &Client, run_id: &Uuid) -> Result<(), hiqlite::Error> {
     let now = chrono::Utc::now().naive_utc().to_string();
     client
         .execute(
@@ -228,9 +222,7 @@ pub async fn mark_agent_run_failed(
     Ok(())
 }
 
-pub async fn sweep_running_agent_runs_to_failed(
-    client: &Client,
-) -> Result<usize, hiqlite::Error> {
+pub async fn sweep_running_agent_runs_to_failed(client: &Client) -> Result<usize, hiqlite::Error> {
     let now = chrono::Utc::now().naive_utc().to_string();
     let rows = client
         .execute(

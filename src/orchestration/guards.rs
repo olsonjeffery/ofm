@@ -6,16 +6,11 @@ use crate::orchestration::MAX_WORKFLOW_RUNS;
 use crate::server::error::ServerError;
 use crate::services::tasks;
 
-pub async fn one_running_per_task(
-    client: &Client,
-    task_id: Uuid,
-) -> Result<(), ServerError> {
+pub async fn one_running_per_task(client: &Client, task_id: Uuid) -> Result<(), ServerError> {
     match tasks::get_running_agent_for_task(client, &task_id).await {
-        Ok(Some(_)) => {
-            Err(ServerError::Conflict(
-                "an agent is already running for this task".into(),
-            ))
-        }
+        Ok(Some(_)) => Err(ServerError::Conflict(
+            "an agent is already running for this task".into(),
+        )),
         Ok(None) => Ok(()),
         Err(e) => Err(ServerError::Internal(e.to_string())),
     }
@@ -33,7 +28,7 @@ pub fn iteration_cap(task: &Task) -> Result<(), ServerError> {
 mod tests {
     use super::*;
     use crate::db;
-    use crate::db::schema::{AgentType, Task, RunStatus};
+    use crate::db::schema::{AgentType, RunStatus, Task};
     use crate::omp::session;
     use tempfile::TempDir;
 
