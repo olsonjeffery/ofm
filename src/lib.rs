@@ -5,6 +5,7 @@ pub mod config;
 pub mod db;
 pub mod logging;
 pub mod omp;
+pub mod orchestration;
 pub mod server;
 pub mod services;
 pub mod worktree;

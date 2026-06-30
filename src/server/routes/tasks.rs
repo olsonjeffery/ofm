@@ -6,6 +6,7 @@ use crate::services;
 use crate::worktree;
 use axum::{
     extract::{Path, Query, State},
+    http::StatusCode,
     routing::get,
     Json, Router,
 };
@@ -48,6 +49,7 @@ pub fn tasks_router() -> Router<AppState> {
     Router::new()
         .route("/", get(list_tasks).post(create_task))
         .route("/{id}", get(get_task).put(update_task).delete(delete_task))
+        .nest("/{id}/agent-runs", super::agent_runs::agent_runs_router())
 }
 
 async fn create_task(
@@ -136,7 +138,7 @@ async fn create_task(
         .write_task_doc(&doc_path, &body.original_request)
         .map_err(|e| ServerError::Internal(format!("failed to seed doc: {e}")))?;
 
-    Ok((axum::http::StatusCode::CREATED, Json(task)))
+    Ok((StatusCode::CREATED, Json(task)))
 }
 
 async fn list_tasks(
@@ -153,49 +155,36 @@ async fn get_task(
     State(state): State<AppState>,
     Path(id): Path<Uuid>,
 ) -> Result<Json<TaskDetailResponse>, ServerError> {
-    let (task, worktree) = {
-        let task = services::tasks::get_task(&state.db, &id)
-            .await
-            .map_err(|_| ServerError::NotFound("Task not found".into()))?;
-        let worktree = services::tasks::get_worktree_by_task(&state.db, &id)
-            .await
-            .ok();
-        (task, worktree)
-    };
+    let task = services::tasks::get_task(&state.db, &id)
+        .await
+        .map_err(|_| ServerError::NotFound("Task not found".into()))?;
 
-    if let Some(w) = worktree {
-        let int_proj = w.project_id.to_string();
-        let int_task = w.task_id.to_string();
+    let worktree = services::tasks::get_worktree_by_task(&state.db, &id)
+        .await
+        .ok();
+
+    let (doc_content, context_prompt) = if let Some(w) = worktree {
         let archive = archive::ArchiveRoot::new(std::path::PathBuf::from(&state.archive_root));
-        let doc_path = archive.task_doc_path(&int_proj, &int_task);
-        let doc_content = archive
+        let doc_path = archive.task_doc_path(&w.project_id.to_string(), &w.task_id.to_string());
+        let doc = archive
             .read_task_doc(&doc_path)
             .map_err(|e| ServerError::Internal(e.to_string()))?;
-        let doc_content = if doc_content.is_empty() {
-            None
-        } else {
-            Some(doc_content)
-        };
-        let context_prompt = archive
-            .build_context_prompt(&int_proj, &int_task)
+        let ctx = archive
+            .build_context_prompt(&w.project_id.to_string(), &w.task_id.to_string())
             .map_err(|e| ServerError::Internal(e.to_string()))?;
-        let context_prompt = if context_prompt.is_empty() {
-            None
-        } else {
-            Some(context_prompt)
-        };
-        Ok(Json(TaskDetailResponse {
-            task,
-            doc_content,
-            context_prompt,
-        }))
+        (
+            (!doc.is_empty()).then_some(doc),
+            (!ctx.is_empty()).then_some(ctx),
+        )
     } else {
-        Ok(Json(TaskDetailResponse {
-            task,
-            doc_content: None,
-            context_prompt: None,
-        }))
-    }
+        (None, None)
+    };
+
+    Ok(Json(TaskDetailResponse {
+        task,
+        doc_content,
+        context_prompt,
+    }))
 }
 
 async fn update_task(
@@ -277,5 +266,5 @@ async fn delete_task(
         .await
         .map_err(|e| ServerError::Internal(e.to_string()))?;
 
-    Ok(axum::http::StatusCode::NO_CONTENT)
+    Ok(StatusCode::NO_CONTENT)
 }

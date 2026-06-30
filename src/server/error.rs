@@ -8,6 +8,7 @@ pub enum ServerError {
     BadRequest(String),
     NotFound(String),
     Conflict(String),
+    Forbidden(String),
     Internal(String),
 }
 
@@ -17,6 +18,7 @@ impl IntoResponse for ServerError {
             ServerError::BadRequest(msg) => (StatusCode::BAD_REQUEST, msg),
             ServerError::NotFound(msg) => (StatusCode::NOT_FOUND, msg),
             ServerError::Conflict(msg) => (StatusCode::CONFLICT, msg),
+            ServerError::Forbidden(msg) => (StatusCode::FORBIDDEN, msg),
             ServerError::Internal(msg) => {
                 tracing::error!("Internal server error: {msg}");
                 (
