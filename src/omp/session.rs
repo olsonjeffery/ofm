@@ -84,10 +84,7 @@ pub async fn abort_session(
         )
         .await?;
 
-    let mut map = sessions.lock().await;
-    if let Some(session) = map.remove(session_id) {
-        drop(session);
-    }
+    sessions.lock().await.remove(session_id);
 
     Ok(())
 }

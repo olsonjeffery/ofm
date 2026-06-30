@@ -136,6 +136,10 @@ const MIGRATIONS: &[(&str, &str)] = &[
         "worktrees_add_repo_path",
         "ALTER TABLE worktrees ADD COLUMN repo_path TEXT NOT NULL DEFAULT ''",
     ),
+    (
+        "idx_task_agent_runs_one_running",
+        "CREATE UNIQUE INDEX IF NOT EXISTS idx_task_agent_runs_one_running ON task_agent_runs(task_id) WHERE status = 'running'",
+    ),
 ];
 
 pub async fn run_migrations(client: &Client) -> Result<usize, Box<dyn std::error::Error>> {
