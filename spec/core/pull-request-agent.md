@@ -1,10 +1,14 @@
 # Core — The pull-request agent
 
 > **⚠️`omprint` ONLY ⚠️:** Rust convention requires functions and `let` bindings
-> use `snake_case` as a naming convention; In all places where `camelCase`
-> occurs (referring to the typescript `reference/` implementation of `bottega`),
+> use `snake_case` as a naming convention. In all places where `camelCase`
+> occurs (in citations from the legacy typescript `reference/` implementation),
 > substitute for `snake_case` as appropriate; `PascalCase` is used for `trait`s,
-> `struct`s, `enum`s, etc
+> `struct`s, `enum`s, etc.
+> 
+> **Implementation status:** This spec module is not yet implemented in the Rust
+> codebase. Citations into `reference/` are retained as guidance; they will be
+> replaced with Rust equivalents when implementation begins.
 
 The terminal agent. It takes the verified work sitting in the task's worktree
 and gets it to a green, mergeable pull request — opening the PR, driving CI to

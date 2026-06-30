@@ -7,6 +7,8 @@ use tokio::sync::mpsc;
 mod protocol;
 pub use protocol::*;
 
+type BoxError = Box<dyn std::error::Error + Send + Sync>;
+
 pub struct OmpSession {
     pid: u32,
     child: Box<dyn portable_pty::Child + Send + Sync>,
@@ -17,7 +19,7 @@ pub fn spawn_omp(
     binary: &str,
     cwd: &str,
     env_vars: HashMap<String, String>,
-) -> Result<OmpSession, Box<dyn std::error::Error + Send + Sync>> {
+) -> Result<OmpSession, BoxError> {
     let system = native_pty_system();
     let pair = system.openpty(PtySize::default())?;
 
@@ -48,7 +50,7 @@ impl OmpSession {
         &mut self,
         input: &TurnInput,
         tx: mpsc::Sender<OmpRpcEvent>,
-    ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+    ) -> Result<(), BoxError> {
         self.send_input_and_read(input, tx)
     }
 
@@ -56,7 +58,7 @@ impl OmpSession {
         &mut self,
         input: &ResumeInput,
         tx: mpsc::Sender<OmpRpcEvent>,
-    ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+    ) -> Result<(), BoxError> {
         self.send_input_and_read(input, tx)
     }
 
@@ -64,7 +66,7 @@ impl OmpSession {
         &mut self,
         input: &T,
         tx: mpsc::Sender<OmpRpcEvent>,
-    ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+    ) -> Result<(), BoxError> {
         let mut writer = self.pair.master.take_writer()?;
         let json = serde_json::to_string(input)?;
         writeln!(writer, "{json}")?;
@@ -121,7 +123,7 @@ fn spawn_reader(
 
             match serde_json::from_str::<OmpRpcEvent>(&line) {
                 Ok(event) => {
-                    let is_done = matches!(event, OmpRpcEvent::Done(_));
+                    let is_done = matches!(&event, OmpRpcEvent::Done(_));
                     if tx.blocking_send(event).is_err() {
                         let _ = killer.kill();
                         return;
