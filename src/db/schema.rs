@@ -23,6 +23,7 @@ impl std::fmt::Display for TaskStatus {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
 pub enum AgentType {
     Planification,
     Implementation,
@@ -45,7 +46,23 @@ impl std::fmt::Display for AgentType {
     }
 }
 
+impl std::str::FromStr for AgentType {
+    type Err = String;
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        match s {
+            "planification" => Ok(Self::Planification),
+            "implementation" => Ok(Self::Implementation),
+            "refinement" => Ok(Self::Refinement),
+            "review" => Ok(Self::Review),
+            "pr" => Ok(Self::Pr),
+            "yolo" => Ok(Self::Yolo),
+            _ => Err(format!("invalid agent type: '{s}'")),
+        }
+    }
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
 pub enum RunStatus {
     Pending,
     Running,
@@ -62,6 +79,20 @@ impl std::fmt::Display for RunStatus {
             Self::Completed => write!(f, "completed"),
             Self::Failed => write!(f, "failed"),
             Self::Blocked => write!(f, "blocked"),
+        }
+    }
+}
+
+impl std::str::FromStr for RunStatus {
+    type Err = String;
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        match s {
+            "pending" => Ok(Self::Pending),
+            "running" => Ok(Self::Running),
+            "completed" => Ok(Self::Completed),
+            "failed" => Ok(Self::Failed),
+            "blocked" => Ok(Self::Blocked),
+            _ => Err(format!("invalid run status: '{s}'")),
         }
     }
 }
@@ -269,6 +300,30 @@ impl From<&mut Row<'_>> for Conversation {
             model: row.get("model"),
             effort: row.get("effort"),
             created_at: parse_naive_datetime(&row.get::<String>("created_at")),
+        }
+    }
+}
+
+impl From<&mut Row<'_>> for TaskAgentRun {
+    fn from(row: &mut Row<'_>) -> Self {
+        let agent_type_str: String = row.get("agent_type");
+        let agent_type = agent_type_str
+            .parse()
+            .unwrap_or(AgentType::Implementation);
+        let status_str: String = row.get("status");
+        let status = status_str.parse().unwrap_or(RunStatus::Pending);
+        Self {
+            id: uuid_from_row(row, "id"),
+            task_id: uuid_from_row(row, "task_id"),
+            agent_type,
+            status,
+            conversation_id: row
+                .get::<Option<String>>("conversation_id")
+                .map(|s| Uuid::parse_str(&s).expect("invalid UUID in database")),
+            created_at: parse_naive_datetime(&row.get::<String>("created_at")),
+            completed_at: row
+                .get::<Option<String>>("completed_at")
+                .map(|s| parse_naive_datetime(&s)),
         }
     }
 }

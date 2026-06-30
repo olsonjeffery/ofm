@@ -8,6 +8,8 @@ mod config;
 mod db;
 mod logging;
 mod omp;
+mod orchestration;
+
 use std::collections::HashMap;
 use std::sync::Arc;
 use tokio::sync::Mutex;
@@ -50,6 +52,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     let default_user_id = db::ensure_default_user(&client).await?;
     tracing::info!("Default user id: {}", default_user_id);
+
+    let orphans = orchestration::recovery::recover_orphaned_runs(&client).await?;
+    tracing::info!("Orphan recovery: {} agent runs swept to failed", orphans);
 
     let state = server::state::AppState {
         db: client,
