@@ -4,12 +4,14 @@
 use std::os::unix::fs::PermissionsExt;
 
 mod archive;
+mod cli;
 mod config;
 mod db;
 mod logging;
 mod omp;
 mod orchestration;
 
+use clap::Parser;
 use std::collections::HashMap;
 use std::sync::Arc;
 use tokio::sync::Mutex;
@@ -20,6 +22,12 @@ mod worktree;
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
+    let args = cli::Cli::parse();
+    if let Some(cmd) = args.command {
+        cli::agent::handle_command(cmd).await?;
+        return Ok(());
+    }
+
     logging::init();
 
     let cfg = config::OmprintConfig::from_env();
