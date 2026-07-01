@@ -19,6 +19,7 @@ runtime a human drives by hand:
 - **Voice input** — hold to record, transcribe speech to text, drop it in the
   input box.
 - **Title generation** — auto-name a conversation from its first message.
+  Implemented via `generate_conversation_title` in `src/providers/mod.rs`.
 - **Context-usage meter** — a live token/context breakdown shown in the chat UI
   (Claude-only for the detailed breakdown).
 
@@ -197,8 +198,9 @@ break.
       `supportsImages`, silently dropped (and UI-disabled) otherwise.
 - [ ] A `/transcribe` endpoint backed by `gpt-4o-transcribe` (+ a cleanup pass),
       a browser recorder, requiring `OPENAI_API_KEY`.
-- [ ] Fire-and-forget title generation on first message, broadcast on both the
-      conversation and task channels; never blocking the turn.
+- [x] Fire-and-forget title generation on first message, writing to the
+      conversation row; never blocking the turn.
+      → `generate_conversation_title` in `src/providers/mod.rs`
 - [ ] A per-session context-usage tracker with a baseline-from-`result` path and
       an optional breakdown folded in when the control call wins; persist +
       broadcast; gate the detailed breakdown on `supportsContextUsageBreakdown`.

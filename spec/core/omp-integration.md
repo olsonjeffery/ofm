@@ -319,25 +319,25 @@ On `omprint` restart:
 | Streaming reader loop | `src/omp/mod.rs` (`spawn_reader`) | `reference/server/services/conversation/runStreamingLoop.ts` |
 | RPC protocol types | `src/omp/protocol.rs` | — |
 | WebSocket broadcast | Not yet implemented | `reference/server/websocket/broadcast.ts` |
-| Transcript persistence | Not yet implemented | `reference/server/services/sqliteSessionStore.ts`, `reference/server/database/init.sql` |
-| Active session management | Not yet implemented | `reference/server/services/conversation/sessionControl.ts` |
+| Transcript persistence | `src/omp/transcript.rs` (`persist_event`, `load_transcript`) | `reference/server/services/sqliteSessionStore.ts`, `reference/server/database/init.sql` |
+| Active session management | `src/omp/session.rs` (`start_session`, `resume_session`, `abort_session`) | `reference/server/services/conversation/sessionControl.ts` |
 | `omp` RPC documentation | — | [https://omp.sh/docs](https://omp.sh/docs) |
 | `models.yml` format | — | [https://omp.sh/docs/custom-models](https://omp.sh/docs/custom-models) |
 
-**FIXME:** Partially addressed. PTY spawn, RPC protocol, and reader loop now
-point at `src/omp/mod.rs` and `src/omp/protocol.rs`. Transcript persistence,
-WebSocket, and session tracking remain to be implemented.
+**FIXME:** Partially addressed. PTY spawn, RPC protocol, reader loop, transcript
+persistence, and session management now point at `src/omp/`. WebSocket broadcast
+remains to be implemented.
 
 ## What to build
 
 - [x] `omp` subprocess spawning via `portable-pty` → `src/omp/mod.rs`
 - [x] RPC message write/read loop → `src/omp/mod.rs` (`spawn_reader`), `src/omp/protocol.rs`
 - [ ] Full streaming runtime with WebSocket broadcast (reader loop exists; broadcast TBD)
-- [ ] Transcript persistence to `hiqlite` (schema exists; persistence TBD)
-- [ ] `load_transcript` (TBD)
-- [x] Session management: start, abort (resume TBD)
-- [ ] `models.yml` passthrough (TBD)
-- [ ] Orphan recovery on startup (TBD)
+- [x] Transcript persistence to `hiqlite` → `src/omp/transcript.rs`
+- [x] `load_transcript` → `src/omp/transcript.rs`
+- [x] Session management: start, resume, abort → `src/omp/session.rs`
+- [x] `models.yml` passthrough via `TurnInput.models_config` → `src/omp/mod.rs`, `src/omp/protocol.rs`
+- [x] Orphan recovery on startup → `src/orchestration/recovery.rs`
 
 ## Boundaries (not in this spec)
 

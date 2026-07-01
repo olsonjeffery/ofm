@@ -5,6 +5,12 @@
 > occurs (referring to the typescript `reference/` implementation of `bottega`),
 > substitute for `snake_case` as appropriate; `PascalCase` is used for `trait`s,
 > `struct`s, `enum`s, etc
+>
+> **Implementation status:** Only the foundational `ensure_default_user` function
+> in `src/db/mod.rs` is implemented. The OIDC/OAuth2 auth flow, JWKS middleware,
+> rauthy integration, API keys, project-membership authorization, admin panel,
+> and `is_technical` auto-advance are **not yet implemented** in the Rust
+> codebase.
 
 ## What it adds
 
