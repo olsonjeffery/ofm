@@ -3,6 +3,7 @@
 #[cfg(unix)]
 use std::os::unix::fs::PermissionsExt;
 
+mod agents;
 mod archive;
 mod cli;
 mod config;
@@ -68,6 +69,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         db: client,
         default_user_id,
         archive_root: cfg.archive_root,
+        api_key: cfg.api_key,
         omp_sessions: Arc::new(Mutex::new(HashMap::new())),
     };
 
