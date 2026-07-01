@@ -5,6 +5,7 @@ use tokio::sync::Mutex;
 use uuid::Uuid;
 
 use crate::omp::OmpSession;
+use crate::providers::LlmProvider;
 
 #[derive(Clone)]
 pub struct AppState {
@@ -12,5 +13,7 @@ pub struct AppState {
     pub default_user_id: Uuid,
     pub archive_root: String,
     pub api_key: Option<String>,
+    pub config_root: String,
     pub omp_sessions: Arc<Mutex<HashMap<String, OmpSession>>>,
+    pub active_sessions: Arc<Mutex<HashMap<String, Box<dyn LlmProvider>>>>,
 }
