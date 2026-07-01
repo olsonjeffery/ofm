@@ -28,11 +28,7 @@ pub trait LlmProvider: Send + Sync {
 
     async fn abort_turn(&self) -> Result<(), ProviderError>;
 
-    async fn one_shot_prompt(
-        &self,
-        prompt: &str,
-        model: &str,
-    ) -> Result<String, ProviderError>;
+    async fn one_shot_prompt(&self, prompt: &str, model: &str) -> Result<String, ProviderError>;
 
     async fn shutdown(&mut self) -> Result<bool, ProviderError>;
 }
@@ -110,7 +106,7 @@ pub fn sanitize_title(raw: &str) -> Option<String> {
     let stripped = trimmed
         .trim_matches('"')
         .trim_matches('\'')
-        .trim_end_matches(|c: char| c == '.' || c == '!' || c == '?' || c == ',' || c == ';')
+        .trim_end_matches(['.', '!', '?', ',', ';'])
         .trim();
     if stripped.len() < 2 {
         return None;
@@ -138,10 +134,7 @@ mod tests {
 
     #[test]
     fn test_sanitize_title_trailing_punctuation() {
-        assert_eq!(
-            sanitize_title("Fix bug."),
-            Some("Fix bug".into())
-        );
+        assert_eq!(sanitize_title("Fix bug."), Some("Fix bug".into()));
     }
 
     #[test]
@@ -176,9 +169,6 @@ mod tests {
 
     #[test]
     fn test_sanitize_title_single_quoted() {
-        assert_eq!(
-            sanitize_title("'Refactor DB'"),
-            Some("Refactor DB".into())
-        );
+        assert_eq!(sanitize_title("'Refactor DB'"), Some("Refactor DB".into()));
     }
 }

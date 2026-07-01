@@ -46,9 +46,7 @@ pub async fn completion_handler(
         .remove(&conversation_id.to_string())
     {
         if let Err(e) = provider.shutdown().await {
-            tracing::warn!(
-                "Error shutting down provider for conversation {conversation_id}: {e}"
-            );
+            tracing::warn!("Error shutting down provider for conversation {conversation_id}: {e}");
         }
     }
 

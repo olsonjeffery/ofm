@@ -28,8 +28,14 @@ pub fn router(state: AppState) -> Router {
         .route("/health", get(health))
         .nest("/api/projects", routes::projects::projects_router())
         .nest("/api/tasks", routes::tasks::tasks_router())
-        .nest("/api/projects/{project_id}/agent-configs", routes::agent_configs::agent_configs_router())
-        .nest("/api/provider-configs", routes::agent_configs::provider_configs_router())
+        .nest(
+            "/api/projects/{project_id}/agent-configs",
+            routes::agent_configs::agent_configs_router(),
+        )
+        .nest(
+            "/api/provider-configs",
+            routes::agent_configs::provider_configs_router(),
+        )
         .layer(DefaultBodyLimit::max(1024 * 100))
         .with_state(state)
 }

@@ -27,8 +27,12 @@ impl OmpProvider {
 
     fn get_models_config(&self) -> String {
         let cfg_dir = crate::providers::config::ProviderConfigDir::new(&PathBuf::from(
-            std::env::var("OMPRINT_CONFIG")
-                .unwrap_or_else(|_| format!("{}/.config/omprint", std::env::var("HOME").unwrap_or_else(|_| ".".into()))),
+            std::env::var("OMPRINT_CONFIG").unwrap_or_else(|_| {
+                format!(
+                    "{}/.config/omprint",
+                    std::env::var("HOME").unwrap_or_else(|_| ".".into())
+                )
+            }),
         ));
         if let Ok(pc) = cfg_dir.load_provider_config(&self.config.provider_config_ref) {
             pc.raw_snippet
@@ -61,12 +65,8 @@ impl LlmProvider for OmpProvider {
     async fn start(&mut self, working_dir: &Path) -> Result<(), ProviderError> {
         let cwd = working_dir.to_string_lossy().to_string();
         let env = HashMap::new();
-        let session = omp::spawn_omp(
-            self.omp_binary.to_str().unwrap_or("omp"),
-            &cwd,
-            env,
-        )
-        .map_err(|e| ProviderError::Protocol(e.to_string()))?;
+        let session = omp::spawn_omp(self.omp_binary.to_str().unwrap_or("omp"), &cwd, env)
+            .map_err(|e| ProviderError::Protocol(e.to_string()))?;
         *self.session.lock().unwrap() = Some(session);
         *self.working_dir.lock().unwrap() = Some(working_dir.to_path_buf());
         Ok(())
@@ -77,11 +77,11 @@ impl LlmProvider for OmpProvider {
         input: TurnInput,
     ) -> Result<mpsc::Receiver<OmpRpcEvent>, ProviderError> {
         let mut session = self.session.lock().unwrap();
-        let session = session
-            .as_mut()
-            .ok_or(ProviderError::NotStarted)?;
+        let session = session.as_mut().ok_or(ProviderError::NotStarted)?;
         let (tx, rx) = mpsc::channel(256);
-        session.start_turn(&input, tx).map_err(|e| ProviderError::Protocol(e.to_string()))?;
+        session
+            .start_turn(&input, tx)
+            .map_err(|e| ProviderError::Protocol(e.to_string()))?;
         Ok(rx)
     }
 
@@ -90,11 +90,11 @@ impl LlmProvider for OmpProvider {
         input: ResumeInput,
     ) -> Result<mpsc::Receiver<OmpRpcEvent>, ProviderError> {
         let mut session = self.session.lock().unwrap();
-        let session = session
-            .as_mut()
-            .ok_or(ProviderError::NotStarted)?;
+        let session = session.as_mut().ok_or(ProviderError::NotStarted)?;
         let (tx, rx) = mpsc::channel(256);
-        session.resume_turn(&input, tx).map_err(|e| ProviderError::Protocol(e.to_string()))?;
+        session
+            .resume_turn(&input, tx)
+            .map_err(|e| ProviderError::Protocol(e.to_string()))?;
         Ok(rx)
     }
 
@@ -108,11 +108,7 @@ impl LlmProvider for OmpProvider {
         Ok(())
     }
 
-    async fn one_shot_prompt(
-        &self,
-        prompt: &str,
-        model: &str,
-    ) -> Result<String, ProviderError> {
+    async fn one_shot_prompt(&self, prompt: &str, model: &str) -> Result<String, ProviderError> {
         let wd = self
             .working_dir
             .lock()
@@ -124,7 +120,10 @@ impl LlmProvider for OmpProvider {
             prompt.to_string(),
             wd.to_string_lossy().to_string(),
             model.to_string(),
-            self.config.effort.clone().unwrap_or_else(|| "balanced".to_string()),
+            self.config
+                .effort
+                .clone()
+                .unwrap_or_else(|| "balanced".to_string()),
             "auto".to_string(),
             vec![],
             models_config,
@@ -136,7 +135,9 @@ impl LlmProvider for OmpProvider {
         )
         .map_err(|e| ProviderError::Protocol(e.to_string()))?;
         let (tx, mut rx) = mpsc::channel(256);
-        session.start_turn(&input, tx).map_err(|e| ProviderError::Protocol(e.to_string()))?;
+        session
+            .start_turn(&input, tx)
+            .map_err(|e| ProviderError::Protocol(e.to_string()))?;
         let mut response = String::new();
         while let Some(event) = rx.recv().await {
             match event {

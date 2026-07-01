@@ -122,13 +122,10 @@ async fn select_model(
 ) -> Result<Json<AgentHarnessConfig>, ServerError> {
     require_auth(&headers, &state)?;
 
-    let config = services::agent_configs::update_agent_config_model(
-        &state.db,
-        &config_id,
-        &body.model,
-    )
-    .await
-    .map_err(|e| ServerError::Internal(e.to_string()))?;
+    let config =
+        services::agent_configs::update_agent_config_model(&state.db, &config_id, &body.model)
+            .await
+            .map_err(|e| ServerError::Internal(e.to_string()))?;
 
     Ok(Json(config))
 }
@@ -145,7 +142,9 @@ async fn list_provider_config_files(
 ) -> Result<Json<Vec<ProviderConfigFile>>, ServerError> {
     require_auth(&headers, &state)?;
     let cfg_dir = ProviderConfigDir::new(&PathBuf::from(&state.config_root));
-    let names = cfg_dir.list_configs().map_err(|e| ServerError::Internal(e.to_string()))?;
+    let names = cfg_dir
+        .list_configs()
+        .map_err(|e| ServerError::Internal(e.to_string()))?;
     let files: Vec<ProviderConfigFile> = names
         .into_iter()
         .map(|name| {

@@ -8,7 +8,7 @@ use tokio::sync::mpsc;
 use uuid::Uuid;
 
 use crate::omp::{OmpRpcEvent, ResumeInput, TurnInput};
-use crate::providers::config::{merge_configs, ProviderConfigDir, ProviderConfig as PConfig};
+use crate::providers::config::{merge_configs, ProviderConfig as PConfig, ProviderConfigDir};
 use crate::providers::{HarnessConfig, LlmProvider, ProviderError};
 
 pub struct OpenCodeProvider {
@@ -51,7 +51,12 @@ impl OpenCodeProvider {
         })
     }
 
-    async fn do_transient<F, Fut, T>(config_root: &Path, config_ref: &str, snippet: &str, f: F) -> Result<T, ProviderError>
+    async fn do_transient<F, Fut, T>(
+        config_root: &Path,
+        config_ref: &str,
+        snippet: &str,
+        f: F,
+    ) -> Result<T, ProviderError>
     where
         F: FnOnce(reqwest::Client, String, String) -> Fut + Send,
         Fut: std::future::Future<Output = Result<T, ProviderError>> + Send,
@@ -74,7 +79,11 @@ fn pick_free_port() -> Result<u16, ProviderError> {
     Ok(port)
 }
 
-async fn wait_for_health(client: &reqwest::Client, base_url: &str, password: &str) -> Result<(), ProviderError> {
+async fn wait_for_health(
+    client: &reqwest::Client,
+    base_url: &str,
+    password: &str,
+) -> Result<(), ProviderError> {
     let url = format!("{base_url}/global/health");
     for i in 0..20 {
         match client
@@ -157,7 +166,9 @@ fn map_opencode_event_to_omp_event(line: &str) -> Option<OmpRpcEvent> {
             if role == "assistant" {
                 let content = v.get("content").and_then(|c| c.as_str()).unwrap_or("");
                 if !content.is_empty() {
-                    Some(OmpRpcEvent::TextChunk { delta: content.to_string() })
+                    Some(OmpRpcEvent::TextChunk {
+                        delta: content.to_string(),
+                    })
                 } else {
                     None
                 }
@@ -166,22 +177,51 @@ fn map_opencode_event_to_omp_event(line: &str) -> Option<OmpRpcEvent> {
             }
         }
         Some("tool_use") => {
-            let tool_name = v.get("tool_name").and_then(|t| t.as_str()).unwrap_or("unknown").to_string();
-            let tool_use_id = v.get("tool_use_id").and_then(|t| t.as_str()).map(|s| s.to_string());
+            let tool_name = v
+                .get("tool_name")
+                .and_then(|t| t.as_str())
+                .unwrap_or("unknown")
+                .to_string();
+            let tool_use_id = v
+                .get("tool_use_id")
+                .and_then(|t| t.as_str())
+                .map(|s| s.to_string());
             let input = v.get("input").cloned().unwrap_or(serde_json::Value::Null);
-            Some(OmpRpcEvent::ToolUse { tool_name, tool_use_id, input })
+            Some(OmpRpcEvent::ToolUse {
+                tool_name,
+                tool_use_id,
+                input,
+            })
         }
         Some("tool_result") => {
-            let tool_use_id = v.get("tool_use_id").and_then(|t| t.as_str()).map(|s| s.to_string());
-            let result = v.get("result").and_then(|r| r.as_str()).unwrap_or("").to_string();
-            Some(OmpRpcEvent::ToolResult { tool_use_id, result })
+            let tool_use_id = v
+                .get("tool_use_id")
+                .and_then(|t| t.as_str())
+                .map(|s| s.to_string());
+            let result = v
+                .get("result")
+                .and_then(|r| r.as_str())
+                .unwrap_or("")
+                .to_string();
+            Some(OmpRpcEvent::ToolResult {
+                tool_use_id,
+                result,
+            })
         }
         Some("thinking") => {
-            let thinking = v.get("thinking").and_then(|t| t.as_str()).unwrap_or("").to_string();
+            let thinking = v
+                .get("thinking")
+                .and_then(|t| t.as_str())
+                .unwrap_or("")
+                .to_string();
             Some(OmpRpcEvent::Thinking { thinking })
         }
         Some("error") => {
-            let error = v.get("error").and_then(|e| e.as_str()).unwrap_or("unknown error").to_string();
+            let error = v
+                .get("error")
+                .and_then(|e| e.as_str())
+                .unwrap_or("unknown error")
+                .to_string();
             Some(OmpRpcEvent::Error { error })
         }
         Some("done") | Some("completed") => Some(OmpRpcEvent::Done(serde_json::Value::Null)),
@@ -211,7 +251,9 @@ async fn read_sse_to_completion(
                         buf.extend_from_slice(&chunk);
                         while let Some(pos) = buf.iter().position(|&b| b == b'\n') {
                             let line_bytes: Vec<u8> = buf.drain(..=pos).collect();
-                            let line = String::from_utf8_lossy(&line_bytes[..line_bytes.len().saturating_sub(1)]);
+                            let line = String::from_utf8_lossy(
+                                &line_bytes[..line_bytes.len().saturating_sub(1)],
+                            );
                             let trimmed = line.trim();
                             if trimmed.is_empty() || trimmed.starts_with(':') {
                                 continue;
@@ -265,7 +307,8 @@ async fn collect_response_via_sse(
                 buf.extend_from_slice(&chunk);
                 while let Some(pos) = buf.iter().position(|&b| b == b'\n') {
                     let line_bytes: Vec<u8> = buf.drain(..=pos).collect();
-                    let line = String::from_utf8_lossy(&line_bytes[..line_bytes.len().saturating_sub(1)]);
+                    let line =
+                        String::from_utf8_lossy(&line_bytes[..line_bytes.len().saturating_sub(1)]);
                     let trimmed = line.trim();
                     if trimmed.is_empty() || trimmed.starts_with(':') {
                         continue;
@@ -281,7 +324,9 @@ async fn collect_response_via_sse(
                                 }
                                 OmpRpcEvent::Done(_) => {
                                     if response.is_empty() {
-                                        return Err(ProviderError::Protocol("no response from opencode".into()));
+                                        return Err(ProviderError::Protocol(
+                                            "no response from opencode".into(),
+                                        ));
                                     }
                                     return Ok(response);
                                 }
@@ -329,13 +374,20 @@ impl LlmProvider for OpenCodeProvider {
                         .map(|s| s.to_string())
                 })
                 .collect();
-            if models.is_empty() { Ok(vec!["default".to_string()]) } else { Ok(models) }
+            if models.is_empty() {
+                Ok(vec!["default".to_string()])
+            } else {
+                Ok(models)
+            }
         } else {
             let config_root = self.config_root.clone();
             let config_ref = self.config.provider_config_ref.clone();
             let snippet = self.provider_snippet.clone();
-            Self::do_transient(&config_root, &config_ref, &snippet, move |client, base_url, password| {
-                async move {
+            Self::do_transient(
+                &config_root,
+                &config_ref,
+                &snippet,
+                move |client, base_url, password| async move {
                     let resp = client
                         .get(format!("{base_url}/config/providers"))
                         .header("Authorization", format!("Bearer {password}"))
@@ -351,9 +403,14 @@ impl LlmProvider for OpenCodeProvider {
                                 .map(|s| s.to_string())
                         })
                         .collect();
-                    if models.is_empty() { Ok(vec!["default".to_string()]) } else { Ok(models) }
-                }
-            }).await
+                    if models.is_empty() {
+                        Ok(vec!["default".to_string()])
+                    } else {
+                        Ok(models)
+                    }
+                },
+            )
+            .await
         }
     }
 
@@ -367,7 +424,8 @@ impl LlmProvider for OpenCodeProvider {
         let merged = merge_configs(base_config, &provider_cfg)?;
 
         let temp_dir = TempDir::new().map_err(ProviderError::Io)?;
-        std::fs::write(temp_dir.path().join("opencode.json"), &merged).map_err(ProviderError::Io)?;
+        std::fs::write(temp_dir.path().join("opencode.json"), &merged)
+            .map_err(ProviderError::Io)?;
 
         let port = pick_free_port()?;
         let hostname = "127.0.0.1".to_string();
@@ -386,15 +444,18 @@ impl LlmProvider for OpenCodeProvider {
             .spawn()
             .map_err(|e| {
                 if e.kind() == std::io::ErrorKind::NotFound {
-                    ProviderError::Protocol(
-                        "opencode binary not found in PATH".to_string(),
-                    )
+                    ProviderError::Protocol("opencode binary not found in PATH".to_string())
                 } else {
                     ProviderError::Io(e)
                 }
             })?;
 
-        wait_for_health(&self.http_client, &format!("http://{hostname}:{port}"), &password).await?;
+        wait_for_health(
+            &self.http_client,
+            &format!("http://{hostname}:{port}"),
+            &password,
+        )
+        .await?;
 
         *self.server.lock().unwrap() = Some(OpenCodeServer {
             child,
@@ -407,7 +468,10 @@ impl LlmProvider for OpenCodeProvider {
         Ok(())
     }
 
-    async fn start_turn(&self, input: TurnInput) -> Result<mpsc::Receiver<OmpRpcEvent>, ProviderError> {
+    async fn start_turn(
+        &self,
+        input: TurnInput,
+    ) -> Result<mpsc::Receiver<OmpRpcEvent>, ProviderError> {
         let (base_url, password) = self.server_details().ok_or(ProviderError::NotStarted)?;
 
         let session_resp = self
@@ -418,7 +482,10 @@ impl LlmProvider for OpenCodeProvider {
             .send()
             .await?;
         if !session_resp.status().is_success() {
-            return Err(ProviderError::Protocol(format!("failed to create session: {}", session_resp.status())));
+            return Err(ProviderError::Protocol(format!(
+                "failed to create session: {}",
+                session_resp.status()
+            )));
         }
         let session_id: String = session_resp
             .json::<OpenCodeSession>()
@@ -437,7 +504,10 @@ impl LlmProvider for OpenCodeProvider {
             .send()
             .await?;
         if !msg_resp.status().is_success() {
-            return Err(ProviderError::Protocol(format!("failed to send message: {}", msg_resp.status())));
+            return Err(ProviderError::Protocol(format!(
+                "failed to send message: {}",
+                msg_resp.status()
+            )));
         }
 
         let (tx, rx) = mpsc::channel(256);
@@ -452,8 +522,13 @@ impl LlmProvider for OpenCodeProvider {
         Ok(rx)
     }
 
-    async fn resume_turn(&self, _input: ResumeInput) -> Result<mpsc::Receiver<OmpRpcEvent>, ProviderError> {
-        Err(ProviderError::Protocol("resume_turn not supported by OpenCodeProvider".into()))
+    async fn resume_turn(
+        &self,
+        _input: ResumeInput,
+    ) -> Result<mpsc::Receiver<OmpRpcEvent>, ProviderError> {
+        Err(ProviderError::Protocol(
+            "resume_turn not supported by OpenCodeProvider".into(),
+        ))
     }
 
     async fn abort_turn(&self) -> Result<(), ProviderError> {
@@ -478,7 +553,9 @@ impl LlmProvider for OpenCodeProvider {
                 .send()
                 .await?;
             if !session_resp.status().is_success() {
-                return Err(ProviderError::Protocol("failed to create one-shot session".into()));
+                return Err(ProviderError::Protocol(
+                    "failed to create one-shot session".into(),
+                ));
             }
             let session_id: String = session_resp
                 .json::<OpenCodeSession>()
@@ -497,10 +574,14 @@ impl LlmProvider for OpenCodeProvider {
                 .send()
                 .await?;
             if !msg_resp.status().is_success() {
-                return Err(ProviderError::Protocol("failed to send one-shot message".into()));
+                return Err(ProviderError::Protocol(
+                    "failed to send one-shot message".into(),
+                ));
             }
 
-            let result = collect_response_via_sse(&self.http_client, &base_url, &password, &session_id).await;
+            let result =
+                collect_response_via_sse(&self.http_client, &base_url, &password, &session_id)
+                    .await;
 
             let _ = self
                 .http_client
@@ -517,49 +598,61 @@ impl LlmProvider for OpenCodeProvider {
             let prompt = prompt.to_string();
             let model = model.to_string();
 
-            Self::do_transient(&config_root, &config_ref, &snippet, move |client, base_url, password| {
-                let prompt = prompt.clone();
-                let model = model.clone();
-                async move {
-                    let session_resp = client
-                        .post(format!("{base_url}/session"))
-                        .header("Authorization", format!("Bearer {password}"))
-                        .json(&serde_json::json!({"title": "one-shot"}))
-                        .send()
-                        .await?;
-                    if !session_resp.status().is_success() {
-                        return Err(ProviderError::Protocol("failed to create one-shot session".into()));
+            Self::do_transient(
+                &config_root,
+                &config_ref,
+                &snippet,
+                move |client, base_url, password| {
+                    let prompt = prompt.clone();
+                    let model = model.clone();
+                    async move {
+                        let session_resp = client
+                            .post(format!("{base_url}/session"))
+                            .header("Authorization", format!("Bearer {password}"))
+                            .json(&serde_json::json!({"title": "one-shot"}))
+                            .send()
+                            .await?;
+                        if !session_resp.status().is_success() {
+                            return Err(ProviderError::Protocol(
+                                "failed to create one-shot session".into(),
+                            ));
+                        }
+                        let session_id: String = session_resp
+                            .json::<OpenCodeSession>()
+                            .await
+                            .map(|s| s.id)
+                            .unwrap_or_else(|_| Uuid::new_v4().to_string());
+
+                        let msg_resp = client
+                            .post(format!("{base_url}/session/{session_id}/prompt_async"))
+                            .header("Authorization", format!("Bearer {password}"))
+                            .json(&serde_json::json!({
+                                "model": model,
+                                "parts": [{"type": "text", "text": prompt}]
+                            }))
+                            .send()
+                            .await?;
+                        if !msg_resp.status().is_success() {
+                            return Err(ProviderError::Protocol(
+                                "failed to send one-shot message".into(),
+                            ));
+                        }
+
+                        let result =
+                            collect_response_via_sse(&client, &base_url, &password, &session_id)
+                                .await;
+
+                        let _ = client
+                            .delete(format!("{base_url}/session/{session_id}"))
+                            .header("Authorization", format!("Bearer {password}"))
+                            .send()
+                            .await;
+
+                        result
                     }
-                    let session_id: String = session_resp
-                        .json::<OpenCodeSession>()
-                        .await
-                        .map(|s| s.id)
-                        .unwrap_or_else(|_| Uuid::new_v4().to_string());
-
-                    let msg_resp = client
-                        .post(format!("{base_url}/session/{session_id}/prompt_async"))
-                        .header("Authorization", format!("Bearer {password}"))
-                        .json(&serde_json::json!({
-                            "model": model,
-                            "parts": [{"type": "text", "text": prompt}]
-                        }))
-                        .send()
-                        .await?;
-                    if !msg_resp.status().is_success() {
-                        return Err(ProviderError::Protocol("failed to send one-shot message".into()));
-                    }
-
-                    let result = collect_response_via_sse(&client, &base_url, &password, &session_id).await;
-
-                    let _ = client
-                        .delete(format!("{base_url}/session/{session_id}"))
-                        .header("Authorization", format!("Bearer {password}"))
-                        .send()
-                        .await;
-
-                    result
-                }
-            }).await
+                },
+            )
+            .await
         }
     }
 
@@ -592,16 +685,21 @@ mod tests {
 
     #[test]
     fn test_map_opencode_event_tool_use() {
-        let line = r#"{"type":"tool_use","tool_name":"read","tool_use_id":"id1","input":{"path":"/tmp"}}"#;
+        let line =
+            r#"{"type":"tool_use","tool_name":"read","tool_use_id":"id1","input":{"path":"/tmp"}}"#;
         let event = map_opencode_event_to_omp_event(line);
-        assert!(matches!(event, Some(OmpRpcEvent::ToolUse { tool_name, tool_use_id: Some(id), .. }) if tool_name == "read" && id == "id1"));
+        assert!(
+            matches!(event, Some(OmpRpcEvent::ToolUse { tool_name, tool_use_id: Some(id), .. }) if tool_name == "read" && id == "id1")
+        );
     }
 
     #[test]
     fn test_map_opencode_event_tool_result() {
         let line = r#"{"type":"tool_result","tool_use_id":"id1","result":"ok"}"#;
         let event = map_opencode_event_to_omp_event(line);
-        assert!(matches!(event, Some(OmpRpcEvent::ToolResult { tool_use_id: Some(id), result }) if id == "id1" && result == "ok"));
+        assert!(
+            matches!(event, Some(OmpRpcEvent::ToolResult { tool_use_id: Some(id), result }) if id == "id1" && result == "ok")
+        );
     }
 
     #[test]
@@ -615,7 +713,9 @@ mod tests {
     fn test_map_opencode_event_error() {
         let line = r#"{"type":"error","error":"something went wrong"}"#;
         let event = map_opencode_event_to_omp_event(line);
-        assert!(matches!(event, Some(OmpRpcEvent::Error { error }) if error == "something went wrong"));
+        assert!(
+            matches!(event, Some(OmpRpcEvent::Error { error }) if error == "something went wrong")
+        );
     }
 
     #[test]

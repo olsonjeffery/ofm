@@ -20,11 +20,10 @@ impl OmprintConfig {
                 tracing::warn!("OMPRINT_API_KEY is set but too short (< 16 chars) — auth will be trivially bypassed");
             }
         }
-        let config_root = std::env::var("OMPRINT_CONFIG")
-            .unwrap_or_else(|_| {
-                let home = std::env::var("HOME").unwrap_or_else(|_| ".".into());
-                format!("{home}/.config/omprint")
-            });
+        let config_root = std::env::var("OMPRINT_CONFIG").unwrap_or_else(|_| {
+            let home = std::env::var("HOME").unwrap_or_else(|_| ".".into());
+            format!("{home}/.config/omprint")
+        });
         Self {
             hostname: std::env::var("OMPRINT_HOSTNAME").unwrap_or_else(|_| "127.0.0.1".into()),
             port: std::env::var("PORT")

@@ -3,6 +3,7 @@ use uuid::Uuid;
 
 use crate::db::schema::{AgentHarnessConfig, AgentType, ScopeType};
 
+#[allow(clippy::too_many_arguments)]
 pub async fn create_or_update_agent_config(
     client: &Client,
     agent_type: &AgentType,
@@ -93,10 +94,7 @@ pub async fn list_agent_configs(
         .await
 }
 
-pub async fn delete_agent_config(
-    client: &Client,
-    id: &Uuid,
-) -> Result<bool, hiqlite::Error> {
+pub async fn delete_agent_config(client: &Client, id: &Uuid) -> Result<bool, hiqlite::Error> {
     let rows = client
         .execute(
             "DELETE FROM agent_harness_configs WHERE id = $1",

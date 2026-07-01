@@ -70,11 +70,7 @@ impl ProviderConfigDir {
         })
     }
 
-    pub fn write_provider_config(
-        &self,
-        name: &str,
-        content: &str,
-    ) -> Result<(), ProviderError> {
+    pub fn write_provider_config(&self, name: &str, content: &str) -> Result<(), ProviderError> {
         self.ensure_exists()?;
         let path = self.config_path(name);
         std::fs::write(&path, content).map_err(|e| ProviderError::Config(e.to_string()))
@@ -246,7 +242,9 @@ mod tests {
         let tmp = TempDir::new().unwrap();
         let cfg_dir = ProviderConfigDir::new(tmp.path());
         cfg_dir.ensure_exists().unwrap();
-        cfg_dir.write_provider_config("test.txt", "some content").unwrap();
+        cfg_dir
+            .write_provider_config("test.txt", "some content")
+            .unwrap();
         let result = cfg_dir.load_provider_config("test.txt");
         assert!(result.is_err());
     }

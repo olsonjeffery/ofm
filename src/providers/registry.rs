@@ -15,19 +15,13 @@ pub async fn resolve_provider(
     config_root: &Path,
 ) -> Result<Box<dyn LlmProvider>, ProviderError> {
     match config.harness.as_str() {
-        "oh-my-pi" => {
-            OmpProvider::new(config, omp_binary)
-                .await
-                .map(|p| Box::new(p) as Box<dyn LlmProvider>)
-        }
-        "opencode" => {
-            OpenCodeProvider::new(config, config_root)
-                .await
-                .map(|p| Box::new(p) as Box<dyn LlmProvider>)
-        }
-        other => Err(ProviderError::Protocol(format!(
-            "unknown harness: {other}"
-        ))),
+        "oh-my-pi" => OmpProvider::new(config, omp_binary)
+            .await
+            .map(|p| Box::new(p) as Box<dyn LlmProvider>),
+        "opencode" => OpenCodeProvider::new(config, config_root)
+            .await
+            .map(|p| Box::new(p) as Box<dyn LlmProvider>),
+        other => Err(ProviderError::Protocol(format!("unknown harness: {other}"))),
     }
 }
 
@@ -43,7 +37,9 @@ pub async fn resolve_harness_config(
         ScopeType::User,
         ScopeType::Global,
     ] {
-        if let Some(config) = lookup_config(db, agent_type, scope.clone(), user_id, project_id).await? {
+        if let Some(config) =
+            lookup_config(db, agent_type, scope.clone(), user_id, project_id).await?
+        {
             if config.model.is_none() {
                 return Err(ProviderError::Config(format!(
                     "provider config '{}' for agent type '{agent_type}' scope '{:?}' has no model selected",
@@ -129,13 +125,7 @@ mod tests {
         client.wait_until_healthy_db().await;
         db::run_migrations(&client).await.unwrap();
 
-        let result = resolve_harness_config(
-            &client,
-            &AgentType::Implementation,
-            None,
-            None,
-        )
-        .await;
+        let result = resolve_harness_config(&client, &AgentType::Implementation, None, None).await;
         assert!(result.is_err());
         assert!(result
             .unwrap_err()
@@ -262,6 +252,9 @@ mod tests {
 
         let result = resolve_harness_config(&client, &agent_type, None, None).await;
         assert!(result.is_err());
-        assert!(result.unwrap_err().to_string().contains("no model selected"));
+        assert!(result
+            .unwrap_err()
+            .to_string()
+            .contains("no model selected"));
     }
 }

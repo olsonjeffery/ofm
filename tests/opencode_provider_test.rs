@@ -63,7 +63,10 @@ async fn test_opencode_provider_start_shutdown() {
         Ok(Ok(())) => {
             // Server started successfully - verify shutdown
             let shutdown = provider.shutdown().await.unwrap();
-            assert!(shutdown, "shutdown should return true when server was running");
+            assert!(
+                shutdown,
+                "shutdown should return true when server was running"
+            );
         }
         Ok(Err(e)) => {
             eprintln!("opencode start returned error: {e}");
@@ -98,7 +101,10 @@ async fn test_opencode_provider_get_models_list_transient() {
 
     match result {
         Ok(Ok(models)) => {
-            assert!(!models.is_empty(), "get_models_list should return at least one model");
+            assert!(
+                !models.is_empty(),
+                "get_models_list should return at least one model"
+            );
             eprintln!("opencode models: {models:?}");
         }
         Ok(Err(e)) => {
@@ -138,7 +144,10 @@ async fn test_opencode_provider_one_shot_transient() {
 
     match result {
         Ok(Ok(response)) => {
-            assert!(!response.is_empty(), "one_shot_prompt returned empty response");
+            assert!(
+                !response.is_empty(),
+                "one_shot_prompt returned empty response"
+            );
             eprintln!("opencode one_shot_prompt response: {response}");
         }
         Ok(Err(e)) => {

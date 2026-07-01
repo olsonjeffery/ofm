@@ -65,22 +65,19 @@ async fn post_create_agent_run(
             cfg.effort.as_deref().unwrap_or("balanced").to_string(),
         ),
         Err(_) => {
-            tracing::warn!(
-                "No provider config found for {agent_type}, using defaults"
-            );
+            tracing::warn!("No provider config found for {agent_type}, using defaults");
             ("default".to_string(), "balanced".to_string())
         }
     };
 
-    let session_result =
-        session::start_session(&state.db, task_id, &model, &effort, agent_type)
-            .await
-            .map_err(|e| match &e {
-                hiqlite::Error::ConstraintViolation(_) => {
-                    ServerError::Conflict("an agent is already running for this task".into())
-                }
-                _ => ServerError::Internal(e.to_string()),
-            })?;
+    let session_result = session::start_session(&state.db, task_id, &model, &effort, agent_type)
+        .await
+        .map_err(|e| match &e {
+            hiqlite::Error::ConstraintViolation(_) => {
+                ServerError::Conflict("an agent is already running for this task".into())
+            }
+            _ => ServerError::Internal(e.to_string()),
+        })?;
 
     // Phase 8: Start and store provider if config was resolved
     if let Ok(cfg) = &harness_config {
@@ -115,7 +112,11 @@ async fn post_create_agent_run(
         let task_title = task.title.clone();
         tokio::spawn(async move {
             providers::generate_conversation_title(
-                &db, &cfg_root, &title_config, conv_id, &task_title,
+                &db,
+                &cfg_root,
+                &title_config,
+                conv_id,
+                &task_title,
             )
             .await;
         });

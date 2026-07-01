@@ -23,7 +23,10 @@ async fn test_omp_provider_new() {
     };
     let provider = OmpProvider::new(&config, Path::new("omp")).await.unwrap();
     let models = provider.get_models_list().await.unwrap();
-    assert!(!models.is_empty(), "get_models_list should return at least 'default'");
+    assert!(
+        !models.is_empty(),
+        "get_models_list should return at least 'default'"
+    );
 }
 
 #[tokio::test]
@@ -50,7 +53,10 @@ async fn test_omp_provider_one_shot_prompt() {
 
     match result {
         Ok(Ok(response)) => {
-            assert!(!response.is_empty(), "one_shot_prompt returned empty response");
+            assert!(
+                !response.is_empty(),
+                "one_shot_prompt returned empty response"
+            );
             eprintln!("omp one_shot_prompt response: {response}");
         }
         Ok(Err(e)) => {
@@ -79,12 +85,16 @@ async fn test_omp_provider_start_shutdown() {
     let mut provider = OmpProvider::new(&config, Path::new("omp")).await.unwrap();
 
     let tmp = tempfile::TempDir::new().unwrap();
-    let start_result = tokio::time::timeout(Duration::from_secs(10), provider.start(tmp.path())).await;
+    let start_result =
+        tokio::time::timeout(Duration::from_secs(10), provider.start(tmp.path())).await;
 
     match start_result {
         Ok(Ok(())) => {
             let shutdown = provider.shutdown().await.unwrap();
-            assert!(shutdown, "shutdown should return true when process was running");
+            assert!(
+                shutdown,
+                "shutdown should return true when process was running"
+            );
         }
         Ok(Err(e)) => {
             eprintln!("omp start returned error (binary may need config): {e}");
