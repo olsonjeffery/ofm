@@ -290,7 +290,9 @@ mod tests {
         let (_dir, bin) = create_mock_binary(
             "#!/bin/sh\n\
              printf '{\"type\":\"text\",\"text\":\"first\"}\\n'\n\
+             sleep 0.1\n\
              printf '{\"type\":\"text\",\"text\":\"second\"}\\n'\n\
+             sleep 0.1\n\
              printf '{\"type\":\"done\"}\\n'",
         );
 
