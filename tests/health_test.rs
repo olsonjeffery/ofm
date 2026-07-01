@@ -1,4 +1,5 @@
 use omprint::db;
+use omprint::providers::LlmProvider;
 use omprint::server;
 use omprint::server::state::AppState;
 use std::collections::HashMap;
@@ -29,7 +30,9 @@ async fn make_state() -> (AppState, TempDir) {
         default_user_id: user_id,
         archive_root: "storage/".into(),
         api_key: None,
+        config_root: tmp.path().to_str().unwrap().to_string(),
         omp_sessions: Arc::new(Mutex::new(HashMap::new())),
+        active_sessions: Arc::new(Mutex::new(HashMap::<String, Box<dyn LlmProvider>>::new())),
     };
     (state, tmp)
 }

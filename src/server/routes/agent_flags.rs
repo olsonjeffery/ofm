@@ -6,8 +6,7 @@ use axum::{
 };
 use uuid::Uuid;
 
-use crate::server::error::ServerError;
-use crate::server::state::AppState;
+use crate::server::{error::ServerError, require_auth, state::AppState};
 use crate::services::tasks;
 
 pub fn agent_flags_router() -> Router<AppState> {
@@ -23,21 +22,6 @@ async fn require_task(state: &AppState, task_id: &Uuid) -> Result<(), ServerErro
         .await
         .map_err(|_| ServerError::NotFound("Task not found".into()))?;
     Ok(())
-}
-
-fn require_auth(headers: &HeaderMap, state: &AppState) -> Result<(), ServerError> {
-    let Some(ref expected) = state.api_key else {
-        return Ok(());
-    };
-    let provided = headers
-        .get("x-api-key")
-        .and_then(|v| v.to_str().ok())
-        .unwrap_or("");
-    if provided == expected {
-        Ok(())
-    } else {
-        Err(ServerError::Forbidden("invalid or missing API key".into()))
-    }
 }
 
 macro_rules! flag_handler {
