@@ -268,7 +268,9 @@ async fn set_task_flag(
     column: &str,
 ) -> Result<(), hiqlite::Error> {
     if !VALID_FLAG_COLUMNS.contains(&column) {
-        return Err(hiqlite::Error::new(format!("invalid flag column: {column}")));
+        return Err(hiqlite::Error::new(format!(
+            "invalid flag column: {column}"
+        )));
     }
     client
         .execute(
