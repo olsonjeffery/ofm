@@ -2,7 +2,7 @@ use std::str::FromStr;
 
 use axum::{
     extract::{Path, State},
-    http::StatusCode,
+    http::{HeaderMap, StatusCode},
     routing::post,
     Json, Router,
 };
@@ -25,11 +25,29 @@ pub fn agent_runs_router() -> Router<AppState> {
     Router::new().route("/", post(post_create_agent_run).get(list_agent_runs))
 }
 
+fn require_auth(headers: &HeaderMap, state: &AppState) -> Result<(), ServerError> {
+    let Some(ref expected) = state.api_key else {
+        return Ok(());
+    };
+    let provided = headers
+        .get("x-api-key")
+        .and_then(|v| v.to_str().ok())
+        .unwrap_or("");
+    if provided == expected {
+        Ok(())
+    } else {
+        Err(ServerError::Forbidden("invalid or missing API key".into()))
+    }
+}
+
 async fn post_create_agent_run(
     State(state): State<AppState>,
     Path(task_id): Path<Uuid>,
+    headers: HeaderMap,
     Json(body): Json<StartAgentRunRequest>,
 ) -> Result<(StatusCode, Json<TaskAgentRun>), ServerError> {
+    require_auth(&headers, &state)?;
+
     let agent_type = AgentType::from_str(&body.agent_type).map_err(ServerError::BadRequest)?;
 
     let task = tasks::get_task(&state.db, &task_id)
@@ -37,8 +55,6 @@ async fn post_create_agent_run(
         .map_err(|_| ServerError::NotFound("Task not found".into()))?;
 
     guards::one_running_per_task(&state.db, task_id).await?;
-
-    // TODO: check user credentials when credential system is built (→ 403 Forbidden)
 
     guards::iteration_cap(&task)?;
 
