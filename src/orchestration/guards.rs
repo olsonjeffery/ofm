@@ -28,7 +28,7 @@ pub fn iteration_cap(task: &Task) -> Result<(), ServerError> {
 mod tests {
     use super::*;
     use crate::db;
-    use crate::db::schema::{AgentType, RunStatus, Task};
+    use crate::db::schema::{AgentType, Task};
     use crate::omp::session;
     use tempfile::TempDir;
 

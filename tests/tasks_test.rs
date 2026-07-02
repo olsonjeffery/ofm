@@ -54,6 +54,7 @@ async fn setup_app() -> TestApp {
         db: client.clone(),
         default_user_id: user_id,
         archive_root: "storage/".into(),
+        api_key: None,
         omp_sessions: Arc::new(Mutex::new(HashMap::new())),
     };
 
@@ -148,6 +149,7 @@ async fn setup_app_with_git() -> TestApp {
         db: client.clone(),
         default_user_id: user_id,
         archive_root: app_archive_root,
+        api_key: None,
         omp_sessions: Arc::new(Mutex::new(HashMap::new())),
     };
 

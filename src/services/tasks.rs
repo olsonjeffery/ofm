@@ -255,11 +255,23 @@ pub async fn increment_workflow_run_count(
     Ok(())
 }
 
+const VALID_FLAG_COLUMNS: &[&str] = &[
+    "workflow_blocked",
+    "planification_complete",
+    "workflow_complete",
+    "pr_agent_complete",
+];
+
 async fn set_task_flag(
     client: &Client,
     task_id: &Uuid,
     column: &str,
 ) -> Result<(), hiqlite::Error> {
+    if !VALID_FLAG_COLUMNS.contains(&column) {
+        return Err(hiqlite::Error::new(format!(
+            "invalid flag column: {column}"
+        )));
+    }
     client
         .execute(
             format!("UPDATE tasks SET {column} = 1 WHERE id = $1"),

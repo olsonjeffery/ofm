@@ -29,6 +29,7 @@ async fn setup_app() -> (String, tokio::task::JoinHandle<()>) {
         db: client,
         default_user_id: user_id,
         archive_root: "storage/".into(),
+        api_key: None,
         omp_sessions: Arc::new(Mutex::new(HashMap::new())),
     };
 

@@ -3,6 +3,7 @@ pub struct OmprintConfig {
     pub port: u16,
     pub archive_root: String,
     pub data_dir: String,
+    pub api_key: Option<String>,
 }
 
 impl OmprintConfig {
@@ -12,6 +13,12 @@ impl OmprintConfig {
             .parent()
             .map(|p| p.to_string_lossy().to_string())
             .unwrap_or_else(|| "data".into());
+        let api_key = std::env::var("OMPRINT_API_KEY").ok();
+        if let Some(ref key) = api_key {
+            if key.is_empty() || key.len() < 16 {
+                tracing::warn!("OMPRINT_API_KEY is set but too short (< 16 chars) — auth will be trivially bypassed");
+            }
+        }
         Self {
             hostname: std::env::var("OMPRINT_HOSTNAME").unwrap_or_else(|_| "127.0.0.1".into()),
             port: std::env::var("PORT")
@@ -21,6 +28,7 @@ impl OmprintConfig {
             archive_root: std::env::var("OMPRINT_ARCHIVE_ROOT")
                 .unwrap_or_else(|_| "storage/".into()),
             data_dir,
+            api_key,
         }
     }
 }

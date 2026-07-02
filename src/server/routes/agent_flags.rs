@@ -1,6 +1,6 @@
 use axum::{
     extract::{Path, State},
-    http::StatusCode,
+    http::{HeaderMap, StatusCode},
     routing::post,
     Router,
 };
@@ -25,46 +25,39 @@ async fn require_task(state: &AppState, task_id: &Uuid) -> Result<(), ServerErro
     Ok(())
 }
 
-async fn complete_plan(
-    State(state): State<AppState>,
-    Path(task_id): Path<Uuid>,
-) -> Result<StatusCode, ServerError> {
-    require_task(&state, &task_id).await?;
-    tasks::mark_planification_complete(&state.db, &task_id)
-        .await
-        .map_err(|e| ServerError::Internal(e.to_string()))?;
-    Ok(StatusCode::OK)
+fn require_auth(headers: &HeaderMap, state: &AppState) -> Result<(), ServerError> {
+    let Some(ref expected) = state.api_key else {
+        return Ok(());
+    };
+    let provided = headers
+        .get("x-api-key")
+        .and_then(|v| v.to_str().ok())
+        .unwrap_or("");
+    if provided == expected {
+        Ok(())
+    } else {
+        Err(ServerError::Forbidden("invalid or missing API key".into()))
+    }
 }
 
-async fn complete_workflow(
-    State(state): State<AppState>,
-    Path(task_id): Path<Uuid>,
-) -> Result<StatusCode, ServerError> {
-    require_task(&state, &task_id).await?;
-    tasks::mark_workflow_complete(&state.db, &task_id)
-        .await
-        .map_err(|e| ServerError::Internal(e.to_string()))?;
-    Ok(StatusCode::OK)
+macro_rules! flag_handler {
+    ($name:ident, $mark_fn:expr) => {
+        async fn $name(
+            State(state): State<AppState>,
+            Path(task_id): Path<Uuid>,
+            headers: HeaderMap,
+        ) -> Result<StatusCode, ServerError> {
+            require_auth(&headers, &state)?;
+            require_task(&state, &task_id).await?;
+            $mark_fn(&state.db, &task_id)
+                .await
+                .map_err(|e| ServerError::Internal(e.to_string()))?;
+            Ok(StatusCode::OK)
+        }
+    };
 }
 
-async fn block_workflow(
-    State(state): State<AppState>,
-    Path(task_id): Path<Uuid>,
-) -> Result<StatusCode, ServerError> {
-    require_task(&state, &task_id).await?;
-    tasks::mark_task_blocked(&state.db, &task_id)
-        .await
-        .map_err(|e| ServerError::Internal(e.to_string()))?;
-    Ok(StatusCode::OK)
-}
-
-async fn complete_pr(
-    State(state): State<AppState>,
-    Path(task_id): Path<Uuid>,
-) -> Result<StatusCode, ServerError> {
-    require_task(&state, &task_id).await?;
-    tasks::mark_pr_agent_complete(&state.db, &task_id)
-        .await
-        .map_err(|e| ServerError::Internal(e.to_string()))?;
-    Ok(StatusCode::OK)
-}
+flag_handler!(complete_plan, tasks::mark_planification_complete);
+flag_handler!(complete_workflow, tasks::mark_workflow_complete);
+flag_handler!(block_workflow, tasks::mark_task_blocked);
+flag_handler!(complete_pr, tasks::mark_pr_agent_complete);

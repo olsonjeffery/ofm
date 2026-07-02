@@ -11,5 +11,6 @@ pub struct AppState {
     pub db: hiqlite::Client,
     pub default_user_id: Uuid,
     pub archive_root: String,
+    pub api_key: Option<String>,
     pub omp_sessions: Arc<Mutex<HashMap<String, OmpSession>>>,
 }
