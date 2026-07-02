@@ -12,9 +12,9 @@ pub use protocol::*;
 type BoxError = Box<dyn std::error::Error + Send + Sync>;
 
 pub struct OmpSession {
-    pid: u32,
-    child: Box<dyn portable_pty::Child + Send + Sync>,
-    pair: portable_pty::PtyPair,
+    pub pid: u32,
+    pub child: Box<dyn portable_pty::Child + Send + Sync>,
+    pub pair: portable_pty::PtyPair,
 }
 
 pub fn spawn_omp(
@@ -290,7 +290,9 @@ mod tests {
         let (_dir, bin) = create_mock_binary(
             "#!/bin/sh\n\
              printf '{\"type\":\"text\",\"text\":\"first\"}\\n'\n\
+             sleep 0.1\n\
              printf '{\"type\":\"text\",\"text\":\"second\"}\\n'\n\
+             sleep 0.1\n\
              printf '{\"type\":\"done\"}\\n'",
         );
 

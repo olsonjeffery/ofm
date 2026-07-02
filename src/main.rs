@@ -11,6 +11,7 @@ mod db;
 mod logging;
 mod omp;
 mod orchestration;
+mod providers;
 
 use clap::Parser;
 use std::collections::HashMap;
@@ -70,7 +71,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         default_user_id,
         archive_root: cfg.archive_root,
         api_key: cfg.api_key,
+        config_root: cfg.config_root,
         omp_sessions: Arc::new(Mutex::new(HashMap::new())),
+        active_sessions: Arc::new(Mutex::new(HashMap::new())),
     };
 
     // Server

@@ -1,4 +1,5 @@
 use omprint::db;
+use omprint::providers::LlmProvider;
 use omprint::server;
 use omprint::server::state::AppState;
 
@@ -51,7 +52,9 @@ async fn setup_app() -> TestApp {
         default_user_id: user_id,
         archive_root: "storage/".into(),
         api_key: None,
+        config_root: db_dir.path().to_str().unwrap().to_string(),
         omp_sessions: Arc::new(Mutex::new(HashMap::new())),
+        active_sessions: Arc::new(Mutex::new(HashMap::<String, Box<dyn LlmProvider>>::new())),
     };
 
     let app = server::router(state);

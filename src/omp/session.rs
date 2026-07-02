@@ -65,7 +65,7 @@ pub async fn resume_session(
 ) -> Result<Conversation, hiqlite::Error> {
     client
         .query_map_one::<Conversation, _>(
-            "SELECT id, task_id, omp_session_id, model, effort, created_at FROM conversations WHERE id = $1",
+            "SELECT id, task_id, omp_session_id, model, effort, name, created_at FROM conversations WHERE id = $1",
             hiqlite::params!(conversation_id.to_string()),
         )
         .await
@@ -167,7 +167,7 @@ mod tests {
 
         let conv: Conversation = client
             .query_map_one(
-                "SELECT id, task_id, omp_session_id, model, effort, created_at FROM conversations WHERE id = $1",
+                "SELECT id, task_id, omp_session_id, model, effort, name, created_at FROM conversations WHERE id = $1",
                 hiqlite::params!(result.conversation_id.to_string()),
             )
             .await

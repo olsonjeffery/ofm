@@ -140,6 +140,31 @@ const MIGRATIONS: &[(&str, &str)] = &[
         "idx_task_agent_runs_one_running",
         "CREATE UNIQUE INDEX IF NOT EXISTS idx_task_agent_runs_one_running ON task_agent_runs(task_id) WHERE status = 'running'",
     ),
+    (
+        "conversations_add_name",
+        "ALTER TABLE conversations ADD COLUMN name TEXT",
+    ),
+    (
+        "create_agent_harness_configs",
+        "CREATE TABLE IF NOT EXISTS agent_harness_configs (
+            id TEXT PRIMARY KEY,
+            agent_type TEXT NOT NULL,
+            harness TEXT NOT NULL,
+            provider_config_ref TEXT NOT NULL,
+            scope_type TEXT NOT NULL DEFAULT 'global',
+            user_id TEXT,
+            project_id TEXT,
+            model TEXT,
+            effort TEXT,
+            created_at TEXT NOT NULL DEFAULT '',
+            updated_at TEXT NOT NULL DEFAULT ''
+        )",
+    ),
+    (
+        "idx_agent_harness_configs_unique",
+        "CREATE UNIQUE INDEX IF NOT EXISTS idx_agent_harness_configs_unique \
+         ON agent_harness_configs(agent_type, scope_type, COALESCE(user_id, ''), COALESCE(project_id, ''))",
+    ),
 ];
 
 pub async fn run_migrations(client: &Client) -> Result<usize, Box<dyn std::error::Error>> {

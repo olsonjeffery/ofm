@@ -131,7 +131,56 @@ pub struct Conversation {
     pub omp_session_id: Option<String>,
     pub model: String,
     pub effort: String,
+    pub name: Option<String>,
     pub created_at: NaiveDateTime,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum ScopeType {
+    Global,
+    User,
+    Project,
+    UserProject,
+}
+
+impl std::fmt::Display for ScopeType {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::Global => write!(f, "global"),
+            Self::User => write!(f, "user"),
+            Self::Project => write!(f, "project"),
+            Self::UserProject => write!(f, "user_project"),
+        }
+    }
+}
+
+impl std::str::FromStr for ScopeType {
+    type Err = String;
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        match s {
+            "global" => Ok(Self::Global),
+            "user" => Ok(Self::User),
+            "project" => Ok(Self::Project),
+            "user_project" => Ok(Self::UserProject),
+            _ => Err(format!("invalid scope type: '{s}'")),
+        }
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct AgentHarnessConfig {
+    pub id: Uuid,
+    pub agent_type: AgentType,
+    pub harness: String,
+    pub provider_config_ref: String,
+    pub scope_type: ScopeType,
+    pub user_id: Option<Uuid>,
+    pub project_id: Option<Uuid>,
+    pub model: Option<String>,
+    pub effort: Option<String>,
+    pub created_at: NaiveDateTime,
+    pub updated_at: NaiveDateTime,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -299,7 +348,34 @@ impl From<&mut Row<'_>> for Conversation {
             omp_session_id: row.get("omp_session_id"),
             model: row.get("model"),
             effort: row.get("effort"),
+            name: row.get("name"),
             created_at: parse_naive_datetime(&row.get::<String>("created_at")),
+        }
+    }
+}
+
+impl From<&mut Row<'_>> for AgentHarnessConfig {
+    fn from(row: &mut Row<'_>) -> Self {
+        let scope_type_str: String = row.get("scope_type");
+        let scope_type = scope_type_str.parse().unwrap_or(ScopeType::Global);
+        let agent_type_str: String = row.get("agent_type");
+        let agent_type = agent_type_str.parse().unwrap_or(AgentType::Implementation);
+        Self {
+            id: uuid_from_row(row, "id"),
+            agent_type,
+            harness: row.get("harness"),
+            provider_config_ref: row.get("provider_config_ref"),
+            scope_type,
+            user_id: row
+                .get::<Option<String>>("user_id")
+                .map(|s| Uuid::parse_str(&s).expect("invalid UUID in database")),
+            project_id: row
+                .get::<Option<String>>("project_id")
+                .map(|s| Uuid::parse_str(&s).expect("invalid UUID in database")),
+            model: row.get("model"),
+            effort: row.get("effort"),
+            created_at: parse_naive_datetime(&row.get::<String>("created_at")),
+            updated_at: parse_naive_datetime(&row.get::<String>("updated_at")),
         }
     }
 }

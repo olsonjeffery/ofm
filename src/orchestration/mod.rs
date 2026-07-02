@@ -2,10 +2,15 @@ pub mod guards;
 pub mod recovery;
 pub mod state_machine;
 
+use std::collections::HashMap;
+use std::sync::Arc;
+
 use hiqlite::Client;
+use tokio::sync::Mutex;
 use uuid::Uuid;
 
 use crate::db::schema::{AgentType, RunStatus};
+use crate::providers::LlmProvider;
 use crate::server::error::ServerError;
 use crate::services::tasks;
 
@@ -20,6 +25,7 @@ pub enum NextAction {
 pub async fn completion_handler(
     client: &Client,
     conversation_id: Uuid,
+    active_sessions: &Arc<Mutex<HashMap<String, Box<dyn LlmProvider>>>>,
 ) -> Result<NextAction, ServerError> {
     let run = tasks::get_agent_run_by_conversation(client, &conversation_id)
         .await
@@ -32,6 +38,17 @@ pub async fn completion_handler(
     tasks::mark_agent_run_completed(client, &run.id)
         .await
         .map_err(|e| ServerError::Internal(e.to_string()))?;
+
+    // Phase 8: Shut down the provider for this conversation
+    if let Some(mut provider) = active_sessions
+        .lock()
+        .await
+        .remove(&conversation_id.to_string())
+    {
+        if let Err(e) = provider.shutdown().await {
+            tracing::warn!("Error shutting down provider for conversation {conversation_id}: {e}");
+        }
+    }
 
     let task = tasks::get_task(client, &run.task_id)
         .await
@@ -54,6 +71,10 @@ mod tests {
     use crate::db::schema::AgentType;
     use crate::omp::session;
     use tempfile::TempDir;
+
+    fn empty_sessions() -> Arc<Mutex<HashMap<String, Box<dyn LlmProvider>>>> {
+        Arc::new(Mutex::new(HashMap::new()))
+    }
 
     async fn make_client() -> (hiqlite::Client, Uuid, TempDir) {
         let tmp = TempDir::new().unwrap();
@@ -118,7 +139,8 @@ mod tests {
         .await
         .unwrap();
 
-        let action = completion_handler(&client, result.conversation_id)
+        let sessions = empty_sessions();
+        let action = completion_handler(&client, result.conversation_id, &sessions)
             .await
             .unwrap();
 
@@ -148,7 +170,8 @@ mod tests {
         .await
         .unwrap();
 
-        let action = completion_handler(&client, result.conversation_id)
+        let sessions = empty_sessions();
+        let action = completion_handler(&client, result.conversation_id, &sessions)
             .await
             .unwrap();
 
@@ -169,7 +192,8 @@ mod tests {
         .await
         .unwrap();
 
-        let action = completion_handler(&client, result.conversation_id)
+        let sessions = empty_sessions();
+        let action = completion_handler(&client, result.conversation_id, &sessions)
             .await
             .unwrap();
 
@@ -198,7 +222,8 @@ mod tests {
         .await
         .unwrap();
 
-        let action = completion_handler(&client, result.conversation_id)
+        let sessions = empty_sessions();
+        let action = completion_handler(&client, result.conversation_id, &sessions)
             .await
             .unwrap();
 
