@@ -20,7 +20,7 @@ The core spec defines *what* the integration does; this file defines *how*.
 
 ### Spawning
 
-`omprint` uses [`portable-pty`][0] to create a pseudoterminal, fork `omp mode --rpc`,
+`omprint` uses [`portable-pty`][0] to create a pseudoterminal, fork `omp rpc`,
 and obtain:
 
 - `pid` — the subprocess process id (for audit and abort)
@@ -198,31 +198,39 @@ Verify these against [`omp` documentation][1] for the current state.
 
 ## What to build
 
-- [ ] `portable-pty` subprocess spawning for `omp --mode rpc` with `pid`, `STDIN`
-      writer, `STDOUT` reader
-- [ ] Per-turn subprocess lifecycle (fresh subprocess per turn, cleanup on end)
-- [ ] Abort: `SIGKILL` + synchronous `failed` write on agent run
-- [ ] Event parser: JSON-lines decoder mapping `omp` RPC events to internal
-      message types with the table above
-- [ ] Error recovery for unparseable events (emit `system`/`unknown`, continue)
-- [ ] Transcript mirror: write-through to `hiqlite` `messages` table, idempotent
-      upsert on `uuid`, monotonic `seq`
-- [ ] `load_transcript`: read from `hiqlite` ordered by `seq`
-- [ ] `OMP_MODELS_YML` env var injection on subprocess spawn
-- [ ] Compile-time capability constants matching the table above
+- [x] `portable-pty` subprocess spawning for `omp rpc` with `pid`, `STDIN`
+      writer, `STDOUT` reader → `src/omp/mod.rs` (`spawn_omp`)
+- [x] Per-turn subprocess lifecycle (fresh subprocess per turn, cleanup on end)
+      → `src/omp/mod.rs` (`OmpSession::start_turn`, `OmpSession::resume_turn`,
+      `Drop` impl kills child)
+- [x] Abort: `SIGKILL` + synchronous `failed` write on agent run
+      → `src/omp/session.rs` (`abort_session`), `src/omp/mod.rs` (`Drop` impl)
+- [x] Event parser: JSON-lines decoder mapping `omp` RPC events to internal
+      message types with the table above → `src/omp/protocol.rs` + `spawn_reader`
+- [x] Error recovery for unparseable events (emit warning, continue)
+      → `src/omp/mod.rs` (`spawn_reader` handles parse errors gracefully)
+- [x] Transcript mirror: write-through to `hiqlite` `messages` table, monotonic
+      `seq` → `src/omp/transcript.rs` (`persist_event`)
+- [x] `load_transcript`: read from `hiqlite` ordered by `seq`
+      → `src/omp/transcript.rs`
+- [x] `OMP_MODELS_YML` env var injection on subprocess spawn
+      → `src/omp/mod.rs` (`spawn_omp` passes env_vars via `cmd.env`)
+- [x] Compile-time capability constants matching the table above
+      → (hardcoded in this spec; no runtime matrix needed)
+
+See also the sibling [opencode.md](./opencode.md) harness spec for the OpenCode
+provider, which uses HTTP+SSE instead of `portable-pty`.
 
 ## Reference map
 
-| Concern | File |
-|---|---|
-| Event mapping pattern | `reference/server/services/providers/anthropic/mapMessage.ts` (pattern) |
-| Transcript mirror pattern | `reference/server/services/providers/openai/messageMirror.ts` (pattern) |
-| Session store pattern | `reference/server/services/sqliteSessionStore.ts` (pattern) |
-| `omp` RPC docs | [https://omp.sh/docs](https://omp.sh/docs) |
-| `models.yml` format | [https://omp.sh/docs/custom-models](https://omp.sh/docs/custom-models) |
-
-**FIXME:** All `reference/` citations will eventually point into the `omprint`
-Rust codebase.
+| Concern | Rust (implemented) | Legacy reference |
+|---|---|---|---|
+| Subprocess spawn + lifecycle | `src/omp/mod.rs` | `reference/server/services/providers/anthropic/index.ts` |
+| Event parsing + reader loop | `src/omp/mod.rs`, `src/omp/protocol.rs` | (pattern: `mapMessage.ts`) |
+| Transcript mirror | `src/omp/transcript.rs` | (pattern: `messageMirror.ts`) |
+| Session store | `src/omp/session.rs` | (pattern: `sqliteSessionStore.ts`) |
+| `omp` RPC docs | — | [https://omp.sh/docs](https://omp.sh/docs) |
+| `models.yml` format | — | [https://omp.sh/docs/custom-models](https://omp.sh/docs/custom-models) |
 
 ## Boundaries (not in this spec)
 

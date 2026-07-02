@@ -45,6 +45,21 @@ Task `status` moves `pending → in_progress → in_review → completed`. The l
 flips `pending → in_progress` on the first agent activity (see
 [`orchestration-loop.md`](./orchestration-loop.md)).
 
+### Integer- vs UUID-based IDs
+
+The database uses **UUIDs** for all primary keys (`Task.id`, `Project.id`). The
+archive path pattern `task-{taskId}.md` accepts a string ID (e.g. `"42"` or a
+UUID) — the `sanitize_id` function in `src/archive/paths.rs` rejects path
+traversal but is otherwise opaque to the ID format.
+
+However, `src/worktree/mod.rs` uses **integer IDs** (`u32`) for worktree paths
+and branch naming — e.g. `project-1/task-42/` and `task/42-foo-bar`. The
+`uuid_to_u32` function XOR-folds a UUID's 128 bits into a `u32` to derive the
+integer used in filesystem paths. This means:
+- **Archive paths** use the original ID string (UUID or integer) directly
+- **Worktree paths** (`src/worktree/mod.rs`) and branch names always use folded
+  `u32` integers for brevity in filesystem and git operations
+
 ## The markdown document — the source of truth for "what to build"
 
 - **Location:** a central, per-user archive **outside the repo** —
@@ -126,6 +141,7 @@ path in the prompt is authoritative — agents are told not to look elsewhere.
 - [x] Task create with rollback and doc seeding → `src/server/routes/tasks.rs`
 - [x] Task delete with worktree/archive cleanup → `src/server/routes/tasks.rs`
 - [x] `buildContextPrompt` → `build_context_prompt` in `src/archive/mod.rs`
+- [x] Dev-server port assignment via `get_dev_server_port` → `src/archive/mod.rs`
 - [ ] Effective-cwd resolution (not yet wired into agent runs)
 
 ## Reference map
