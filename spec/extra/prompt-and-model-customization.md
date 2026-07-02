@@ -1,9 +1,17 @@
 # Extra — Prompt and model customization
 
-Two independent customization layers sit on top of `omp`. Neither is
-required; core ships fixed prompts and `omp` is the single harness
+Two independent customization layers sit on top of the provider abstraction.
+Neither is required; core ships fixed prompts and `omp` is the default harness
 (see [`../core/omp-integration.md`](../core/omp-integration.md)). This extra
 makes both **configurable** — the *what an agent says* and the *what runs it*.
+
+> **Implementation status:** The harness-model config layer is **partially
+> implemented** via the `agent_harness_configs` table, scope-precedence config
+> resolution (`src/providers/registry.rs`), and `LlmProvider` trait abstraction
+> (`src/providers/mod.rs`). The agent-level `model` and `effort` fields can be
+> set per scope (global/user/project/user-project). The prompt-override layer
+> (two-tier file loader, template engine, per-agent message composition) is
+> **not yet implemented**.
 
 ## What it adds
 

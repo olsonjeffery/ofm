@@ -6,9 +6,14 @@
 > substitute for `snake_case` as appropriate; `PascalCase` is used for `trait`s,
 > `struct`s, `enum`s, etc.
 > 
-> **Implementation status:** This spec module is not yet implemented in the Rust
-> codebase. Citations into `reference/` are retained as guidance; they will be
-> replaced with Rust equivalents when implementation begins.
+> **Implementation status:** This spec module is **partially implemented** in the
+> Rust codebase. The planning prompt (`templates/planification.md`), template
+> (`templates/plan-template.md`), and prompt assembly function
+> (`src/agents/planning.rs`) exist. The completion signal endpoint
+> (`src/server/routes/agent_flags.rs`) is implemented. The research sub-agent
+> step and user-clarification workflow are defined in the prompt but the agent
+> composition code that wires everything together remains to be integrated into
+> the turn lifecycle.
 
 The first agent in the pipeline. It turns a rough request into a reviewable
 implementation plan, written into the task doc, so everything downstream has a
@@ -107,22 +112,24 @@ and the tech/non-tech prompt split, are role behavior — see
 
 ## What to build
 
-- [ ] The planning prompt enforcing the plan-only constraints and the
-      verbatim-original-request rule.
-- [ ] A read-only research sub-agent step (or direct read-only exploration).
-- [ ] The plan template.
-- [ ] A completion script that sets `planification_complete` and the loop's
-      stop-after-planning gate (`omprint agent plan-complete <task-id>`)
+- [x] The planning prompt enforcing the plan-only constraints and the
+      verbatim-original-request rule. → `templates/planification.md`
+- [x] A read-only research sub-agent step (or direct read-only exploration).
+      → `templates/planification.md` (Step 1: Explore uses Task tool sub-agent)
+- [x] The plan template. → `templates/plan-template.md`
+- [x] A completion script that sets `planification_complete` and the loop's
+      stop-after-planning gate (`omprint agent complete-plan <task-id>`).
+      → `src/server/routes/agent_flags.rs`
 
 ## Reference map
 
-| Concern | File |
-|---|---|
-| Planning prompt | `reference/server/constants/prompts/planification.md` |
-| Plan template | `reference/server/constants/templates/plan-template.md` |
-| Prompt assembly | `reference/server/constants/agentPrompts.ts` (`generatePlanificationMessage`) |
-| Completion signal | `reference/scripts/complete-plan.ts` (sets `planification_complete`) |
-| Non-technical variant (extra) | `reference/server/constants/prompts/planification-nontechnical.md` |
+| Concern | Rust (implemented) | Legacy reference |
+|---|---|---|---|
+| Planning prompt | `templates/planification.md` | `reference/server/constants/prompts/planification.md` |
+| Plan template | `templates/plan-template.md` | `reference/server/constants/templates/plan-template.md` |
+| Prompt assembly | `src/agents/planning.rs` (`build_planning_prompt`) | `reference/server/constants/agentPrompts.ts` (`generatePlanificationMessage`) |
+| Completion signal | `src/server/routes/agent_flags.rs` | `reference/scripts/complete-plan.ts` |
+| Non-technical variant (extra) | (not yet implemented) | `reference/server/constants/prompts/planification-nontechnical.md` |
 
 ## Boundaries (not in this spec)
 

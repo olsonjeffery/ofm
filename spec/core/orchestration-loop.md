@@ -6,9 +6,10 @@
 > substitute for `snake_case` as appropriate; `PascalCase` is used for `trait`s,
 > `struct`s, `enum`s, etc.
 > 
-> **Implementation status:** This spec module is not yet implemented in the Rust
-> codebase. Citations into `reference/` are retained as guidance; they will be
-> replaced with Rust equivalents when implementation begins.
+> **Implementation status:** This spec module is **partially implemented** in the
+> Rust codebase at `src/orchestration/`. The state machine, completion handler,
+> guards, and orphan recovery are implemented. Citations into `reference/` which
+> do not yet have `src/` equivalents are retained as guidance.
 
 This is the engine. Everything else in `core/` exists to serve the state
 machine described here.
@@ -232,33 +233,39 @@ The direct `omp` integration that step calls is in [`omp-integration.md`](./omp-
 
 ## Build checklist
 
-- [ ] Task flags on the task row: `workflow_complete`, `workflow_blocked`,
+- [x] Task flags on the task row: `workflow_complete`, `workflow_blocked`,
       `workflow_run_count`, `planification_complete`, `pr_agent_complete`
-      (plus `status`). See
-      [`init.sql`](../reference/server/database/init.sql).
-- [ ] `task_agent_runs` table: `(task_id, agent_type, status, conversation_id)`,
+      (plus `status`). See `src/db/schema.rs` (`Task` struct).
+- [x] `task_agent_runs` table: `(task_id, agent_type, status, conversation_id)`,
       status in `pending | running | completed | failed | blocked`.
-- [ ] `startAgentRun(taskId, agentType)` — the single entry point for manual and
-      chained starts.
-- [ ] A completion handler wired as the streaming on-complete hook, implementing
-      the transitions above (and reading state from the DB, not from an error
-      flag).
-- [ ] The four signalling actions under `omprint agent ...`
-- [ ] The "one running agent per task" guard (manual 409 + pre-chain re-check).
-- [ ] The iteration cap and auto-block.
-- [ ] Orphan-run recovery on startup.
-- [ ] `POST /tasks/:taskId/agent-runs` plus a list endpoint.
+      See `src/db/schema.rs` (`TaskAgentRun` struct).
+- [x] `startAgentRun(taskId, agentType)` — the single entry point for manual and
+      chained starts. See `src/server/routes/agent_runs.rs` (`post_create_agent_run`).
+- [x] A completion handler wired as the streaming on-complete hook, implementing
+      the transitions above. See `src/orchestration/mod.rs` (`completion_handler`).
+- [x] The four signalling actions under `omprint agent ...`
+      See `src/server/routes/agent_flags.rs`.
+- [x] The "one running agent per task" guard (manual 409 + pre-chain re-check).
+      See `src/orchestration/guards.rs`.
+- [x] The iteration cap and auto-block. See `src/orchestration/guards.rs`,
+      `src/orchestration/state_machine.rs`.
+- [x] Orphan-run recovery on startup. See `src/orchestration/recovery.rs`.
+- [x] `POST /tasks/:taskId/agent-runs` plus a list endpoint.
+      See `src/server/routes/agent_runs.rs`.
 
 ## Reference map
 
-| Concern | File |
-|---|---|
-| Start and own a run | `reference/server/services/agentRunner.ts` |
-| Completion + chaining | `reference/server/services/conversation/agentRunLifecycle.ts` |
-| Manual trigger HTTP | `reference/server/routes/agent-runs.ts` |
-| Flags + tables | `reference/server/database/init.sql` |
-| Signalling scripts | `reference/scripts/{complete-plan,complete-workflow,block-workflow,complete-pr}.ts` |
-| Orphan recovery | `reference/server/index.ts` |
+| Concern | Rust (implemented) | Legacy reference |
+|---|---|---|---|
+| Start and own a run | `src/server/routes/agent_runs.rs` | `reference/server/services/agentRunner.ts` |
+| Completion + chaining | `src/orchestration/mod.rs` | `reference/server/services/conversation/agentRunLifecycle.ts` |
+| State machine / transitions | `src/orchestration/state_machine.rs` | — |
+| Guards (concurrency, cap) | `src/orchestration/guards.rs` | — |
+| Manual trigger HTTP | `src/server/routes/agent_runs.rs` | `reference/server/routes/agent-runs.ts` |
+| Flags + tables | `src/db/schema.rs` | `reference/server/database/init.sql` |
+| Signalling actions | `src/server/routes/agent_flags.rs` | `reference/scripts/{complete-plan,complete-workflow,block-workflow,complete-pr}.ts` |
+| Orphan recovery | `src/orchestration/recovery.rs` | `reference/server/index.ts` |
+| Provider abstraction | `src/providers/` (`LlmProvider` trait, registry, config) | — |
 
 ## Boundaries (intentionally not in this spec)
 

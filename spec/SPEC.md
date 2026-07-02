@@ -90,11 +90,6 @@ spawns `pty`s, maintains database state, and so on
 
 ## How to build from this spec
 
-**FIXME: remaining `reference/` citations — orchestration, agents, transcript
-persistence, WebSocket — have not yet been replaced with Rust equivalents.
-References for task-and-workspace and omp-integration have been updated to
-point at `src/` where implementations exist.**
-
 Point a coding agent at this file and say "build this." Then:
 
 1. Read this file top to bottom.
@@ -103,8 +98,11 @@ Point a coding agent at this file and say "build this." Then:
    why — with technical guidance and pointers into `reference/` (and increasingly `src/`)
    for the parts that were genuinely hard to get right. Direct Rust implementations
    exist in `src/omp/mod.rs` (PTY subprocess lifecycle), `src/worktree/mod.rs`
-   (worktree create/remove/status), and `src/archive/mod.rs` (task doc I/O, archive
-   cleanup, context prompt assembly).
+   (worktree create/remove/status), `src/archive/mod.rs` (task doc I/O, archive
+   cleanup, context prompt assembly), `src/orchestration/` (state machine,
+   completion handler, guards, recovery), `src/providers/` (LlmProvider trait,
+   OmpProvider, OpenCodeProvider, config resolution, registry), and
+   `src/agents/planning.rs` (planning prompt assembly).
 3. Implement whichever [`extra/`](./extra) features you want. These are
    **opinionated**: they reflect one company's preferences, not universal
    truths. Skip any of them and core still works.
@@ -151,28 +149,26 @@ Implement all of these for a minimal working tool. Read them in this order.
 |---|---|---|
 | **✅ Yes** | [`core/orchestration-loop.md`](./core/orchestration-loop.md) | **The engine.** The state machine that drives plan → (implement ⇄ review) → PR: agent runs, chaining, the iteration cap, blocking, and how each step decides the next. Start here. |
 | **✅ Yes** |  [`core/task-and-workspace.md`](./core/task-and-workspace.md) | The unit of work: a markdown document plus an isolated git worktree. Lifecycle, and where the doc lives so it survives the PR merge. Deliberately silent on how the doc is authored. |
-| **✅ Yes** | [`core/omp-integration.md`](./core/omp-integration.md) | The direct `omp` integration: spawning via `portable-pty`, the RPC message protocol, per-turn input, the streaming runtime, transcript persistence, session management, `models.yml` passthrough, and orphan recovery. |
+| **✅ Yes** | [`core/omp-integration.md`](./core/omp-integration.md) | The direct `omp` integration: spawning via `portable-pty`, the RPC message protocol, per-turn input, the streaming runtime, transcript persistence, session management, `models.yml` passthrough, and orphan recovery. See also the provider abstraction at `src/providers/` (`LlmProvider` trait, `OmpProvider`, `OpenCodeProvider`, config resolution). |
 | **✅ Yes** | [`core/planning-agent.md`](./core/planning-agent.md) | The agent that turns a prompt + task doc into a structured implementation plan written back into the doc. |
 | **✅ Yes** | [`core/execution-loop.md`](./core/execution-loop.md) | The implementation agent and the thread-review agent, and how they alternate until the work passes review. |
 | **✅ Yes** | [`core/pull-request-agent.md`](./core/pull-request-agent.md) | The terminal agent: open the PR, drive CI to green, resolve conflicts, and signal completion. |
 
 ## Optional specifications — `extra/`
 
-**FIXME: This MUST be updated/trimmed to reflect what `extra/` modules
-`omprint` kept, removed or added**
-
 Opinionated features. Each is independent; implement what you want.
 
 | Reviewed/Updated for `omprint`? | Spec | What it adds |
 |---|---|---|
 | **✅ Yes** | [`extra/harnesses/omp.md`](./extra/harnesses/omp.md) | `oh-my-pi`/`omp` integration: subprocess lifecycle, event mapping, transcript mirroring, credential delegation, and capabilities. |
+| **✅ Yes** | [`extra/harnesses/opencode.md`](./extra/harnesses/opencode.md) | OpenCode integration: HTTP+SSE subprocess lifecycle, event mapping, credential delegation via `opencode.json`, session lifecycle. |
 | **🚫 No** | [`extra/kanban-board.md`](./extra/kanban-board.md) | The opinionated projects/tasks board and 4-screen UI for authoring tasks. |
 | **🚫 No** | [`extra/refinement-agent.md`](./extra/refinement-agent.md) | An extra agent that polishes the work between review and PR. |
 | **🚫 No** | [`extra/yolo-mode.md`](./extra/yolo-mode.md) | A single-agent alternative to the multi-step pipeline. |
 | **🚫 No** | [`extra/pr-comment-retrigger.md`](./extra/pr-comment-retrigger.md) | Re-run the PR agent automatically when a PR receives review comments (periodic PR polling). |
-| **🚫 No** | [`extra/prompt-and-model-customization.md`](./extra/prompt-and-model-customization.md) | Per-agent prompt overrides and per-user model/effort selection. |
-| **✅ Yes** | [`extra/auth-and-multi-user.md`](./extra/auth-and-multi-user.md) | OAuth-integration, Accounts, API keys, project membership, admin, and role-driven behavior (e.g. auto-advancing past the plan gate for non-technical users). |
-| **✅ Yes** | [`extra/chat-ux.md`](./extra/chat-ux.md) | Manual-chat conveniences: slash commands, file attachments, voice input, title generation, the context-usage meter. |
+| **⚠️ Partial** | [`extra/prompt-and-model-customization.md`](./extra/prompt-and-model-customization.md) | Harness-model config via `agent_harness_configs` and scope-precedence resolution is implemented (`src/providers/`); prompt overrides and template engine are not yet implemented. |
+| **✅ Yes** | [`extra/auth-and-multi-user.md`](./extra/auth-and-multi-user.md) | OAuth-integration, Accounts, API keys, project membership, admin, and role-driven behavior. Note: only `ensure_default_user` is implemented in the Rust codebase. |
+| **✅ Yes** | [`extra/chat-ux.md`](./extra/chat-ux.md) | Manual-chat conveniences: slash commands, file attachments, voice input, title generation (implemented in `src/providers/mod.rs`), the context-usage meter. |
 
 ## The reference implementation
 
