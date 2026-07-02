@@ -301,6 +301,64 @@ This replaces the old `ProviderRegistration` concept. See
 [`extra/harnesses/omp.md`](../extra/harnesses/omp.md) for the concrete
 integration mechanism.
 
+## Model listing
+
+`models.yml` serves two purposes: provider configuration (API keys, base URLs)
+and model lists for sources that do not expose their own model listing API
+(e.g., built-in providers like `bedrock`, `vertex`). The `LlmProvider` trait
+exposes `get_models_list` (`src/providers/mod.rs:15`) which returns `Vec<String>`
+of available model identifiers for the current provider configuration.
+
+### The `omp models --json` command
+
+`omp models --json` returns a structured JSON response describing all
+configured providers and their available models:
+
+```json
+{
+  "models": [
+    {
+      "provider": "anthropic",
+      "models": ["claude-sonnet-4-20250514", "claude-3.5-haiku", "claude-opus-4"],
+      "default": "claude-sonnet-4-20250514"
+    },
+    {
+      "provider": "openai",
+      "models": ["gpt-4o", "gpt-4o-mini"],
+      "default": "gpt-4o"
+    },
+    {
+      "provider": "bedrock",
+      "models": ["us.anthropic.claude-sonnet-4-20250514-v1:0"],
+      "default": "us.anthropic.claude-sonnet-4-20250514-v1:0"
+    }
+  ]
+}
+```
+
+### Per-provider resolution
+
+- **Providers with their own listing API** (Anthropic, OpenAI, etc.): `omp`
+  queries the upstream API for the available model IDs. These are returned
+  dynamically from the provider's API endpoint.
+- **Built-in providers** (`bedrock`, `vertex`, etc.): `omp` reads the model
+  list from the user's `models.yml` configuration, which must declare the
+  available models explicitly.
+- **Fallback:** If no models are configured for a provider, `omp` returns
+  a single `"default"` entry as a placeholder.
+
+### Usage in `omprint`
+
+The model listing is surfaced in the settings UI to let users select which
+model an agent type uses. The flow is:
+
+1. User opens per-agent model settings in the UI
+2. `omprint` calls `registry::get_models_for_config` (`src/providers/registry.rs:86`)
+   which resolves the provider and calls `get_models_list()`
+3. The returned model list populates a dropdown/selector in the settings UI
+4. The user's selection is stored as the `model` field in the per-agent config,
+   passed through to `omp` at turn start as the `model` field in the RPC message
+
 ## Orphan recovery
 
 On `omprint` restart:
@@ -323,6 +381,7 @@ On `omprint` restart:
 | Active session management | `src/omp/session.rs` (`start_session`, `resume_session`, `abort_session`) | `reference/server/services/conversation/sessionControl.ts` |
 | `omp` RPC documentation | — | [https://omp.sh/docs](https://omp.sh/docs) |
 | `models.yml` format | — | [https://omp.sh/docs/custom-models](https://omp.sh/docs/custom-models) |
+| Model listing (`omp models --json`) | `src/providers/omp_provider.rs` (`get_models_list`), `src/providers/opencode_provider.rs` (`get_models_list`), `src/providers/registry.rs` (`get_models_for_config`) | — |
 
 **FIXME:** Partially addressed. PTY spawn, RPC protocol, reader loop, transcript
 persistence, and session management now point at `src/omp/`. WebSocket broadcast
@@ -338,6 +397,7 @@ remains to be implemented.
 - [x] Session management: start, resume, abort → `src/omp/session.rs`
 - [x] `models.yml` passthrough via `TurnInput.models_config` → `src/omp/mod.rs`, `src/omp/protocol.rs`
 - [x] Orphan recovery on startup → `src/orchestration/recovery.rs`
+- [x] Model listing (`get_models_list`) → `src/providers/omp_provider.rs`, `src/providers/opencode_provider.rs`, `src/providers/registry.rs`
 
 ## Boundaries (not in this spec)
 
