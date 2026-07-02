@@ -490,7 +490,10 @@ mod tests {
 
         match event {
             OmpRpcEvent::Text { text } => {
-                assert_eq!(text, "args-ok", "expected --mode rpc args to be passed, got: {text}");
+                assert_eq!(
+                    text, "args-ok",
+                    "expected --mode rpc args to be passed, got: {text}"
+                );
             }
             other => panic!("expected Text event, got: {other:?}"),
         }
