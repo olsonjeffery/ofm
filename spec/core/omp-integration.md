@@ -304,8 +304,8 @@ integration mechanism.
 ## Model listing
 
 `models.yml` serves two purposes: provider configuration (API keys, base URLs)
-and model lists for sources that do not expose their own model listing API
-(e.g., built-in providers like `bedrock`, `vertex`). The `LlmProvider` trait
+and model lists for providers that lack built-in model listing (e.g., custom
+providers like `llama.cpp`, `ollama`). The `LlmProvider` trait
 exposes `get_models_list` (`src/providers/mod.rs:15`) which returns `Vec<String>`
 of available model identifiers for the current provider configuration.
 
@@ -341,9 +341,12 @@ configured providers and their available models:
 - **Providers with their own listing API** (Anthropic, OpenAI, etc.): `omp`
   queries the upstream API for the available model IDs. These are returned
   dynamically from the provider's API endpoint.
-- **Built-in providers** (`bedrock`, `vertex`, etc.): `omp` reads the model
-  list from the user's `models.yml` configuration, which must declare the
-  available models explicitly.
+- **Built-in providers with local model lists** (`bedrock`, `vertex`, etc.): `omp`
+  maintains the known model IDs internally. These providers ship with their own
+  model lists and do not rely on user configuration.
+- **Custom providers** (`llama.cpp`, `ollama`, etc.): The user must declare
+  available models explicitly in `models.yml`, since these providers have no
+  standard model listing mechanism.
 - **Fallback:** If no models are configured for a provider, `omp` returns
   a single `"default"` entry as a placeholder.
 
