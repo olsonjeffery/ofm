@@ -28,14 +28,14 @@ unified vocabulary normalizing across providers, and no provider registry.
 
 ## The `omp` subprocess
 
-`omprint` spawns `omp rpc` via `portable-pty`. Each agent turn is a fresh `omp`
+`omprint` spawns `omp --mode rpc` via `portable-pty`. Each agent turn is a fresh `omp`
 session (or a resume of a prior session). The pty gives `omprint` `STDIN`/`STDOUT`
 control, `pid` for audit, and `SIGKILL` for abort.
 
 ### Spawn command
 
 ```
-omp rpc
+omp --mode rpc
 ```
 
 ### Environment variables
@@ -169,7 +169,7 @@ resolved, the turn fails immediately with a clear error.
 
 The core async (`tokio`) loop that drives each turn:
 
-1. **Spawn** `omp rpc` via `portable-pty`
+1. **Spawn** `omp --mode rpc` via `portable-pty`
 2. **Write** the turn input (the start or resume message) to `STDIN`
 3. **Iterate** `omp`'s `STDOUT` line-by-line, parsing each JSON event
 4. **Broadcast** each event to subscribed WebSocket clients (live UI)
@@ -179,7 +179,7 @@ The core async (`tokio`) loop that drives each turn:
 
 ```rust
 // Pseudocode for the streaming loop
-let mut pty = PortablePty::spawn("omp rpc", cwd, env)?;
+let mut pty = PortablePty::spawn("omp --mode rpc", cwd, env)?;
 let (mut stdin, mut stdout) = pty.split();
 
 stdin.write_all(turn_input).await?;
@@ -255,7 +255,7 @@ Three operations: start, resume, abort.
 ### Start
 
 1. Resolve `(model, effort)` from the user's settings
-2. Spawn a fresh `omp rpc` subprocess via `portable-pty`
+2. Spawn a fresh `omp --mode rpc` subprocess via `portable-pty`
 3. Write the turn input (start message) to `STDIN`
 4. Capture the `session_id` from the first `session_start` event
 5. Persist `(model, omp_session_id)` to the conversation row
@@ -264,7 +264,7 @@ Three operations: start, resume, abort.
 ### Resume
 
 1. Read stored `(model, omp_session_id)` from the conversation row
-2. Spawn a fresh `omp rpc` subprocess via `portable-pty`
+2. Spawn a fresh `omp --mode rpc` subprocess via `portable-pty`
 3. Write the resume message (with the stored `session_id` and any new messages)
    to `STDIN`
 4. Enter the streaming loop
@@ -291,7 +291,7 @@ when the session ends or is aborted.
 2. **Content is stored** in `omprint`'s database/configuration, scoped per user
    (or globally, depending on deployment).
 3. **Injected on spawn.** The stored `models.yml` content is passed to the
-   `omp rpc` subprocess via the `OMP_MODELS_YML` environment variable (or an
+   `omp --mode rpc` subprocess via the `OMP_MODELS_YML` environment variable (or an
    equivalent configuration mechanism).
 4. **No `ProviderCredentialStore`.** Credential management delegates entirely
    to `omp`'s existing infrastructure — `models.yml` for API keys, `ENV` vars
