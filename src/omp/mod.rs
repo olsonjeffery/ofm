@@ -26,6 +26,7 @@ pub fn spawn_omp(
     let pair = system.openpty(PtySize::default())?;
 
     let mut cmd = CommandBuilder::new(binary);
+    cmd.arg("--mode");
     cmd.arg("rpc");
     cmd.cwd(cwd);
     for (key, val) in &env_vars {
@@ -44,10 +45,6 @@ pub fn spawn_omp(
 }
 
 impl OmpSession {
-    pub fn pid(&self) -> u32 {
-        self.pid
-    }
-
     pub fn start_turn(
         &mut self,
         input: &TurnInput,
@@ -335,7 +332,7 @@ mod tests {
 
         let env = HashMap::new();
         let mut session = spawn_omp(bin.to_str().unwrap(), "/tmp", env).unwrap();
-        let pid = session.pid();
+        let pid = session.pid;
         let (tx, rx) = mpsc::channel(16);
         let input = TurnInput::new(
             "test".into(),
@@ -458,5 +455,47 @@ mod tests {
             .unwrap()
             .expect("expected Done event");
         assert!(matches!(done, OmpRpcEvent::Done(_)));
+    }
+
+    #[tokio::test]
+    async fn verify_mode_rpc_arg() {
+        let (_dir, bin) = create_mock_binary(
+            "#!/bin/sh\n\
+             if [ \"$1\" = \"--mode\" ] && [ \"$2\" = \"rpc\" ]; then\n\
+               printf '{\"type\":\"text\",\"text\":\"args-ok\"}\\n'\n\
+             else\n\
+               printf '{\"type\":\"text\",\"text\":\"args-bad\"}\\n'\n\
+             fi\n\
+             printf '{\"type\":\"done\"}\\n'",
+        );
+
+        let env = HashMap::new();
+        let mut session = spawn_omp(bin.to_str().unwrap(), "/tmp", env).unwrap();
+        let (tx, mut rx) = mpsc::channel(16);
+        let input = TurnInput::new(
+            "test".into(),
+            "/tmp".into(),
+            "model".into(),
+            "balanced".into(),
+            "auto".into(),
+            vec![],
+            String::new(),
+        );
+        session.start_turn(&input, tx).unwrap();
+
+        let event = tokio::time::timeout(Duration::from_secs(30), rx.recv())
+            .await
+            .unwrap()
+            .expect("expected Some event");
+
+        match event {
+            OmpRpcEvent::Text { text } => {
+                assert_eq!(
+                    text, "args-ok",
+                    "expected --mode rpc args to be passed, got: {text}"
+                );
+            }
+            other => panic!("expected Text event, got: {other:?}"),
+        }
     }
 }
