@@ -20,7 +20,7 @@ The core spec defines *what* the integration does; this file defines *how*.
 
 ### Spawning
 
-`omprint` uses [`portable-pty`][0] to create a pseudoterminal, fork `omp rpc`,
+`omprint` uses [`portable-pty`][0] to create a pseudoterminal, fork `omp --mode rpc`,
 and obtain:
 
 - `pid` — the subprocess process id (for audit and abort)
@@ -30,7 +30,7 @@ and obtain:
 ```rust
 let pair = PortablePty::create()?;
 let mut child = pair.fork()?;
-child.exec("omp", &["rpc"])?;
+child.exec("omp", &["--mode", "rpc"])?;
 let pid = child.pid();
 let stdin = child.take_stdin()?;
 let stdout = child.take_stdout()?;
@@ -198,7 +198,7 @@ Verify these against [`omp` documentation][1] for the current state.
 
 ## What to build
 
-- [x] `portable-pty` subprocess spawning for `omp rpc` with `pid`, `STDIN`
+- [x] `portable-pty` subprocess spawning for `omp --mode rpc` with `pid`, `STDIN`
       writer, `STDOUT` reader → `src/omp/mod.rs` (`spawn_omp`)
 - [x] Per-turn subprocess lifecycle (fresh subprocess per turn, cleanup on end)
       → `src/omp/mod.rs` (`OmpSession::start_turn`, `OmpSession::resume_turn`,
