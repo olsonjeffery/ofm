@@ -64,6 +64,13 @@ The workspace has a single member crate (`omprint` binary) defined inline. Futur
 - **`Result<T, Box<dyn std::error::Error>>`** error handling throughout
 - **`TEXT` storage** for UUIDs, timestamps, and JSON values (SQLite convention)
 
+## OMP Subprocess Invocation
+
+The `omp` (oh-my-pi) binary is invoked as `omp --mode rpc` — the `--mode` flag
+with value `rpc` is the correct CLI form. Do NOT use the positional `omp rpc`
+form — that is incorrect. The spawn call in `src/omp/mod.rs:29` is the single
+source of truth: `cmd.arg("--mode").arg("rpc")`.
+
 ## Design Decisions
 
 - **hiqlite over rusqlite**: hiqlite provides an async, Raft-capable SQLite database with built-in durability via WAL + auto-heal crash recovery. Single-node deployment eliminates the Mutex bottleneck in axum handlers.
