@@ -363,10 +363,7 @@ mod tests {
             .route("/", get(|| async { "ok" }))
             .layer(auth_layer);
 
-        let req = Request::builder()
-            .uri("/")
-            .body(Body::empty())
-            .unwrap();
+        let req = Request::builder().uri("/").body(Body::empty()).unwrap();
 
         let resp = app.oneshot(req).await.unwrap();
         assert_eq!(resp.status(), 200);
@@ -387,10 +384,7 @@ mod tests {
             .route("/", get(|| async { "ok" }))
             .layer(auth_layer);
 
-        let req = Request::builder()
-            .uri("/")
-            .body(Body::empty())
-            .unwrap();
+        let req = Request::builder().uri("/").body(Body::empty()).unwrap();
 
         let resp = app.oneshot(req).await.unwrap();
         assert_eq!(resp.status(), StatusCode::UNAUTHORIZED);
@@ -630,5 +624,4 @@ mod tests {
         bad.insert(AUTHORIZATION, "Basic dGVzdDpwYXNz".parse().unwrap());
         assert_eq!(extract_bearer_token(&bad), None);
     }
-
 }

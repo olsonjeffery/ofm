@@ -136,7 +136,7 @@ pub fn verify_token(token: &str, cache: &JwksCache) -> Result<Claims, VerifyErro
 
 pub(crate) fn base64url_encode(input: &[u8]) -> String {
     const CHARS: &[u8] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_";
-    let mut result = String::with_capacity((input.len() + 2) / 3 * 4);
+    let mut result = String::with_capacity(input.len().div_ceil(3) * 4);
     for chunk in input.chunks(3) {
         let b0 = chunk[0] as u32;
         let b1 = chunk.get(1).copied().unwrap_or(0) as u32;
@@ -278,10 +278,12 @@ mod tests {
         let app = Router::new()
             .route(
                 "/.well-known/openid-configuration",
-                get(|| async { Json(json!({
-                    "issuer": "http://localhost:PORT",
-                    "jwks_uri": "http://localhost:PORT/jwks"
-                })) }),
+                get(|| async {
+                    Json(json!({
+                        "issuer": "http://localhost:PORT",
+                        "jwks_uri": "http://localhost:PORT/jwks"
+                    }))
+                }),
             )
             .route("/jwks", get(|| async { Json(json!({ "keys": [] })) }));
 
@@ -304,10 +306,12 @@ mod tests {
         let app = Router::new()
             .route(
                 "/.well-known/openid-configuration",
-                get(|| async { Json(json!({
-                    "issuer": "http://different-issuer",
-                    "jwks_uri": "http://localhost:PORT/jwks"
-                })) }),
+                get(|| async {
+                    Json(json!({
+                        "issuer": "http://different-issuer",
+                        "jwks_uri": "http://localhost:PORT/jwks"
+                    }))
+                }),
             )
             .route("/jwks", get(|| async { Json(json!({ "keys": [] })) }));
 
