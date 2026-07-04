@@ -1,3 +1,4 @@
+use omprint::auth::AuthLayer;
 use omprint::db;
 use omprint::providers::LlmProvider;
 use omprint::server;
@@ -26,17 +27,17 @@ async fn setup_app() -> (String, tokio::task::JoinHandle<()>) {
     db::run_migrations(&client).await.unwrap();
     let user_id = db::ensure_default_user(&client).await.unwrap();
 
+    let auth_layer = AuthLayer::disabled(client.clone());
     let state = AppState {
         db: client,
         default_user_id: user_id,
         archive_root: "storage/".into(),
-        api_key: None,
         config_root: tmp.path().to_str().unwrap().to_string(),
         omp_sessions: Arc::new(Mutex::new(HashMap::new())),
         active_sessions: Arc::new(Mutex::new(HashMap::<String, Box<dyn LlmProvider>>::new())),
     };
 
-    let app = server::router(state);
+    let app = server::router(state, auth_layer);
     let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
     let addr = format!("http://{}", listener.local_addr().unwrap());
     let handle = tokio::spawn(async move {

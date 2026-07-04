@@ -402,6 +402,24 @@ impl From<&mut Row<'_>> for TaskAgentRun {
     }
 }
 
+impl From<&mut Row<'_>> for User {
+    fn from(row: &mut Row<'_>) -> Self {
+        Self {
+            id: uuid_from_row(row, "id"),
+            username: row.get("username"),
+            oidc_subject: row.get("oidc_subject"),
+            is_admin: row.get::<i64>("is_admin") != 0,
+            is_technical: row.get::<i64>("is_technical") != 0,
+            has_completed_onboarding: row.get::<i64>("has_completed_onboarding") != 0,
+            git_name: row.get("git_name"),
+            git_email: row.get("git_email"),
+            api_key_hash: row.get("api_key_hash"),
+            api_key_last_used_at: row.get("api_key_last_used_at"),
+            token_version: row.get::<i64>("token_version") as i32,
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

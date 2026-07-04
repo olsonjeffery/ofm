@@ -3,7 +3,7 @@ use std::str::FromStr;
 
 use axum::{
     extract::{Path, Query, State},
-    http::{HeaderMap, StatusCode},
+    http::StatusCode,
     routing::{delete, get, post},
     Json, Router,
 };
@@ -13,7 +13,7 @@ use uuid::Uuid;
 use crate::db::schema::{AgentHarnessConfig, AgentType, ScopeType};
 use crate::providers::config::ProviderConfigDir;
 use crate::providers::registry;
-use crate::server::{error::ServerError, require_auth, state::AppState};
+use crate::server::{error::ServerError, state::AppState};
 use crate::services;
 
 #[derive(Debug, Deserialize)]
@@ -47,11 +47,8 @@ pub fn agent_configs_router() -> Router<AppState> {
 async fn create_agent_config(
     State(state): State<AppState>,
     Path(_project_id): Path<Uuid>,
-    headers: HeaderMap,
     Json(body): Json<CreateAgentConfigRequest>,
 ) -> Result<(StatusCode, Json<AgentHarnessConfig>), ServerError> {
-    require_auth(&headers, &state)?;
-
     if body.provider_config_ref.contains("..") || body.provider_config_ref.contains('/') {
         return Err(ServerError::BadRequest(
             "provider_config_ref must be a simple filename (no path components)".into(),
@@ -96,10 +93,7 @@ async fn list_agent_configs(
 async fn delete_agent_config(
     State(state): State<AppState>,
     Path((_project_id, config_id)): Path<(Uuid, Uuid)>,
-    headers: HeaderMap,
 ) -> Result<StatusCode, ServerError> {
-    require_auth(&headers, &state)?;
-
     let deleted = services::agent_configs::delete_agent_config(&state.db, &config_id)
         .await
         .map_err(|e| ServerError::Internal(e.to_string()))?;
@@ -117,11 +111,8 @@ struct SelectModelRequest {
 async fn select_model(
     State(state): State<AppState>,
     Path((_project_id, config_id)): Path<(Uuid, Uuid)>,
-    headers: HeaderMap,
     Json(body): Json<SelectModelRequest>,
 ) -> Result<Json<AgentHarnessConfig>, ServerError> {
-    require_auth(&headers, &state)?;
-
     let config =
         services::agent_configs::update_agent_config_model(&state.db, &config_id, &body.model)
             .await
@@ -138,9 +129,7 @@ pub fn provider_configs_router() -> Router<AppState> {
 
 async fn list_provider_config_files(
     State(state): State<AppState>,
-    headers: HeaderMap,
 ) -> Result<Json<Vec<ProviderConfigFile>>, ServerError> {
-    require_auth(&headers, &state)?;
     let cfg_dir = ProviderConfigDir::new(&PathBuf::from(&state.config_root));
     let names = cfg_dir
         .list_configs()
@@ -173,10 +162,8 @@ fn validate_config_ref(name: &str) -> Result<(), ServerError> {
 
 async fn get_models_for_config_ref(
     State(state): State<AppState>,
-    headers: HeaderMap,
     Query(query): Query<ModelListQuery>,
 ) -> Result<Json<Vec<String>>, ServerError> {
-    require_auth(&headers, &state)?;
     validate_config_ref(&query.config_ref)?;
     let config_root = PathBuf::from(&state.config_root);
     let models = registry::get_models_for_config(&config_root, &query.config_ref)

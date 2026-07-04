@@ -5,6 +5,7 @@ use std::os::unix::fs::PermissionsExt;
 
 mod agents;
 mod archive;
+mod auth;
 mod cli;
 mod config;
 mod db;
@@ -67,17 +68,26 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     tracing::info!("Orphan recovery: {} agent runs swept to failed", orphans);
 
     let state = server::state::AppState {
-        db: client,
+        db: client.clone(),
         default_user_id,
-        archive_root: cfg.archive_root,
-        api_key: cfg.api_key,
-        config_root: cfg.config_root,
+        archive_root: cfg.archive_root.clone(),
+        config_root: cfg.config_root.clone(),
         omp_sessions: Arc::new(Mutex::new(HashMap::new())),
         active_sessions: Arc::new(Mutex::new(HashMap::new())),
     };
 
+    let auth_layer = auth::AuthLayer::new(&cfg, client).await?;
+    tracing::info!(
+        "Auth middleware: {}",
+        if auth_layer.enabled {
+            "enabled"
+        } else {
+            "disabled"
+        }
+    );
+
     // Server
-    let app = server::router(state);
+    let app = server::router(state, auth_layer);
     let addr = format!("{}:{}", cfg.hostname, cfg.port);
     tracing::info!("Starting server on {}", addr);
 

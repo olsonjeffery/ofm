@@ -41,3 +41,9 @@ serde_yaml = "0.9"
 tempfile = "3"
 thiserror = "2"
 tokio-stream = "0.1"
+
+# Auth middleware (JWT verification, API key hashing, URL parsing)
+jsonwebtoken = "9"
+sha2 = "0.10"
+url = "2"
+tower = "0.5"
