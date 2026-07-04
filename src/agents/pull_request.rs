@@ -70,7 +70,12 @@ mod tests {
     #[test]
     fn test_existing_pr_status_present() {
         let url = "https://github.com/owner/repo/pull/42";
-        let prompt = build_pull_request_prompt("", &PullRequestStatus::ExistingPr { url: url.to_string() });
+        let prompt = build_pull_request_prompt(
+            "",
+            &PullRequestStatus::ExistingPr {
+                url: url.to_string(),
+            },
+        );
         assert!(prompt.contains("Verify Existing PR"));
         assert!(prompt.contains(url));
         assert!(prompt.contains("Skip creation"));
