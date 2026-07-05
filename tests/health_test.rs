@@ -1,3 +1,4 @@
+use omprint::auth::AuthLayer;
 use omprint::db;
 use omprint::providers::LlmProvider;
 use omprint::server;
@@ -7,7 +8,7 @@ use std::sync::Arc;
 use tempfile::TempDir;
 use tokio::sync::Mutex;
 
-async fn make_state() -> (AppState, TempDir) {
+async fn make_state() -> (AppState, AuthLayer, TempDir) {
     let tmp = TempDir::new().unwrap();
     let config = hiqlite::NodeConfig {
         node_id: 1,
@@ -25,22 +26,22 @@ async fn make_state() -> (AppState, TempDir) {
     client.wait_until_healthy_db().await;
     db::run_migrations(&client).await.unwrap();
     let user_id = db::ensure_default_user(&client).await.unwrap();
+    let auth_layer = AuthLayer::disabled(client.clone());
     let state = AppState {
         db: client,
         default_user_id: user_id,
         archive_root: "storage/".into(),
-        api_key: None,
         config_root: tmp.path().to_str().unwrap().to_string(),
         omp_sessions: Arc::new(Mutex::new(HashMap::new())),
         active_sessions: Arc::new(Mutex::new(HashMap::<String, Box<dyn LlmProvider>>::new())),
     };
-    (state, tmp)
+    (state, auth_layer, tmp)
 }
 
 #[tokio::test]
 async fn test_health_endpoint() {
-    let (state, _tmp) = make_state().await;
-    let app = server::router(state);
+    let (state, auth_layer, _tmp) = make_state().await;
+    let app = server::router(state, auth_layer);
     let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
     let addr = listener.local_addr().unwrap();
 

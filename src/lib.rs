@@ -2,6 +2,7 @@
 
 pub mod agents;
 pub mod archive;
+pub mod auth;
 pub mod config;
 pub mod db;
 pub mod logging;

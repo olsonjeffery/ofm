@@ -1,12 +1,12 @@
 use axum::{
     extract::{Path, State},
-    http::{HeaderMap, StatusCode},
+    http::StatusCode,
     routing::post,
     Router,
 };
 use uuid::Uuid;
 
-use crate::server::{error::ServerError, require_auth, state::AppState};
+use crate::server::{error::ServerError, state::AppState};
 use crate::services::tasks;
 
 pub fn agent_flags_router() -> Router<AppState> {
@@ -29,9 +29,7 @@ macro_rules! flag_handler {
         async fn $name(
             State(state): State<AppState>,
             Path(task_id): Path<Uuid>,
-            headers: HeaderMap,
         ) -> Result<StatusCode, ServerError> {
-            require_auth(&headers, &state)?;
             require_task(&state, &task_id).await?;
             $mark_fn(&state.db, &task_id)
                 .await
