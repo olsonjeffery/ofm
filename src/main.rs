@@ -45,8 +45,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         node_id: 1,
         nodes: vec![hiqlite::Node {
             id: 1,
-            addr_raft: "127.0.0.1:0".into(),
-            addr_api: "127.0.0.1:0".into(),
+            addr_raft: format!("127.0.0.1:{}", cfg.hiqlite_raft_port),
+            addr_api: format!("127.0.0.1:{}", cfg.hiqlite_api_port),
         }],
         data_dir: cfg.data_dir.clone().into(),
         secret_raft: std::env::var("OMPRINT_RAFT_SECRET")
