@@ -41,6 +41,28 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     #[cfg(unix)]
     std::fs::set_permissions(&cfg.data_dir, std::fs::Permissions::from_mode(0o700))?;
 
+    // If the hiqlite addresses have changed since the last run (e.g. upgrading
+    // from a version that used port 0), reset the Raft logs so the cluster
+    // membership is re-initialized from NodeConfig rather than stale Raft state.
+    let addr_fingerprint = format!("{}:{}", cfg.hiqlite_raft_port, cfg.hiqlite_api_port);
+    let fingerprint_path = std::path::Path::new(&cfg.data_dir).join(".addr_fingerprint");
+    let needs_raft_reset = if fingerprint_path.exists() {
+        let prev = std::fs::read_to_string(&fingerprint_path).unwrap_or_default();
+        prev.trim() != addr_fingerprint
+    } else {
+        // No fingerprint at all → either fresh install or pre-fingerprint version.
+        // If Raft logs exist, they may be stale (e.g. from port-0 era).
+        std::path::Path::new(&cfg.data_dir).join("logs").exists()
+    };
+    if needs_raft_reset {
+        let logs_dir = std::path::Path::new(&cfg.data_dir).join("logs");
+        if logs_dir.exists() {
+            tracing::info!("hiqlite address config changed — resetting Raft logs to re-initialise cluster membership");
+            std::fs::remove_dir_all(&logs_dir)?;
+        }
+    }
+    std::fs::write(&fingerprint_path, &addr_fingerprint)?;
+
     let node_config = hiqlite::NodeConfig {
         node_id: 1,
         nodes: vec![hiqlite::Node {
