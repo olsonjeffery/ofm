@@ -21,6 +21,7 @@ use tokio::sync::Mutex;
 
 mod server;
 mod services;
+mod webapp;
 mod worktree;
 
 #[tokio::main]
@@ -68,7 +69,25 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     tracing::info!("Orphan recovery: {} agent runs swept to failed", orphans);
 
     let pkce_store = Arc::new(Mutex::new(HashMap::new()));
-    let cookie_key = cookie::Key::generate();
+
+    let cookie_key_path = std::path::Path::new(&cfg.config_root).join("cookie_key.bin");
+    let cookie_key = if cookie_key_path.exists() {
+        let data = std::fs::read(&cookie_key_path)
+            .map_err(|e| Box::new(std::io::Error::other(e.to_string())))?;
+        cookie::Key::from(&data)
+    } else {
+        let key = cookie::Key::generate();
+        if let Some(parent) = cookie_key_path.parent() {
+            std::fs::create_dir_all(parent)
+                .map_err(|e| Box::new(std::io::Error::other(e.to_string())))?;
+        }
+        let mut combined = vec![0u8; 96];
+        combined[..64].copy_from_slice(key.signing());
+        combined[64..96].copy_from_slice(key.encryption());
+        std::fs::write(&cookie_key_path, &combined)
+            .map_err(|e| Box::new(std::io::Error::other(e.to_string())))?;
+        key
+    };
 
     let auth_layer = auth::AuthLayer::new(&cfg, client.clone()).await?;
 
@@ -108,6 +127,12 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             client_id: cfg.oidc_client_id.clone().unwrap_or_default(),
             client_secret: cfg.oidc_client_secret.clone(),
             redirect_uri,
+            jwks_cache: if auth_layer.enabled {
+                Some(auth_layer.jwks_cache.clone())
+            } else {
+                None
+            },
+            jwks_issuer: auth_layer.issuer_url.clone(),
         })
     } else {
         None

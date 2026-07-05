@@ -43,6 +43,10 @@ pub fn hash_api_key(key: &str) -> String {
     hex::encode(hasher.finalize())
 }
 
+fn sweep_expired_pkce(store: &mut HashMap<String, PkceEntry>) {
+    store.retain(|_, entry| entry.created_at.elapsed() <= PKCE_TTL);
+}
+
 pub async fn initiate_login(
     oidc: &OidcEndpoints,
     pkce_store: &Arc<Mutex<HashMap<String, PkceEntry>>>,
@@ -57,7 +61,9 @@ pub async fn initiate_login(
         created_at: Instant::now(),
     };
 
-    pkce_store.lock().await.insert(state.clone(), entry);
+    let mut store = pkce_store.lock().await;
+    sweep_expired_pkce(&mut store);
+    store.insert(state.clone(), entry);
 
     let auth_url = format!(
         "{}?response_type=code&client_id={}&redirect_uri={}&code_challenge={}&code_challenge_method=S256&scope=openid+profile+email&state={}",
@@ -131,28 +137,45 @@ pub async fn handle_callback(
     let id_token = token_data["id_token"].as_str().map(|s| s.to_string());
     let expires_in = token_data["expires_in"].as_u64().unwrap_or(3600);
 
-    let (sub, username) = if let Some(id_token_str) = &id_token {
-        let payload = decode_jwt_payload(id_token_str)
-            .map_err(|e| ServerError::Internal(format!("invalid id_token: {e}")))?;
-        let sub = payload["sub"]
-            .as_str()
-            .ok_or_else(|| ServerError::Internal("missing sub in id_token".into()))?
-            .to_string();
-        let preferred_username = payload["preferred_username"]
-            .as_str()
-            .map(|s| s.to_string());
-        (sub, preferred_username)
+    let sub = if let Some(id_token) = &id_token {
+        if let Some(ref jwks_cache) = oidc.jwks_cache {
+            let cache_guard = jwks_cache.read().await;
+            if let Some(cache) = cache_guard.as_ref() {
+                match crate::auth::jwks::verify_token(id_token, cache) {
+                    Ok(claims) => claims.sub,
+                    Err(e) => {
+                        return Err(ServerError::Internal(format!(
+                            "id_token verification failed: {e:?}"
+                        )));
+                    }
+                }
+            } else {
+                return Err(ServerError::Internal(
+                    "JWKS cache not initialized for id_token verification".into(),
+                ));
+            }
+        } else {
+            let payload = decode_jwt_payload(id_token)
+                .map_err(|e| ServerError::Internal(format!("invalid id_token: {e}")))?;
+            payload["sub"]
+                .as_str()
+                .ok_or_else(|| ServerError::Internal("missing sub in id_token".into()))?
+                .to_string()
+        }
     } else {
         let payload = decode_jwt_payload(&access_token)
             .map_err(|e| ServerError::Internal(format!("invalid access_token: {e}")))?;
-        let sub = payload["sub"]
+        payload["sub"]
             .as_str()
             .ok_or_else(|| ServerError::Internal("missing sub in access_token".into()))?
-            .to_string();
-        let preferred_username = payload["preferred_username"]
-            .as_str()
-            .map(|s| s.to_string());
-        (sub, preferred_username)
+            .to_string()
+    };
+    let username = if let Some(id_token) = &id_token {
+        let payload = decode_jwt_payload(id_token)
+            .map_err(|e| ServerError::Internal(format!("invalid id_token: {e}")))?;
+        payload["preferred_username"].as_str().map(|s| s.to_string())
+    } else {
+        None
     };
 
     let now = chrono::Utc::now().format("%Y-%m-%d %H:%M:%S").to_string();
@@ -228,10 +251,24 @@ pub async fn refresh_access_token(
         .await
         .map_err(|e| ServerError::Internal(format!("refresh failed: {e}")))?;
 
+    let status = resp.status();
     let data: serde_json::Value = resp
         .json()
         .await
         .map_err(|e| ServerError::Internal(format!("invalid refresh response: {e}")))?;
+
+    if !status.is_success() {
+        let error = data["error"].as_str().unwrap_or("unknown_error");
+        if error == "invalid_grant" || error == "invalid_token" {
+            db.execute(
+                "DELETE FROM sessions WHERE id = $1",
+                hiqlite::params!(session_id.to_string()),
+            )
+            .await
+            .map_err(|e| ServerError::Internal(e.to_string()))?;
+        }
+        return Err(ServerError::Internal(format!("token refresh rejected: {error}")));
+    }
 
     let new_access_token = data["access_token"]
         .as_str()
@@ -340,6 +377,7 @@ pub async fn update_user(
     target_id: Uuid,
     is_admin: Option<bool>,
     is_active: Option<bool>,
+    invalidate_tokens: Option<bool>,
     current_user: &UpdateUserContext,
 ) -> Result<User, ServerError> {
     if target_id == current_user.user_id && is_admin == Some(false) {
@@ -363,6 +401,22 @@ pub async fn update_user(
         db.execute(
             "UPDATE users SET is_active = $1 WHERE id = $2",
             hiqlite::params!(val, target_id.to_string()),
+        )
+        .await
+        .map_err(|e| ServerError::Internal(e.to_string()))?;
+    }
+
+    if invalidate_tokens == Some(true) {
+        db.execute(
+            "UPDATE users SET token_version = token_version + 1 WHERE id = $1",
+            hiqlite::params!(target_id.to_string()),
+        )
+        .await
+        .map_err(|e| ServerError::Internal(e.to_string()))?;
+
+        db.execute(
+            "DELETE FROM sessions WHERE user_id = $1",
+            hiqlite::params!(target_id.to_string()),
         )
         .await
         .map_err(|e| ServerError::Internal(e.to_string()))?;

@@ -9,14 +9,8 @@ pub fn is_api_key_format(token: &str) -> bool {
     token.starts_with(API_KEY_PREFIX)
 }
 
-fn bytes_to_hex(bytes: &[u8]) -> String {
-    bytes.iter().map(|b| format!("{:02x}", b)).collect()
-}
-
 pub fn hash_api_key(key: &str) -> String {
-    let mut hasher = Sha256::new();
-    hasher.update(key.as_bytes());
-    bytes_to_hex(&hasher.finalize())
+    hex::encode(Sha256::digest(key.as_bytes()))
 }
 
 pub async fn verify_api_key(token: &str, db: &hiqlite::Client) -> Result<User, AuthError> {
@@ -31,11 +25,10 @@ pub async fn verify_api_key(token: &str, db: &hiqlite::Client) -> Result<User, A
             .await
             .map_err(|e| AuthError::Network(e.to_string()))?;
 
-        let user = rows
+        rows
             .first_mut()
             .map(|row| User::from(&mut *row))
-            .ok_or(AuthError::InvalidToken)?;
-        user
+            .ok_or(AuthError::InvalidToken)?
     };
 
     let now = chrono::Utc::now().format("%Y-%m-%d %H:%M:%S").to_string();
@@ -171,11 +164,5 @@ mod tests {
         assert_ne!(hash1, hash2);
     }
 
-    #[test]
-    fn test_bytes_to_hex() {
-        assert_eq!(bytes_to_hex(b""), "");
-        assert_eq!(bytes_to_hex(b"\x00"), "00");
-        assert_eq!(bytes_to_hex(b"\xff"), "ff");
-        assert_eq!(bytes_to_hex(b"hello"), "68656c6c6f");
-    }
+
 }

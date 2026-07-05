@@ -147,6 +147,8 @@ async fn test_login_returns_authorization_url() {
         client_id: "test-client".into(),
         client_secret: None,
         redirect_uri: "http://localhost:3183/api/auth/callback".into(),
+        jwks_cache: None,
+        jwks_issuer: None,
     };
     let state = make_app_state(client, user_id, Some(oidc));
     let auth_layer = AuthLayer::disabled(state.db.clone());
@@ -198,6 +200,8 @@ async fn test_callback_rejects_invalid_state() {
         client_id: "test-client".into(),
         client_secret: None,
         redirect_uri: "http://localhost:3183/api/auth/callback".into(),
+        jwks_cache: None,
+        jwks_issuer: None,
     };
     let state = make_app_state(client, user_id, Some(oidc));
     let auth_layer = AuthLayer::disabled(state.db.clone());
@@ -636,6 +640,8 @@ async fn test_logout_without_cookie_returns_success() {
         client_id: "test-client".into(),
         client_secret: None,
         redirect_uri: "http://localhost:3183/api/auth/callback".into(),
+        jwks_cache: None,
+        jwks_issuer: None,
     };
     let state = make_app_state(client, user_id, Some(oidc));
     let auth_layer = AuthLayer::disabled(state.db.clone());
@@ -706,7 +712,7 @@ fn make_encrypted_cookie(key: &cookie::Key, name: &str, value: &str) -> String {
 #[tokio::test]
 async fn test_callback_exchanges_code() {
     let (client, _tmp) = make_client().await;
-    let default_user_id = db::ensure_default_user(&client).await.unwrap();
+    let user_id = db::ensure_default_user(&client).await.unwrap();
 
     let id_token = make_id_token("callback-sub", "callbackuser");
     let mock_app = Router::new().route(
@@ -728,14 +734,16 @@ async fn test_callback_exchanges_code() {
     tokio::spawn(async move { axum::serve(mock_listener, mock_app).await.unwrap() });
 
     let oidc = OidcEndpoints {
-        authorization_endpoint: format!("http://{}/auth", mock_addr),
+        authorization_endpoint: "https://provider.test/auth".into(),
         token_endpoint: format!("http://{}/token", mock_addr),
         revocation_endpoint: None,
         client_id: "test-client".into(),
         client_secret: None,
-        redirect_uri: format!("http://{}/callback", mock_addr),
+        redirect_uri: "http://localhost:3183/api/auth/callback".into(),
+        jwks_cache: None,
+        jwks_issuer: None,
     };
-    let state = make_app_state(client.clone(), default_user_id, Some(oidc));
+    let state = make_app_state(client.clone(), user_id, Some(oidc));
     let auth_layer = AuthLayer::disabled(state.db.clone());
     let app = server::router(state, auth_layer);
     let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
@@ -854,6 +862,8 @@ async fn test_refresh_with_session_cookie() {
         client_id: "test-client".into(),
         client_secret: None,
         redirect_uri: format!("http://{}/callback", mock_addr),
+        jwks_cache: None,
+        jwks_issuer: None,
     };
 
     let key = cookie::Key::generate();
@@ -897,6 +907,8 @@ async fn test_refresh_without_cookie() {
         client_id: "test-client".into(),
         client_secret: None,
         redirect_uri: "http://localhost:3183/api/auth/callback".into(),
+        jwks_cache: None,
+        jwks_issuer: None,
     };
     let state = make_app_state(client, user_id, Some(oidc));
     let auth_layer = AuthLayer::disabled(state.db.clone());
