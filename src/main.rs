@@ -81,9 +81,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             std::fs::create_dir_all(parent)
                 .map_err(|e| Box::new(std::io::Error::other(e.to_string())))?;
         }
-        let mut combined = vec![0u8; 96];
-        combined[..64].copy_from_slice(key.signing());
-        combined[64..96].copy_from_slice(key.encryption());
+        let mut combined = vec![0u8; 64];
+        combined[..32].copy_from_slice(key.signing());
+        combined[32..64].copy_from_slice(key.encryption());
         std::fs::write(&cookie_key_path, &combined)
             .map_err(|e| Box::new(std::io::Error::other(e.to_string())))?;
         key
