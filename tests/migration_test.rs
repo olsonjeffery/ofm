@@ -30,8 +30,8 @@ async fn test_all_migrations_apply() {
     let (client, _tmp) = setup_db().await;
     let count = db::run_migrations(&client).await.unwrap();
     assert_eq!(
-        count, 17,
-        "All 17 DDL migrations should be applied on first run"
+        count, 21,
+        "All 21 DDL migrations should be applied on first run"
     );
 }
 

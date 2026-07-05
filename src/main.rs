@@ -67,6 +67,52 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let orphans = orchestration::recovery::recover_orphaned_runs(&client).await?;
     tracing::info!("Orphan recovery: {} agent runs swept to failed", orphans);
 
+    let pkce_store = Arc::new(Mutex::new(HashMap::new()));
+    let cookie_key = cookie::Key::generate();
+
+    let auth_layer = auth::AuthLayer::new(&cfg, client.clone()).await?;
+
+    let oidc_provider = if auth_layer.enabled {
+        let issuer_url = cfg.oidc_issuer_url.as_ref().unwrap();
+        let discovery_url = format!(
+            "{}/.well-known/openid-configuration",
+            issuer_url.trim_end_matches('/')
+        );
+        let disc: serde_json::Value = reqwest::get(&discovery_url)
+            .await
+            .map_err(|e| Box::new(std::io::Error::other(e.to_string())))?
+            .json()
+            .await?;
+        let authorization_endpoint = disc["authorization_endpoint"]
+            .as_str()
+            .ok_or("missing authorization_endpoint")?
+            .to_string();
+        let token_endpoint = disc["token_endpoint"]
+            .as_str()
+            .ok_or("missing token_endpoint")?
+            .to_string();
+        let revocation_endpoint = disc["revocation_endpoint"].as_str().map(|s| s.to_string());
+        let redirect_uri = cfg.oidc_redirect_uri.clone().unwrap_or_else(|| {
+            format!(
+                "{}/api/auth/callback",
+                cfg.base_url
+                    .as_deref()
+                    .unwrap_or("http://localhost:3183")
+                    .trim_end_matches('/')
+            )
+        });
+        Some(server::state::OidcEndpoints {
+            authorization_endpoint,
+            token_endpoint,
+            revocation_endpoint,
+            client_id: cfg.oidc_client_id.clone().unwrap_or_default(),
+            client_secret: cfg.oidc_client_secret.clone(),
+            redirect_uri,
+        })
+    } else {
+        None
+    };
+
     let state = server::state::AppState {
         db: client.clone(),
         default_user_id,
@@ -74,9 +120,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         config_root: cfg.config_root.clone(),
         omp_sessions: Arc::new(Mutex::new(HashMap::new())),
         active_sessions: Arc::new(Mutex::new(HashMap::new())),
+        oidc_provider,
+        pkce_store,
+        cookie_key,
     };
-
-    let auth_layer = auth::AuthLayer::new(&cfg, client).await?;
     tracing::info!(
         "Auth middleware: {}",
         if auth_layer.enabled {
