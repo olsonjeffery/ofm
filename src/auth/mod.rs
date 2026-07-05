@@ -189,12 +189,9 @@ impl AuthLayer {
                 Ok(claims) => {
                     let user = Self::resolve_user_by_oidc_subject(&self.db, &claims.sub).await?;
                     if !user.is_active {
-                        drop(cache_guard);
                         return Err(AuthError::InvalidToken);
                     }
-                    let kid = claims.sub.clone();
-                    drop(cache_guard);
-                    Ok((user, AuthMethod::Jwt(kid)))
+                    Ok((user, AuthMethod::Jwt(claims.sub)))
                 }
                 Err(VerifyError::UnknownKid) => {
                     drop(cache_guard);
@@ -214,27 +211,14 @@ impl AuthLayer {
                     let cache = cache_guard.as_ref().ok_or(AuthError::JwksFetchError(
                         "JWKS still uninitialized after refresh".into(),
                     ))?;
-                    let claims = verify_token(token, cache).map_err(|e| match e {
-                        VerifyError::UnknownKid => AuthError::UnknownKid,
-                        VerifyError::InvalidToken(s) => AuthError::JwtValidationError(s),
-                        VerifyError::Expired => AuthError::Expired,
-                        VerifyError::WrongIssuer(s) => AuthError::JwtValidationError(s),
-                    })?;
+                    let claims = verify_token(token, cache).map_err(map_verify_error)?;
                     let user = Self::resolve_user_by_oidc_subject(&self.db, &claims.sub).await?;
                     if !user.is_active {
-                        drop(cache_guard);
                         return Err(AuthError::InvalidToken);
                     }
-                    let kid = claims.sub;
-                    drop(cache_guard);
-                    Ok((user, AuthMethod::Jwt(kid)))
+                    Ok((user, AuthMethod::Jwt(claims.sub)))
                 }
-                Err(e) => Err(match e {
-                    VerifyError::InvalidToken(s) => AuthError::JwtValidationError(s),
-                    VerifyError::Expired => AuthError::Expired,
-                    VerifyError::WrongIssuer(s) => AuthError::JwtValidationError(s),
-                    VerifyError::UnknownKid => unreachable!(),
-                }),
+                Err(e) => Err(map_verify_error(e)),
             }
         }
     }
@@ -322,6 +306,15 @@ fn unauthorized_response() -> Response {
         Json(json!({ "error": "unauthorized" })),
     )
         .into_response()
+}
+
+fn map_verify_error(e: VerifyError) -> AuthError {
+    match e {
+        VerifyError::UnknownKid => AuthError::UnknownKid,
+        VerifyError::InvalidToken(s) => AuthError::JwtValidationError(s),
+        VerifyError::Expired => AuthError::Expired,
+        VerifyError::WrongIssuer(s) => AuthError::JwtValidationError(s),
+    }
 }
 
 #[cfg(test)]

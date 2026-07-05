@@ -1,5 +1,15 @@
 # Extra — Auth and multi-user
 
+> **Webapp UI Architecture (Island Pattern)**: All webapp UI follows Jason Miller's
+> Islands Architecture. The shell page is SSR-rendered via `leptos::ssr::render_to_string`
+> from a plain axum handler. Each functional UI unit ("island") is a Leptos
+> `#[component]` rendered to an HTML fragment by its own axum endpoint
+> (`/webapp/islands/{name}`). A minimal inline JS runtime fetches islands and
+> supports re-fetch via `[data-island-refresh]` buttons. Auth is enforced by the
+> existing `AuthLayer` and per-handler `AuthUser` extractor. Styling via
+> `leptos_styling` with `style_sheet!` macro. No WASM, no `leptos_axum`,
+> no `leptos_router`. See `src/webapp/`.
+
 > **⚠️`omprint` ONLY ⚠️:** Rust convention requires functions and `let` bindings
 > use `snake_case` as a naming convention; In all places where `camelCase`
 > occurs (referring to the typescript `reference/` implementation of `bottega`),

@@ -236,6 +236,7 @@ pub struct User {
     pub api_key_hash: Option<String>,
     pub api_key_last_used_at: Option<String>,
     pub is_active: bool,
+    pub token_version: i32,
     pub created_at: String,
     pub last_login: Option<String>,
 }
@@ -427,6 +428,7 @@ impl From<&mut Row<'_>> for User {
             api_key_hash: row.get("api_key_hash"),
             api_key_last_used_at: row.get("api_key_last_used_at"),
             is_active: row.get::<i64>("is_active") != 0,
+            token_version: row.get::<i64>("token_version") as i32,
             created_at: row.get("created_at"),
             last_login: row.get("last_login"),
         }
