@@ -33,5 +33,6 @@ pub fn global_runtime_script() -> String {
             loadIsland(script);
         }
     });
-})();"#.to_string()
+})();"#
+        .to_string()
 }

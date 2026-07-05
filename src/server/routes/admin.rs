@@ -28,29 +28,29 @@ async fn require_admin(
     Ok(next.run(request).await)
 }
 
-    async fn list_users(
-        State(state): State<AppState>,
-        _auth: AuthUser,
-    ) -> Result<Json<serde_json::Value>, ServerError> {
-        let users = crate::services::auth::list_users(&state.db).await?;
-        let safe_users: Vec<serde_json::Value> = users
-            .into_iter()
-            .map(|u| {
-                json!({
-                    "id": u.id,
-                    "username": u.username,
-                    "oidc_subject": u.oidc_subject,
-                    "is_admin": u.is_admin,
-                    "is_technical": u.is_technical,
-                    "is_active": u.is_active,
-                    "token_version": u.token_version,
-                    "created_at": u.created_at,
-                    "last_login": u.last_login,
-                })
+async fn list_users(
+    State(state): State<AppState>,
+    _auth: AuthUser,
+) -> Result<Json<serde_json::Value>, ServerError> {
+    let users = crate::services::auth::list_users(&state.db).await?;
+    let safe_users: Vec<serde_json::Value> = users
+        .into_iter()
+        .map(|u| {
+            json!({
+                "id": u.id,
+                "username": u.username,
+                "oidc_subject": u.oidc_subject,
+                "is_admin": u.is_admin,
+                "is_technical": u.is_technical,
+                "is_active": u.is_active,
+                "token_version": u.token_version,
+                "created_at": u.created_at,
+                "last_login": u.last_login,
             })
-            .collect();
-        Ok(Json(json!({ "users": safe_users })))
-    }
+        })
+        .collect();
+    Ok(Json(json!({ "users": safe_users })))
+}
 
 #[derive(Deserialize)]
 struct UpdateUserBody {

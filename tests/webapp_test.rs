@@ -119,7 +119,10 @@ async fn test_infocard_island_endpoint() {
         axum::serve(listener, app).await.unwrap();
     });
 
-    let url = format!("http://{}/webapp/islands/infocard?title=Hello&body=World", addr);
+    let url = format!(
+        "http://{}/webapp/islands/infocard?title=Hello&body=World",
+        addr
+    );
     let client = reqwest::Client::new();
     let resp = client.get(&url).send().await.unwrap();
 

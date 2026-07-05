@@ -18,8 +18,7 @@ pub fn render_infocard(title: &str, body: &str) -> String {
             view! { <InfoCard title=t body=b /> }
         })
     };
-    let qs = format!("title={}&body={}",
-        urlencoding(title), urlencoding(body));
+    let qs = format!("title={}&body={}", urlencoding(title), urlencoding(body));
     crate::webapp::shim::wrap_island("infocard", "/webapp/islands/infocard", &qs, inner)
 }
 

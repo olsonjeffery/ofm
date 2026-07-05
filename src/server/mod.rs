@@ -2,12 +2,7 @@ pub mod error;
 pub mod routes;
 pub mod state;
 
-use axum::{
-    extract::DefaultBodyLimit,
-    response::Redirect,
-    routing::get,
-    Router,
-};
+use axum::{extract::DefaultBodyLimit, response::Redirect, routing::get, Router};
 
 use crate::auth::AuthLayer;
 use crate::server::state::AppState;
@@ -20,12 +15,10 @@ pub fn router(state: AppState, auth_layer: AuthLayer) -> Router {
         .nest("/api/auth", routes::auth::auth_router());
 
     // Public webapp routes (no auth)
-    let webapp_public = Router::new()
-        .merge(webapp::webapp_routes());
+    let webapp_public = Router::new().merge(webapp::webapp_routes());
 
     // Protected webapp routes (auth required)
-    let webapp_protected = webapp::webapp_protected_routes()
-        .layer(auth_layer.clone());
+    let webapp_protected = webapp::webapp_protected_routes().layer(auth_layer.clone());
 
     let protected = Router::new()
         .nest("/api/auth", routes::auth::auth_protected_router())

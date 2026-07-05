@@ -1,6 +1,6 @@
+use crate::webapp::shim::runtime::global_runtime_script;
 use leptos::prelude::*;
 use leptos_styling::style_sheet;
-use crate::webapp::shim::runtime::global_runtime_script;
 
 style_sheet!(app_styles, "src/webapp/styles/app.css", "app_styles");
 

@@ -1,6 +1,6 @@
 use leptos::prelude::*;
-use std::time::Instant;
 use std::sync::LazyLock;
+use std::time::Instant;
 
 static START: LazyLock<Instant> = LazyLock::new(Instant::now);
 

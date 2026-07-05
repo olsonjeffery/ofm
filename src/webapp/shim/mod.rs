@@ -38,7 +38,12 @@ mod tests {
 
     #[test]
     fn test_wrap_island_produces_correct_html() {
-        let html = wrap_island("test-island", "/webapp/islands/test", "", "<p>content</p>".into());
+        let html = wrap_island(
+            "test-island",
+            "/webapp/islands/test",
+            "",
+            "<p>content</p>".into(),
+        );
         assert!(html.contains(r#"data-island="test-island""#));
         assert!(html.contains(r#"data-island-url="/webapp/islands/test""#));
         assert!(html.contains("<p>content</p>"));
@@ -46,7 +51,12 @@ mod tests {
 
     #[test]
     fn test_wrap_island_with_query_string() {
-        let html = wrap_island("test", "/webapp/islands/test", "key=value", "<p>content</p>".into());
+        let html = wrap_island(
+            "test",
+            "/webapp/islands/test",
+            "key=value",
+            "<p>content</p>".into(),
+        );
         assert!(html.contains(r#"data-island-url="/webapp/islands/test?key=value""#));
     }
 }

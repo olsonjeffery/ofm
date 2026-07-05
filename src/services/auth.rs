@@ -173,7 +173,9 @@ pub async fn handle_callback(
     let username = if let Some(id_token) = &id_token {
         let payload = decode_jwt_payload(id_token)
             .map_err(|e| ServerError::Internal(format!("invalid id_token: {e}")))?;
-        payload["preferred_username"].as_str().map(|s| s.to_string())
+        payload["preferred_username"]
+            .as_str()
+            .map(|s| s.to_string())
     } else {
         None
     };
@@ -267,7 +269,9 @@ pub async fn refresh_access_token(
             .await
             .map_err(|e| ServerError::Internal(e.to_string()))?;
         }
-        return Err(ServerError::Internal(format!("token refresh rejected: {error}")));
+        return Err(ServerError::Internal(format!(
+            "token refresh rejected: {error}"
+        )));
     }
 
     let new_access_token = data["access_token"]

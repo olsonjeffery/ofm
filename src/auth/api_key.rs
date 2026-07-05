@@ -25,8 +25,7 @@ pub async fn verify_api_key(token: &str, db: &hiqlite::Client) -> Result<User, A
             .await
             .map_err(|e| AuthError::Network(e.to_string()))?;
 
-        rows
-            .first_mut()
+        rows.first_mut()
             .map(|row| User::from(&mut *row))
             .ok_or(AuthError::InvalidToken)?
     };
@@ -163,6 +162,4 @@ mod tests {
         let hash2 = hash_api_key("ccui_key_two");
         assert_ne!(hash1, hash2);
     }
-
-
 }

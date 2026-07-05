@@ -10,9 +10,7 @@ use tokio::sync::Mutex;
 
 /// Bind to port 0 to let the OS assign a free port, then return it.
 async fn find_free_port() -> u16 {
-    let listener = tokio::net::TcpListener::bind("127.0.0.1:0")
-        .await
-        .unwrap();
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
     let addr = listener.local_addr().unwrap();
     drop(listener);
     // Brief yield so the OS reclaims the port before hiqlite binds.
@@ -20,10 +18,7 @@ async fn find_free_port() -> u16 {
     addr.port()
 }
 
-async fn make_state_with_ports(
-    raft_port: u16,
-    api_port: u16,
-) -> (AppState, AuthLayer, TempDir) {
+async fn make_state_with_ports(raft_port: u16, api_port: u16) -> (AppState, AuthLayer, TempDir) {
     let tmp = TempDir::new().unwrap();
     let config = hiqlite::NodeConfig {
         node_id: 1,
