@@ -235,7 +235,18 @@ pub struct User {
     pub git_email: Option<String>,
     pub api_key_hash: Option<String>,
     pub api_key_last_used_at: Option<String>,
-    pub token_version: i32,
+    pub is_active: bool,
+    pub created_at: String,
+    pub last_login: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct SessionDb {
+    pub id: Uuid,
+    pub user_id: Uuid,
+    pub refresh_token: String,
+    pub expires_at: String,
+    pub created_at: String,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -415,7 +426,21 @@ impl From<&mut Row<'_>> for User {
             git_email: row.get("git_email"),
             api_key_hash: row.get("api_key_hash"),
             api_key_last_used_at: row.get("api_key_last_used_at"),
-            token_version: row.get::<i64>("token_version") as i32,
+            is_active: row.get::<i64>("is_active") != 0,
+            created_at: row.get("created_at"),
+            last_login: row.get("last_login"),
+        }
+    }
+}
+
+impl From<&mut Row<'_>> for SessionDb {
+    fn from(row: &mut Row<'_>) -> Self {
+        Self {
+            id: uuid_from_row(row, "id"),
+            user_id: uuid_from_row(row, "user_id"),
+            refresh_token: row.get("refresh_token"),
+            expires_at: row.get("expires_at"),
+            created_at: row.get("created_at"),
         }
     }
 }

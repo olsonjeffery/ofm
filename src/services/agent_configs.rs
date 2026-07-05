@@ -42,8 +42,8 @@ pub async fn create_or_update_agent_config(
             let id = Uuid::new_v4();
             client
                 .execute(
-                    "INSERT INTO agent_harness_configs (id, agent_type, harness, provider_config_ref, scope_type, user_id, project_id, model, effort, created_at) \
-                     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)",
+                    "INSERT INTO agent_harness_configs (id, agent_type, harness, provider_config_ref, scope_type, user_id, project_id, model, effort, created_at, updated_at) \
+                     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)",
                     hiqlite::params!(
                         id.to_string(),
                         agent_type.to_string(),
@@ -54,14 +54,9 @@ pub async fn create_or_update_agent_config(
                         project_id_str,
                         model,
                         effort,
+                        &now,
                         &now
                     ),
-                )
-                .await?;
-            client
-                .execute(
-                    "UPDATE agent_harness_configs SET updated_at = $1 WHERE id = $2",
-                    hiqlite::params!(&now, id.to_string()),
                 )
                 .await?;
             get_agent_config(client, &id).await

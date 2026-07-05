@@ -165,6 +165,28 @@ const MIGRATIONS: &[(&str, &str)] = &[
         "CREATE UNIQUE INDEX IF NOT EXISTS idx_agent_harness_configs_unique \
          ON agent_harness_configs(agent_type, scope_type, COALESCE(user_id, ''), COALESCE(project_id, ''))",
     ),
+    (
+        "add_user_columns",
+        "ALTER TABLE users ADD COLUMN is_active INTEGER NOT NULL DEFAULT 1",
+    ),
+    (
+        "add_user_created_at",
+        "ALTER TABLE users ADD COLUMN created_at TEXT NOT NULL DEFAULT ''",
+    ),
+    (
+        "add_user_last_login",
+        "ALTER TABLE users ADD COLUMN last_login TEXT",
+    ),
+    (
+        "create_sessions_table",
+        "CREATE TABLE IF NOT EXISTS sessions (
+            id TEXT PRIMARY KEY,
+            user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+            refresh_token TEXT NOT NULL,
+            expires_at TEXT NOT NULL,
+            created_at TEXT NOT NULL DEFAULT ''
+        )",
+    ),
 ];
 
 pub async fn run_migrations(client: &Client) -> Result<usize, Box<dyn std::error::Error>> {
@@ -221,7 +243,7 @@ pub async fn ensure_default_user(client: &Client) -> Result<Uuid, Box<dyn std::e
     let id = Uuid::new_v4();
     client
         .execute(
-            "INSERT INTO users (id, username, is_admin, is_technical) VALUES ($1, 'default', 1, 1)",
+            "INSERT INTO users (id, username, is_admin, is_technical, is_active) VALUES ($1, 'default', 1, 1, 1)",
             hiqlite::params!(id.to_string()),
         )
         .await?;

@@ -34,6 +34,9 @@ async fn make_state() -> (AppState, AuthLayer, TempDir) {
         config_root: tmp.path().to_str().unwrap().to_string(),
         omp_sessions: Arc::new(Mutex::new(HashMap::new())),
         active_sessions: Arc::new(Mutex::new(HashMap::<String, Box<dyn LlmProvider>>::new())),
+        oidc_provider: None,
+        pkce_store: Arc::new(Mutex::new(HashMap::new())),
+        cookie_key: cookie::Key::generate(),
     };
     (state, auth_layer, tmp)
 }

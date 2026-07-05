@@ -135,7 +135,7 @@ pub fn verify_token(token: &str, cache: &JwksCache) -> Result<Claims, VerifyErro
     Ok(token_data.claims)
 }
 
-pub(crate) fn base64url_encode(input: &[u8]) -> String {
+pub fn base64url_encode(input: &[u8]) -> String {
     base64::engine::general_purpose::URL_SAFE_NO_PAD.encode(input)
 }
 

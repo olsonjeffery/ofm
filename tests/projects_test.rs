@@ -35,6 +35,9 @@ async fn setup_app() -> (String, tokio::task::JoinHandle<()>) {
         config_root: tmp.path().to_str().unwrap().to_string(),
         omp_sessions: Arc::new(Mutex::new(HashMap::new())),
         active_sessions: Arc::new(Mutex::new(HashMap::<String, Box<dyn LlmProvider>>::new())),
+        oidc_provider: None,
+        pkce_store: Arc::new(Mutex::new(HashMap::new())),
+        cookie_key: cookie::Key::generate(),
     };
 
     let app = server::router(state, auth_layer);
