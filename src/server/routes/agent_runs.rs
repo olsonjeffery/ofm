@@ -3,7 +3,7 @@ use std::str::FromStr;
 
 use axum::{
     extract::{Path, State},
-    http::{HeaderMap, StatusCode},
+    http::StatusCode,
     routing::post,
     Json, Router,
 };
@@ -15,7 +15,7 @@ use crate::omp::session;
 use crate::orchestration::guards;
 use crate::providers;
 use crate::providers::registry;
-use crate::server::{error::ServerError, require_auth, state::AppState};
+use crate::server::{error::ServerError, state::AppState};
 use crate::services::tasks;
 
 #[derive(Debug, Deserialize)]
@@ -30,11 +30,8 @@ pub fn agent_runs_router() -> Router<AppState> {
 async fn post_create_agent_run(
     State(state): State<AppState>,
     Path(task_id): Path<Uuid>,
-    headers: HeaderMap,
     Json(body): Json<StartAgentRunRequest>,
 ) -> Result<(StatusCode, Json<TaskAgentRun>), ServerError> {
-    require_auth(&headers, &state)?;
-
     let agent_type = AgentType::from_str(&body.agent_type).map_err(ServerError::BadRequest)?;
 
     let task = tasks::get_task(&state.db, &task_id)
@@ -132,9 +129,7 @@ async fn post_create_agent_run(
 async fn list_agent_runs(
     State(state): State<AppState>,
     Path(task_id): Path<Uuid>,
-    headers: HeaderMap,
 ) -> Result<Json<Vec<TaskAgentRun>>, ServerError> {
-    require_auth(&headers, &state)?;
     tasks::get_task(&state.db, &task_id)
         .await
         .map_err(|_| ServerError::NotFound("Task not found".into()))?;
