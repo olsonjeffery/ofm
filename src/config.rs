@@ -7,6 +7,9 @@ pub struct OmprintConfig {
     pub config_root: String,
     pub oidc_issuer_url: Option<String>,
     pub oidc_client_id: Option<String>,
+    pub oidc_client_secret: Option<String>,
+    pub base_url: Option<String>,
+    pub oidc_redirect_uri: Option<String>,
 }
 
 impl OmprintConfig {
@@ -30,6 +33,12 @@ impl OmprintConfig {
             let home = std::env::var("HOME").unwrap_or_else(|_| ".".into());
             format!("{home}/.config/omprint")
         });
+        let base_url = std::env::var("OM_PRINT_BASE_URL").ok();
+        let redirect_uri = std::env::var("OIDC_REDIRECT_URI").ok().or_else(|| {
+            base_url
+                .as_ref()
+                .map(|base| format!("{}/api/auth/callback", base.trim_end_matches('/')))
+        });
         Self {
             hostname: std::env::var("OMPRINT_HOSTNAME").unwrap_or_else(|_| "127.0.0.1".into()),
             port: std::env::var("PORT")
@@ -43,6 +52,9 @@ impl OmprintConfig {
             config_root,
             oidc_issuer_url: std::env::var("OIDC_ISSUER_URL").ok(),
             oidc_client_id: std::env::var("OIDC_CLIENT_ID").ok(),
+            oidc_client_secret: std::env::var("OIDC_CLIENT_SECRET").ok(),
+            base_url,
+            oidc_redirect_uri: redirect_uri,
         }
     }
 }

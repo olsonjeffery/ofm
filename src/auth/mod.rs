@@ -18,8 +18,8 @@ use crate::auth::session::{AuthMethod, Session};
 use crate::config::OmprintConfig;
 use crate::db::schema::User;
 
-mod api_key;
-mod jwks;
+pub mod api_key;
+pub mod jwks;
 mod session;
 
 #[derive(Debug, thiserror::Error)]
@@ -175,6 +175,9 @@ impl AuthLayer {
     async fn authenticate(&self, token: &str) -> Result<(User, AuthMethod), AuthError> {
         if api_key::is_api_key_format(token) {
             let user = api_key::verify_api_key(token, &self.db).await?;
+            if !user.is_active {
+                return Err(AuthError::InvalidToken);
+            }
             Ok((user, AuthMethod::ApiKey))
         } else {
             let cache_guard = self.jwks_cache.read().await;
@@ -185,6 +188,10 @@ impl AuthLayer {
             match verify_token(token, cache) {
                 Ok(claims) => {
                     let user = Self::resolve_user_by_oidc_subject(&self.db, &claims.sub).await?;
+                    if !user.is_active {
+                        drop(cache_guard);
+                        return Err(AuthError::InvalidToken);
+                    }
                     let kid = claims.sub.clone();
                     drop(cache_guard);
                     Ok((user, AuthMethod::Jwt(kid)))
@@ -214,22 +221,20 @@ impl AuthLayer {
                         VerifyError::WrongIssuer(s) => AuthError::JwtValidationError(s),
                     })?;
                     let user = Self::resolve_user_by_oidc_subject(&self.db, &claims.sub).await?;
+                    if !user.is_active {
+                        drop(cache_guard);
+                        return Err(AuthError::InvalidToken);
+                    }
                     let kid = claims.sub;
                     drop(cache_guard);
                     Ok((user, AuthMethod::Jwt(kid)))
                 }
-                Err(VerifyError::InvalidToken(s)) => {
-                    drop(cache_guard);
-                    Err(AuthError::JwtValidationError(s))
-                }
-                Err(VerifyError::Expired) => {
-                    drop(cache_guard);
-                    Err(AuthError::Expired)
-                }
-                Err(VerifyError::WrongIssuer(s)) => {
-                    drop(cache_guard);
-                    Err(AuthError::JwtValidationError(s))
-                }
+                Err(e) => Err(match e {
+                    VerifyError::InvalidToken(s) => AuthError::JwtValidationError(s),
+                    VerifyError::Expired => AuthError::Expired,
+                    VerifyError::WrongIssuer(s) => AuthError::JwtValidationError(s),
+                    VerifyError::UnknownKid => unreachable!(),
+                }),
             }
         }
     }
@@ -274,9 +279,7 @@ where
         let mut inner = self.inner.clone();
 
         Box::pin(async move {
-            let token = extract_bearer_token(request.headers()).map(|s| s.to_string());
-
-            let Some(token) = token else {
+            let Some(token) = extract_bearer_token(request.headers()).map(|s| s.to_string()) else {
                 return Ok(unauthorized_response());
             };
 

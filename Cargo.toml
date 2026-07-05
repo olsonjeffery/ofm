@@ -48,3 +48,9 @@ sha2 = "0.10"
 base64 = "0.22"
 url = "2"
 tower = "0.5"
+
+# OAuth PKCE, session cookies, API key generation
+rand = "0.8"
+cookie = { version = "0.18", features = ["private"] }
+hex = "0.4"
+axum-extra = { version = "0.10", default-features = false, features = ["cookie", "cookie-private"] }

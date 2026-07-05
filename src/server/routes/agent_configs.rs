@@ -49,11 +49,7 @@ async fn create_agent_config(
     Path(_project_id): Path<Uuid>,
     Json(body): Json<CreateAgentConfigRequest>,
 ) -> Result<(StatusCode, Json<AgentHarnessConfig>), ServerError> {
-    if body.provider_config_ref.contains("..") || body.provider_config_ref.contains('/') {
-        return Err(ServerError::BadRequest(
-            "provider_config_ref must be a simple filename (no path components)".into(),
-        ));
-    }
+    validate_config_ref(&body.provider_config_ref)?;
 
     let agent_type = AgentType::from_str(&body.agent_type).map_err(ServerError::BadRequest)?;
     let scope_type: ScopeType = body
