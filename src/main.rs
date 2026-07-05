@@ -21,6 +21,7 @@ use tokio::sync::Mutex;
 
 mod server;
 mod services;
+mod webapp;
 mod worktree;
 
 #[tokio::main]
@@ -40,12 +41,34 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     #[cfg(unix)]
     std::fs::set_permissions(&cfg.data_dir, std::fs::Permissions::from_mode(0o700))?;
 
+    // If the hiqlite addresses have changed since the last run (e.g. upgrading
+    // from a version that used port 0), reset the Raft logs so the cluster
+    // membership is re-initialized from NodeConfig rather than stale Raft state.
+    let addr_fingerprint = format!("{}:{}", cfg.hiqlite_raft_port, cfg.hiqlite_api_port);
+    let fingerprint_path = std::path::Path::new(&cfg.data_dir).join(".addr_fingerprint");
+    let needs_raft_reset = if fingerprint_path.exists() {
+        let prev = std::fs::read_to_string(&fingerprint_path).unwrap_or_default();
+        prev.trim() != addr_fingerprint
+    } else {
+        // No fingerprint at all → either fresh install or pre-fingerprint version.
+        // If Raft logs exist, they may be stale (e.g. from port-0 era).
+        std::path::Path::new(&cfg.data_dir).join("logs").exists()
+    };
+    if needs_raft_reset {
+        let logs_dir = std::path::Path::new(&cfg.data_dir).join("logs");
+        if logs_dir.exists() {
+            tracing::info!("hiqlite address config changed — resetting Raft logs to re-initialise cluster membership");
+            std::fs::remove_dir_all(&logs_dir)?;
+        }
+    }
+    std::fs::write(&fingerprint_path, &addr_fingerprint)?;
+
     let node_config = hiqlite::NodeConfig {
         node_id: 1,
         nodes: vec![hiqlite::Node {
             id: 1,
-            addr_raft: "127.0.0.1:0".into(),
-            addr_api: "127.0.0.1:0".into(),
+            addr_raft: format!("127.0.0.1:{}", cfg.hiqlite_raft_port),
+            addr_api: format!("127.0.0.1:{}", cfg.hiqlite_api_port),
         }],
         data_dir: cfg.data_dir.clone().into(),
         secret_raft: std::env::var("OMPRINT_RAFT_SECRET")
@@ -68,7 +91,25 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     tracing::info!("Orphan recovery: {} agent runs swept to failed", orphans);
 
     let pkce_store = Arc::new(Mutex::new(HashMap::new()));
-    let cookie_key = cookie::Key::generate();
+
+    let cookie_key_path = std::path::Path::new(&cfg.config_root).join("cookie_key.bin");
+    let cookie_key = if cookie_key_path.exists() {
+        let data = std::fs::read(&cookie_key_path)
+            .map_err(|e| Box::new(std::io::Error::other(e.to_string())))?;
+        cookie::Key::from(&data)
+    } else {
+        let key = cookie::Key::generate();
+        if let Some(parent) = cookie_key_path.parent() {
+            std::fs::create_dir_all(parent)
+                .map_err(|e| Box::new(std::io::Error::other(e.to_string())))?;
+        }
+        let mut combined = vec![0u8; 64];
+        combined[..32].copy_from_slice(key.signing());
+        combined[32..64].copy_from_slice(key.encryption());
+        std::fs::write(&cookie_key_path, &combined)
+            .map_err(|e| Box::new(std::io::Error::other(e.to_string())))?;
+        key
+    };
 
     let auth_layer = auth::AuthLayer::new(&cfg, client.clone()).await?;
 
@@ -108,6 +149,12 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             client_id: cfg.oidc_client_id.clone().unwrap_or_default(),
             client_secret: cfg.oidc_client_secret.clone(),
             redirect_uri,
+            jwks_cache: if auth_layer.enabled {
+                Some(auth_layer.jwks_cache.clone())
+            } else {
+                None
+            },
+            jwks_issuer: auth_layer.issuer_url.clone(),
         })
     } else {
         None

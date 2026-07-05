@@ -76,8 +76,8 @@ async fn post_create_agent_run(
             _ => ServerError::Internal(e.to_string()),
         })?;
 
-    // Phase 8: Start and store provider if config was resolved
     if let Ok(cfg) = &harness_config {
+        // Start and store provider
         match registry::resolve_provider(cfg, std::path::Path::new("omp"), &config_root).await {
             Ok(mut provider) => {
                 let working_dir = std::path::Path::new("/tmp");
@@ -98,10 +98,8 @@ async fn post_create_agent_run(
                 tracing::warn!("Failed to resolve provider: {e}");
             }
         }
-    }
 
-    // Phase 6: Fire-and-forget title generation if we have a provider config
-    if let Ok(cfg) = &harness_config {
+        // Fire-and-forget title generation
         let db = state.db.clone();
         let cfg_root = PathBuf::from(&state.config_root);
         let title_config = cfg.clone();

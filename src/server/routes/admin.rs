@@ -43,6 +43,7 @@ async fn list_users(
                 "is_admin": u.is_admin,
                 "is_technical": u.is_technical,
                 "is_active": u.is_active,
+                "token_version": u.token_version,
                 "created_at": u.created_at,
                 "last_login": u.last_login,
             })
@@ -55,6 +56,7 @@ async fn list_users(
 struct UpdateUserBody {
     is_admin: Option<bool>,
     is_active: Option<bool>,
+    invalidate_tokens: Option<bool>,
 }
 
 async fn update_user(
@@ -71,6 +73,7 @@ async fn update_user(
         target_id,
         body.is_admin,
         body.is_active,
+        body.invalidate_tokens,
         &ctx,
     )
     .await?;
@@ -79,5 +82,6 @@ async fn update_user(
         "username": user.username,
         "is_admin": user.is_admin,
         "is_active": user.is_active,
+        "token_version": user.token_version,
     })))
 }

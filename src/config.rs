@@ -10,6 +10,8 @@ pub struct OmprintConfig {
     pub oidc_client_secret: Option<String>,
     pub base_url: Option<String>,
     pub oidc_redirect_uri: Option<String>,
+    pub hiqlite_raft_port: u16,
+    pub hiqlite_api_port: u16,
 }
 
 impl OmprintConfig {
@@ -55,6 +57,14 @@ impl OmprintConfig {
             oidc_client_secret: std::env::var("OIDC_CLIENT_SECRET").ok(),
             base_url,
             oidc_redirect_uri: redirect_uri,
+            hiqlite_raft_port: std::env::var("OMPRINT_HIQLITE_RAFT_PORT")
+                .ok()
+                .and_then(|s| s.parse().ok())
+                .unwrap_or(8100),
+            hiqlite_api_port: std::env::var("OMPRINT_HIQLITE_API_PORT")
+                .ok()
+                .and_then(|s| s.parse().ok())
+                .unwrap_or(8200),
         }
     }
 }

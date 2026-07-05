@@ -4,11 +4,14 @@ use std::time::Instant;
 
 use axum::extract::FromRef;
 use cookie::Key;
-use tokio::sync::Mutex;
+use tokio::sync::{Mutex, RwLock};
 use uuid::Uuid;
 
+use crate::auth::jwks::JwksCache;
 use crate::omp::OmpSession;
 use crate::providers::LlmProvider;
+
+type SharedJwksCache = Option<Arc<RwLock<Option<JwksCache>>>>;
 
 #[derive(Clone)]
 pub struct AppState {
@@ -37,6 +40,8 @@ pub struct OidcEndpoints {
     pub client_id: String,
     pub client_secret: Option<String>,
     pub redirect_uri: String,
+    pub jwks_cache: SharedJwksCache,
+    pub jwks_issuer: Option<String>,
 }
 
 pub struct PkceEntry {
