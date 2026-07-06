@@ -105,10 +105,7 @@ async fn resolve_user_id_from_session(db: &hiqlite::Client, session_id: Uuid) ->
     Some(session_db.user_id)
 }
 
-async fn settings_handler(
-    State(state): State<AppState>,
-    jar: PrivateCookieJar,
-) -> Html<String> {
+async fn settings_handler(State(state): State<AppState>, jar: PrivateCookieJar) -> Html<String> {
     let access_token: String = match crate::server::routes::auth::parse_session_cookie(&jar) {
         Ok(session_id) => match &state.oidc_provider {
             Some(oidc) => crate::services::auth::refresh_access_token(&state.db, oidc, session_id)
