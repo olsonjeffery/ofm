@@ -68,7 +68,6 @@ async fn callback(
     let jar = jar.add(
         Cookie::build(("omprint_session", result.session_id.to_string()))
             .http_only(true)
-            .secure(true)
             .same_site(SameSite::Lax)
             .path("/")
             .build(),
