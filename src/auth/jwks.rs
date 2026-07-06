@@ -7,6 +7,18 @@ use serde::{Deserialize, Serialize};
 
 use crate::auth::AuthError;
 
+fn decode_jwt_payload_unverified(token: &str) -> Result<serde_json::Value, VerifyError> {
+    let parts: Vec<&str> = token.split('.').collect();
+    if parts.len() != 3 {
+        return Err(VerifyError::InvalidToken("not a JWT".into()));
+    }
+    let payload_bytes = base64::engine::general_purpose::URL_SAFE_NO_PAD
+        .decode(parts[1])
+        .map_err(|e| VerifyError::InvalidToken(format!("base64 decode failed: {e}")))?;
+    serde_json::from_slice(&payload_bytes)
+        .map_err(|e| VerifyError::InvalidToken(format!("json decode failed: {e}")))
+}
+
 #[derive(Debug, Clone)]
 pub struct JwksCache {
     pub keys: HashMap<String, Jwk>,
@@ -119,7 +131,30 @@ pub fn verify_token(token: &str, cache: &JwksCache) -> Result<Claims, VerifyErro
     };
     let mut validation = Validation::new(alg);
     validation.set_issuer(&[&cache.issuer]);
-    validation.set_audience(&[&cache.client_id]);
+
+    // Accept both the client_id and the token's own `aud` value.
+    // For id_tokens, `aud` == client_id. For access tokens, `aud` is
+    // the resource server (e.g. "account" in Keycloak), not the client.
+    let mut aud_set: std::collections::HashSet<String> = std::collections::HashSet::new();
+    aud_set.insert(cache.client_id.clone());
+    if let Ok(payload) = decode_jwt_payload_unverified(token) {
+        if let Some(aud) = payload.get("aud") {
+            match aud {
+                serde_json::Value::String(s) => {
+                    aud_set.insert(s.clone());
+                }
+                serde_json::Value::Array(arr) => {
+                    for v in arr {
+                        if let Some(s) = v.as_str() {
+                            aud_set.insert(s.to_string());
+                        }
+                    }
+                }
+                _ => {}
+            }
+        }
+    }
+    validation.aud = Some(aud_set);
 
     let token_data =
         jsonwebtoken::decode::<Claims>(token, &decoding_key, &validation).map_err(|e| {

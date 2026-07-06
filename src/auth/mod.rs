@@ -287,13 +287,12 @@ where
                         return inner.call(request).await;
                     }
                     Err(e) => {
-                        tracing::debug!("Bearer token authentication failed: {e}");
-                        return Ok(AuthRejection::Unauthorized.into_response());
+                        tracing::debug!("Bearer token authentication failed, trying session cookie: {e}");
                     }
                 }
             }
 
-            // No valid Bearer token — fall back to session cookie auth
+            // Fall back to session cookie auth (works even if a bad Bearer was sent)
             authenticate_via_session(layer, request, inner).await
         })
     }
