@@ -31,6 +31,18 @@ pub fn ShellPage() -> impl IntoView {
                 </div>
             </header>
             <main></main>
+            <script>
+                {r#"document.addEventListener('DOMContentLoaded',function(){
+                    var form=document.getElementById('logout-form');
+                    if(!form)return;
+                    form.addEventListener('submit',function(ev){
+                        ev.preventDefault();
+                        fetch(form.action,{method:'POST',credentials:'same-origin'})
+                            .then(function(){window.location.href='/webapp/login';})
+                            .catch(function(){window.location.href='/webapp/login';});
+                    });
+                });"#}
+            </script>
         </body>
         </html>
     }

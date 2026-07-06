@@ -12,6 +12,27 @@ pub fn LoginPage() -> impl IntoView {
                 </button>
             </div>
         </div>
+        <script>
+            {r#"document.addEventListener('DOMContentLoaded',function(){
+                var btn=document.getElementById('sso-login-btn');
+                if(!btn)return;
+                btn.addEventListener('click',function(){
+                    btn.disabled=true;
+                    btn.textContent='Redirecting...';
+                    fetch('/api/auth/login')
+                        .then(function(r){return r.json();})
+                        .then(function(data){
+                            if(data.authorization_url){
+                                window.location.href=data.authorization_url;
+                            }
+                        })
+                        .catch(function(){
+                            btn.disabled=false;
+                            btn.textContent='Sign in with SSO';
+                        });
+                });
+            });"#}
+        </script>
     }
 }
 

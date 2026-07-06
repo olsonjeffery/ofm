@@ -18,5 +18,20 @@ pub fn CallbackPage(
         <div id="callback-root" class="callback-loading">
             <p>"Completing sign-in..."</p>
         </div>
+        <script>
+            {r#"document.addEventListener('DOMContentLoaded',function(){
+                var user=window.__USER__;
+                if(!user)return;
+                if(user.has_completed_onboarding){
+                    window.location.href='/webapp/';
+                }else{
+                    var root=document.getElementById('callback-root');
+                    if(root&&window.__ONBOARDING_HTML__){
+                        root.innerHTML=window.__ONBOARDING_HTML__;
+                        root.className='';
+                    }
+                }
+            });"#}
+        </script>
     }
 }

@@ -29,6 +29,33 @@ pub fn OnboardingForm() -> impl IntoView {
                 <button type="submit" class="btn btn-primary">"Complete Setup"</button>
             </form>
         </div>
+        <script>
+            {r#"document.addEventListener('DOMContentLoaded',function(){
+                var form=document.getElementById('onboarding-form');
+                if(!form)return;
+                form.addEventListener('submit',function(ev){
+                    ev.preventDefault();
+                    var data={
+                        git_name: form.git_name.value,
+                        git_email: form.git_email.value,
+                        is_technical: form.is_technical.value==='true'
+                    };
+                    var btn=form.querySelector('button[type="submit"]');
+                    btn.disabled=true;
+                    btn.textContent='Saving...';
+                    apiCall('/api/auth/onboarding',{
+                        method:'PATCH',
+                        headers:{'Content-Type':'application/json'},
+                        body:JSON.stringify(data)
+                    }).then(function(r){
+                        if(r.ok){window.location.href='/webapp/';}
+                        else{btn.disabled=false;btn.textContent='Complete Setup';}
+                    }).catch(function(){
+                        btn.disabled=false;btn.textContent='Complete Setup';
+                    });
+                });
+            });"#}
+        </script>
     }
 }
 
