@@ -24,6 +24,8 @@ pub fn ShellPage() -> impl IntoView {
                         <p>"AI agent orchestration platform"</p>
                     </div>
                     <nav id="auth-nav" class="auth-nav" hidden>
+                        <a href="/webapp" class="btn btn-nav">"Home"</a>
+                        <a href="/webapp/settings" class="btn btn-nav">"Settings"</a>
                         <form action="/api/auth/logout" method="post" id="logout-form">
                             <button type="submit" class="btn btn-logout">"Logout"</button>
                         </form>

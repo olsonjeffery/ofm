@@ -126,7 +126,7 @@ pub async fn handle_callback(
         .unwrap_or("")
         .to_string();
     let id_token = token_data["id_token"].as_str().map(|s| s.to_string());
-    let expires_in = token_data["expires_in"].as_u64().unwrap_or(3600);
+    let expires_in = token_data["expires_in"].as_i64().unwrap_or(3600);
 
     let (sub, username) = {
         let id_token = id_token.as_ref().ok_or_else(|| {
@@ -260,8 +260,8 @@ pub async fn refresh_access_token(
         .ok_or_else(|| ServerError::Internal("missing access_token".into()))?
         .to_string();
     let new_refresh_token = data["refresh_token"].as_str().unwrap_or("").to_string();
-    let expires_in = data["expires_in"].as_u64().unwrap_or(3600);
-    let new_expires_at = (chrono::Utc::now() + chrono::Duration::seconds(expires_in as i64))
+    let expires_in = data["expires_in"].as_i64().unwrap_or(3600);
+    let new_expires_at = (chrono::Utc::now() + chrono::Duration::seconds(expires_in))
         .format("%Y-%m-%d %H:%M:%S")
         .to_string();
 
@@ -323,7 +323,7 @@ pub async fn complete_onboarding(
     git_email: String,
     is_technical: bool,
 ) -> Result<User, ServerError> {
-    let tech: i64 = if is_technical { 1 } else { 0 };
+    let tech = is_technical as i64;
     db.execute(
         "UPDATE users SET git_name = $1, git_email = $2, is_technical = $3, has_completed_onboarding = 1 WHERE id = $4",
         hiqlite::params!(git_name, git_email, tech, user_id.to_string()),
@@ -393,20 +393,18 @@ pub async fn update_user(
     }
 
     if let Some(admin) = is_admin {
-        let val: i64 = if admin { 1 } else { 0 };
         db.execute(
             "UPDATE users SET is_admin = $1 WHERE id = $2",
-            hiqlite::params!(val, target_id.to_string()),
+            hiqlite::params!(admin as i64, target_id.to_string()),
         )
         .await
         .map_err(|e| ServerError::Internal(e.to_string()))?;
     }
 
     if let Some(active) = is_active {
-        let val: i64 = if active { 1 } else { 0 };
         db.execute(
             "UPDATE users SET is_active = $1 WHERE id = $2",
-            hiqlite::params!(val, target_id.to_string()),
+            hiqlite::params!(active as i64, target_id.to_string()),
         )
         .await
         .map_err(|e| ServerError::Internal(e.to_string()))?;

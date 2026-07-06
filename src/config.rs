@@ -1,3 +1,5 @@
+use crate::archive::paths::expand_tilde;
+
 pub struct OmprintConfig {
     pub hostname: String,
     pub port: u16,
@@ -23,19 +25,10 @@ impl OmprintConfig {
         self.oidc_issuer_url.is_some()
     }
 
-    fn expand_tilde(path: &str) -> String {
-        if let Some(stripped) = path.strip_prefix("~/") {
-            if let Ok(home) = std::env::var("HOME") {
-                return format!("{home}/{stripped}");
-            }
-        }
-        path.to_string()
-    }
-
     pub fn from_env() -> Self {
         let footprint_raw =
             std::env::var("OMPRINT_FOOTPRINT").unwrap_or_else(|_| "~/.omprint".into());
-        let footprint = Self::expand_tilde(&footprint_raw);
+        let footprint = expand_tilde(&footprint_raw);
         let api_key = std::env::var("OMPRINT_API_KEY").ok();
         if let Some(key) = &api_key {
             if key.is_empty() || key.len() < 16 {
