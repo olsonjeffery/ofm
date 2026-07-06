@@ -36,7 +36,7 @@ pub fn global_runtime_script() -> String {
 
     window.__ACCESS_TOKEN__ = window.__ACCESS_TOKEN__ || null;
 
-    function apiCall(url, options) {
+    window.apiCall = function apiCall(url, options) {
         options = options || {};
         options.headers = options.headers || {};
         if (window.__ACCESS_TOKEN__) {

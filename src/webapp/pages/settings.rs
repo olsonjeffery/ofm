@@ -66,7 +66,7 @@ document.addEventListener('DOMContentLoaded', function() {
 function loadConfigList() {
     var list = document.getElementById('config-list');
     if (!list) return;
-    fetch('/api/settings/config-body')
+    apiCall('/api/settings/config-body')
         .then(function(r) { return r.json(); })
         .then(function(data) {
             if (data.length === 0) {
@@ -107,7 +107,7 @@ document.addEventListener('DOMContentLoaded', function() {
                 alert('Name and Config Body are required.');
                 return;
             }
-            fetch('/api/settings/config-body', {
+            apiCall('/api/settings/config-body', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ name: name, config_body: configBody, harness: harness })
@@ -131,7 +131,7 @@ document.addEventListener('DOMContentLoaded', function() {
 
 window.deleteConfig = function(id) {
     if (!confirm('Delete this configuration?')) return;
-    fetch('/api/settings/config-body/' + id, { method: 'DELETE' })
+    apiCall('/api/settings/config-body/' + id, { method: 'DELETE' })
         .then(function(r) {
             if (!r.ok) throw new Error('Delete failed');
             loadConfigList();
@@ -147,7 +147,7 @@ window.editConfig = function(id) {
     var body = prompt('New config body (YAML or JSON):');
     if (!body) return;
     var harness = prompt('New harness:') || '';
-    fetch('/api/settings/config-body/' + id, {
+    apiCall('/api/settings/config-body/' + id, {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ name: name, config_body: body, harness: harness })
@@ -164,7 +164,7 @@ window.editConfig = function(id) {
 function loadAgentModels() {
     var tbody = document.getElementById('agent-model-tbody');
     if (!tbody) return;
-    fetch('/api/settings/agent-models')
+    apiCall('/api/settings/agent-models')
         .then(function(r) { return r.json(); })
         .then(function(data) {
             var agents = ['planification', 'implementation', 'refinement', 'review', 'pr', 'yolo'];
@@ -204,7 +204,7 @@ document.addEventListener('DOMContentLoaded', function() {
                 if (!models[agent]) models[agent] = {};
                 models[agent].effort = select.value;
             });
-            fetch('/api/settings/agent-models', {
+            apiCall('/api/settings/agent-models', {
                 method: 'PUT',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify(models)
@@ -241,7 +241,7 @@ document.addEventListener('DOMContentLoaded', function() {
 
     if (generateBtn) {
         generateBtn.addEventListener('click', function() {
-            fetch('/api/auth/api-key', { method: 'POST' })
+            apiCall('/api/auth/api-key', { method: 'POST' })
                 .then(function(r) { return r.json(); })
                 .then(function(data) {
                     if (data.api_key) {
@@ -260,7 +260,7 @@ document.addEventListener('DOMContentLoaded', function() {
 
     if (revokeBtn) {
         revokeBtn.addEventListener('click', function() {
-            fetch('/api/auth/api-key', { method: 'DELETE' })
+            apiCall('/api/auth/api-key', { method: 'DELETE' })
                 .then(function(r) {
                     if (!r.ok) throw new Error('Revoke failed');
                     display.style.display = 'none';
