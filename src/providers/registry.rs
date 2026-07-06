@@ -15,7 +15,7 @@ pub async fn resolve_provider(
     config_root: &Path,
 ) -> Result<Box<dyn LlmProvider>, ProviderError> {
     match config.harness.as_str() {
-        "oh-my-pi" => OmpProvider::new(config, omp_binary)
+        "oh-my-pi" => OmpProvider::new(config, omp_binary, config_root)
             .await
             .map(|p| Box::new(p) as Box<dyn LlmProvider>),
         "opencode" => OpenCodeProvider::new(config, config_root)

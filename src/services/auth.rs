@@ -8,6 +8,7 @@ use sha2::{Digest, Sha256};
 use tokio::sync::Mutex;
 use uuid::Uuid;
 
+use crate::auth::api_key;
 use crate::db::schema::{SessionDb, User};
 use crate::server::error::ServerError;
 use crate::server::state::{OidcEndpoints, PkceEntry};
@@ -35,12 +36,6 @@ pub fn generate_state() -> String {
 pub fn generate_api_key_value() -> String {
     let bytes: [u8; 32] = rand::thread_rng().gen();
     format!("ccui_{}", hex::encode(bytes))
-}
-
-pub fn hash_api_key(key: &str) -> String {
-    let mut hasher = Sha256::new();
-    hasher.update(key.as_bytes());
-    hex::encode(hasher.finalize())
 }
 
 fn sweep_expired_pkce(store: &mut HashMap<String, PkceEntry>) {
@@ -126,10 +121,6 @@ pub async fn handle_callback(
         .await
         .map_err(|e| ServerError::Internal(format!("invalid token response: {e}")))?;
 
-    let access_token = token_data["access_token"]
-        .as_str()
-        .ok_or_else(|| ServerError::Internal("missing access_token".into()))?
-        .to_string();
     let refresh_token = token_data["refresh_token"]
         .as_str()
         .unwrap_or("")
@@ -138,37 +129,25 @@ pub async fn handle_callback(
     let expires_in = token_data["expires_in"].as_u64().unwrap_or(3600);
 
     let sub = if let Some(id_token) = &id_token {
-        if let Some(ref jwks_cache) = oidc.jwks_cache {
-            let cache_guard = jwks_cache.read().await;
-            if let Some(cache) = cache_guard.as_ref() {
-                match crate::auth::jwks::verify_token(id_token, cache) {
-                    Ok(claims) => claims.sub,
-                    Err(e) => {
-                        return Err(ServerError::Internal(format!(
-                            "id_token verification failed: {e:?}"
-                        )));
-                    }
-                }
-            } else {
-                return Err(ServerError::Internal(
-                    "JWKS cache not initialized for id_token verification".into(),
-                ));
+        let jwks_cache = oidc.jwks_cache.as_ref().ok_or_else(|| {
+            ServerError::Internal("JWKS not configured; cannot verify identity token".into())
+        })?;
+        let cache_guard = jwks_cache.read().await;
+        let cache = cache_guard.as_ref().ok_or_else(|| {
+            ServerError::Internal("JWKS cache not initialized for id_token verification".into())
+        })?;
+        match crate::auth::jwks::verify_token(id_token, cache) {
+            Ok(claims) => claims.sub,
+            Err(e) => {
+                return Err(ServerError::Internal(format!(
+                    "id_token verification failed: {e:?}"
+                )));
             }
-        } else {
-            let payload = decode_jwt_payload(id_token)
-                .map_err(|e| ServerError::Internal(format!("invalid id_token: {e}")))?;
-            payload["sub"]
-                .as_str()
-                .ok_or_else(|| ServerError::Internal("missing sub in id_token".into()))?
-                .to_string()
         }
     } else {
-        let payload = decode_jwt_payload(&access_token)
-            .map_err(|e| ServerError::Internal(format!("invalid access_token: {e}")))?;
-        payload["sub"]
-            .as_str()
-            .ok_or_else(|| ServerError::Internal("missing sub in access_token".into()))?
-            .to_string()
+        return Err(ServerError::Internal(
+            "No id_token returned from provider; cannot authenticate".into(),
+        ));
     };
     let username = if let Some(id_token) = &id_token {
         let payload = decode_jwt_payload(id_token)
@@ -344,7 +323,7 @@ pub async fn current_user(db: &hiqlite::Client, user_id: Uuid) -> Result<User, S
 
 pub async fn generate_api_key(db: &hiqlite::Client, user_id: Uuid) -> Result<String, ServerError> {
     let api_key = generate_api_key_value();
-    let hash = hash_api_key(&api_key);
+    let hash = api_key::hash_api_key(&api_key);
     db.execute(
         "UPDATE users SET api_key_hash = $1, api_key_last_used_at = NULL WHERE id = $2",
         hiqlite::params!(hash, user_id.to_string()),
@@ -541,7 +520,7 @@ mod tests {
     #[test]
     fn test_generate_and_hash_api_key() {
         let key = generate_api_key_value();
-        let hash = hash_api_key(&key);
+        let hash = api_key::hash_api_key(&key);
         assert_eq!(hash.len(), 64);
         assert!(hash.chars().all(|c| c.is_ascii_hexdigit()));
     }
@@ -549,8 +528,8 @@ mod tests {
     #[test]
     fn test_hash_deterministic() {
         let key = "ccui_test-key-12345";
-        let hash1 = hash_api_key(key);
-        let hash2 = hash_api_key(key);
+        let hash1 = api_key::hash_api_key(key);
+        let hash2 = api_key::hash_api_key(key);
         assert_eq!(hash1, hash2);
     }
 

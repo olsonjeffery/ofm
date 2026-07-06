@@ -3,6 +3,7 @@ use std::time::Duration;
 
 use omprint::providers::omp_provider::OmpProvider;
 use omprint::providers::{HarnessConfig, LlmProvider};
+use tempfile::TempDir;
 
 fn has_binary(name: &str) -> bool {
     std::process::Command::new("which")
@@ -14,6 +15,7 @@ fn has_binary(name: &str) -> bool {
 
 #[tokio::test]
 async fn test_omp_provider_new() {
+    let tmp = TempDir::new().unwrap();
     let config = HarnessConfig {
         agent_type: "planification".into(),
         harness: "oh-my-pi".into(),
@@ -21,7 +23,9 @@ async fn test_omp_provider_new() {
         model: Some("default".into()),
         effort: Some("balanced".into()),
     };
-    let provider = OmpProvider::new(&config, Path::new("omp")).await.unwrap();
+    let provider = OmpProvider::new(&config, Path::new("omp"), tmp.path())
+        .await
+        .unwrap();
     let models = provider.get_models_list().await.unwrap();
     assert!(
         !models.is_empty(),
@@ -36,6 +40,7 @@ async fn test_omp_provider_one_shot_prompt() {
         return;
     }
 
+    let tmp = TempDir::new().unwrap();
     let config = HarnessConfig {
         agent_type: "planification".into(),
         harness: "oh-my-pi".into(),
@@ -43,7 +48,9 @@ async fn test_omp_provider_one_shot_prompt() {
         model: Some("default".into()),
         effort: Some("balanced".into()),
     };
-    let provider = OmpProvider::new(&config, Path::new("omp")).await.unwrap();
+    let provider = OmpProvider::new(&config, Path::new("omp"), tmp.path())
+        .await
+        .unwrap();
 
     let result = tokio::time::timeout(
         Duration::from_secs(30),
@@ -75,6 +82,7 @@ async fn test_omp_provider_start_shutdown() {
         return;
     }
 
+    let tmp = TempDir::new().unwrap();
     let config = HarnessConfig {
         agent_type: "planification".into(),
         harness: "oh-my-pi".into(),
@@ -82,7 +90,9 @@ async fn test_omp_provider_start_shutdown() {
         model: Some("default".into()),
         effort: Some("balanced".into()),
     };
-    let mut provider = OmpProvider::new(&config, Path::new("omp")).await.unwrap();
+    let mut provider = OmpProvider::new(&config, Path::new("omp"), tmp.path())
+        .await
+        .unwrap();
 
     let tmp = tempfile::TempDir::new().unwrap();
     let start_result =

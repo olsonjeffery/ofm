@@ -11,29 +11,28 @@ use crate::providers::{HarnessConfig, LlmProvider, ProviderError};
 pub struct OmpProvider {
     config: HarnessConfig,
     omp_binary: PathBuf,
+    config_root: PathBuf,
     session: Mutex<Option<omp::OmpSession>>,
     working_dir: Mutex<Option<PathBuf>>,
 }
 
 impl OmpProvider {
-    pub async fn new(config: &HarnessConfig, omp_binary: &Path) -> Result<Self, ProviderError> {
+    pub async fn new(
+        config: &HarnessConfig,
+        omp_binary: &Path,
+        config_root: &Path,
+    ) -> Result<Self, ProviderError> {
         Ok(Self {
             config: config.clone(),
             omp_binary: omp_binary.to_path_buf(),
+            config_root: config_root.to_path_buf(),
             session: Mutex::new(None),
             working_dir: Mutex::new(None),
         })
     }
 
     fn get_models_config(&self) -> String {
-        let cfg_dir = crate::providers::config::ProviderConfigDir::new(&PathBuf::from(
-            std::env::var("OMPRINT_CONFIG").unwrap_or_else(|_| {
-                format!(
-                    "{}/.config/omprint",
-                    std::env::var("HOME").unwrap_or_else(|_| ".".into())
-                )
-            }),
-        ));
+        let cfg_dir = crate::providers::config::ProviderConfigDir::new(&self.config_root);
         if let Ok(pc) = cfg_dir.load_provider_config(&self.config.provider_config_ref) {
             pc.raw_snippet
         } else {

@@ -138,7 +138,7 @@ When no `OIDC_ISSUER_URL` is provided (or `RAUTHY_ENABLED=true` is set),
 |---|---|---|
 | `RAUTHY_ENABLED` | No | Set `true` to explicitly enable rauthy mode. Inferred from absence of `OIDC_ISSUER_URL`. |
 | `RAUTHY_BIN_PATH` | No | Path to rauthy binary. If absent, omprint fetches a known-good release. |
-| `RAUTHY_DATA_DIR` | No | Path for rauthy's persistent state (default: `{omprint_config_dir}/rauthy/`). |
+| `RAUTHY_DATA_DIR` | No | Path for rauthy's persistent state (default: `{footprint}/rauthy/`). |
 | `RAUTHY_ADMIN_EMAIL` | No | Email for the initial bootstrap admin (default: `admin@omprint.local`). |
 | `RAUTHY_ADMIN_PASSWORD` | No | Admin password. If absent, omprint auto-generates one and displays it once at first startup (similar to the reference's first-user register flow). |
 
