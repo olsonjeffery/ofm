@@ -178,6 +178,22 @@ const MIGRATIONS: &[(&str, &str)] = &[
         "ALTER TABLE users ADD COLUMN last_login TEXT",
     ),
     (
+        "create_user_model_configs",
+        "CREATE TABLE IF NOT EXISTS user_model_configs (
+            id TEXT PRIMARY KEY,
+            user_id TEXT NOT NULL REFERENCES users(id),
+            name TEXT NOT NULL,
+            config_body TEXT NOT NULL DEFAULT '',
+            harness TEXT NOT NULL DEFAULT '',
+            created_at TEXT NOT NULL DEFAULT '',
+            updated_at TEXT NOT NULL DEFAULT ''
+        )",
+    ),
+    (
+        "idx_user_model_configs_user",
+        "CREATE INDEX IF NOT EXISTS idx_user_model_configs_user ON user_model_configs(user_id)",
+    ),
+    (
         "create_sessions_table",
         "CREATE TABLE IF NOT EXISTS sessions (
             id TEXT PRIMARY KEY,

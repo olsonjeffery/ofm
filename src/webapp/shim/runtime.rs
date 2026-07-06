@@ -34,30 +34,85 @@ pub fn global_runtime_script() -> String {
         }
     });
 
-    window.__ACCESS_TOKEN__ = window.__ACCESS_TOKEN__ || null;
+    window.__ACCESS_TOKEN__ = null;
 
-    function apiCall(url, options) {
-        options = options || {};
+    function decodeJwtPayload(token) {
+        try {
+            var parts = token.split('.');
+            if (parts.length !== 3) return null;
+            return JSON.parse(atob(parts[1].replace(/-/g, '+').replace(/_/g, '/')));
+        } catch(e) { return null; }
+    }
+
+    function isTokenExpired(token, graceSeconds) {
+        if (!token) return true;
+        var payload = decodeJwtPayload(token);
+        if (!payload || !payload.exp) return true;
+        return (Date.now() / 1000) + graceSeconds >= payload.exp;
+    }
+
+    function refreshAccessToken() {
+        return fetch('/api/auth/refresh', { method: 'POST', credentials: 'same-origin' })
+            .then(function(r) {
+                if (!r.ok) { window.__ACCESS_TOKEN__ = null; return null; }
+                return r.json();
+            })
+            .then(function(data) {
+                if (data && data.access_token) {
+                    window.__ACCESS_TOKEN__ = data.access_token;
+                    return data.access_token;
+                }
+                window.__ACCESS_TOKEN__ = null;
+                return null;
+            })
+            .catch(function() {
+                window.__ACCESS_TOKEN__ = null;
+                return null;
+            });
+    }
+
+    function addAuthHeader(options) {
         options.headers = options.headers || {};
-        if (window.__ACCESS_TOKEN__) {
+        if (window.__ACCESS_TOKEN__ && !isTokenExpired(window.__ACCESS_TOKEN__, 60)) {
             options.headers['Authorization'] = 'Bearer ' + window.__ACCESS_TOKEN__;
         }
-        return fetch(url, options).then(function(r) {
-            if (r.status === 401) {
-                return fetch('/api/auth/refresh', { method: 'POST', credentials: 'same-origin' })
-                    .then(function(refreshR) {
-                        if (!refreshR.ok) { window.location.href = '/webapp/login'; throw new Error('Session expired'); }
-                        return refreshR.json();
-                    })
-                    .then(function(data) {
-                        window.__ACCESS_TOKEN__ = data.access_token;
-                        options.headers['Authorization'] = 'Bearer ' + window.__ACCESS_TOKEN__;
+        return options;
+    }
+
+    window.apiCall = function(url, options) {
+        options = options || {};
+
+        function doFetch() {
+            addAuthHeader(options);
+            return fetch(url, options).then(function(r) {
+                if (r.status === 401) {
+                    return refreshAccessToken().then(function() {
+                        if (!window.__ACCESS_TOKEN__) {
+                            window.location.href = '/webapp/login';
+                            throw new Error('Session expired');
+                        }
+                        addAuthHeader(options);
                         return fetch(url, options);
                     });
+                }
+                return r;
+            });
+        }
+
+        if (isTokenExpired(window.__ACCESS_TOKEN__, 120)) {
+            return refreshAccessToken().then(doFetch);
+        }
+        return doFetch();
+    };
+
+    fetch('/api/auth/refresh', { method: 'POST', credentials: 'same-origin' })
+        .then(function(r) { return r.ok ? r.json() : null; })
+        .then(function(data) {
+            if (data && data.access_token) {
+                window.__ACCESS_TOKEN__ = data.access_token;
             }
-            return r;
-        });
-    }
+        })
+        .catch(function() {});
 })();"#
         .to_string()
 }
