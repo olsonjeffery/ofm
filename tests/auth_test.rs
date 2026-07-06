@@ -150,7 +150,8 @@ async fn test_login_returns_authorization_url() {
         jwks_issuer: None,
     };
     let state = make_app_state(client, user_id, Some(oidc));
-    let auth_layer = AuthLayer::disabled(state.db.clone(), b"test".to_vec(), state.cookie_key.clone());
+    let auth_layer =
+        AuthLayer::disabled(state.db.clone(), b"test".to_vec(), state.cookie_key.clone());
     let app = server::router(state, auth_layer);
     let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
     let addr = listener.local_addr().unwrap();
@@ -174,7 +175,8 @@ async fn test_login_returns_400_when_oidc_disabled() {
     let (client, _tmp) = make_client().await;
     let user_id = db::ensure_default_user(&client).await.unwrap();
     let state = make_app_state(client, user_id, None);
-    let auth_layer = AuthLayer::disabled(state.db.clone(), b"test".to_vec(), state.cookie_key.clone());
+    let auth_layer =
+        AuthLayer::disabled(state.db.clone(), b"test".to_vec(), state.cookie_key.clone());
     let app = server::router(state, auth_layer);
     let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
     let addr = listener.local_addr().unwrap();
@@ -203,7 +205,8 @@ async fn test_callback_rejects_invalid_state() {
         jwks_issuer: None,
     };
     let state = make_app_state(client, user_id, Some(oidc));
-    let auth_layer = AuthLayer::disabled(state.db.clone(), b"test".to_vec(), state.cookie_key.clone());
+    let auth_layer =
+        AuthLayer::disabled(state.db.clone(), b"test".to_vec(), state.cookie_key.clone());
     let app = server::router(state, auth_layer);
     let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
     let addr = listener.local_addr().unwrap();
@@ -668,7 +671,8 @@ async fn test_logout_without_cookie_returns_success() {
         jwks_issuer: None,
     };
     let state = make_app_state(client, user_id, Some(oidc));
-    let auth_layer = AuthLayer::disabled(state.db.clone(), b"test".to_vec(), state.cookie_key.clone());
+    let auth_layer =
+        AuthLayer::disabled(state.db.clone(), b"test".to_vec(), state.cookie_key.clone());
     let app = server::router(state, auth_layer);
     let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
     let addr = listener.local_addr().unwrap();
@@ -774,7 +778,8 @@ async fn test_callback_exchanges_code() {
         jwks_issuer: Some("test-issuer".into()),
     };
     let state = make_app_state(client.clone(), user_id, Some(oidc));
-    let auth_layer = AuthLayer::disabled(state.db.clone(), b"test".to_vec(), state.cookie_key.clone());
+    let auth_layer =
+        AuthLayer::disabled(state.db.clone(), b"test".to_vec(), state.cookie_key.clone());
     let app = server::router(state, auth_layer);
     let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
     let addr = listener.local_addr().unwrap();
@@ -908,7 +913,8 @@ async fn test_refresh_with_session_cookie() {
         pkce_store: Arc::new(Mutex::new(HashMap::new())),
         cookie_key: key.clone(),
     };
-    let auth_layer = AuthLayer::disabled(state.db.clone(), b"test".to_vec(), state.cookie_key.clone());
+    let auth_layer =
+        AuthLayer::disabled(state.db.clone(), b"test".to_vec(), state.cookie_key.clone());
     let app = server::router(state, auth_layer);
     let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
     let addr = listener.local_addr().unwrap();
@@ -941,7 +947,8 @@ async fn test_refresh_without_cookie() {
         jwks_issuer: None,
     };
     let state = make_app_state(client, user_id, Some(oidc));
-    let auth_layer = AuthLayer::disabled(state.db.clone(), b"test".to_vec(), state.cookie_key.clone());
+    let auth_layer =
+        AuthLayer::disabled(state.db.clone(), b"test".to_vec(), state.cookie_key.clone());
     let app = server::router(state, auth_layer);
     let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
     let addr = listener.local_addr().unwrap();
