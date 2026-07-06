@@ -314,7 +314,10 @@ async fn test_generate_api_key() {
     };
     let state = make_app_state(client.clone(), user_id, None);
     // Use deterministic cookie_key matching the pepper
-    let state = AppState { cookie_key, ..state };
+    let state = AppState {
+        cookie_key,
+        ..state
+    };
     let app = server::router(state, auth_layer);
     let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
     let addr = listener.local_addr().unwrap();
