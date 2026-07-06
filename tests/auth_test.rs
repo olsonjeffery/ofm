@@ -3,7 +3,6 @@ use std::sync::Arc;
 
 use axum::routing::post;
 use axum::{Json, Router};
-use base64::Engine;
 use hiqlite::params;
 use jsonwebtoken::{encode, EncodingKey, Header};
 use serde_json::{json, Value};
@@ -692,13 +691,6 @@ async fn test_me_returns_unauthorized_when_no_user_matches_jwt() {
     assert_eq!(resp.status(), 401);
 }
 
-fn make_id_token(sub: &str, username: &str) -> String {
-    let payload = serde_json::json!({ "sub": sub, "preferred_username": username });
-    let b64 = base64::engine::general_purpose::URL_SAFE_NO_PAD
-        .encode(serde_json::to_string(&payload).unwrap());
-    format!("header.{b64}.signature")
-}
-
 fn make_encrypted_cookie(key: &cookie::Key, name: &str, value: &str) -> String {
     let mut jar = cookie::CookieJar::new();
     {
@@ -714,7 +706,18 @@ async fn test_callback_exchanges_code() {
     let (client, _tmp) = make_client().await;
     let user_id = db::ensure_default_user(&client).await.unwrap();
 
-    let id_token = make_id_token("callback-sub", "callbackuser");
+    let (key, kid, cache) = make_jwt_cache();
+    let mut header = Header::new(jsonwebtoken::Algorithm::HS256);
+    header.kid = Some(kid);
+    let id_token_claims = json!({
+        "sub": "callback-sub",
+        "preferred_username": "callbackuser",
+        "iss": "test-issuer",
+        "aud": "test-client",
+        "exp": 9_999_999_999_i64,
+        "iat": 1_000_000_000,
+    });
+    let id_token = encode(&header, &id_token_claims, &EncodingKey::from_secret(&key)).unwrap();
     let mock_app = Router::new().route(
         "/token",
         post(move || {
@@ -740,8 +743,8 @@ async fn test_callback_exchanges_code() {
         client_id: "test-client".into(),
         client_secret: None,
         redirect_uri: "http://localhost:3183/api/auth/callback".into(),
-        jwks_cache: None,
-        jwks_issuer: None,
+        jwks_cache: Some(Arc::new(tokio::sync::RwLock::new(Some(cache)))),
+        jwks_issuer: Some("test-issuer".into()),
     };
     let state = make_app_state(client.clone(), user_id, Some(oidc));
     let auth_layer = AuthLayer::disabled(state.db.clone());
