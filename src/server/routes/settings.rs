@@ -14,9 +14,18 @@ use crate::services::settings::{self, AgentModelSetting};
 
 pub fn settings_router() -> Router<AppState> {
     Router::new()
-        .route("/config-body", get(list_models_handler).post(create_model_handler))
-        .route("/config-body/{id}", put(update_model_handler).delete(delete_model_handler))
-        .route("/agent-models", get(get_agent_models_handler).put(upsert_agent_models_handler))
+        .route(
+            "/config-body",
+            get(list_models_handler).post(create_model_handler),
+        )
+        .route(
+            "/config-body/{id}",
+            put(update_model_handler).delete(delete_model_handler),
+        )
+        .route(
+            "/agent-models",
+            get(get_agent_models_handler).put(upsert_agent_models_handler),
+        )
 }
 
 #[derive(Serialize)]
@@ -51,7 +60,9 @@ async fn list_models_handler(
         .map_err(|e| {
             (
                 StatusCode::INTERNAL_SERVER_ERROR,
-                Json(ErrorResponse { error: e.to_string() }),
+                Json(ErrorResponse {
+                    error: e.to_string(),
+                }),
             )
         })
 }
@@ -62,15 +73,16 @@ async fn create_model_handler(
     Json(body): Json<CreateModelRequest>,
 ) -> Result<(StatusCode, Json<UserModelConfig>), (StatusCode, Json<ErrorResponse>)> {
     let db = &_state.db;
-    settings::create_model_config(db, auth.user_id, &body.name, &body.config_body, &body.harness)
-        .await
-        .map(|cfg| (StatusCode::CREATED, Json(cfg)))
-        .map_err(|e| {
-            (
-                StatusCode::BAD_REQUEST,
-                Json(ErrorResponse { error: e }),
-            )
-        })
+    settings::create_model_config(
+        db,
+        auth.user_id,
+        &body.name,
+        &body.config_body,
+        &body.harness,
+    )
+    .await
+    .map(|cfg| (StatusCode::CREATED, Json(cfg)))
+    .map_err(|e| (StatusCode::BAD_REQUEST, Json(ErrorResponse { error: e })))
 }
 
 async fn update_model_handler(
@@ -80,7 +92,16 @@ async fn update_model_handler(
     Json(body): Json<UpdateModelRequest>,
 ) -> Result<Json<UserModelConfig>, (StatusCode, Json<ErrorResponse>)> {
     let db = &_state.db;
-    match settings::update_model_config(db, auth.user_id, id, &body.name, &body.config_body, &body.harness).await {
+    match settings::update_model_config(
+        db,
+        auth.user_id,
+        id,
+        &body.name,
+        &body.config_body,
+        &body.harness,
+    )
+    .await
+    {
         Ok(Some(cfg)) => Ok(Json(cfg)),
         Ok(None) => Err((
             StatusCode::NOT_FOUND,
@@ -88,10 +109,7 @@ async fn update_model_handler(
                 error: "config not found".into(),
             }),
         )),
-        Err(e) => Err((
-            StatusCode::BAD_REQUEST,
-            Json(ErrorResponse { error: e }),
-        )),
+        Err(e) => Err((StatusCode::BAD_REQUEST, Json(ErrorResponse { error: e }))),
     }
 }
 
@@ -124,7 +142,9 @@ async fn get_agent_models_handler(
         .map_err(|e| {
             (
                 StatusCode::INTERNAL_SERVER_ERROR,
-                Json(ErrorResponse { error: e.to_string() }),
+                Json(ErrorResponse {
+                    error: e.to_string(),
+                }),
             )
         })
 }
@@ -138,10 +158,5 @@ async fn upsert_agent_models_handler(
     settings::upsert_agent_models(db, auth.user_id, models)
         .await
         .map(Json)
-        .map_err(|e| {
-            (
-                StatusCode::BAD_REQUEST,
-                Json(ErrorResponse { error: e }),
-            )
-        })
+        .map_err(|e| (StatusCode::BAD_REQUEST, Json(ErrorResponse { error: e })))
 }

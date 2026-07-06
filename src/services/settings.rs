@@ -84,14 +84,13 @@ pub async fn update_model_config(
         return Ok(None);
     }
 
-    get_model_config(client, id).await.map(Some).map_err(|e| e.to_string())
+    get_model_config(client, id)
+        .await
+        .map(Some)
+        .map_err(|e| e.to_string())
 }
 
-pub async fn delete_model_config(
-    client: &Client,
-    user_id: Uuid,
-    id: Uuid,
-) -> Result<bool, String> {
+pub async fn delete_model_config(client: &Client, user_id: Uuid, id: Uuid) -> Result<bool, String> {
     let rows = client
         .execute(
             "DELETE FROM user_model_configs WHERE id = $1 AND user_id = $2",

@@ -270,7 +270,10 @@ async fn test_settings_config_body_user_isolation() {
     // User A API key
     let (user_a_key, user_a_hash) = {
         let key = "ccui_user_a_isolation_key";
-        (key.to_string(), api_key::hash_api_key(key, b"test_pepper_16"))
+        (
+            key.to_string(),
+            api_key::hash_api_key(key, b"test_pepper_16"),
+        )
     };
     client
         .execute(
@@ -284,7 +287,10 @@ async fn test_settings_config_body_user_isolation() {
     let user_b_id = uuid::Uuid::new_v4();
     let (user_b_key, user_b_hash) = {
         let key = "ccui_user_b_isolation_key";
-        (key.to_string(), api_key::hash_api_key(key, b"test_pepper_16"))
+        (
+            key.to_string(),
+            api_key::hash_api_key(key, b"test_pepper_16"),
+        )
     };
     client
         .execute(
@@ -441,7 +447,10 @@ async fn test_settings_requires_auth() {
 
     // PUT config-body without auth
     let resp = client
-        .put(format!("{base_url}/api/settings/config-body/{}", uuid::Uuid::new_v4()))
+        .put(format!(
+            "{base_url}/api/settings/config-body/{}",
+            uuid::Uuid::new_v4()
+        ))
         .json(&serde_json::json!({"name": "x", "config_body": "key: val"}))
         .send()
         .await
@@ -450,7 +459,10 @@ async fn test_settings_requires_auth() {
 
     // DELETE config-body without auth
     let resp = client
-        .delete(format!("{base_url}/api/settings/config-body/{}", uuid::Uuid::new_v4()))
+        .delete(format!(
+            "{base_url}/api/settings/config-body/{}",
+            uuid::Uuid::new_v4()
+        ))
         .send()
         .await
         .unwrap();

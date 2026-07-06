@@ -68,7 +68,10 @@ mod tests {
 
     #[test]
     fn test_detect_json() {
-        assert_eq!(detect_format(r#"{"key": "value"}"#), Some(ConfigFormat::Json));
+        assert_eq!(
+            detect_format(r#"{"key": "value"}"#),
+            Some(ConfigFormat::Json)
+        );
         assert_eq!(detect_format("null"), Some(ConfigFormat::Json));
         assert_eq!(detect_format("42"), Some(ConfigFormat::Json));
     }
@@ -76,7 +79,10 @@ mod tests {
     #[test]
     fn test_detect_yaml() {
         assert_eq!(detect_format("key: value"), Some(ConfigFormat::Yaml));
-        assert_eq!(detect_format("list:\n  - item1\n  - item2"), Some(ConfigFormat::Yaml));
+        assert_eq!(
+            detect_format("list:\n  - item1\n  - item2"),
+            Some(ConfigFormat::Yaml)
+        );
     }
 
     #[test]
