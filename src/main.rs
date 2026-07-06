@@ -111,7 +111,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         key
     };
 
-    let auth_layer = auth::AuthLayer::new(&cfg, client.clone()).await?;
+    let auth_layer = auth::AuthLayer::new(&cfg, client.clone(), cookie_key.signing().to_vec()).await?;
 
     let oidc_provider = if auth_layer.enabled {
         let issuer_url = cfg.oidc_issuer_url.as_ref().unwrap();
@@ -149,11 +149,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             client_id: cfg.oidc_client_id.clone().unwrap_or_default(),
             client_secret: cfg.oidc_client_secret.clone(),
             redirect_uri,
-            jwks_cache: if auth_layer.enabled {
-                Some(auth_layer.jwks_cache.clone())
-            } else {
-                None
-            },
+            jwks_cache: Some(auth_layer.jwks_cache.clone()),
             jwks_issuer: auth_layer.issuer_url.clone(),
         })
     } else {

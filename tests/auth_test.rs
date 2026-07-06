@@ -120,7 +120,7 @@ fn make_app_state(client: hiqlite::Client, user_id: Uuid, oidc: Option<OidcEndpo
 async fn test_health_check() {
     let (client, _tmp) = make_client().await;
     let user_id = db::ensure_default_user(&client).await.unwrap();
-    let auth_layer = AuthLayer::disabled(client.clone());
+    let auth_layer = AuthLayer::disabled(client.clone(), b"test".to_vec());
     let state = make_app_state(client, user_id, None);
     let app = server::router(state, auth_layer);
     let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
@@ -150,7 +150,7 @@ async fn test_login_returns_authorization_url() {
         jwks_issuer: None,
     };
     let state = make_app_state(client, user_id, Some(oidc));
-    let auth_layer = AuthLayer::disabled(state.db.clone());
+    let auth_layer = AuthLayer::disabled(state.db.clone(), b"test".to_vec());
     let app = server::router(state, auth_layer);
     let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
     let addr = listener.local_addr().unwrap();
@@ -174,7 +174,7 @@ async fn test_login_returns_400_when_oidc_disabled() {
     let (client, _tmp) = make_client().await;
     let user_id = db::ensure_default_user(&client).await.unwrap();
     let state = make_app_state(client, user_id, None);
-    let auth_layer = AuthLayer::disabled(state.db.clone());
+    let auth_layer = AuthLayer::disabled(state.db.clone(), b"test".to_vec());
     let app = server::router(state, auth_layer);
     let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
     let addr = listener.local_addr().unwrap();
@@ -203,7 +203,7 @@ async fn test_callback_rejects_invalid_state() {
         jwks_issuer: None,
     };
     let state = make_app_state(client, user_id, Some(oidc));
-    let auth_layer = AuthLayer::disabled(state.db.clone());
+    let auth_layer = AuthLayer::disabled(state.db.clone(), b"test".to_vec());
     let app = server::router(state, auth_layer);
     let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
     let addr = listener.local_addr().unwrap();
@@ -230,6 +230,7 @@ async fn test_me_returns_401_without_token() {
         jwks_cache: Arc::new(tokio::sync::RwLock::new(None)),
         issuer_url: None,
         client_id: None,
+        pepper: b"test".to_vec(),
     };
     let state = make_app_state(client, user_id, None);
     let app = server::router(state, auth_layer);
@@ -265,6 +266,7 @@ async fn test_me_returns_user() {
         jwks_cache: Arc::new(tokio::sync::RwLock::new(Some(cache))),
         issuer_url: Some("test-issuer".to_string()),
         client_id: Some("test-client".to_string()),
+        pepper: b"test".to_vec(),
     };
     let state = make_app_state(client, user_id, None);
     let app = server::router(state, auth_layer);
@@ -306,6 +308,7 @@ async fn test_generate_api_key() {
         jwks_cache: Arc::new(tokio::sync::RwLock::new(Some(cache))),
         issuer_url: Some("test-issuer".to_string()),
         client_id: Some("test-client".to_string()),
+        pepper: b"test".to_vec(),
     };
     let state = make_app_state(client.clone(), user_id, None);
     let app = server::router(state, auth_layer);
@@ -327,7 +330,7 @@ async fn test_generate_api_key() {
     assert!(api_key.starts_with("ccui_"));
     assert_eq!(api_key.len(), 69);
 
-    let hash = api_key::hash_api_key(api_key);
+    let hash = api_key::hash_api_key(api_key, b"test");
     let mut rows = client
         .query_raw(
             "SELECT api_key_hash FROM users WHERE id = $1",
@@ -353,7 +356,7 @@ async fn test_revoke_api_key() {
         true,
     )
     .await;
-    let existing_hash = api_key::hash_api_key("ccui_some-old-key-12345");
+    let existing_hash = api_key::hash_api_key("ccui_some-old-key-12345", b"test");
     client
         .execute(
             "UPDATE users SET api_key_hash = $1 WHERE id = $2",
@@ -368,6 +371,7 @@ async fn test_revoke_api_key() {
         jwks_cache: Arc::new(tokio::sync::RwLock::new(Some(cache))),
         issuer_url: Some("test-issuer".to_string()),
         client_id: Some("test-client".to_string()),
+        pepper: b"test".to_vec(),
     };
     let state = make_app_state(client.clone(), user_id, None);
     let app = server::router(state, auth_layer);
@@ -401,7 +405,7 @@ async fn test_api_key_auth_accesses_protected_route() {
     let (_key, _kid, cache) = make_jwt_cache();
     let user_id = Uuid::new_v4();
     let api_key_val = "ccui_test-api-key-for-me-endpoint";
-    let hash = api_key::hash_api_key(api_key_val);
+    let hash = api_key::hash_api_key(api_key_val, b"test");
     insert_user(&client, user_id, "apikey-me-user", None, false, true).await;
     client
         .execute(
@@ -417,6 +421,7 @@ async fn test_api_key_auth_accesses_protected_route() {
         jwks_cache: Arc::new(tokio::sync::RwLock::new(Some(cache))),
         issuer_url: Some("test-issuer".to_string()),
         client_id: Some("test-client".to_string()),
+        pepper: b"test".to_vec(),
     };
     let state = make_app_state(client, user_id, None);
     let app = server::router(state, auth_layer);
@@ -466,6 +471,7 @@ async fn test_admin_list_users() {
         jwks_cache: Arc::new(tokio::sync::RwLock::new(Some(cache))),
         issuer_url: Some("test-issuer".to_string()),
         client_id: Some("test-client".to_string()),
+        pepper: b"test".to_vec(),
     };
     let state = make_app_state(client, admin_user_id, None);
     let app = server::router(state, auth_layer);
@@ -508,6 +514,7 @@ async fn test_admin_list_denied_for_non_admin() {
         jwks_cache: Arc::new(tokio::sync::RwLock::new(Some(cache))),
         issuer_url: Some("test-issuer".to_string()),
         client_id: Some("test-client".to_string()),
+        pepper: b"test".to_vec(),
     };
     let state = make_app_state(client, user_id, None);
     let app = server::router(state, auth_layer);
@@ -557,6 +564,7 @@ async fn test_admin_update_user() {
         jwks_cache: Arc::new(tokio::sync::RwLock::new(Some(cache))),
         issuer_url: Some("test-issuer".to_string()),
         client_id: Some("test-client".to_string()),
+        pepper: b"test".to_vec(),
     };
     let state = make_app_state(client.clone(), admin_user_id, None);
     let app = server::router(state, auth_layer);
@@ -609,6 +617,7 @@ async fn test_admin_cannot_self_demote() {
         jwks_cache: Arc::new(tokio::sync::RwLock::new(Some(cache))),
         issuer_url: Some("test-issuer".to_string()),
         client_id: Some("test-client".to_string()),
+        pepper: b"test".to_vec(),
     };
     let state = make_app_state(client, admin_user_id, None);
     let app = server::router(state, auth_layer);
@@ -643,7 +652,7 @@ async fn test_logout_without_cookie_returns_success() {
         jwks_issuer: None,
     };
     let state = make_app_state(client, user_id, Some(oidc));
-    let auth_layer = AuthLayer::disabled(state.db.clone());
+    let auth_layer = AuthLayer::disabled(state.db.clone(), b"test".to_vec());
     let app = server::router(state, auth_layer);
     let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
     let addr = listener.local_addr().unwrap();
@@ -673,6 +682,7 @@ async fn test_me_returns_unauthorized_when_no_user_matches_jwt() {
         jwks_cache: Arc::new(tokio::sync::RwLock::new(Some(cache))),
         issuer_url: Some("test-issuer".to_string()),
         client_id: Some("test-client".to_string()),
+        pepper: b"test".to_vec(),
     };
     let state = make_app_state(client, user_id, None);
     let app = server::router(state, auth_layer);
@@ -747,7 +757,7 @@ async fn test_callback_exchanges_code() {
         jwks_issuer: Some("test-issuer".into()),
     };
     let state = make_app_state(client.clone(), user_id, Some(oidc));
-    let auth_layer = AuthLayer::disabled(state.db.clone());
+    let auth_layer = AuthLayer::disabled(state.db.clone(), b"test".to_vec());
     let app = server::router(state, auth_layer);
     let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
     let addr = listener.local_addr().unwrap();
@@ -881,7 +891,7 @@ async fn test_refresh_with_session_cookie() {
         pkce_store: Arc::new(Mutex::new(HashMap::new())),
         cookie_key: key.clone(),
     };
-    let auth_layer = AuthLayer::disabled(state.db.clone());
+    let auth_layer = AuthLayer::disabled(state.db.clone(), b"test".to_vec());
     let app = server::router(state, auth_layer);
     let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
     let addr = listener.local_addr().unwrap();
@@ -914,7 +924,7 @@ async fn test_refresh_without_cookie() {
         jwks_issuer: None,
     };
     let state = make_app_state(client, user_id, Some(oidc));
-    let auth_layer = AuthLayer::disabled(state.db.clone());
+    let auth_layer = AuthLayer::disabled(state.db.clone(), b"test".to_vec());
     let app = server::router(state, auth_layer);
     let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
     let addr = listener.local_addr().unwrap();
@@ -926,4 +936,140 @@ async fn test_refresh_without_cookie() {
         .await
         .unwrap();
     assert_eq!(resp.status(), 400);
+}
+
+#[tokio::test]
+async fn test_onboarding_with_valid_auth() {
+    let (client, _tmp) = make_client().await;
+    let user_id = Uuid::new_v4();
+    let now = chrono::Utc::now().format("%Y-%m-%d %H:%M:%S").to_string();
+    client
+        .execute(
+            "INSERT INTO users (id, username, oidc_subject, is_admin, is_active, created_at, has_completed_onboarding, is_technical) VALUES ($1, $2, $3, 0, 1, $4, 0, 0)",
+            params!(user_id.to_string(), "onboarduser", "onboard-sub", now),
+        )
+        .await
+        .unwrap();
+
+    let (key, kid, cache) = make_jwt_cache();
+    let token = make_jwt(&key, &kid, "onboard-sub");
+
+    let jwks_cache = Arc::new(tokio::sync::RwLock::new(Some(cache)));
+    let auth_layer = AuthLayer {
+        enabled: true,
+        db: client.clone(),
+        jwks_cache,
+        issuer_url: Some("test-issuer".to_string()),
+        client_id: Some("test-client".to_string()),
+        pepper: b"test".to_vec(),
+    };
+    let state = make_app_state(client, user_id, None);
+    let app = server::router(state, auth_layer);
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let addr = listener.local_addr().unwrap();
+    tokio::spawn(async move { axum::serve(listener, app).await.unwrap() });
+
+    let resp = reqwest::Client::new()
+        .patch(format!("http://{}/api/auth/onboarding", addr))
+        .header("Authorization", format!("Bearer {token}"))
+        .json(&json!({
+            "git_name": "Jane Doe",
+            "git_email": "jane@example.com",
+            "is_technical": true,
+        }))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(resp.status(), 200);
+    let body: Value = resp.json().await.unwrap();
+    assert_eq!(body["success"], true);
+    assert_eq!(body["user"]["git_name"], "Jane Doe");
+    assert_eq!(body["user"]["git_email"], "jane@example.com");
+    assert_eq!(body["user"]["is_technical"], true);
+    assert_eq!(body["user"]["has_completed_onboarding"], true);
+}
+
+#[tokio::test]
+async fn test_onboarding_with_missing_fields_returns_400() {
+    let (client, _tmp) = make_client().await;
+    let user_id = Uuid::new_v4();
+    let now = chrono::Utc::now().format("%Y-%m-%d %H:%M:%S").to_string();
+    client
+        .execute(
+            "INSERT INTO users (id, username, oidc_subject, is_admin, is_active, created_at, has_completed_onboarding, is_technical) VALUES ($1, $2, $3, 0, 1, $4, 0, 0)",
+            params!(user_id.to_string(), "missingfields", "missing-sub", now),
+        )
+        .await
+        .unwrap();
+
+    let (key, kid, cache) = make_jwt_cache();
+    let token = make_jwt(&key, &kid, "missing-sub");
+
+    let auth_layer = AuthLayer {
+        enabled: true,
+        db: client.clone(),
+        jwks_cache: Arc::new(tokio::sync::RwLock::new(Some(cache))),
+        issuer_url: Some("test-issuer".to_string()),
+        client_id: Some("test-client".to_string()),
+        pepper: b"test".to_vec(),
+    };
+    let state = make_app_state(client, user_id, None);
+    let app = server::router(state, auth_layer);
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let addr = listener.local_addr().unwrap();
+    tokio::spawn(async move { axum::serve(listener, app).await.unwrap() });
+
+    // Send empty body
+    let resp = reqwest::Client::new()
+        .patch(format!("http://{}/api/auth/onboarding", addr))
+        .header("Authorization", format!("Bearer {token}"))
+        .json(&json!({}))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(resp.status(), 422, "expected 422 for empty payload");
+
+    // Send partial payload (missing is_technical)
+    let resp = reqwest::Client::new()
+        .patch(format!("http://{}/api/auth/onboarding", addr))
+        .header("Authorization", format!("Bearer {token}"))
+        .json(&json!({
+            "git_name": "Partial",
+            "git_email": "partial@example.com",
+        }))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(resp.status(), 422, "expected 422 for partial payload");
+}
+
+#[tokio::test]
+async fn test_onboarding_without_auth_returns_401() {
+    let (client, _tmp) = make_client().await;
+    let user_id = db::ensure_default_user(&client).await.unwrap();
+    let auth_layer = AuthLayer {
+        enabled: true,
+        db: client.clone(),
+        jwks_cache: Arc::new(tokio::sync::RwLock::new(None)),
+        issuer_url: Some("test-issuer".to_string()),
+        client_id: Some("test-client".to_string()),
+        pepper: b"test".to_vec(),
+    };
+    let state = make_app_state(client, user_id, None);
+    let app = server::router(state, auth_layer);
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let addr = listener.local_addr().unwrap();
+    tokio::spawn(async move { axum::serve(listener, app).await.unwrap() });
+
+    let resp = reqwest::Client::new()
+        .patch(format!("http://{}/api/auth/onboarding", addr))
+        .json(&json!({
+            "git_name": "No Auth",
+            "git_email": "noauth@example.com",
+            "is_technical": false,
+        }))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(resp.status(), 401);
 }

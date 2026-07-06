@@ -9,12 +9,15 @@ pub fn is_api_key_format(token: &str) -> bool {
     token.starts_with(API_KEY_PREFIX)
 }
 
-pub fn hash_api_key(key: &str) -> String {
-    hex::encode(Sha256::digest(key.as_bytes()))
+pub fn hash_api_key(key: &str, pepper: &[u8]) -> String {
+    let mut hasher = Sha256::new();
+    hasher.update(pepper);
+    hasher.update(key.as_bytes());
+    hex::encode(hasher.finalize())
 }
 
-pub async fn verify_api_key(token: &str, db: &hiqlite::Client) -> Result<User, AuthError> {
-    let hash = hash_api_key(token);
+pub async fn verify_api_key(token: &str, db: &hiqlite::Client, pepper: &[u8]) -> Result<User, AuthError> {
+    let hash = hash_api_key(token, pepper);
 
     let user = {
         let mut rows = db
@@ -70,7 +73,7 @@ mod tests {
     async fn test_verify_api_key_lookup_success() {
         let (client, _tmp) = make_client().await;
         let key = "ccui_test-api-key-12345";
-        let hash = hash_api_key(key);
+        let hash = hash_api_key(key, b"test");
 
         let user_id = uuid::Uuid::new_v4();
         client
@@ -89,7 +92,7 @@ mod tests {
             .await
             .unwrap();
 
-        let user = verify_api_key(key, &client).await.unwrap();
+        let user = verify_api_key(key, &client, b"test").await.unwrap();
         assert_eq!(user.id, user_id);
         assert_eq!(user.username, "test-user-key");
         assert_eq!(user.api_key_hash, Some(hash.clone()));
@@ -98,7 +101,7 @@ mod tests {
     #[tokio::test]
     async fn test_verify_api_key_lookup_failure() {
         let (client, _tmp) = make_client().await;
-        let result = verify_api_key("ccui_nonexistent-key", &client).await;
+        let result = verify_api_key("ccui_nonexistent-key", &client, b"test").await;
         assert!(matches!(result, Err(AuthError::InvalidToken)));
     }
 
@@ -106,7 +109,7 @@ mod tests {
     async fn test_api_key_last_used_update() {
         let (client, _tmp) = make_client().await;
         let key = "ccui_test-key-last-used";
-        let hash = hash_api_key(key);
+        let hash = hash_api_key(key, b"test");
 
         let user_id = uuid::Uuid::new_v4();
         client
@@ -125,7 +128,7 @@ mod tests {
             .await
             .unwrap();
 
-        let _user = verify_api_key(key, &client).await.unwrap();
+        let _user = verify_api_key(key, &client, b"test").await.unwrap();
 
         let mut rows = client
             .query_raw(
@@ -150,16 +153,24 @@ mod tests {
     #[test]
     fn test_hash_api_key_deterministic() {
         let key = "ccui_test-key-12345";
-        let hash1 = hash_api_key(key);
-        let hash2 = hash_api_key(key);
+        let hash1 = hash_api_key(key, b"test");
+        let hash2 = hash_api_key(key, b"test");
         assert_eq!(hash1, hash2);
         assert_eq!(hash1.len(), 64);
     }
 
     #[test]
     fn test_hash_api_key_different_keys() {
-        let hash1 = hash_api_key("ccui_key_one");
-        let hash2 = hash_api_key("ccui_key_two");
+        let hash1 = hash_api_key("ccui_key_one", b"test");
+        let hash2 = hash_api_key("ccui_key_two", b"test");
+        assert_ne!(hash1, hash2);
+    }
+
+    #[test]
+    fn test_hash_api_key_different_pepper() {
+        let key = "ccui_test-key";
+        let hash1 = hash_api_key(key, b"pepper-a");
+        let hash2 = hash_api_key(key, b"pepper-b");
         assert_ne!(hash1, hash2);
     }
 }
