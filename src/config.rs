@@ -15,6 +15,9 @@ pub struct OmprintConfig {
     pub hiqlite_api_port: u16,
 }
 
+const OMPRINT_OIDC_ISSUER_URL: &str = "OMPRINT_OIDC_ISSUER_URL";
+const OMPRINT_OIDC_CLIENT_ID: &str = "OMPRINT_OIDC_CLIENT_ID";
+
 impl OmprintConfig {
     pub fn auth_enabled(&self) -> bool {
         self.oidc_issuer_url.is_some()
@@ -56,8 +59,8 @@ impl OmprintConfig {
             config_root: format!("{footprint}/config"),
             footprint,
             api_key,
-            oidc_issuer_url: std::env::var("OIDC_ISSUER_URL").ok(),
-            oidc_client_id: std::env::var("OIDC_CLIENT_ID").ok(),
+            oidc_issuer_url: std::env::var(OMPRINT_OIDC_ISSUER_URL).ok(),
+            oidc_client_id: std::env::var(OMPRINT_OIDC_CLIENT_ID).ok(),
             oidc_client_secret: std::env::var("OIDC_CLIENT_SECRET").ok(),
             base_url,
             oidc_redirect_uri: redirect_uri,
