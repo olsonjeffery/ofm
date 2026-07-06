@@ -50,6 +50,7 @@ async fn make_state_with_auth() -> (AppState, AuthLayer, String, tempfile::TempD
         issuer_url: None,
         client_id: None,
         pepper: b"test_pepper_16".to_vec(),
+        cookie_key: cookie::Key::generate(),
     };
 
     let state = AppState {
@@ -85,7 +86,7 @@ async fn make_state_no_auth() -> (AppState, AuthLayer, tempfile::TempDir) {
     client.wait_until_healthy_db().await;
     db::run_migrations(&client).await.unwrap();
     let user_id = db::ensure_default_user(&client).await.unwrap();
-    let auth_layer = AuthLayer::disabled(client.clone(), b"test".to_vec());
+    let auth_layer = AuthLayer::disabled(client.clone(), b"test".to_vec(), cookie::Key::generate());
     let state = AppState {
         db: client,
         default_user_id: user_id,
@@ -312,6 +313,7 @@ async fn test_settings_config_body_user_isolation() {
         issuer_url: None,
         client_id: None,
         pepper: b"test_pepper_16".to_vec(),
+        cookie_key: cookie::Key::generate(),
     };
 
     let state = AppState {
