@@ -264,14 +264,14 @@ where
 
         Box::pin(async move {
             let Some(token) = extract_bearer_token(request.headers()).map(|s| s.to_string()) else {
-                return Ok(unauthorized_response());
+                return Ok(AuthRejection::Unauthorized.into_response());
             };
 
             match layer.authenticate(&token).await {
                 Ok((user, method)) => {
                     let session = Session::new(user, method);
                     if !session::validate_session(&session) {
-                        return Ok(unauthorized_response());
+                        return Ok(AuthRejection::Unauthorized.into_response());
                     }
                     let auth_user = AuthUser {
                         user_id: session.user.id,
@@ -287,7 +287,7 @@ where
                 }
                 Err(e) => {
                     tracing::debug!("Authentication failed: {e}");
-                    Ok(unauthorized_response())
+                    Ok(AuthRejection::Unauthorized.into_response())
                 }
             }
         })
@@ -298,14 +298,6 @@ fn extract_bearer_token(headers: &HeaderMap) -> Option<&str> {
     let auth_header = headers.get(AUTHORIZATION)?;
     let auth_str = auth_header.to_str().ok()?;
     auth_str.strip_prefix("Bearer ")
-}
-
-fn unauthorized_response() -> Response {
-    (
-        StatusCode::UNAUTHORIZED,
-        Json(json!({ "error": "unauthorized" })),
-    )
-        .into_response()
 }
 
 fn map_verify_error(e: VerifyError) -> AuthError {

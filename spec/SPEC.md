@@ -83,6 +83,19 @@ dependency (**NOTE:** this does not apply to `omp` itself)
 
 ## Details on the `omprint` server implementation
 
+- **Data footprint**: All omprint data (database, archive, config, and dependencies'
+  data) lives under `OMPRINT_FOOTPRINT` (default `~/.omprint`). Fixed sub-directories:
+
+  | Sub-path | Purpose |
+  |---|---|
+  | `{footprint}/hiqlite/` | hiqlite embedded database files |
+  | `{footprint}/archive/` | Tasks, projects, recordings, and other text files |
+  | `{footprint}/config/` | Cookie key, provider configs (`models.yml` etc.) |
+  | `{footprint}/rauthy/` | Rauthy persistent state (when self-hosted) |
+
+  The env vars `OMPRINT_DB_PATH`, `OMPRINT_ARCHIVE_ROOT`, and `OMPRINT_CONFIG` are
+  eliminated in favor of deriving these paths from `OMPRINT_FOOTPRINT`.
+
 - On startup, `omprint` will begin listening on the configured `OMPRINT_HOSTNAME` +
 `PORT`
 - Requests to `/` or `/webapp` are for the `omprint` web application
