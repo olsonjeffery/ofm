@@ -133,7 +133,12 @@ async fn generate_api_key_handler(
     State(state): State<AppState>,
     auth: AuthUser,
 ) -> Result<Json<serde_json::Value>, ServerError> {
-    let api_key = crate::services::auth::generate_api_key(&state.db, auth.user_id, state.cookie_key.signing()).await?;
+    let api_key = crate::services::auth::generate_api_key(
+        &state.db,
+        auth.user_id,
+        state.cookie_key.signing(),
+    )
+    .await?;
     Ok(Json(json!({ "api_key": api_key })))
 }
 
@@ -150,7 +155,11 @@ async fn onboarding_handler(
     Json(body): Json<OnboardingRequest>,
 ) -> Result<Json<serde_json::Value>, ServerError> {
     let user = crate::services::auth::complete_onboarding(
-        &state.db, auth.user_id, body.git_name, body.git_email, body.is_technical,
+        &state.db,
+        auth.user_id,
+        body.git_name,
+        body.git_email,
+        body.is_technical,
     )
     .await?;
     Ok(Json(json!({

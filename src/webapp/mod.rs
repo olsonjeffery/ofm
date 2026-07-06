@@ -63,13 +63,10 @@ async fn callback_handler(
         None => return redirect_to_login(),
     };
 
-    let access_token = match &state.oidc_provider {
-        Some(oidc) => {
-            match crate::services::auth::refresh_access_token(&state.db, oidc, session_id).await {
-                Ok(token) => token,
-                Err(_) => String::new(),
-            }
-        }
+    let access_token: String = match &state.oidc_provider {
+        Some(oidc) => crate::services::auth::refresh_access_token(&state.db, oidc, session_id)
+            .await
+            .unwrap_or_default(),
         None => String::new(),
     };
 
@@ -118,6 +115,9 @@ async fn uptime_handler() -> Html<String> {
 
 async fn infocard_handler(Query(params): Query<HashMap<String, String>>) -> Html<String> {
     let title = params.get("title").map(|s| s.as_str()).unwrap_or("Info");
-    let body = params.get("body").map(|s| s.as_str()).unwrap_or("No content.");
+    let body = params
+        .get("body")
+        .map(|s| s.as_str())
+        .unwrap_or("No content.");
     Html(islands::infocard::render_infocard(title, body))
 }

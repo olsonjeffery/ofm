@@ -130,9 +130,7 @@ pub async fn handle_callback(
 
     let (sub, username) = {
         let id_token = id_token.as_ref().ok_or_else(|| {
-            ServerError::Internal(
-                "No id_token returned from provider; cannot authenticate".into(),
-            )
+            ServerError::Internal("No id_token returned from provider; cannot authenticate".into())
         })?;
 
         let jwks_cache = oidc.jwks_cache.as_ref().ok_or_else(|| {
@@ -155,7 +153,9 @@ pub async fn handle_callback(
         let username = {
             let payload = decode_jwt_payload(id_token)
                 .map_err(|e| ServerError::Internal(format!("invalid id_token: {e}")))?;
-            payload["preferred_username"].as_str().map(|s| s.to_string())
+            payload["preferred_username"]
+                .as_str()
+                .map(|s| s.to_string())
         };
 
         (claims.sub, username)
@@ -340,7 +340,11 @@ pub async fn current_user(db: &hiqlite::Client, user_id: Uuid) -> Result<User, S
     Ok(user)
 }
 
-pub async fn generate_api_key(db: &hiqlite::Client, user_id: Uuid, pepper: &[u8]) -> Result<String, ServerError> {
+pub async fn generate_api_key(
+    db: &hiqlite::Client,
+    user_id: Uuid,
+    pepper: &[u8],
+) -> Result<String, ServerError> {
     let api_key = generate_api_key_value();
     let hash = api_key::hash_api_key(&api_key, pepper);
     db.execute(
@@ -779,9 +783,15 @@ mod tests {
             .await
             .unwrap();
 
-        let user = complete_onboarding(&client, user_id, "Jane Doe".into(), "jane@example.com".into(), true)
-            .await
-            .unwrap();
+        let user = complete_onboarding(
+            &client,
+            user_id,
+            "Jane Doe".into(),
+            "jane@example.com".into(),
+            true,
+        )
+        .await
+        .unwrap();
 
         assert_eq!(user.git_name, Some("Jane Doe".into()));
         assert_eq!(user.git_email, Some("jane@example.com".into()));

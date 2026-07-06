@@ -111,7 +111,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         key
     };
 
-    let auth_layer = auth::AuthLayer::new(&cfg, client.clone(), cookie_key.signing().to_vec()).await?;
+    let auth_layer =
+        auth::AuthLayer::new(&cfg, client.clone(), cookie_key.signing().to_vec()).await?;
 
     let oidc_provider = if auth_layer.enabled {
         let issuer_url = cfg.oidc_issuer_url.as_ref().unwrap();

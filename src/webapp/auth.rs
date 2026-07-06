@@ -12,7 +12,10 @@ use uuid::Uuid;
 use crate::auth::AuthUser;
 use crate::db::schema::SessionDb;
 
-fn lookup_session(db: &hiqlite::Client, session_id: Uuid) -> impl Future<Output = Option<SessionDb>> {
+fn lookup_session(
+    db: &hiqlite::Client,
+    session_id: Uuid,
+) -> impl Future<Output = Option<SessionDb>> {
     let db = db.clone();
     async move {
         let mut rows = db
@@ -27,7 +30,10 @@ fn lookup_session(db: &hiqlite::Client, session_id: Uuid) -> impl Future<Output 
     }
 }
 
-fn lookup_user_active(db: &hiqlite::Client, user_id: Uuid) -> impl Future<Output = Option<AuthUser>> {
+fn lookup_user_active(
+    db: &hiqlite::Client,
+    user_id: Uuid,
+) -> impl Future<Output = Option<AuthUser>> {
     let db = db.clone();
     async move {
         let mut rows = db
@@ -146,11 +152,7 @@ where
 }
 
 fn redirect_to_login() -> Response {
-    (
-        StatusCode::FOUND,
-        [("Location", "/webapp/login")],
-    )
-        .into_response()
+    (StatusCode::FOUND, [("Location", "/webapp/login")]).into_response()
 }
 
 fn extract_session_from_cookies(headers: &axum::http::HeaderMap, key: &Key) -> Option<Uuid> {
@@ -161,9 +163,10 @@ fn extract_session_from_cookies(headers: &axum::http::HeaderMap, key: &Key) -> O
     for pair in cookie_str.split(';') {
         let pair = pair.trim();
         if let Some((name, value)) = pair.split_once('=') {
-            jar.add_original(
-                cookie::Cookie::new(name.trim().to_owned(), value.trim().to_owned()),
-            );
+            jar.add_original(cookie::Cookie::new(
+                name.trim().to_owned(),
+                value.trim().to_owned(),
+            ));
         }
     }
 

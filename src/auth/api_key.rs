@@ -16,7 +16,11 @@ pub fn hash_api_key(key: &str, pepper: &[u8]) -> String {
     hex::encode(hasher.finalize())
 }
 
-pub async fn verify_api_key(token: &str, db: &hiqlite::Client, pepper: &[u8]) -> Result<User, AuthError> {
+pub async fn verify_api_key(
+    token: &str,
+    db: &hiqlite::Client,
+    pepper: &[u8],
+) -> Result<User, AuthError> {
     let hash = hash_api_key(token, pepper);
 
     let user = {
