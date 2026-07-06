@@ -5,9 +5,15 @@ use crate::webapp::components::api_key_manager::ApiKeyManager;
 use crate::webapp::components::config_body_editor::ConfigBodyEditor;
 
 #[component]
-pub fn SettingsPage() -> impl IntoView {
+pub fn SettingsPage(access_token: String) -> impl IntoView {
     view! {
         <main>
+            <script>
+                {format!(
+                    "window.__ACCESS_TOKEN__ = '{}';",
+                    access_token.replace('\'', "\\'"),
+                )}
+            </script>
             <div class="settings-page">
                 <h2>"Settings"</h2>
                 <div class="tabs">
