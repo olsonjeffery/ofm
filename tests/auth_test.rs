@@ -293,6 +293,8 @@ async fn test_generate_api_key() {
     let (client, _tmp) = make_client().await;
     let (key, kid, cache) = make_jwt_cache();
     let user_id = Uuid::new_v4();
+    let cookie_key = cookie::Key::from(&[0u8; 64]);
+    let pepper = cookie_key.signing().to_vec();
     insert_user(
         &client,
         user_id,
@@ -308,9 +310,11 @@ async fn test_generate_api_key() {
         jwks_cache: Arc::new(tokio::sync::RwLock::new(Some(cache))),
         issuer_url: Some("test-issuer".to_string()),
         client_id: Some("test-client".to_string()),
-        pepper: b"test".to_vec(),
+        pepper: pepper.clone(),
     };
     let state = make_app_state(client.clone(), user_id, None);
+    // Use deterministic cookie_key matching the pepper
+    let state = AppState { cookie_key: cookie_key, ..state };
     let app = server::router(state, auth_layer);
     let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
     let addr = listener.local_addr().unwrap();
@@ -330,7 +334,7 @@ async fn test_generate_api_key() {
     assert!(api_key.starts_with("ccui_"));
     assert_eq!(api_key.len(), 69);
 
-    let hash = api_key::hash_api_key(api_key, b"test");
+    let hash = api_key::hash_api_key(api_key, &pepper);
     let mut rows = client
         .query_raw(
             "SELECT api_key_hash FROM users WHERE id = $1",
