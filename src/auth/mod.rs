@@ -95,22 +95,25 @@ pub struct AuthLayer {
     pub jwks_cache: Arc<RwLock<Option<JwksCache>>>,
     pub issuer_url: Option<String>,
     pub client_id: Option<String>,
+    pub pepper: Vec<u8>,
 }
 
 impl AuthLayer {
-    pub fn disabled(db: hiqlite::Client) -> Self {
+    pub fn disabled(db: hiqlite::Client, pepper: Vec<u8>) -> Self {
         Self {
             enabled: false,
             db,
             jwks_cache: Arc::new(RwLock::new(None)),
             issuer_url: None,
             client_id: None,
+            pepper,
         }
     }
 
     pub async fn new(
         cfg: &OmprintConfig,
         db: hiqlite::Client,
+        pepper: Vec<u8>,
     ) -> Result<Self, Box<dyn std::error::Error>> {
         if cfg.auth_enabled() {
             let issuer_url = cfg.oidc_issuer_url.as_ref().unwrap();
@@ -142,15 +145,10 @@ impl AuthLayer {
                 jwks_cache: cache,
                 issuer_url: Some(issuer_url.clone()),
                 client_id: Some(client_id),
+                pepper,
             })
         } else {
-            Ok(Self {
-                enabled: false,
-                db,
-                jwks_cache: Arc::new(RwLock::new(None)),
-                issuer_url: None,
-                client_id: None,
-            })
+            Ok(Self::disabled(db, pepper))
         }
     }
 
@@ -172,9 +170,20 @@ impl AuthLayer {
         Ok(user)
     }
 
+    async fn resolve_user_from_claims(
+        db: &hiqlite::Client,
+        claims: crate::auth::jwks::Claims,
+    ) -> Result<(User, AuthMethod), AuthError> {
+        let user = Self::resolve_user_by_oidc_subject(db, &claims.sub).await?;
+        if !user.is_active {
+            return Err(AuthError::InvalidToken);
+        }
+        Ok((user, AuthMethod::Jwt(claims.sub)))
+    }
+
     async fn authenticate(&self, token: &str) -> Result<(User, AuthMethod), AuthError> {
         if api_key::is_api_key_format(token) {
-            let user = api_key::verify_api_key(token, &self.db).await?;
+            let user = api_key::verify_api_key(token, &self.db, &self.pepper).await?;
             if !user.is_active {
                 return Err(AuthError::InvalidToken);
             }
@@ -186,13 +195,7 @@ impl AuthLayer {
                 .ok_or(AuthError::JwksFetchError("JWKS not initialized".into()))?;
 
             match verify_token(token, cache) {
-                Ok(claims) => {
-                    let user = Self::resolve_user_by_oidc_subject(&self.db, &claims.sub).await?;
-                    if !user.is_active {
-                        return Err(AuthError::InvalidToken);
-                    }
-                    Ok((user, AuthMethod::Jwt(claims.sub)))
-                }
+                Ok(claims) => Self::resolve_user_from_claims(&self.db, claims).await,
                 Err(VerifyError::UnknownKid) => {
                     drop(cache_guard);
                     let Some(issuer_url) = &self.issuer_url else {
@@ -212,11 +215,7 @@ impl AuthLayer {
                         "JWKS still uninitialized after refresh".into(),
                     ))?;
                     let claims = verify_token(token, cache).map_err(map_verify_error)?;
-                    let user = Self::resolve_user_by_oidc_subject(&self.db, &claims.sub).await?;
-                    if !user.is_active {
-                        return Err(AuthError::InvalidToken);
-                    }
-                    Ok((user, AuthMethod::Jwt(claims.sub)))
+                    Self::resolve_user_from_claims(&self.db, claims).await
                 }
                 Err(e) => Err(map_verify_error(e)),
             }
@@ -345,7 +344,7 @@ mod tests {
     #[tokio::test]
     async fn test_auth_layer_disabled_passes_through() {
         let (client, _tmp) = make_client().await;
-        let auth_layer = AuthLayer::disabled(client);
+        let auth_layer = AuthLayer::disabled(client, b"test".to_vec());
 
         let app = Router::new()
             .route("/", get(|| async { "ok" }))
@@ -366,6 +365,7 @@ mod tests {
             jwks_cache: Arc::new(RwLock::new(None)),
             issuer_url: Some("http://localhost".into()),
             client_id: Some("test-client".into()),
+            pepper: b"test".to_vec(),
         };
 
         let app = Router::new()
@@ -408,6 +408,7 @@ mod tests {
             jwks_cache,
             issuer_url: Some("test-issuer".to_string()),
             client_id: Some("test-client".to_string()),
+            pepper: b"test".to_vec(),
         };
 
         let user_id = Uuid::new_v4();
@@ -486,6 +487,7 @@ mod tests {
             jwks_cache,
             issuer_url: Some("test-issuer".to_string()),
             client_id: Some("test-client".to_string()),
+            pepper: b"test".to_vec(),
         };
 
         let claims = crate::auth::jwks::Claims {
@@ -518,7 +520,7 @@ mod tests {
         let (client, _tmp) = make_client().await;
 
         let api_key = "ccui_test-api-key-for-middleware";
-        let hash = crate::auth::api_key::hash_api_key(api_key);
+        let hash = crate::auth::api_key::hash_api_key(api_key, b"test");
 
         let user_id = Uuid::new_v4();
         client
@@ -544,6 +546,7 @@ mod tests {
             jwks_cache: Arc::new(RwLock::new(None)),
             issuer_url: None,
             client_id: None,
+            pepper: b"test".to_vec(),
         };
 
         async fn auth_handler(auth: AuthUser) -> impl axum::response::IntoResponse {
