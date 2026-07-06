@@ -7,6 +7,7 @@ use axum::http::{header, Request, StatusCode};
 use axum::response::{IntoResponse, Response};
 use cookie::Key;
 use tower::{Layer, Service};
+use tracing::warn;
 use uuid::Uuid;
 
 use crate::auth::AuthUser;
@@ -125,22 +126,38 @@ where
         Box::pin(async move {
             let session_id = match extract_session_from_cookies(request.headers(), &cookie_key) {
                 Some(id) => id,
-                None => return Ok(redirect_to_login()),
+                None => {
+                    warn!("WebappAuth: no valid session cookie found in request");
+                    return Ok(redirect_to_login());
+                }
             };
 
             let session = match lookup_session(&db, session_id).await {
                 Some(s) => s,
-                None => return Ok(redirect_to_login()),
+                None => {
+                    warn!("WebappAuth: session {session_id} not found in DB");
+                    return Ok(redirect_to_login());
+                }
             };
 
             let now = chrono::Utc::now().format("%Y-%m-%d %H:%M:%S").to_string();
             if session.expires_at < now {
+                warn!(
+                    "WebappAuth: session {session_id} expired (expires_at={}, now={})",
+                    session.expires_at, now
+                );
                 return Ok(redirect_to_login());
             }
 
             let auth_user = match lookup_user_active(&db, session.user_id).await {
                 Some(u) => u,
-                None => return Ok(redirect_to_login()),
+                None => {
+                    warn!(
+                        "WebappAuth: user {} for session {session_id} not found or inactive",
+                        session.user_id
+                    );
+                    return Ok(redirect_to_login());
+                }
             };
 
             let (mut parts, body) = request.into_parts();
@@ -171,7 +188,16 @@ fn extract_session_from_cookies(headers: &axum::http::HeaderMap, key: &Key) -> O
     }
 
     let private = jar.private(key);
-    let session_cookie = private.get("omprint_session")?;
+    let session_cookie = match private.get("omprint_session") {
+        Some(c) => c,
+        None => {
+            warn!("extract_session_from_cookies: failed to decrypt omprint_session cookie. Keys match?");
+            for c in jar.iter() {
+                warn!("  cookie present: name={}", c.name());
+            }
+            return None;
+        }
+    };
     Uuid::parse_str(session_cookie.value()).ok()
 }
 
