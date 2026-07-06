@@ -287,7 +287,9 @@ where
                         return inner.call(request).await;
                     }
                     Err(e) => {
-                        tracing::debug!("Bearer token authentication failed, trying session cookie: {e}");
+                        tracing::debug!(
+                            "Bearer token authentication failed, trying session cookie: {e}"
+                        );
                     }
                 }
             }
