@@ -2,8 +2,8 @@ use std::path::Path;
 use std::time::Duration;
 
 use omprint::providers::omp_provider::OmpProvider;
-use tempfile::TempDir;
 use omprint::providers::{HarnessConfig, LlmProvider};
+use tempfile::TempDir;
 
 fn has_binary(name: &str) -> bool {
     std::process::Command::new("which")

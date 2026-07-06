@@ -65,10 +65,7 @@ mod tests {
     #[test]
     fn test_get_archive_root_env_set() {
         with_footprint("/custom/omprint", || {
-            assert_eq!(
-                get_archive_root(),
-                PathBuf::from("/custom/omprint/archive")
-            );
+            assert_eq!(get_archive_root(), PathBuf::from("/custom/omprint/archive"));
         });
     }
 
@@ -79,10 +76,7 @@ mod tests {
         env::remove_var("OMPRINT_FOOTPRINT");
         let home = env::var("HOME").unwrap();
         let result = get_archive_root();
-        assert_eq!(
-            result,
-            PathBuf::from(format!("{}/.omprint/archive", home))
-        );
+        assert_eq!(result, PathBuf::from(format!("{}/.omprint/archive", home)));
         if let Some(val) = previous {
             env::set_var("OMPRINT_FOOTPRINT", val);
         }
