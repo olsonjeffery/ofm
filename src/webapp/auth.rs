@@ -173,17 +173,13 @@ fn redirect_to_login() -> Response {
 }
 
 fn extract_session_from_cookies(headers: &axum::http::HeaderMap, key: &Key) -> Option<Uuid> {
-    let cookie_header = headers.get(header::COOKIE)?;
-    let cookie_str = cookie_header.to_str().ok()?;
-
     let mut jar = cookie::CookieJar::new();
-    for pair in cookie_str.split(';') {
-        let pair = pair.trim();
-        if let Some((name, value)) = pair.split_once('=') {
-            jar.add_original(cookie::Cookie::new(
-                name.trim().to_owned(),
-                value.trim().to_owned(),
-            ));
+    for header in headers.get_all(header::COOKIE) {
+        let s = header.to_str().ok()?;
+        for part in s.split(';') {
+            if let Ok(c) = cookie::Cookie::parse_encoded(part.to_owned()) {
+                jar.add_original(c);
+            }
         }
     }
 
@@ -191,7 +187,7 @@ fn extract_session_from_cookies(headers: &axum::http::HeaderMap, key: &Key) -> O
     let session_cookie = match private.get("omprint_session") {
         Some(c) => c,
         None => {
-            warn!("extract_session_from_cookies: failed to decrypt omprint_session cookie. Keys match?");
+            warn!("extract_session_from_cookies: failed to decrypt omprint_session cookie");
             for c in jar.iter() {
                 warn!("  cookie present: name={}", c.name());
             }
