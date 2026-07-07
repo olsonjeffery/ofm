@@ -73,7 +73,11 @@ async fn callback(
             .build(),
     );
 
-    let location = format!("/webapp/callback?new_user={}", result.new_user);
+    let location = if result.new_user {
+        "/webapp/callback".to_string()
+    } else {
+        "/webapp/".to_string()
+    };
     Ok((jar, (StatusCode::FOUND, [("Location", location)])))
 }
 

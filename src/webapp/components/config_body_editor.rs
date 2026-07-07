@@ -12,14 +12,16 @@ pub fn ConfigBodyEditor() -> impl IntoView {
                 <h3 class="title is-5">"Add New Configuration"</h3>
                 <div class="field">
                     <label class="label" for="new-config-name">"Name"</label>
-                    <div class="control">
+                    <div class="control has-icons-left">
                         <input class="input" type="text" id="new-config-name" placeholder="e.g. my-model-config"/>
+                        <span class="icon is-left is-small"><i class="mdi mdi-tag"></i></span>
                     </div>
                 </div>
                 <div class="field">
                     <label class="label" for="new-config-harness">"Harness"</label>
-                    <div class="control">
+                    <div class="control has-icons-left">
                         <input class="input" type="text" id="new-config-harness" placeholder="e.g. openai"/>
+                        <span class="icon is-left is-small"><i class="mdi mdi-toolbox"></i></span>
                     </div>
                 </div>
                 <div class="field">
@@ -28,7 +30,10 @@ pub fn ConfigBodyEditor() -> impl IntoView {
                         <textarea class="textarea" id="new-config-body" rows="8" placeholder="Paste YAML or JSON configuration here..."></textarea>
                     </div>
                 </div>
-                <button class="button is-primary" id="btn-add-config">"Add Configuration"</button>
+                <button class="button is-primary" id="btn-add-config">
+                    <span class="icon is-small"><i class="mdi mdi-plus"></i></span>
+                    <span>"Add Configuration"</span>
+                </button>
             </div>
         </div>
     }

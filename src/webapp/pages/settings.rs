@@ -7,36 +7,53 @@ use crate::webapp::components::config_body_editor::ConfigBodyEditor;
 #[component]
 pub fn SettingsPage(access_token: String) -> impl IntoView {
     view! {
-        <main>
-            <script>
-                {format!(
-                    "window.__ACCESS_TOKEN__ = '{}';",
-                    access_token.replace('\'', "\\'"),
-                )}
-            </script>
-            <div class="section">
-                <h2 class="title is-3">"Settings"</h2>
-                <div class="tabs is-boxed">
-                    <ul>
-                        <li class="is-active" data-tab="config-body"><a>"Model Configurations"</a></li>
-                        <li data-tab="agent-models"><a>"Agent Settings"</a></li>
-                        <li data-tab="api-keys"><a>"API Keys"</a></li>
-                    </ul>
+        <div class="section">
+            <h2 class="title is-3">
+                <span class="icon is-medium"><i class="mdi mdi-cog-outline"></i></span>
+                " Settings"
+            </h2>
+            <div class="tabs is-boxed is-medium">
+                <ul>
+                    <li class="is-active" data-tab="config-body">
+                        <a>
+                            <span class="icon is-small"><i class="mdi mdi-cog-outline"></i></span>
+                            <span>"Model Configurations"</span>
+                        </a>
+                    </li>
+                    <li data-tab="agent-models">
+                        <a>
+                            <span class="icon is-small"><i class="mdi mdi-robot"></i></span>
+                            <span>"Agent Settings"</span>
+                        </a>
+                    </li>
+                    <li data-tab="api-keys">
+                        <a>
+                            <span class="icon is-small"><i class="mdi mdi-key-variant"></i></span>
+                            <span>"API Keys"</span>
+                        </a>
+                    </li>
+                </ul>
+            </div>
+            <div class="tab-content" id="tab-content">
+                <div id="tab-config-body" class="tab-pane box">
+                    <ConfigBodyEditor/>
                 </div>
-                <div class="tab-content" id="tab-content">
-                    <div id="tab-config-body" class="tab-pane active">
-                        <ConfigBodyEditor/>
-                    </div>
-                    <div id="tab-agent-models" class="tab-pane">
-                        <AgentModelSelect/>
-                    </div>
-                    <div id="tab-api-keys" class="tab-pane">
-                        <ApiKeyManager/>
-                    </div>
+                <div id="tab-agent-models" class="tab-pane box" style="display:none">
+                    <AgentModelSelect/>
+                </div>
+                <div id="tab-api-keys" class="tab-pane box" style="display:none">
+                    <ApiKeyManager/>
                 </div>
             </div>
-            <script>
-                {r#"
+        </div>
+        <script>
+            {format!(
+                "window.__ACCESS_TOKEN__ = '{}';",
+                access_token.replace('\'', "\\'"),
+            )}
+        </script>
+        <script>
+            {r#"
 document.addEventListener('DOMContentLoaded', function() {
     var tabs = document.querySelectorAll('.tabs li');
     var panes = {
@@ -56,18 +73,8 @@ document.addEventListener('DOMContentLoaded', function() {
         });
     });
 
-    // Show first tab by default
-    Object.keys(panes).forEach(function(k) {
-        panes[k].style.display = (k === 'config-body') ? 'block' : 'none';
-    });
-
-    // Load config-body list
     loadConfigList();
-
-    // Load agent models
     loadAgentModels();
-
-    // Check API key status
     checkApiKey();
 });
 
@@ -86,8 +93,8 @@ function loadConfigList() {
                 html += '<tr>';
                 html += '<td>' + escapeHtml(cfg.name) + '</td>';
                 html += '<td>' + escapeHtml(cfg.harness) + '</td>';
-                html += '<td><button class="button is-small" onclick="editConfig(\'' + cfg.id + '\')">Edit</button> ';
-                html += '<button class="button is-small is-danger" onclick="deleteConfig(\'' + cfg.id + '\')">Delete</button></td>';
+                html += '<td><button class="button is-small" onclick="editConfig(\'' + cfg.id + '\')"><span class="icon is-small"><i class="mdi mdi-pencil"></i></span><span>Edit</span></button> ';
+                html += '<button class="button is-small is-danger" onclick="deleteConfig(\'' + cfg.id + '\')"><span class="icon is-small"><i class="mdi mdi-delete"></i></span><span>Delete</span></button></td>';
                 html += '</tr>';
             });
             html += '</tbody></table>';
@@ -236,8 +243,6 @@ function checkApiKey() {
     var empty = document.getElementById('api-key-empty');
     var generateBtn = document.getElementById('btn-generate-key');
     var revokeBtn = document.getElementById('btn-revoke-key');
-    // We check by trying to get current key status from the auth endpoint
-    // For simplicity, start with generate-only mode
 }
 
 document.addEventListener('DOMContentLoaded', function() {
@@ -294,8 +299,7 @@ document.addEventListener('DOMContentLoaded', function() {
         });
     }
 });
-                "#}
-            </script>
-        </main>
+            "#}
+        </script>
     }
 }
