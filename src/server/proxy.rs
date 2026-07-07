@@ -15,15 +15,11 @@ pub fn rauthy_proxy_router() -> Router<AppState> {
     Router::new().fallback(proxy_handler)
 }
 
-async fn proxy_handler(
-    State(state): State<AppState>,
-    req: Request<Body>,
-) -> Response {
+async fn proxy_handler(State(state): State<AppState>, req: Request<Body>) -> Response {
     let base_url = match &state.rauthy_base_url {
         Some(url) => url.clone(),
         None => {
-            return (StatusCode::SERVICE_UNAVAILABLE, "rauthy not configured")
-                .into_response();
+            return (StatusCode::SERVICE_UNAVAILABLE, "rauthy not configured").into_response();
         }
     };
 

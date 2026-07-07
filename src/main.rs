@@ -151,10 +151,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 .map_err(|e| Box::new(std::io::Error::other(e.to_string())))?
         };
 
-        tracing::info!(
-            "Starting embedded rauthy on port {} (proxied at /auth)",
-            rp
-        );
+        tracing::info!("Starting embedded rauthy on port {} (proxied at /auth)", rp);
         let instance = rauthy::start_rauthy(&cfg.footprint, rp).await?;
         rauthy::wait_until_healthy(rp).await?;
         tracing::info!("rauthy is healthy");
@@ -162,8 +159,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
         let proxy_base = format!("http://{}:{}/auth", cfg.hostname, cfg.port);
         let oidc_provider = {
-            let discovery_url =
-                format!("{}/.well-known/openid-configuration", proxy_base);
+            let discovery_url = format!("{}/.well-known/openid-configuration", proxy_base);
             let disc: serde_json::Value = reqwest::get(&discovery_url)
                 .await
                 .map_err(|e| Box::new(std::io::Error::other(e.to_string())))?
@@ -177,8 +173,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 .as_str()
                 .ok_or("missing token_endpoint")?
                 .to_string();
-            let revocation_endpoint =
-                disc["revocation_endpoint"].as_str().map(|s| s.to_string());
+            let revocation_endpoint = disc["revocation_endpoint"].as_str().map(|s| s.to_string());
             let redirect_uri = format!("{}/api/auth/callback", proxy_base);
             Some(server::state::OidcEndpoints {
                 authorization_endpoint,
@@ -222,8 +217,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 .as_str()
                 .ok_or("missing token_endpoint")?
                 .to_string();
-            let revocation_endpoint =
-                disc["revocation_endpoint"].as_str().map(|s| s.to_string());
+            let revocation_endpoint = disc["revocation_endpoint"].as_str().map(|s| s.to_string());
             let redirect_uri = cfg.oidc_redirect_uri.clone().unwrap_or_else(|| {
                 format!(
                     "{}/api/auth/callback",

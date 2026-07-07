@@ -136,12 +136,9 @@ async fn generate_api_key_handler(
     State(state): State<AppState>,
     auth: AuthUser,
 ) -> Result<Json<serde_json::Value>, ServerError> {
-    let api_key = crate::services::auth::generate_api_key(
-        &state.db,
-        auth.user_id,
-        &state.api_key_pepper,
-    )
-    .await?;
+    let api_key =
+        crate::services::auth::generate_api_key(&state.db, auth.user_id, &state.api_key_pepper)
+            .await?;
     Ok(Json(json!({ "api_key": api_key })))
 }
 
