@@ -300,6 +300,60 @@ where
     }
 }
 
+async fn resolve_session_user(
+    layer: &AuthLayer,
+    headers: &HeaderMap,
+) -> Result<AuthUser, AuthRejection> {
+    let session_id = extract_session_from_api_cookies(headers, &layer.cookie_key)
+        .ok_or(AuthRejection::Unauthorized)?;
+
+    let user_id = {
+        let mut rows = layer
+            .db
+            .query_raw(
+                "SELECT * FROM sessions WHERE id = $1",
+                hiqlite::params!(session_id.to_string()),
+            )
+            .await
+            .map_err(|_| AuthRejection::Unauthorized)?;
+
+        let session_db = rows
+            .first_mut()
+            .map(|s| SessionDb::from(&mut *s))
+            .ok_or(AuthRejection::Unauthorized)?;
+
+        let now = chrono::Utc::now().format("%Y-%m-%d %H:%M:%S").to_string();
+        if session_db.expires_at < now {
+            return Err(AuthRejection::Unauthorized);
+        }
+        session_db.user_id
+    };
+
+    let mut user_rows = layer
+        .db
+        .query_raw(
+            "SELECT * FROM users WHERE id = $1",
+            hiqlite::params!(user_id.to_string()),
+        )
+        .await
+        .map_err(|_| AuthRejection::Unauthorized)?;
+
+    let user_raw = user_rows.first_mut().ok_or(AuthRejection::Unauthorized)?;
+
+    let user = User::from(&mut *user_raw);
+    if !user.is_active {
+        return Err(AuthRejection::Unauthorized);
+    }
+
+    Ok(AuthUser {
+        user_id: user.id,
+        username: user.username,
+        oidc_subject: user.oidc_subject,
+        is_admin: user.is_admin,
+        is_technical: user.is_technical,
+    })
+}
+
 async fn authenticate_via_session<S>(
     layer: AuthLayer,
     request: Request<axum::body::Body>,
@@ -309,61 +363,9 @@ where
     S: Service<Request<axum::body::Body>, Response = Response> + Clone + 'static,
     S::Future: Send,
 {
-    let session_id = match extract_session_from_api_cookies(request.headers(), &layer.cookie_key) {
-        Some(id) => id,
-        None => return Ok(AuthRejection::Unauthorized.into_response()),
-    };
-
-    let user_id = {
-        let mut rows = match layer
-            .db
-            .query_raw(
-                "SELECT * FROM sessions WHERE id = $1",
-                hiqlite::params!(session_id.to_string()),
-            )
-            .await
-        {
-            Ok(rows) => rows,
-            Err(_) => return Ok(AuthRejection::Unauthorized.into_response()),
-        };
-        let session_db = match rows.first_mut() {
-            Some(s) => SessionDb::from(&mut *s),
-            None => return Ok(AuthRejection::Unauthorized.into_response()),
-        };
-        let now = chrono::Utc::now().format("%Y-%m-%d %H:%M:%S").to_string();
-        if session_db.expires_at < now {
-            return Ok(AuthRejection::Unauthorized.into_response());
-        }
-        session_db.user_id
-    };
-
-    let auth_user = {
-        let mut user_rows = match layer
-            .db
-            .query_raw(
-                "SELECT * FROM users WHERE id = $1",
-                hiqlite::params!(user_id.to_string()),
-            )
-            .await
-        {
-            Ok(rows) => rows,
-            Err(_) => return Ok(AuthRejection::Unauthorized.into_response()),
-        };
-        let user_raw = match user_rows.first_mut() {
-            Some(u) => u,
-            None => return Ok(AuthRejection::Unauthorized.into_response()),
-        };
-        let user = User::from(&mut *user_raw);
-        if !user.is_active {
-            return Ok(AuthRejection::Unauthorized.into_response());
-        }
-        AuthUser {
-            user_id: user.id,
-            username: user.username,
-            oidc_subject: user.oidc_subject,
-            is_admin: user.is_admin,
-            is_technical: user.is_technical,
-        }
+    let auth_user = match resolve_session_user(&layer, request.headers()).await {
+        Ok(user) => user,
+        Err(rejection) => return Ok(rejection.into_response()),
     };
 
     let (mut parts, body) = request.into_parts();
