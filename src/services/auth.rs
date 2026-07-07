@@ -167,6 +167,7 @@ pub async fn handle_callback(
         .to_string();
 
     let existing_user = find_user_by_oidc_sub(db, &sub).await?;
+    let user_token_version = existing_user.as_ref().map(|u| u.token_version).unwrap_or(0);
     let (user_id, new_user) = if let Some(user) = existing_user {
         db.execute(
             "UPDATE users SET last_login = $1 WHERE id = $2",
@@ -189,8 +190,8 @@ pub async fn handle_callback(
 
     let session_id = Uuid::new_v4();
     db.execute(
-        "INSERT INTO sessions (id, user_id, refresh_token, expires_at, created_at) VALUES ($1, $2, $3, $4, $5)",
-        hiqlite::params!(session_id.to_string(), user_id.to_string(), refresh_token, expires_at, now),
+        "INSERT INTO sessions (id, user_id, refresh_token, expires_at, created_at, token_version) VALUES ($1, $2, $3, $4, $5, $6)",
+        hiqlite::params!(session_id.to_string(), user_id.to_string(), refresh_token, expires_at, now, user_token_version),
     )
     .await
     .map_err(|e| ServerError::Internal(e.to_string()))?;

@@ -13,6 +13,7 @@ mod logging;
 mod omp;
 mod orchestration;
 mod providers;
+mod rauthy;
 
 use clap::Parser;
 use std::collections::HashMap;
@@ -111,10 +112,27 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         key
     };
 
+    let api_key_pepper = {
+        let api_key_pepper_path = std::path::Path::new(&cfg.config_root).join("api_key_pepper.bin");
+        if api_key_pepper_path.exists() {
+            std::fs::read(&api_key_pepper_path)
+                .map_err(|e| Box::new(std::io::Error::other(e.to_string())))?
+        } else {
+            let pepper: Vec<u8> = (0..32).map(|_| rand::random::<u8>()).collect();
+            if let Some(parent) = api_key_pepper_path.parent() {
+                std::fs::create_dir_all(parent)
+                    .map_err(|e| Box::new(std::io::Error::other(e.to_string())))?;
+            }
+            std::fs::write(&api_key_pepper_path, &pepper)
+                .map_err(|e| Box::new(std::io::Error::other(e.to_string())))?;
+            pepper
+        }
+    };
+
     let auth_layer = auth::AuthLayer::new(
         &cfg,
         client.clone(),
-        cookie_key.signing().to_vec(),
+        api_key_pepper.clone(),
         cookie_key.clone(),
     )
     .await
@@ -123,50 +141,111 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         std::process::exit(1);
     });
 
-    if !auth_layer.enabled {
-        eprintln!("ERROR: OIDC is not configured. Set OMPRINT_OIDC_ISSUER_URL (and OMPRINT_OIDC_CLIENT_ID) to enable authentication.");
-        std::process::exit(1);
-    }
+    let mut _rauthy_instance: Option<rauthy::RauthyInstance> = None;
 
-    let issuer_url = cfg.oidc_issuer_url.as_ref().unwrap();
-    let oidc_provider = {
-        let discovery_url = format!(
-            "{}/.well-known/openid-configuration",
-            issuer_url.trim_end_matches('/')
+    let (rauthy_port, rauthy_base_url, oidc_provider) = if cfg.rauthy_enabled {
+        let rp = if cfg.rauthy_port > 0 {
+            cfg.rauthy_port
+        } else {
+            rauthy::find_available_port()
+                .map_err(|e| Box::new(std::io::Error::other(e.to_string())))?
+        };
+
+        tracing::info!(
+            "Starting embedded rauthy on port {} (proxied at /auth)",
+            rp
         );
-        let disc: serde_json::Value = reqwest::get(&discovery_url)
-            .await
-            .map_err(|e| Box::new(std::io::Error::other(e.to_string())))?
-            .json()
-            .await?;
-        let authorization_endpoint = disc["authorization_endpoint"]
-            .as_str()
-            .ok_or("missing authorization_endpoint")?
-            .to_string();
-        let token_endpoint = disc["token_endpoint"]
-            .as_str()
-            .ok_or("missing token_endpoint")?
-            .to_string();
-        let revocation_endpoint = disc["revocation_endpoint"].as_str().map(|s| s.to_string());
-        let redirect_uri = cfg.oidc_redirect_uri.clone().unwrap_or_else(|| {
-            format!(
-                "{}/api/auth/callback",
-                cfg.base_url
-                    .as_deref()
-                    .unwrap_or("http://localhost:3183")
-                    .trim_end_matches('/')
-            )
-        });
-        Some(server::state::OidcEndpoints {
-            authorization_endpoint,
-            token_endpoint,
-            revocation_endpoint,
-            client_id: cfg.oidc_client_id.clone().unwrap_or_default(),
-            client_secret: cfg.oidc_client_secret.clone(),
-            redirect_uri,
-            jwks_cache: Some(auth_layer.jwks_cache.clone()),
-            jwks_issuer: auth_layer.issuer_url.clone(),
-        })
+        let instance = rauthy::start_rauthy(&cfg.footprint, rp).await?;
+        rauthy::wait_until_healthy(rp).await?;
+        tracing::info!("rauthy is healthy");
+        _rauthy_instance = Some(instance);
+
+        let proxy_base = format!("http://{}:{}/auth", cfg.hostname, cfg.port);
+        let oidc_provider = {
+            let discovery_url =
+                format!("{}/.well-known/openid-configuration", proxy_base);
+            let disc: serde_json::Value = reqwest::get(&discovery_url)
+                .await
+                .map_err(|e| Box::new(std::io::Error::other(e.to_string())))?
+                .json()
+                .await?;
+            let authorization_endpoint = disc["authorization_endpoint"]
+                .as_str()
+                .ok_or("missing authorization_endpoint")?
+                .to_string();
+            let token_endpoint = disc["token_endpoint"]
+                .as_str()
+                .ok_or("missing token_endpoint")?
+                .to_string();
+            let revocation_endpoint =
+                disc["revocation_endpoint"].as_str().map(|s| s.to_string());
+            let redirect_uri = format!("{}/api/auth/callback", proxy_base);
+            Some(server::state::OidcEndpoints {
+                authorization_endpoint,
+                token_endpoint,
+                revocation_endpoint,
+                client_id: cfg
+                    .oidc_client_id
+                    .clone()
+                    .unwrap_or_else(|| "omprint".into()),
+                client_secret: cfg.oidc_client_secret.clone(),
+                redirect_uri,
+                jwks_cache: Some(auth_layer.jwks_cache.clone()),
+                jwks_issuer: auth_layer.issuer_url.clone(),
+            })
+        };
+
+        let base_url = format!("http://127.0.0.1:{}", rp);
+        (Some(rp), Some(base_url), oidc_provider)
+    } else {
+        if !auth_layer.enabled {
+            eprintln!("ERROR: OIDC is not configured. Set OMPRINT_OIDC_ISSUER_URL (and OMPRINT_OIDC_CLIENT_ID) to enable authentication.");
+            std::process::exit(1);
+        }
+
+        let issuer_url = cfg.oidc_issuer_url.as_ref().unwrap();
+        let oidc_provider = {
+            let discovery_url = format!(
+                "{}/.well-known/openid-configuration",
+                issuer_url.trim_end_matches('/')
+            );
+            let disc: serde_json::Value = reqwest::get(&discovery_url)
+                .await
+                .map_err(|e| Box::new(std::io::Error::other(e.to_string())))?
+                .json()
+                .await?;
+            let authorization_endpoint = disc["authorization_endpoint"]
+                .as_str()
+                .ok_or("missing authorization_endpoint")?
+                .to_string();
+            let token_endpoint = disc["token_endpoint"]
+                .as_str()
+                .ok_or("missing token_endpoint")?
+                .to_string();
+            let revocation_endpoint =
+                disc["revocation_endpoint"].as_str().map(|s| s.to_string());
+            let redirect_uri = cfg.oidc_redirect_uri.clone().unwrap_or_else(|| {
+                format!(
+                    "{}/api/auth/callback",
+                    cfg.base_url
+                        .as_deref()
+                        .unwrap_or("http://localhost:3183")
+                        .trim_end_matches('/')
+                )
+            });
+            Some(server::state::OidcEndpoints {
+                authorization_endpoint,
+                token_endpoint,
+                revocation_endpoint,
+                client_id: cfg.oidc_client_id.clone().unwrap_or_default(),
+                client_secret: cfg.oidc_client_secret.clone(),
+                redirect_uri,
+                jwks_cache: Some(auth_layer.jwks_cache.clone()),
+                jwks_issuer: auth_layer.issuer_url.clone(),
+            })
+        };
+
+        (None, None, oidc_provider)
     };
 
     let state = server::state::AppState {
@@ -179,11 +258,13 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         oidc_provider,
         pkce_store,
         cookie_key,
+        api_key_pepper,
+        rauthy_base_url,
     };
     tracing::info!("Auth middleware: enabled");
 
     // Server
-    let app = server::router(state, auth_layer);
+    let app = server::router(state, auth_layer, rauthy_port);
     let addr = format!("{}:{}", cfg.hostname, cfg.port);
     tracing::info!("Starting server on {}", addr);
 

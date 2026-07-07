@@ -49,13 +49,7 @@ fn lookup_user_active(
         if !user.is_active {
             return None;
         }
-        Some(AuthUser {
-            user_id: user.id,
-            username: user.username,
-            oidc_subject: user.oidc_subject,
-            is_admin: user.is_admin,
-            is_technical: user.is_technical,
-        })
+        Some(AuthUser::from(user))
     }
 }
 

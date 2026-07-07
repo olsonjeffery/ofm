@@ -37,6 +37,8 @@ async fn make_state() -> (AppState, AuthLayer, TempDir) {
         oidc_provider: None,
         pkce_store: Arc::new(Mutex::new(HashMap::new())),
         cookie_key: cookie::Key::generate(),
+        api_key_pepper: b"test_pepper".to_vec(),
+        rauthy_base_url: None,
     };
     (state, auth_layer, tmp)
 }
@@ -44,7 +46,7 @@ async fn make_state() -> (AppState, AuthLayer, TempDir) {
 #[tokio::test]
 async fn test_health_endpoint() {
     let (state, auth_layer, _tmp) = make_state().await;
-    let app = server::router(state, auth_layer);
+    let app = server::router(state, auth_layer, None);
     let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
     let addr = listener.local_addr().unwrap();
 

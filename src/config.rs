@@ -15,6 +15,8 @@ pub struct OmprintConfig {
     pub oidc_redirect_uri: Option<String>,
     pub hiqlite_raft_port: u16,
     pub hiqlite_api_port: u16,
+    pub rauthy_enabled: bool,
+    pub rauthy_port: u16,
 }
 
 const OMPRINT_OIDC_ISSUER_URL: &str = "OMPRINT_OIDC_ISSUER_URL";
@@ -65,6 +67,14 @@ impl OmprintConfig {
                 .ok()
                 .and_then(|s| s.parse().ok())
                 .unwrap_or(8200),
+            rauthy_enabled: std::env::var("RAUTHY_ENABLED")
+                .ok()
+                .map(|s| s == "true" || s == "1")
+                .unwrap_or(false),
+            rauthy_port: std::env::var("RAUTHY_PORT")
+                .ok()
+                .and_then(|s| s.parse().ok())
+                .unwrap_or(0),
         }
     }
 }

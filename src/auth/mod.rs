@@ -50,6 +50,18 @@ pub struct AuthUser {
     pub is_technical: bool,
 }
 
+impl From<crate::db::schema::User> for AuthUser {
+    fn from(user: crate::db::schema::User) -> Self {
+        AuthUser {
+            user_id: user.id,
+            username: user.username,
+            oidc_subject: user.oidc_subject,
+            is_admin: user.is_admin,
+            is_technical: user.is_technical,
+        }
+    }
+}
+
 #[derive(Debug)]
 pub enum AuthRejection {
     Unauthorized,
@@ -271,16 +283,10 @@ where
                 match layer.authenticate(token).await {
                     Ok((user, method)) => {
                         let session = Session::new(user, method);
-                        if !session::validate_session(&session) {
+                        if !session::validate_session(&session, &layer.db).await {
                             return Ok(AuthRejection::Unauthorized.into_response());
                         }
-                        let auth_user = AuthUser {
-                            user_id: session.user.id,
-                            username: session.user.username.clone(),
-                            oidc_subject: session.user.oidc_subject.clone(),
-                            is_admin: session.user.is_admin,
-                            is_technical: session.user.is_technical,
-                        };
+                        let auth_user = AuthUser::from(session.user);
                         let (mut parts, body) = request.into_parts();
                         parts.extensions.insert(auth_user);
                         let request = Request::from_parts(parts, body);
@@ -307,7 +313,7 @@ async fn resolve_session_user(
     let session_id = extract_session_from_api_cookies(headers, &layer.cookie_key)
         .ok_or(AuthRejection::Unauthorized)?;
 
-    let user_id = {
+    let (user_id, session_token_version) = {
         let mut rows = layer
             .db
             .query_raw(
@@ -326,7 +332,7 @@ async fn resolve_session_user(
         if session_db.expires_at < now {
             return Err(AuthRejection::Unauthorized);
         }
-        session_db.user_id
+        (session_db.user_id, session_db.token_version)
     };
 
     let mut user_rows = layer
@@ -344,14 +350,11 @@ async fn resolve_session_user(
     if !user.is_active {
         return Err(AuthRejection::Unauthorized);
     }
+    if user.token_version != session_token_version {
+        return Err(AuthRejection::Unauthorized);
+    }
 
-    Ok(AuthUser {
-        user_id: user.id,
-        username: user.username,
-        oidc_subject: user.oidc_subject,
-        is_admin: user.is_admin,
-        is_technical: user.is_technical,
-    })
+    Ok(AuthUser::from(user))
 }
 
 async fn authenticate_via_session<S>(

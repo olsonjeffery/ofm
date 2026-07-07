@@ -8,6 +8,7 @@ pub mod db;
 pub mod logging;
 pub mod omp;
 pub mod orchestration;
+pub mod rauthy;
 pub mod providers;
 pub mod server;
 pub mod services;

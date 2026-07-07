@@ -139,7 +139,7 @@ async fn generate_api_key_handler(
     let api_key = crate::services::auth::generate_api_key(
         &state.db,
         auth.user_id,
-        state.cookie_key.signing(),
+        &state.api_key_pepper,
     )
     .await?;
     Ok(Json(json!({ "api_key": api_key })))

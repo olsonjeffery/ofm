@@ -24,6 +24,8 @@ pub struct AppState {
     pub oidc_provider: Option<OidcEndpoints>,
     pub pkce_store: Arc<Mutex<HashMap<String, PkceEntry>>>,
     pub cookie_key: Key,
+    pub api_key_pepper: Vec<u8>,
+    pub rauthy_base_url: Option<String>,
 }
 
 impl FromRef<AppState> for Key {

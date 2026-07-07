@@ -38,6 +38,8 @@ async fn make_state() -> (AppState, AuthLayer, TempDir) {
         oidc_provider: None,
         pkce_store: Arc::new(Mutex::new(HashMap::new())),
         cookie_key: cookie::Key::generate(),
+        api_key_pepper: b"test_pepper".to_vec(),
+        rauthy_base_url: None,
     };
     (state, auth_layer, tmp)
 }
@@ -45,7 +47,7 @@ async fn make_state() -> (AppState, AuthLayer, TempDir) {
 #[tokio::test]
 async fn test_redirect_root_to_webapp() {
     let (state, auth_layer, _tmp) = make_state().await;
-    let app = server::router(state, auth_layer);
+    let app = server::router(state, auth_layer, None);
     let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
     let addr = listener.local_addr().unwrap();
 
@@ -70,7 +72,7 @@ async fn test_redirect_root_to_webapp() {
 #[tokio::test]
 async fn test_webapp_shell_page() {
     let (state, auth_layer, _tmp) = make_state().await;
-    let app = server::router(state, auth_layer);
+    let app = server::router(state, auth_layer, None);
     let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
     let addr = listener.local_addr().unwrap();
 
@@ -92,7 +94,7 @@ async fn test_webapp_shell_page() {
 #[tokio::test]
 async fn test_uptime_island_endpoint() {
     let (state, auth_layer, _tmp) = make_state().await;
-    let app = server::router(state, auth_layer);
+    let app = server::router(state, auth_layer, None);
     let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
     let addr = listener.local_addr().unwrap();
 
@@ -112,7 +114,7 @@ async fn test_uptime_island_endpoint() {
 #[tokio::test]
 async fn test_infocard_island_endpoint() {
     let (state, auth_layer, _tmp) = make_state().await;
-    let app = server::router(state, auth_layer);
+    let app = server::router(state, auth_layer, None);
     let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
     let addr = listener.local_addr().unwrap();
 
@@ -136,7 +138,7 @@ async fn test_infocard_island_endpoint() {
 #[tokio::test]
 async fn test_nonexistent_webapp_route_returns_404() {
     let (state, auth_layer, _tmp) = make_state().await;
-    let app = server::router(state, auth_layer);
+    let app = server::router(state, auth_layer, None);
     let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
     let addr = listener.local_addr().unwrap();
 
@@ -198,6 +200,8 @@ async fn make_state_with_webapp_auth() -> (AppState, AuthLayer, TempDir) {
         oidc_provider: None,
         pkce_store: Arc::new(Mutex::new(HashMap::new())),
         cookie_key: cookie::Key::generate(),
+        api_key_pepper: b"test_pepper".to_vec(),
+        rauthy_base_url: None,
     };
     (state, auth_layer, tmp)
 }
@@ -205,7 +209,7 @@ async fn make_state_with_webapp_auth() -> (AppState, AuthLayer, TempDir) {
 #[tokio::test]
 async fn test_webapp_protected_route_redirects_without_session() {
     let (state, auth_layer, _tmp) = make_state_with_webapp_auth().await;
-    let app = server::router(state, auth_layer);
+    let app = server::router(state, auth_layer, None);
     let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
     let addr = listener.local_addr().unwrap();
 
@@ -236,10 +240,11 @@ async fn test_webapp_protected_route_allows_with_valid_session() {
     let key = cookie::Key::generate();
     let state = AppState {
         cookie_key: key.clone(),
+        rauthy_base_url: None,
         ..state
     };
     let db = state.db.clone();
-    let app = server::router(state, auth_layer);
+    let app = server::router(state, auth_layer, None);
     let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
     let addr = listener.local_addr().unwrap();
 
@@ -289,10 +294,11 @@ async fn test_webapp_protected_route_redirects_with_expired_session() {
     let key = cookie::Key::generate();
     let state = AppState {
         cookie_key: key.clone(),
+        rauthy_base_url: None,
         ..state
     };
     let db = state.db.clone();
-    let app = server::router(state, auth_layer);
+    let app = server::router(state, auth_layer, None);
     let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
     let addr = listener.local_addr().unwrap();
 

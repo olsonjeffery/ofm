@@ -47,6 +47,8 @@ async fn make_state_with_ports(raft_port: u16, api_port: u16) -> (AppState, Auth
         oidc_provider: None,
         pkce_store: Arc::new(Mutex::new(HashMap::new())),
         cookie_key: cookie::Key::generate(),
+        api_key_pepper: b"test_pepper".to_vec(),
+        rauthy_base_url: None,
     };
     (state, auth_layer, tmp)
 }
@@ -57,7 +59,7 @@ async fn test_server_with_real_hiqlite_ports() {
     let api_port = find_free_port().await;
 
     let (state, auth_layer, _tmp) = make_state_with_ports(raft_port, api_port).await;
-    let app = server::router(state, auth_layer);
+    let app = server::router(state, auth_layer, None);
     let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
     let addr = listener.local_addr().unwrap();
 
@@ -79,7 +81,7 @@ async fn test_server_with_env_configured_hiqlite_ports() {
     let api_port = find_free_port().await;
 
     let (state, auth_layer, _tmp) = make_state_with_ports(raft_port, api_port).await;
-    let app = server::router(state, auth_layer);
+    let app = server::router(state, auth_layer, None);
     let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
     let addr = listener.local_addr().unwrap();
 
@@ -130,7 +132,7 @@ async fn test_hiqlite_ports_do_not_use_zero() {
     let api_port = find_free_port().await;
 
     let (state, auth_layer, _tmp) = make_state_with_ports(raft_port, api_port).await;
-    let app = server::router(state, auth_layer);
+    let app = server::router(state, auth_layer, None);
     let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
     let addr = listener.local_addr().unwrap();
 
