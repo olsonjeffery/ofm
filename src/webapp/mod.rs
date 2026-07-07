@@ -84,7 +84,8 @@ async fn callback_handler(
     let git_email = user.git_email.unwrap_or_default();
     let is_technical = user.is_technical;
 
-    let onboarding_html = pages::onboarding::render_onboarding_form(git_name, git_email, is_technical);
+    let onboarding_html =
+        pages::onboarding::render_onboarding_form(git_name, git_email, is_technical);
     let onboarding_json = serde_json::to_string(&onboarding_html).unwrap_or_default();
 
     let page_html = leptos::view! {
@@ -132,6 +133,9 @@ async fn uptime_handler() -> Html<String> {
 
 async fn infocard_handler(Query(params): Query<HashMap<String, String>>) -> Html<String> {
     let title = params.get("title").map(String::as_str).unwrap_or("Info");
-    let body = params.get("body").map(String::as_str).unwrap_or("No content.");
+    let body = params
+        .get("body")
+        .map(String::as_str)
+        .unwrap_or("No content.");
     Html(islands::infocard::render_infocard(title, body))
 }

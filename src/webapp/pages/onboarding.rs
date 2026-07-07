@@ -79,5 +79,7 @@ pub fn OnboardingForm(git_name: String, git_email: String, is_technical: bool) -
 }
 
 pub fn render_onboarding_form(git_name: String, git_email: String, is_technical: bool) -> String {
-    crate::webapp::shim::render_component(move || view! { <OnboardingForm git_name git_email is_technical /> })
+    crate::webapp::shim::render_component(
+        move || view! { <OnboardingForm git_name git_email is_technical /> },
+    )
 }

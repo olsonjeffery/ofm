@@ -6,7 +6,10 @@ pub fn Navbar(user_json: Option<String>) -> impl IntoView {
     let username = user_json
         .as_ref()
         .and_then(|s| serde_json::from_str::<serde_json::Value>(s).ok())
-        .and_then(|v| v.get("username").and_then(|u| u.as_str().map(|s| s.to_string())))
+        .and_then(|v| {
+            v.get("username")
+                .and_then(|u| u.as_str().map(|s| s.to_string()))
+        })
         .unwrap_or_default();
 
     view! {
