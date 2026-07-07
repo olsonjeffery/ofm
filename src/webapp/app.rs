@@ -15,17 +15,19 @@ pub fn ShellPage() -> impl IntoView {
             <script>{global_runtime_script()}</script>
         </head>
         <body>
-            <header class="page-header">
-                <div class="page-header-row">
-                    <div>
-                        <h1>"omprint"</h1>
-                        <p>"AI agent orchestration platform"</p>
+            <header class="section">
+                <div class="level">
+                    <div class="level-left">
+                        <div>
+                            <h1 class="title">"omprint"</h1>
+                            <p class="subtitle">"AI agent orchestration platform"</p>
+                        </div>
                     </div>
-                    <nav id="auth-nav" class="auth-nav" hidden>
-                        <a href="/webapp" class="btn btn-nav">"Home"</a>
-                        <a href="/webapp/settings" class="btn btn-nav">"Settings"</a>
+                    <nav id="auth-nav" class="level-right" hidden>
+                        <a href="/webapp" class="button is-small">"Home"</a>
+                        <a href="/webapp/settings" class="button is-small">"Settings"</a>
                         <form action="/api/auth/logout" method="post" id="logout-form">
-                            <button type="submit" class="btn btn-logout">"Logout"</button>
+                            <button type="submit" class="button is-small is-light">"Logout"</button>
                         </form>
                     </nav>
                 </div>

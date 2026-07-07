@@ -3,10 +3,10 @@ use leptos::prelude::*;
 #[component]
 pub fn LoginPage() -> impl IntoView {
     view! {
-        <div class="auth-failure">
-            <h2>"Login Required"</h2>
-            <p>"You must be logged in to access this content."</p>
-            <a href="/webapp/login" class="btn">"Login"</a>
+        <div class="box has-text-centered">
+            <h2 class="title is-4">"Login Required"</h2>
+            <p class="subtitle">"You must be logged in to access this content."</p>
+            <a href="/webapp/login" class="button is-primary">"Login"</a>
         </div>
     }
 }

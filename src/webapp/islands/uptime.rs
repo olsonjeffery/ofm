@@ -9,9 +9,9 @@ pub fn UptimeIsland() -> impl IntoView {
     let elapsed = format!("{:?}", START.elapsed());
     view! {
         <div data-island="uptime">
-            <h2>"Server Uptime"</h2>
-            <p class="uptime-value">{elapsed}</p>
-            <button data-island-refresh>"Update"</button>
+            <h2 class="title is-5">"Server Uptime"</h2>
+            <p class="uptime-value has-text-weight-bold is-family-monospace">{elapsed}</p>
+            <button class="button is-small is-light" data-island-refresh>"Update"</button>
         </div>
     }
 }

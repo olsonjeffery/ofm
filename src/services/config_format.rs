@@ -53,13 +53,11 @@ pub fn to_json(input: &str) -> Result<String, ConfigFormatError> {
 }
 
 pub fn validate(input: &str) -> Result<(), ConfigFormatError> {
-    if detect_format(input).is_some() {
-        Ok(())
-    } else {
-        Err(ConfigFormatError::InvalidInput(
-            "input is neither valid JSON nor YAML".to_string(),
-        ))
-    }
+    detect_format(input)
+        .ok_or_else(|| {
+            ConfigFormatError::InvalidInput("input is neither valid JSON nor YAML".to_string())
+        })
+        .map(|_| ())
 }
 
 #[cfg(test)]

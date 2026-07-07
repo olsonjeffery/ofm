@@ -17,7 +17,7 @@ pub fn wrap_island(name: &str, path: &str, query_string: &str, html: String) -> 
         format!("{}?{}", path, query_string)
     };
     format!(
-        r#"<div class="island" data-island="{name}">{html}</div>
+        r#"<div class="island box" data-island="{name}">{html}</div>
 <script data-island-url="{url}">/* island fetch handled by global runtime */</script>"#,
         name = name,
         html = html,

@@ -3,15 +3,19 @@ use leptos::prelude::*;
 #[component]
 pub fn LoginPage() -> impl IntoView {
     view! {
-        <div class="login-page">
-            <div class="login-card">
-                <h2>"Sign in to omprint"</h2>
-                <p>"Authenticate with your SSO provider to continue."</p>
-                <button id="sso-login-btn" class="btn btn-primary">
-                    "Sign in with SSO"
-                </button>
+        <section class="section">
+            <div class="columns is-centered">
+                <div class="column is-half">
+                    <div class="box has-text-centered">
+                        <h2>"Sign in to omprint"</h2>
+                        <p>"Authenticate with your SSO provider to continue."</p>
+                        <button id="sso-login-btn" class="button is-primary">
+                            "Sign in with SSO"
+                        </button>
+                    </div>
+                </div>
             </div>
-        </div>
+        </section>
         <script>
             {r#"document.addEventListener('DOMContentLoaded',function(){
                 var btn=document.getElementById('sso-login-btn');

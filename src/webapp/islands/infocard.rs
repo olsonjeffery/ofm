@@ -4,8 +4,8 @@ use leptos::prelude::*;
 pub fn InfoCard(title: String, body: String) -> impl IntoView {
     view! {
         <div data-island="infocard">
-            <h3>{title}</h3>
-            <p>{body}</p>
+            <h3 class="title is-5">{title}</h3>
+            <p class="subtitle">{body}</p>
         </div>
     }
 }

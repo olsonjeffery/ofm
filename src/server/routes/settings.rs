@@ -33,6 +33,14 @@ struct ErrorResponse {
     error: String,
 }
 
+impl ErrorResponse {
+    fn new(error: impl Into<String>) -> Self {
+        Self {
+            error: error.into(),
+        }
+    }
+}
+
 #[derive(Deserialize)]
 struct CreateModelRequest {
     name: String,
@@ -50,31 +58,27 @@ struct UpdateModelRequest {
 }
 
 async fn list_models_handler(
-    State(_state): State<AppState>,
+    State(state): State<AppState>,
     auth: AuthUser,
 ) -> Result<Json<Vec<UserModelConfig>>, (StatusCode, Json<ErrorResponse>)> {
-    let db = &_state.db;
-    settings::list_model_configs(db, auth.user_id)
+    settings::list_model_configs(&state.db, auth.user_id)
         .await
         .map(Json)
         .map_err(|e| {
             (
                 StatusCode::INTERNAL_SERVER_ERROR,
-                Json(ErrorResponse {
-                    error: e.to_string(),
-                }),
+                Json(ErrorResponse::new(e.to_string())),
             )
         })
 }
 
 async fn create_model_handler(
-    State(_state): State<AppState>,
+    State(state): State<AppState>,
     auth: AuthUser,
     Json(body): Json<CreateModelRequest>,
 ) -> Result<(StatusCode, Json<UserModelConfig>), (StatusCode, Json<ErrorResponse>)> {
-    let db = &_state.db;
     settings::create_model_config(
-        db,
+        &state.db,
         auth.user_id,
         &body.name,
         &body.config_body,
@@ -82,18 +86,17 @@ async fn create_model_handler(
     )
     .await
     .map(|cfg| (StatusCode::CREATED, Json(cfg)))
-    .map_err(|e| (StatusCode::BAD_REQUEST, Json(ErrorResponse { error: e })))
+    .map_err(|e| (StatusCode::BAD_REQUEST, Json(ErrorResponse::new(e))))
 }
 
 async fn update_model_handler(
-    State(_state): State<AppState>,
+    State(state): State<AppState>,
     auth: AuthUser,
     Path(id): Path<Uuid>,
     Json(body): Json<UpdateModelRequest>,
 ) -> Result<Json<UserModelConfig>, (StatusCode, Json<ErrorResponse>)> {
-    let db = &_state.db;
     match settings::update_model_config(
-        db,
+        &state.db,
         auth.user_id,
         id,
         &body.name,
@@ -105,26 +108,23 @@ async fn update_model_handler(
         Ok(Some(cfg)) => Ok(Json(cfg)),
         Ok(None) => Err((
             StatusCode::NOT_FOUND,
-            Json(ErrorResponse {
-                error: "config not found".into(),
-            }),
+            Json(ErrorResponse::new("config not found")),
         )),
-        Err(e) => Err((StatusCode::BAD_REQUEST, Json(ErrorResponse { error: e }))),
+        Err(e) => Err((StatusCode::BAD_REQUEST, Json(ErrorResponse::new(e)))),
     }
 }
 
 async fn delete_model_handler(
-    State(_state): State<AppState>,
+    State(state): State<AppState>,
     auth: AuthUser,
     Path(id): Path<Uuid>,
 ) -> Result<StatusCode, (StatusCode, Json<ErrorResponse>)> {
-    let db = &_state.db;
-    settings::delete_model_config(db, auth.user_id, id)
+    settings::delete_model_config(&state.db, auth.user_id, id)
         .await
         .map_err(|e| {
             (
                 StatusCode::INTERNAL_SERVER_ERROR,
-                Json(ErrorResponse { error: e }),
+                Json(ErrorResponse::new(e)),
             )
         })?;
 
@@ -132,31 +132,27 @@ async fn delete_model_handler(
 }
 
 async fn get_agent_models_handler(
-    State(_state): State<AppState>,
+    State(state): State<AppState>,
     auth: AuthUser,
 ) -> Result<Json<HashMap<String, AgentModelSetting>>, (StatusCode, Json<ErrorResponse>)> {
-    let db = &_state.db;
-    settings::get_agent_models(db, auth.user_id)
+    settings::get_agent_models(&state.db, auth.user_id)
         .await
         .map(Json)
         .map_err(|e| {
             (
                 StatusCode::INTERNAL_SERVER_ERROR,
-                Json(ErrorResponse {
-                    error: e.to_string(),
-                }),
+                Json(ErrorResponse::new(e.to_string())),
             )
         })
 }
 
 async fn upsert_agent_models_handler(
-    State(_state): State<AppState>,
+    State(state): State<AppState>,
     auth: AuthUser,
     Json(models): Json<HashMap<String, AgentModelSetting>>,
 ) -> Result<Json<HashMap<String, AgentModelSetting>>, (StatusCode, Json<ErrorResponse>)> {
-    let db = &_state.db;
-    settings::upsert_agent_models(db, auth.user_id, models)
+    settings::upsert_agent_models(&state.db, auth.user_id, models)
         .await
         .map(Json)
-        .map_err(|e| (StatusCode::BAD_REQUEST, Json(ErrorResponse { error: e })))
+        .map_err(|e| (StatusCode::BAD_REQUEST, Json(ErrorResponse::new(e))))
 }
