@@ -2,7 +2,11 @@ use crate::webapp::shim::runtime::global_runtime_script;
 use leptos::prelude::*;
 use leptos_styling::style_sheet;
 
-style_sheet!(app_styles, "src/webapp/styles/app.css", "app_styles");
+style_sheet!(
+    app_styles,
+    "src/webapp/styles/bulmaswatch.min.css",
+    "app_styles"
+);
 
 #[component]
 pub fn ShellPage() -> impl IntoView {
