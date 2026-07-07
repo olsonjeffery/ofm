@@ -1,12 +1,5 @@
 use crate::webapp::shim::runtime::global_runtime_script;
 use leptos::prelude::*;
-use leptos_styling::style_sheet;
-
-style_sheet!(
-    app_styles,
-    "src/webapp/styles/bulmaswatch.min.css",
-    "app_styles"
-);
 
 #[component]
 pub fn ShellPage() -> impl IntoView {
@@ -17,7 +10,8 @@ pub fn ShellPage() -> impl IntoView {
             <meta charset="utf-8"/>
             <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
             <title>"omprint"</title>
-            <style>{STYLE_SHEET}</style>
+            <style>{super::styles::bulmaswatch::STYLE_SHEET}</style>
+            <style>{super::styles::app::STYLE_SHEET}</style>
             <script>{global_runtime_script()}</script>
         </head>
         <body>
