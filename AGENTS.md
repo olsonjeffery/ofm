@@ -2,6 +2,13 @@
 
 ## Threading
 
+## UI Conventions
+
+- Content containers use Bulma `.box` for block-level content, `.card` for sub-units / grid items (e.g., kanban boards).
+- Icons use MDI via `@mdi/font` CDN, applied with Bulma's `.icon` wrapper pattern.
+
+## Threading
+
 - **Avoid `std::thread::spawn`.** This project runs inside a tokio runtime; spawning
   raw OS threads bypasses tokio's scheduling and can cause issues with resource
   tracking, test flakiness, and runtime shutdown.

@@ -31,7 +31,7 @@ impl OmprintConfig {
         let footprint = expand_tilde(&footprint_raw);
         let api_key = std::env::var("OMPRINT_API_KEY").ok();
         if let Some(key) = &api_key {
-            if key.is_empty() || key.len() < 16 {
+            if key.len() < 16 {
                 tracing::warn!("OMPRINT_API_KEY is set but too short (< 16 chars) — auth will be trivially bypassed");
             }
         }

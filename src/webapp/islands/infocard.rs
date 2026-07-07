@@ -23,7 +23,7 @@ pub fn render_infocard(title: &str, body: &str) -> String {
 }
 
 fn urlencoding(s: &str) -> String {
-    s.replace('&', "%26").replace('=', "%3D").replace(' ', "+")
+    url::form_urlencoded::byte_serialize(s.as_bytes()).collect()
 }
 
 #[cfg(test)]

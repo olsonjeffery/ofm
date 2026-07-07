@@ -4,91 +4,6 @@ body {
     font-family: system-ui, -apple-system, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
 }
 
-/* everything that steps on the bulma styles goes in here
- *
-h1 { font-size: 1.75rem; font-weight: 700; color: #16213e; }
-h2 { font-size: 1.25rem; font-weight: 600; color: #0f3460; }
-h3 { font-size: 1.1rem; font-weight: 600; }
-a { color: #0f3460; text-decoration: none; }
-a:hover { text-decoration: underline; }
-
-.page-header {
-    margin-bottom: 2rem;
-    padding-bottom: 1rem;
-    border-bottom: 2px solid #e8ecf1;
-}
-.page-header h1 { margin-bottom: 0.25rem; }
-.page-header p { color: #64748b; font-size: 0.95rem; }
-
-button, .btn {
-    display: inline-flex;
-    align-items: center;
-    padding: 0.5rem 1rem;
-    border: 1px solid #cbd5e1;
-    border-radius: 6px;
-    background: #fff;
-    color: #1e293b;
-    font-size: 0.875rem;
-    font-weight: 500;
-    cursor: pointer;
-    transition: background 0.15s, border-color 0.15s;
-}
-button:hover, .btn:hover { background: #f1f5f9; border-color: #94a3b8; }
-
-.login-page { display: flex; justify-content: center; padding: 4rem 1rem; }
-.login-card { background: #fff; border: 1px solid #e2e8f0; border-radius: 12px; padding: 2.5rem; text-align: center; max-width: 400px; width: 100%; }
-.login-card h2 { margin-bottom: 0.5rem; }
-.login-card p { color: #64748b; margin-bottom: 2rem; }
-.btn-primary { background: #0f3460; color: #fff; border-color: #0f3460; }
-.btn-primary:hover { background: #16213e; }
-
-.onboarding-card { background: #fff; border: 1px solid #e2e8f0; border-radius: 12px; padding: 2rem; max-width: 480px; margin: 2rem auto; }
-.onboarding-card h2 { margin-bottom: 1rem; }
-.onboarding-card p { color: #64748b; margin-bottom: 1.5rem; }
-.onboarding-card label { display: block; margin-bottom: 1rem; }
-.onboarding-card input[type="text"],
-.onboarding-card input[type="email"] { width: 100%; padding: 0.5rem; border: 1px solid #cbd5e1; border-radius: 6px; margin-top: 0.25rem; }
-.onboarding-card fieldset { border: none; margin-bottom: 1.5rem; padding: 0; }
-.onboarding-card fieldset legend { font-weight: 600; margin-bottom: 0.5rem; }
-.onboarding-card fieldset label { display: inline-flex; align-items: center; gap: 0.5rem; margin-right: 1.5rem; }
-
-.callback-loading { text-align: center; padding: 4rem 1rem; color: #64748b; }
-.config-editor-form { margin-top: 1.5rem; padding-top: 1.5rem; border-top: 1px solid #e2e8f0; }
-.config-editor-form h3 { margin-bottom: 1rem; }
-.error { color: #e53e3e; }
-.settings-page h2 { margin-bottom: 1rem; }
-
-.page-header-row { display: flex; justify-content: space-between; align-items: flex-start; }
-.auth-nav { flex-shrink: 0; display: flex; align-items: center; gap: 0.5rem; }
-.btn-nav { font-size: 0.8rem; padding: 0.35rem 0.75rem; text-decoration: none; }
-.btn-logout { font-size: 0.8rem; padding: 0.35rem 0.75rem; }
-.btn-danger { color: #e53e3e; border-color: #fc8181; }
-.btn-danger:hover { background: #fff5f5; border-color: #e53e3e; }
-.btn-sm { font-size: 0.75rem; padding: 0.25rem 0.5rem; }
-.tabs { display: flex; gap: 0; border-bottom: 2px solid #e2e8f0; margin-bottom: 1.5rem; }
-.tab { padding: 0.6rem 1.2rem; border: 1px solid #e2e8f0; border-bottom: none; background: #f8fafc; cursor: pointer; font-size: 0.875rem; font-weight: 500; color: #64748b; border-radius: 6px 6px 0 0; margin-bottom: -2px; }
-.tab:hover { background: #eef2f6; }
-.tab.active { background: #fff; color: #0f3460; border-bottom: 2px solid #0f3460; }
-.tab-content { background: #fff; border: 1px solid #e2e8f0; border-radius: 0 0 8px 8px; padding: 1.5rem; min-height: 300px; }
-.tab-pane { display: none; }
-.tab-pane.active { display: block; }
-.form-group { margin-bottom: 1rem; }
-.form-group label { display: block; font-weight: 500; margin-bottom: 0.25rem; color: #1e293b; }
-.form-group input[type="text"],
-.form-group textarea { width: 100%; padding: 0.5rem; border: 1px solid #cbd5e1; border-radius: 6px; font-family: inherit; font-size: 0.875rem; }
-.form-group textarea { font-family: "SF Mono", "Fira Code", Menlo, Consolas, monospace; }
-.config-table { width: 100%; border-collapse: collapse; margin-bottom: 1.5rem; }
-.config-table th, .config-table td { text-align: left; padding: 0.5rem; border-bottom: 1px solid #e2e8f0; }
-.config-table th { font-weight: 600; color: #475569; font-size: 0.8rem; text-transform: uppercase; }
-.agent-model-table { width: 100%; border-collapse: collapse; margin-bottom: 1.5rem; }
-.agent-model-table th, .agent-model-table td { text-align: left; padding: 0.5rem; border-bottom: 1px solid #e2e8f0; }
-.agent-model-table th { font-weight: 600; color: #475569; font-size: 0.8rem; text-transform: uppercase; }
-.agent-model-table input[type="text"] { width: 100%; padding: 0.35rem; border: 1px solid #cbd5e1; border-radius: 4px; font-size: 0.875rem; }
-.agent-model-table select { padding: 0.35rem; border: 1px solid #cbd5e1; border-radius: 4px; font-size: 0.875rem; background: #fff; }
-.api-key-actions { display: flex; gap: 0.75rem; margin-top: 1rem; }
-#api-key-value { font-family: "SF Mono", "Fira Code", Menlo, Consolas, monospace; font-size: 0.95rem; background: #f1f5f9; padding: 0.35rem 0.6rem; border-radius: 4px; word-break: break-all; }
-*/
-
 .island-container { margin-bottom: 1.5rem; }
 
 .island {
@@ -110,4 +25,10 @@ button:hover, .btn:hover { background: #f1f5f9; border-color: #94a3b8; }
     font-size: 1.1rem;
     color: #0f3460;
     padding: 0.5rem 0;
+}
+
+#omprint-navbar.navbar {
+  background-color: #fff;
+  min-height: 50px;
+  box-shadow: #090a0c1a 0 0 16px;
 }

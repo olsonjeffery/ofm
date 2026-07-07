@@ -41,7 +41,7 @@ pub enum AuthError {
     Network(String),
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, serde::Serialize)]
 pub struct AuthUser {
     pub user_id: Uuid,
     pub username: String,
@@ -267,8 +267,8 @@ where
         let mut inner = self.inner.clone();
 
         Box::pin(async move {
-            if let Some(token) = extract_bearer_token(request.headers()).map(|s| s.to_string()) {
-                match layer.authenticate(&token).await {
+            if let Some(token) = extract_bearer_token(request.headers()) {
+                match layer.authenticate(token).await {
                     Ok((user, method)) => {
                         let session = Session::new(user, method);
                         if !session::validate_session(&session) {
