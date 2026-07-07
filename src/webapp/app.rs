@@ -11,8 +11,8 @@ pub fn ShellPage(user_json: Option<String>) -> impl IntoView {
             <meta charset="utf-8"/>
             <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
             <title>"omprint"</title>
+            <link rel="stylesheet" href="/webapp/assets/bulma.css" />
             <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@mdi/font@7.4.47/css/materialdesignicons.min.css" />
-            <style>{super::styles::bulmaswatch::STYLE_SHEET}</style>
             <style>{super::styles::app::STYLE_SHEET}</style>
             <script>{global_runtime_script()}</script>
         </head>

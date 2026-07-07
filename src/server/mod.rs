@@ -7,6 +7,7 @@ use axum::{extract::DefaultBodyLimit, response::Redirect, routing::get, Router};
 use crate::auth::AuthLayer;
 use crate::server::state::AppState;
 use crate::webapp;
+use tower_http::services::ServeDir;
 
 pub fn router(state: AppState, auth_layer: AuthLayer) -> Router {
     let public = Router::new()
@@ -16,6 +17,7 @@ pub fn router(state: AppState, auth_layer: AuthLayer) -> Router {
 
     // Public webapp routes (no auth)
     let webapp_public = Router::new().merge(webapp::webapp_routes());
+    let webapp_public = webapp_public.nest_service("/webapp/assets", ServeDir::new("assets"));
 
     // Protected webapp routes (session cookie auth required, redirects to login on failure)
     let webapp_auth_layer = if auth_layer.enabled {
