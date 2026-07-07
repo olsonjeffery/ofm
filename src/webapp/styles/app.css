@@ -92,11 +92,6 @@ button:hover, .btn:hover { background: #f1f5f9; border-color: #94a3b8; }
 .island-container { margin-bottom: 1.5rem; }
 
 .island {
-    border: 1px solid #e2e8f0;
-    border-radius: 8px;
-    padding: 1.25rem;
-    background: #fff;
-    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.04);
     transition: opacity 0.2s;
 }
 .island-loading { opacity: 0.5; pointer-events: none; }
@@ -116,17 +111,3 @@ button:hover, .btn:hover { background: #f1f5f9; border-color: #94a3b8; }
     color: #0f3460;
     padding: 0.5rem 0;
 }
-
-.infocard-island h3 { margin-bottom: 0.5rem; }
-.infocard-island p { color: #475569; }
-
-.auth-failure {
-    text-align: center;
-    padding: 3rem 1.5rem;
-    background: #fff;
-    border: 1px solid #e2e8f0;
-    border-radius: 8px;
-}
-.auth-failure h2 { margin-bottom: 0.75rem; }
-.auth-failure p { color: #64748b; margin-bottom: 1.5rem; }
-.auth-failure a, .auth-failure .btn { display: inline-block; }

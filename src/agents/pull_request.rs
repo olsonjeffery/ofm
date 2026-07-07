@@ -9,13 +9,11 @@ pub enum PullRequestStatus {
 }
 
 pub fn build_pull_request_prompt(task_doc_content: &str, pr_status: &PullRequestStatus) -> String {
-    let create_or_verify_block = match pr_status {
-        PullRequestStatus::NoPr => build_create_block(),
-        PullRequestStatus::ExistingPr { url } => build_verify_block(url),
-    };
-    let context_line = match pr_status {
-        PullRequestStatus::NoPr => String::new(),
-        PullRequestStatus::ExistingPr { url } => format!("- Existing PR URL: {url}"),
+    let (create_or_verify_block, context_line) = match pr_status {
+        PullRequestStatus::NoPr => (build_create_block(), String::new()),
+        PullRequestStatus::ExistingPr { url } => {
+            (build_verify_block(url), format!("- Existing PR URL: {url}"))
+        }
     };
 
     let mut prompt = agents::build_prompt(PR_TEMPLATE, task_doc_content);

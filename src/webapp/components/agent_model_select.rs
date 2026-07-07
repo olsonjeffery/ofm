@@ -5,7 +5,7 @@ pub fn AgentModelSelect() -> impl IntoView {
     view! {
         <div id="agent-model-select">
             <p>"Configure the model and effort for each agent type."</p>
-            <table class="agent-model-table" id="agent-model-table">
+            <table class="table is-fullwidth is-hoverable" id="agent-model-table">
                 <thead>
                     <tr>
                         <th>"Agent Type"</th>
@@ -19,7 +19,7 @@ pub fn AgentModelSelect() -> impl IntoView {
                     </tr>
                 </tbody>
             </table>
-            <button class="btn btn-primary" id="btn-save-agent-models">"Save Agent Settings"</button>
+            <button class="button is-primary" id="btn-save-agent-models">"Save Agent Settings"</button>
         </div>
     }
 }

@@ -14,12 +14,14 @@ pub fn SettingsPage(access_token: String) -> impl IntoView {
                     access_token.replace('\'', "\\'"),
                 )}
             </script>
-            <div class="settings-page">
-                <h2>"Settings"</h2>
-                <div class="tabs">
-                    <button class="tab active" data-tab="config-body">"Model Configurations"</button>
-                    <button class="tab" data-tab="agent-models">"Agent Settings"</button>
-                    <button class="tab" data-tab="api-keys">"API Keys"</button>
+            <div class="section">
+                <h2 class="title is-3">"Settings"</h2>
+                <div class="tabs is-boxed">
+                    <ul>
+                        <li class="is-active" data-tab="config-body"><a>"Model Configurations"</a></li>
+                        <li data-tab="agent-models"><a>"Agent Settings"</a></li>
+                        <li data-tab="api-keys"><a>"API Keys"</a></li>
+                    </ul>
                 </div>
                 <div class="tab-content" id="tab-content">
                     <div id="tab-config-body" class="tab-pane active">
@@ -36,7 +38,7 @@ pub fn SettingsPage(access_token: String) -> impl IntoView {
             <script>
                 {r#"
 document.addEventListener('DOMContentLoaded', function() {
-    var tabs = document.querySelectorAll('.tab');
+    var tabs = document.querySelectorAll('.tabs li');
     var panes = {
         'config-body': document.getElementById('tab-config-body'),
         'agent-models': document.getElementById('tab-agent-models'),
@@ -45,8 +47,8 @@ document.addEventListener('DOMContentLoaded', function() {
 
     tabs.forEach(function(tab) {
         tab.addEventListener('click', function() {
-            tabs.forEach(function(t) { t.classList.remove('active'); });
-            this.classList.add('active');
+            tabs.forEach(function(t) { t.classList.remove('is-active'); });
+            this.classList.add('is-active');
             var tabName = this.dataset.tab;
             Object.keys(panes).forEach(function(k) {
                 panes[k].style.display = (k === tabName) ? 'block' : 'none';
@@ -79,20 +81,20 @@ function loadConfigList() {
                 list.innerHTML = '<p>No configurations yet. Add one below.</p>';
                 return;
             }
-            var html = '<table class="config-table"><thead><tr><th>Name</th><th>Harness</th><th>Actions</th></tr></thead><tbody>';
+            var html = '<table class="table is-fullwidth is-hoverable"><thead><tr><th>Name</th><th>Harness</th><th>Actions</th></tr></thead><tbody>';
             data.forEach(function(cfg) {
                 html += '<tr>';
                 html += '<td>' + escapeHtml(cfg.name) + '</td>';
                 html += '<td>' + escapeHtml(cfg.harness) + '</td>';
-                html += '<td><button class="btn btn-sm" onclick="editConfig(\'' + cfg.id + '\')">Edit</button> ';
-                html += '<button class="btn btn-sm btn-danger" onclick="deleteConfig(\'' + cfg.id + '\')">Delete</button></td>';
+                html += '<td><button class="button is-small" onclick="editConfig(\'' + cfg.id + '\')">Edit</button> ';
+                html += '<button class="button is-small is-danger" onclick="deleteConfig(\'' + cfg.id + '\')">Delete</button></td>';
                 html += '</tr>';
             });
             html += '</tbody></table>';
             list.innerHTML = html;
         })
         .catch(function(err) {
-            list.innerHTML = '<p class="error">Failed to load configurations: ' + err + '</p>';
+            list.innerHTML = '<p class="has-text-danger">Failed to load configurations: ' + err + '</p>';
         });
 }
 
@@ -179,8 +181,8 @@ function loadAgentModels() {
                 var setting = data[agent] || {};
                 html += '<tr>';
                 html += '<td>' + agent + '</td>';
-                html += '<td><input type="text" class="model-input" data-agent="' + agent + '" value="' + (setting.model || '') + '" placeholder="model name"/></td>';
-                html += '<td><select class="effort-select" data-agent="' + agent + '">';
+                html += '<td><input type="text" class="input" data-agent="' + agent + '" value="' + (setting.model || '') + '" placeholder="model name"/></td>';
+                html += '<td><select class="select" data-agent="' + agent + '">';
                 ['auto', 'low', 'medium', 'high'].forEach(function(eff) {
                     var selected = (setting.effort === eff) ? ' selected' : '';
                     html += '<option value="' + eff + '"' + selected + '>' + eff + '</option>';
@@ -191,7 +193,7 @@ function loadAgentModels() {
             tbody.innerHTML = html;
         })
         .catch(function(err) {
-            tbody.innerHTML = '<tr><td colspan="3" class="error">Failed to load: ' + err + '</td></tr>';
+            tbody.innerHTML = '<tr><td colspan="3" class="has-text-danger">Failed to load: ' + err + '</td></tr>';
         });
 }
 
@@ -200,12 +202,12 @@ document.addEventListener('DOMContentLoaded', function() {
     if (btn) {
         btn.addEventListener('click', function() {
             var models = {};
-            document.querySelectorAll('.model-input').forEach(function(input) {
+            document.querySelectorAll('td input[type="text"]').forEach(function(input) {
                 var agent = input.dataset.agent;
                 if (!models[agent]) models[agent] = {};
                 models[agent].model = input.value || null;
             });
-            document.querySelectorAll('.effort-select').forEach(function(select) {
+            document.querySelectorAll('td select').forEach(function(select) {
                 var agent = select.dataset.agent;
                 if (!models[agent]) models[agent] = {};
                 models[agent].effort = select.value;
