@@ -128,7 +128,11 @@ pub async fn handle_callback(
     let id_token = token_data["id_token"].as_str().map(|s| s.to_string());
     let expires_in = token_data["expires_in"].as_u64().unwrap_or(3600);
 
-    let sub = if let Some(id_token) = &id_token {
+    let (sub, username) = {
+        let id_token = id_token.as_ref().ok_or_else(|| {
+            ServerError::Internal("No id_token returned from provider; cannot authenticate".into())
+        })?;
+
         let jwks_cache = oidc.jwks_cache.as_ref().ok_or_else(|| {
             ServerError::Internal("JWKS not configured; cannot verify identity token".into())
         })?;
@@ -136,27 +140,25 @@ pub async fn handle_callback(
         let cache = cache_guard.as_ref().ok_or_else(|| {
             ServerError::Internal("JWKS cache not initialized for id_token verification".into())
         })?;
-        match crate::auth::jwks::verify_token(id_token, cache) {
-            Ok(claims) => claims.sub,
+
+        let claims = match crate::auth::jwks::verify_token(id_token, cache) {
+            Ok(c) => c,
             Err(e) => {
                 return Err(ServerError::Internal(format!(
                     "id_token verification failed: {e:?}"
                 )));
             }
-        }
-    } else {
-        return Err(ServerError::Internal(
-            "No id_token returned from provider; cannot authenticate".into(),
-        ));
-    };
-    let username = if let Some(id_token) = &id_token {
-        let payload = decode_jwt_payload(id_token)
-            .map_err(|e| ServerError::Internal(format!("invalid id_token: {e}")))?;
-        payload["preferred_username"]
-            .as_str()
-            .map(|s| s.to_string())
-    } else {
-        None
+        };
+
+        let username = {
+            let payload = decode_jwt_payload(id_token)
+                .map_err(|e| ServerError::Internal(format!("invalid id_token: {e}")))?;
+            payload["preferred_username"]
+                .as_str()
+                .map(|s| s.to_string())
+        };
+
+        (claims.sub, username)
     };
 
     let now = chrono::Utc::now().format("%Y-%m-%d %H:%M:%S").to_string();
@@ -314,6 +316,23 @@ pub async fn logout(
     Ok(())
 }
 
+pub async fn complete_onboarding(
+    db: &hiqlite::Client,
+    user_id: Uuid,
+    git_name: String,
+    git_email: String,
+    is_technical: bool,
+) -> Result<User, ServerError> {
+    let tech: i64 = if is_technical { 1 } else { 0 };
+    db.execute(
+        "UPDATE users SET git_name = $1, git_email = $2, is_technical = $3, has_completed_onboarding = 1 WHERE id = $4",
+        hiqlite::params!(git_name, git_email, tech, user_id.to_string()),
+    )
+    .await
+    .map_err(|e| ServerError::Internal(e.to_string()))?;
+    current_user(db, user_id).await
+}
+
 pub async fn current_user(db: &hiqlite::Client, user_id: Uuid) -> Result<User, ServerError> {
     let user = get_user_by_id(db, user_id)
         .await?
@@ -321,9 +340,13 @@ pub async fn current_user(db: &hiqlite::Client, user_id: Uuid) -> Result<User, S
     Ok(user)
 }
 
-pub async fn generate_api_key(db: &hiqlite::Client, user_id: Uuid) -> Result<String, ServerError> {
+pub async fn generate_api_key(
+    db: &hiqlite::Client,
+    user_id: Uuid,
+    pepper: &[u8],
+) -> Result<String, ServerError> {
     let api_key = generate_api_key_value();
-    let hash = api_key::hash_api_key(&api_key);
+    let hash = api_key::hash_api_key(&api_key, pepper);
     db.execute(
         "UPDATE users SET api_key_hash = $1, api_key_last_used_at = NULL WHERE id = $2",
         hiqlite::params!(hash, user_id.to_string()),
@@ -520,7 +543,7 @@ mod tests {
     #[test]
     fn test_generate_and_hash_api_key() {
         let key = generate_api_key_value();
-        let hash = api_key::hash_api_key(&key);
+        let hash = api_key::hash_api_key(&key, b"test");
         assert_eq!(hash.len(), 64);
         assert!(hash.chars().all(|c| c.is_ascii_hexdigit()));
     }
@@ -528,8 +551,8 @@ mod tests {
     #[test]
     fn test_hash_deterministic() {
         let key = "ccui_test-key-12345";
-        let hash1 = api_key::hash_api_key(key);
-        let hash2 = api_key::hash_api_key(key);
+        let hash1 = api_key::hash_api_key(key, b"test");
+        let hash2 = api_key::hash_api_key(key, b"test");
         assert_eq!(hash1, hash2);
     }
 
@@ -745,5 +768,34 @@ mod tests {
 
         let session = find_session(&client, session_id).await.unwrap();
         assert!(session.is_none());
+    }
+
+    #[tokio::test]
+    async fn test_complete_onboarding() {
+        let (client, _tmp) = create_test_db().await;
+        let user_id = uuid::Uuid::new_v4();
+        let now = chrono::Utc::now().format("%Y-%m-%d %H:%M:%S").to_string();
+        client
+            .execute(
+                "INSERT INTO users (id, username, oidc_subject, is_active, created_at, has_completed_onboarding, is_technical) VALUES ($1, $2, $3, 1, $4, 0, 0)",
+                hiqlite::params!(user_id.to_string(), "onboarduser", "onboard-sub", now),
+            )
+            .await
+            .unwrap();
+
+        let user = complete_onboarding(
+            &client,
+            user_id,
+            "Jane Doe".into(),
+            "jane@example.com".into(),
+            true,
+        )
+        .await
+        .unwrap();
+
+        assert_eq!(user.git_name, Some("Jane Doe".into()));
+        assert_eq!(user.git_email, Some("jane@example.com".into()));
+        assert!(user.is_technical);
+        assert!(user.has_completed_onboarding);
     }
 }

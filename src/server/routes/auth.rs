@@ -1,7 +1,7 @@
 use axum::extract::{Query, State};
 use axum::http::StatusCode;
 use axum::response::IntoResponse;
-use axum::routing::{get, post};
+use axum::routing::{get, patch, post};
 use axum::{Json, Router};
 use axum_extra::extract::cookie::{Cookie, PrivateCookieJar, SameSite};
 use serde::Deserialize;
@@ -21,10 +21,13 @@ pub fn auth_router() -> Router<AppState> {
 }
 
 pub fn auth_protected_router() -> Router<AppState> {
-    Router::new().route("/me", get(me)).route(
-        "/api-key",
-        post(generate_api_key_handler).delete(revoke_api_key_handler),
-    )
+    Router::new()
+        .route("/me", get(me))
+        .route("/onboarding", patch(onboarding_handler))
+        .route(
+            "/api-key",
+            post(generate_api_key_handler).delete(revoke_api_key_handler),
+        )
 }
 
 async fn login(State(state): State<AppState>) -> Result<Json<serde_json::Value>, ServerError> {
@@ -65,13 +68,13 @@ async fn callback(
     let jar = jar.add(
         Cookie::build(("omprint_session", result.session_id.to_string()))
             .http_only(true)
-            .secure(true)
             .same_site(SameSite::Lax)
             .path("/")
             .build(),
     );
 
-    Ok((jar, (StatusCode::FOUND, [("Location", "/webapp")])))
+    let location = format!("/webapp/callback?new_user={}", result.new_user);
+    Ok((jar, (StatusCode::FOUND, [("Location", location)])))
 }
 
 async fn refresh(
@@ -129,8 +132,46 @@ async fn generate_api_key_handler(
     State(state): State<AppState>,
     auth: AuthUser,
 ) -> Result<Json<serde_json::Value>, ServerError> {
-    let api_key = crate::services::auth::generate_api_key(&state.db, auth.user_id).await?;
+    let api_key = crate::services::auth::generate_api_key(
+        &state.db,
+        auth.user_id,
+        state.cookie_key.signing(),
+    )
+    .await?;
     Ok(Json(json!({ "api_key": api_key })))
+}
+
+#[derive(Deserialize)]
+struct OnboardingRequest {
+    git_name: String,
+    git_email: String,
+    is_technical: bool,
+}
+
+async fn onboarding_handler(
+    State(state): State<AppState>,
+    auth: AuthUser,
+    Json(body): Json<OnboardingRequest>,
+) -> Result<Json<serde_json::Value>, ServerError> {
+    let user = crate::services::auth::complete_onboarding(
+        &state.db,
+        auth.user_id,
+        body.git_name,
+        body.git_email,
+        body.is_technical,
+    )
+    .await?;
+    Ok(Json(json!({
+        "success": true,
+        "user": {
+            "id": user.id,
+            "username": user.username,
+            "git_name": user.git_name,
+            "git_email": user.git_email,
+            "is_technical": user.is_technical,
+            "has_completed_onboarding": user.has_completed_onboarding,
+        }
+    })))
 }
 
 async fn revoke_api_key_handler(
@@ -141,7 +182,7 @@ async fn revoke_api_key_handler(
     Ok(Json(json!({ "success": true })))
 }
 
-fn parse_session_cookie(jar: &PrivateCookieJar) -> Result<Uuid, ServerError> {
+pub(crate) fn parse_session_cookie(jar: &PrivateCookieJar) -> Result<Uuid, ServerError> {
     let cookie = jar
         .get("omprint_session")
         .ok_or_else(|| ServerError::BadRequest("no session cookie".into()))?;

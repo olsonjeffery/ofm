@@ -36,7 +36,7 @@ async fn make_state_with_ports(raft_port: u16, api_port: u16) -> (AppState, Auth
     client.wait_until_healthy_db().await;
     db::run_migrations(&client).await.unwrap();
     let user_id = db::ensure_default_user(&client).await.unwrap();
-    let auth_layer = AuthLayer::disabled(client.clone());
+    let auth_layer = AuthLayer::disabled(client.clone(), b"test".to_vec());
     let state = AppState {
         db: client,
         default_user_id: user_id,

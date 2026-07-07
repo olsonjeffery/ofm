@@ -17,8 +17,13 @@ pub fn router(state: AppState, auth_layer: AuthLayer) -> Router {
     // Public webapp routes (no auth)
     let webapp_public = Router::new().merge(webapp::webapp_routes());
 
-    // Protected webapp routes (auth required)
-    let webapp_protected = webapp::webapp_protected_routes().layer(auth_layer.clone());
+    // Protected webapp routes (session cookie auth required, redirects to login on failure)
+    let webapp_auth_layer = if auth_layer.enabled {
+        webapp::auth::WebappAuthLayer::new(state.db.clone(), state.cookie_key.clone())
+    } else {
+        webapp::auth::WebappAuthLayer::disabled(state.db.clone(), state.cookie_key.clone())
+    };
+    let webapp_protected = webapp::webapp_protected_routes().layer(webapp_auth_layer);
 
     let protected = Router::new()
         .nest("/api/auth", routes::auth::auth_protected_router())

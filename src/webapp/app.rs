@@ -18,10 +18,31 @@ pub fn ShellPage() -> impl IntoView {
         </head>
         <body>
             <header class="page-header">
-                <h1>"omprint"</h1>
-                <p>"AI agent orchestration platform"</p>
+                <div class="page-header-row">
+                    <div>
+                        <h1>"omprint"</h1>
+                        <p>"AI agent orchestration platform"</p>
+                    </div>
+                    <nav id="auth-nav" class="auth-nav" hidden>
+                        <form action="/api/auth/logout" method="post" id="logout-form">
+                            <button type="submit" class="btn btn-logout">"Logout"</button>
+                        </form>
+                    </nav>
+                </div>
             </header>
             <main></main>
+            <script>
+                {r#"document.addEventListener('DOMContentLoaded',function(){
+                    var form=document.getElementById('logout-form');
+                    if(!form)return;
+                    form.addEventListener('submit',function(ev){
+                        ev.preventDefault();
+                        fetch(form.action,{method:'POST',credentials:'same-origin'})
+                            .then(function(){window.location.href='/webapp/login';})
+                            .catch(function(){window.location.href='/webapp/login';});
+                    });
+                });"#}
+            </script>
         </body>
         </html>
     }

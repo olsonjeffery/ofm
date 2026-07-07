@@ -15,6 +15,9 @@ pub struct OmprintConfig {
     pub hiqlite_api_port: u16,
 }
 
+const OMPRINT_OIDC_ISSUER_URL: &str = "OMPRINT_OIDC_ISSUER_URL";
+const OMPRINT_OIDC_CLIENT_ID: &str = "OMPRINT_OIDC_CLIENT_ID";
+
 impl OmprintConfig {
     pub fn auth_enabled(&self) -> bool {
         self.oidc_issuer_url.is_some()
@@ -56,8 +59,8 @@ impl OmprintConfig {
             config_root: format!("{footprint}/config"),
             footprint,
             api_key,
-            oidc_issuer_url: std::env::var("OIDC_ISSUER_URL").ok(),
-            oidc_client_id: std::env::var("OIDC_CLIENT_ID").ok(),
+            oidc_issuer_url: std::env::var(OMPRINT_OIDC_ISSUER_URL).ok(),
+            oidc_client_id: std::env::var(OMPRINT_OIDC_CLIENT_ID).ok(),
             oidc_client_secret: std::env::var("OIDC_CLIENT_SECRET").ok(),
             base_url,
             oidc_redirect_uri: redirect_uri,
@@ -134,43 +137,43 @@ mod tests {
     #[test]
     fn test_oidc_config_defaults() {
         let _guard = ENV_LOCK.lock().unwrap();
-        std::env::remove_var("OIDC_ISSUER_URL");
-        std::env::remove_var("OIDC_CLIENT_ID");
+        std::env::remove_var(OMPRINT_OIDC_ISSUER_URL);
+        std::env::remove_var(OMPRINT_OIDC_CLIENT_ID);
 
         let cfg = OmprintConfig::from_env();
         assert!(cfg.oidc_issuer_url.is_none());
         assert!(cfg.oidc_client_id.is_none());
 
-        std::env::remove_var("OIDC_ISSUER_URL");
-        std::env::remove_var("OIDC_CLIENT_ID");
+        std::env::remove_var(OMPRINT_OIDC_ISSUER_URL);
+        std::env::remove_var(OMPRINT_OIDC_CLIENT_ID);
     }
 
     #[test]
     fn test_oidc_config_env_override() {
         let _guard = ENV_LOCK.lock().unwrap();
-        std::env::set_var("OIDC_ISSUER_URL", "https://auth.example.com");
-        std::env::set_var("OIDC_CLIENT_ID", "my-client");
+        std::env::set_var(OMPRINT_OIDC_ISSUER_URL, "https://auth.example.com");
+        std::env::set_var(OMPRINT_OIDC_CLIENT_ID, "my-client");
 
         let cfg = OmprintConfig::from_env();
         assert_eq!(cfg.oidc_issuer_url, Some("https://auth.example.com".into()));
         assert_eq!(cfg.oidc_client_id, Some("my-client".into()));
 
-        std::env::remove_var("OIDC_ISSUER_URL");
-        std::env::remove_var("OIDC_CLIENT_ID");
+        std::env::remove_var(OMPRINT_OIDC_ISSUER_URL);
+        std::env::remove_var(OMPRINT_OIDC_CLIENT_ID);
     }
 
     #[test]
     fn test_auth_enabled() {
         let _guard = ENV_LOCK.lock().unwrap();
-        std::env::remove_var("OIDC_ISSUER_URL");
+        std::env::remove_var(OMPRINT_OIDC_ISSUER_URL);
         let cfg = OmprintConfig::from_env();
         assert!(!cfg.auth_enabled());
 
-        std::env::set_var("OIDC_ISSUER_URL", "https://auth.example.com");
+        std::env::set_var(OMPRINT_OIDC_ISSUER_URL, "https://auth.example.com");
         let cfg = OmprintConfig::from_env();
         assert!(cfg.auth_enabled());
 
-        std::env::remove_var("OIDC_ISSUER_URL");
+        std::env::remove_var(OMPRINT_OIDC_ISSUER_URL);
     }
 
     #[test]
