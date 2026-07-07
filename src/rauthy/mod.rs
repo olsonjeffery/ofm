@@ -58,7 +58,7 @@ pub async fn start_rauthy(footprint: &str, port: u16) -> Result<RauthyInstance, 
             "-e",
             "PUBLIC_URL=http://localhost:PORT/auth",
             "-e",
-            &format!("LISTEN_ADDR=0.0.0.0:8080"),
+            "LISTEN_ADDR=0.0.0.0:8080",
             RAUTHY_IMAGE,
         ])
         .stdout(Stdio::piped())
