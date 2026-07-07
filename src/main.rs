@@ -111,12 +111,17 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         key
     };
 
-    let auth_layer = auth::AuthLayer::new(&cfg, client.clone(), cookie_key.signing().to_vec())
-        .await
-        .unwrap_or_else(|e| {
-            eprintln!("ERROR: Failed to initialize OIDC authentication: {e}");
-            std::process::exit(1);
-        });
+    let auth_layer = auth::AuthLayer::new(
+        &cfg,
+        client.clone(),
+        cookie_key.signing().to_vec(),
+        cookie_key.clone(),
+    )
+    .await
+    .unwrap_or_else(|e| {
+        eprintln!("ERROR: Failed to initialize OIDC authentication: {e}");
+        std::process::exit(1);
+    });
 
     if !auth_layer.enabled {
         eprintln!("ERROR: OIDC is not configured. Set OMPRINT_OIDC_ISSUER_URL (and OMPRINT_OIDC_CLIENT_ID) to enable authentication.");

@@ -28,6 +28,7 @@ pub fn webapp_routes() -> Router<AppState> {
 pub fn webapp_protected_routes() -> Router<AppState> {
     Router::new()
         .route("/webapp", get(shell_handler))
+        .route("/webapp/settings", get(settings_handler))
         .route("/webapp/islands/uptime", get(uptime_handler))
         .route("/webapp/islands/infocard", get(infocard_handler))
 }
@@ -102,6 +103,12 @@ async fn resolve_user_id_from_session(db: &hiqlite::Client, session_id: Uuid) ->
     }
 
     Some(session_db.user_id)
+}
+
+async fn settings_handler() -> Html<String> {
+    let settings_html =
+        leptos::view! { <pages::settings::SettingsPage access_token=String::new() /> }.to_html();
+    Html(render_shell(&settings_html))
 }
 
 async fn shell_handler() -> Html<String> {

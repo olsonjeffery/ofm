@@ -48,7 +48,7 @@ async fn setup_app() -> TestApp {
     .unwrap()
     .id;
 
-    let auth_layer = AuthLayer::disabled(client.clone(), b"test".to_vec());
+    let auth_layer = AuthLayer::disabled(client.clone(), b"test".to_vec(), cookie::Key::generate());
     let state = AppState {
         db: client.clone(),
         default_user_id: user_id,

@@ -27,7 +27,7 @@ async fn setup_app() -> (String, tokio::task::JoinHandle<()>) {
     db::run_migrations(&client).await.unwrap();
     let user_id = db::ensure_default_user(&client).await.unwrap();
 
-    let auth_layer = AuthLayer::disabled(client.clone(), b"test".to_vec());
+    let auth_layer = AuthLayer::disabled(client.clone(), b"test".to_vec(), cookie::Key::generate());
     let state = AppState {
         db: client,
         default_user_id: user_id,

@@ -269,6 +269,17 @@ pub struct UserAgentModelSetting {
     pub settings_json: serde_json::Value,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct UserModelConfig {
+    pub id: Uuid,
+    pub user_id: Uuid,
+    pub name: String,
+    pub config_body: String,
+    pub harness: String,
+    pub created_at: NaiveDateTime,
+    pub updated_at: NaiveDateTime,
+}
+
 // hiqlite Row conversions
 
 fn uuid_from_row(row: &mut Row<'_>, col: &str) -> Uuid {
@@ -410,6 +421,20 @@ impl From<&mut Row<'_>> for TaskAgentRun {
             completed_at: row
                 .get::<Option<String>>("completed_at")
                 .map(|s| parse_naive_datetime(&s)),
+        }
+    }
+}
+
+impl From<&mut Row<'_>> for UserModelConfig {
+    fn from(row: &mut Row<'_>) -> Self {
+        Self {
+            id: uuid_from_row(row, "id"),
+            user_id: uuid_from_row(row, "user_id"),
+            name: row.get("name"),
+            config_body: row.get("config_body"),
+            harness: row.get("harness"),
+            created_at: parse_naive_datetime(&row.get::<String>("created_at")),
+            updated_at: parse_naive_datetime(&row.get::<String>("updated_at")),
         }
     }
 }

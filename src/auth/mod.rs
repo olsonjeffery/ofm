@@ -4,10 +4,11 @@ use std::sync::Arc;
 use std::task::{Context, Poll};
 
 use axum::extract::FromRequestParts;
-use axum::http::header::AUTHORIZATION;
+use axum::http::header::{AUTHORIZATION, COOKIE};
 use axum::http::{HeaderMap, Request, StatusCode};
 use axum::response::{IntoResponse, Response};
 use axum::Json;
+use cookie::Key;
 use serde_json::json;
 use tokio::sync::RwLock;
 use tower::{Layer, Service};
@@ -16,7 +17,7 @@ use uuid::Uuid;
 use crate::auth::jwks::{fetch_jwks, verify_token, JwksCache, VerifyError};
 use crate::auth::session::{AuthMethod, Session};
 use crate::config::OmprintConfig;
-use crate::db::schema::User;
+use crate::db::schema::{SessionDb, User};
 
 pub mod api_key;
 pub mod jwks;
@@ -96,10 +97,11 @@ pub struct AuthLayer {
     pub issuer_url: Option<String>,
     pub client_id: Option<String>,
     pub pepper: Vec<u8>,
+    pub cookie_key: Key,
 }
 
 impl AuthLayer {
-    pub fn disabled(db: hiqlite::Client, pepper: Vec<u8>) -> Self {
+    pub fn disabled(db: hiqlite::Client, pepper: Vec<u8>, cookie_key: Key) -> Self {
         Self {
             enabled: false,
             db,
@@ -107,6 +109,7 @@ impl AuthLayer {
             issuer_url: None,
             client_id: None,
             pepper,
+            cookie_key,
         }
     }
 
@@ -114,6 +117,7 @@ impl AuthLayer {
         cfg: &OmprintConfig,
         db: hiqlite::Client,
         pepper: Vec<u8>,
+        cookie_key: Key,
     ) -> Result<Self, Box<dyn std::error::Error>> {
         if cfg.auth_enabled() {
             let issuer_url = cfg.oidc_issuer_url.as_ref().unwrap();
@@ -146,9 +150,10 @@ impl AuthLayer {
                 issuer_url: Some(issuer_url.clone()),
                 client_id: Some(client_id),
                 pepper,
+                cookie_key,
             })
         } else {
-            Ok(Self::disabled(db, pepper))
+            Ok(Self::disabled(db, pepper, cookie_key))
         }
     }
 
@@ -262,35 +267,125 @@ where
         let mut inner = self.inner.clone();
 
         Box::pin(async move {
-            let Some(token) = extract_bearer_token(request.headers()).map(|s| s.to_string()) else {
-                return Ok(AuthRejection::Unauthorized.into_response());
-            };
-
-            match layer.authenticate(&token).await {
-                Ok((user, method)) => {
-                    let session = Session::new(user, method);
-                    if !session::validate_session(&session) {
-                        return Ok(AuthRejection::Unauthorized.into_response());
+            if let Some(token) = extract_bearer_token(request.headers()).map(|s| s.to_string()) {
+                match layer.authenticate(&token).await {
+                    Ok((user, method)) => {
+                        let session = Session::new(user, method);
+                        if !session::validate_session(&session) {
+                            return Ok(AuthRejection::Unauthorized.into_response());
+                        }
+                        let auth_user = AuthUser {
+                            user_id: session.user.id,
+                            username: session.user.username.clone(),
+                            oidc_subject: session.user.oidc_subject.clone(),
+                            is_admin: session.user.is_admin,
+                            is_technical: session.user.is_technical,
+                        };
+                        let (mut parts, body) = request.into_parts();
+                        parts.extensions.insert(auth_user);
+                        let request = Request::from_parts(parts, body);
+                        return inner.call(request).await;
                     }
-                    let auth_user = AuthUser {
-                        user_id: session.user.id,
-                        username: session.user.username.clone(),
-                        oidc_subject: session.user.oidc_subject.clone(),
-                        is_admin: session.user.is_admin,
-                        is_technical: session.user.is_technical,
-                    };
-                    let (mut parts, body) = request.into_parts();
-                    parts.extensions.insert(auth_user);
-                    let request = Request::from_parts(parts, body);
-                    inner.call(request).await
-                }
-                Err(e) => {
-                    tracing::debug!("Authentication failed: {e}");
-                    Ok(AuthRejection::Unauthorized.into_response())
+                    Err(e) => {
+                        tracing::debug!(
+                            "Bearer token authentication failed, trying session cookie: {e}"
+                        );
+                    }
                 }
             }
+
+            // Fall back to session cookie auth (works even if a bad Bearer was sent)
+            authenticate_via_session(layer, request, inner).await
         })
     }
+}
+
+async fn authenticate_via_session<S>(
+    layer: AuthLayer,
+    request: Request<axum::body::Body>,
+    mut inner: S,
+) -> Result<Response, S::Error>
+where
+    S: Service<Request<axum::body::Body>, Response = Response> + Clone + 'static,
+    S::Future: Send,
+{
+    let session_id = match extract_session_from_api_cookies(request.headers(), &layer.cookie_key) {
+        Some(id) => id,
+        None => return Ok(AuthRejection::Unauthorized.into_response()),
+    };
+
+    let user_id = {
+        let mut rows = match layer
+            .db
+            .query_raw(
+                "SELECT * FROM sessions WHERE id = $1",
+                hiqlite::params!(session_id.to_string()),
+            )
+            .await
+        {
+            Ok(rows) => rows,
+            Err(_) => return Ok(AuthRejection::Unauthorized.into_response()),
+        };
+        let session_db = match rows.first_mut() {
+            Some(s) => SessionDb::from(&mut *s),
+            None => return Ok(AuthRejection::Unauthorized.into_response()),
+        };
+        let now = chrono::Utc::now().format("%Y-%m-%d %H:%M:%S").to_string();
+        if session_db.expires_at < now {
+            return Ok(AuthRejection::Unauthorized.into_response());
+        }
+        session_db.user_id
+    };
+
+    let auth_user = {
+        let mut user_rows = match layer
+            .db
+            .query_raw(
+                "SELECT * FROM users WHERE id = $1",
+                hiqlite::params!(user_id.to_string()),
+            )
+            .await
+        {
+            Ok(rows) => rows,
+            Err(_) => return Ok(AuthRejection::Unauthorized.into_response()),
+        };
+        let user_raw = match user_rows.first_mut() {
+            Some(u) => u,
+            None => return Ok(AuthRejection::Unauthorized.into_response()),
+        };
+        let user = User::from(&mut *user_raw);
+        if !user.is_active {
+            return Ok(AuthRejection::Unauthorized.into_response());
+        }
+        AuthUser {
+            user_id: user.id,
+            username: user.username,
+            oidc_subject: user.oidc_subject,
+            is_admin: user.is_admin,
+            is_technical: user.is_technical,
+        }
+    };
+
+    let (mut parts, body) = request.into_parts();
+    parts.extensions.insert(auth_user);
+    let request = Request::from_parts(parts, body);
+    inner.call(request).await
+}
+
+fn extract_session_from_api_cookies(headers: &HeaderMap, key: &Key) -> Option<Uuid> {
+    let mut jar = cookie::CookieJar::new();
+    for header in headers.get_all(COOKIE) {
+        let s = header.to_str().ok()?;
+        for part in s.split(';') {
+            if let Ok(c) = cookie::Cookie::parse_encoded(part.to_owned()) {
+                jar.add_original(c);
+            }
+        }
+    }
+
+    let private = jar.private(key);
+    let session_cookie = private.get("omprint_session")?;
+    Uuid::parse_str(session_cookie.value()).ok()
 }
 
 fn extract_bearer_token(headers: &HeaderMap) -> Option<&str> {
@@ -344,7 +439,7 @@ mod tests {
     #[tokio::test]
     async fn test_auth_layer_disabled_passes_through() {
         let (client, _tmp) = make_client().await;
-        let auth_layer = AuthLayer::disabled(client, b"test".to_vec());
+        let auth_layer = AuthLayer::disabled(client, b"test".to_vec(), Key::generate());
 
         let app = Router::new()
             .route("/", get(|| async { "ok" }))
@@ -366,6 +461,7 @@ mod tests {
             issuer_url: Some("http://localhost".into()),
             client_id: Some("test-client".into()),
             pepper: b"test".to_vec(),
+            cookie_key: Key::generate(),
         };
 
         let app = Router::new()
@@ -409,6 +505,7 @@ mod tests {
             issuer_url: Some("test-issuer".to_string()),
             client_id: Some("test-client".to_string()),
             pepper: b"test".to_vec(),
+            cookie_key: Key::generate(),
         };
 
         let user_id = Uuid::new_v4();
@@ -488,6 +585,7 @@ mod tests {
             issuer_url: Some("test-issuer".to_string()),
             client_id: Some("test-client".to_string()),
             pepper: b"test".to_vec(),
+            cookie_key: Key::generate(),
         };
 
         let claims = crate::auth::jwks::Claims {
@@ -547,6 +645,7 @@ mod tests {
             issuer_url: None,
             client_id: None,
             pepper: b"test".to_vec(),
+            cookie_key: Key::generate(),
         };
 
         async fn auth_handler(auth: AuthUser) -> impl axum::response::IntoResponse {
