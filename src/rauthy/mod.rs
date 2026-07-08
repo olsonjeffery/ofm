@@ -67,15 +67,19 @@ pub async fn start_rauthy(
         "id": "omprint",
         "name": "Omprint",
         "enabled": true,
+        "confidential": false,
         "redirect_uris": [
             format!("http://127.0.0.1:{}/auth/api/auth/callback", proxy_port),
         ],
-        "flows_enabled": ["authorization_code", "refresh_token", "password"],
+        "flows_enabled": ["authorization_code", "refresh_token"],
+        "access_token_alg": "EdDSA",
+        "id_token_alg": "EdDSA",
+        "auth_code_lifetime": 300,
+        "access_token_lifetime": 1800,
         "scopes": ["openid", "profile", "email"],
         "default_scopes": ["openid", "profile", "email"],
         "challenges": ["S256"],
-        "access_token_alg": "EdDSA",
-        "id_token_alg": "EdDSA",
+        "force_mfa": false,
     }]);
     std::fs::write(
         format!("{}/clients.json", bootstrap_dir),
