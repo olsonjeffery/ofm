@@ -34,7 +34,11 @@ pub fn find_available_port() -> std::io::Result<u16> {
     Ok(addr.port())
 }
 
-pub async fn start_rauthy(footprint: &str, port: u16) -> Result<RauthyInstance, BoxError> {
+pub async fn start_rauthy(
+    footprint: &str,
+    port: u16,
+    proxy_port: u16,
+) -> Result<RauthyInstance, BoxError> {
     let data_dir = format!("{}/rauthy/data", footprint);
     std::fs::create_dir_all(&data_dir)?;
 
@@ -56,9 +60,9 @@ pub async fn start_rauthy(footprint: &str, port: u16) -> Result<RauthyInstance, 
             "-p",
             &format!("{}:8080", port),
             "-e",
-            "PUBLIC_URL=http://localhost:PORT/auth",
+            &format!("PUBLIC_URL=http://localhost:{}/auth", proxy_port),
             "-e",
-            "LISTEN_ADDR=0.0.0.0:8080",
+            "LOCAL_TEST=true",
             RAUTHY_IMAGE,
         ])
         .stdout(Stdio::piped())
@@ -81,7 +85,7 @@ pub async fn wait_until_healthy(port: u16) -> Result<(), BoxError> {
         }
 
         match client
-            .get(format!("http://127.0.0.1:{}/auth/v1/health", port))
+            .get(format!("http://127.0.0.1:{}/health", port))
             .send()
             .await
         {

@@ -152,7 +152,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         };
 
         tracing::info!("Starting embedded rauthy on port {} (proxied at /auth)", rp);
-        let instance = rauthy::start_rauthy(&cfg.footprint, rp).await?;
+        let instance = rauthy::start_rauthy(&cfg.footprint, rp, cfg.port).await?;
         rauthy::wait_until_healthy(rp).await?;
         tracing::info!("rauthy is healthy");
         _rauthy_instance = Some(instance);
