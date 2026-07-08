@@ -65,8 +65,8 @@ pub async fn initiate_login(
         oidc.authorization_endpoint,
         urlencoding(&oidc.client_id),
         urlencoding(&oidc.redirect_uri),
-        &code_challenge,
-        &state,
+        code_challenge,
+        state,
     );
 
     Ok(auth_url)
