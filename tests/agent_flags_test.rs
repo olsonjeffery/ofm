@@ -73,10 +73,9 @@ async fn setup_app() -> TestApp {
         pkce_store: Arc::new(Mutex::new(HashMap::new())),
         cookie_key: cookie::Key::generate(),
         api_key_pepper: b"test_pepper".to_vec(),
-        rauthy_base_url: None,
     };
 
-    let app = server::router(state, auth_layer, None);
+    let app = server::router(state, auth_layer);
     let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
     let addr = format!("http://{}", listener.local_addr().unwrap());
     let handle = tokio::spawn(async move {

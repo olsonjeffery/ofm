@@ -114,7 +114,6 @@ fn make_app_state(client: hiqlite::Client, user_id: Uuid, oidc: Option<OidcEndpo
         pkce_store: Arc::new(Mutex::new(HashMap::new())),
         cookie_key: cookie::Key::generate(),
         api_key_pepper: b"test_pepper".to_vec(),
-        rauthy_base_url: None,
     }
 }
 
@@ -124,7 +123,7 @@ async fn test_health_check() {
     let user_id = db::ensure_default_user(&client).await.unwrap();
     let auth_layer = AuthLayer::disabled(client.clone(), b"test".to_vec(), cookie::Key::generate());
     let state = make_app_state(client, user_id, None);
-    let app = server::router(state, auth_layer, None);
+    let app = server::router(state, auth_layer);
     let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
     let addr = listener.local_addr().unwrap();
     tokio::spawn(async move { axum::serve(listener, app).await.unwrap() });
@@ -154,7 +153,7 @@ async fn test_login_returns_authorization_url() {
     let state = make_app_state(client, user_id, Some(oidc));
     let auth_layer =
         AuthLayer::disabled(state.db.clone(), b"test".to_vec(), state.cookie_key.clone());
-    let app = server::router(state, auth_layer, None);
+    let app = server::router(state, auth_layer);
     let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
     let addr = listener.local_addr().unwrap();
     tokio::spawn(async move { axum::serve(listener, app).await.unwrap() });
@@ -179,7 +178,7 @@ async fn test_login_returns_400_when_oidc_disabled() {
     let state = make_app_state(client, user_id, None);
     let auth_layer =
         AuthLayer::disabled(state.db.clone(), b"test".to_vec(), state.cookie_key.clone());
-    let app = server::router(state, auth_layer, None);
+    let app = server::router(state, auth_layer);
     let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
     let addr = listener.local_addr().unwrap();
     tokio::spawn(async move { axum::serve(listener, app).await.unwrap() });
@@ -209,7 +208,7 @@ async fn test_callback_rejects_invalid_state() {
     let state = make_app_state(client, user_id, Some(oidc));
     let auth_layer =
         AuthLayer::disabled(state.db.clone(), b"test".to_vec(), state.cookie_key.clone());
-    let app = server::router(state, auth_layer, None);
+    let app = server::router(state, auth_layer);
     let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
     let addr = listener.local_addr().unwrap();
     tokio::spawn(async move { axum::serve(listener, app).await.unwrap() });
@@ -239,7 +238,7 @@ async fn test_me_returns_401_without_token() {
         cookie_key: cookie::Key::generate(),
     };
     let state = make_app_state(client, user_id, None);
-    let app = server::router(state, auth_layer, None);
+    let app = server::router(state, auth_layer);
     let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
     let addr = listener.local_addr().unwrap();
     tokio::spawn(async move { axum::serve(listener, app).await.unwrap() });
@@ -276,7 +275,7 @@ async fn test_me_returns_user() {
         cookie_key: cookie::Key::generate(),
     };
     let state = make_app_state(client, user_id, None);
-    let app = server::router(state, auth_layer, None);
+    let app = server::router(state, auth_layer);
     let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
     let addr = listener.local_addr().unwrap();
     tokio::spawn(async move { axum::serve(listener, app).await.unwrap() });
@@ -323,11 +322,10 @@ async fn test_generate_api_key() {
     // Use deterministic cookie_key matching the pepper
     let state = AppState {
         cookie_key,
-        rauthy_base_url: None,
         ..state
     };
     let api_key_pepper = state.api_key_pepper.clone();
-    let app = server::router(state, auth_layer, None);
+    let app = server::router(state, auth_layer);
     let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
     let addr = listener.local_addr().unwrap();
     tokio::spawn(async move { axum::serve(listener, app).await.unwrap() });
@@ -391,7 +389,7 @@ async fn test_revoke_api_key() {
         cookie_key: cookie::Key::generate(),
     };
     let state = make_app_state(client.clone(), user_id, None);
-    let app = server::router(state, auth_layer, None);
+    let app = server::router(state, auth_layer);
     let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
     let addr = listener.local_addr().unwrap();
     tokio::spawn(async move { axum::serve(listener, app).await.unwrap() });
@@ -442,7 +440,7 @@ async fn test_api_key_auth_accesses_protected_route() {
         cookie_key: cookie::Key::generate(),
     };
     let state = make_app_state(client, user_id, None);
-    let app = server::router(state, auth_layer, None);
+    let app = server::router(state, auth_layer);
     let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
     let addr = listener.local_addr().unwrap();
     tokio::spawn(async move { axum::serve(listener, app).await.unwrap() });
@@ -493,7 +491,7 @@ async fn test_admin_list_users() {
         cookie_key: cookie::Key::generate(),
     };
     let state = make_app_state(client, admin_user_id, None);
-    let app = server::router(state, auth_layer, None);
+    let app = server::router(state, auth_layer);
     let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
     let addr = listener.local_addr().unwrap();
     tokio::spawn(async move { axum::serve(listener, app).await.unwrap() });
@@ -537,7 +535,7 @@ async fn test_admin_list_denied_for_non_admin() {
         cookie_key: cookie::Key::generate(),
     };
     let state = make_app_state(client, user_id, None);
-    let app = server::router(state, auth_layer, None);
+    let app = server::router(state, auth_layer);
     let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
     let addr = listener.local_addr().unwrap();
     tokio::spawn(async move { axum::serve(listener, app).await.unwrap() });
@@ -588,7 +586,7 @@ async fn test_admin_update_user() {
         cookie_key: cookie::Key::generate(),
     };
     let state = make_app_state(client.clone(), admin_user_id, None);
-    let app = server::router(state, auth_layer, None);
+    let app = server::router(state, auth_layer);
     let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
     let addr = listener.local_addr().unwrap();
     tokio::spawn(async move { axum::serve(listener, app).await.unwrap() });
@@ -642,7 +640,7 @@ async fn test_admin_cannot_self_demote() {
         cookie_key: cookie::Key::generate(),
     };
     let state = make_app_state(client, admin_user_id, None);
-    let app = server::router(state, auth_layer, None);
+    let app = server::router(state, auth_layer);
     let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
     let addr = listener.local_addr().unwrap();
     tokio::spawn(async move { axum::serve(listener, app).await.unwrap() });
@@ -676,7 +674,7 @@ async fn test_logout_without_cookie_returns_success() {
     let state = make_app_state(client, user_id, Some(oidc));
     let auth_layer =
         AuthLayer::disabled(state.db.clone(), b"test".to_vec(), state.cookie_key.clone());
-    let app = server::router(state, auth_layer, None);
+    let app = server::router(state, auth_layer);
     let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
     let addr = listener.local_addr().unwrap();
     tokio::spawn(async move { axum::serve(listener, app).await.unwrap() });
@@ -709,7 +707,7 @@ async fn test_me_returns_unauthorized_when_no_user_matches_jwt() {
         cookie_key: cookie::Key::generate(),
     };
     let state = make_app_state(client, user_id, None);
-    let app = server::router(state, auth_layer, None);
+    let app = server::router(state, auth_layer);
     let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
     let addr = listener.local_addr().unwrap();
     tokio::spawn(async move { axum::serve(listener, app).await.unwrap() });
@@ -783,7 +781,7 @@ async fn test_callback_exchanges_code() {
     let state = make_app_state(client.clone(), user_id, Some(oidc));
     let auth_layer =
         AuthLayer::disabled(state.db.clone(), b"test".to_vec(), state.cookie_key.clone());
-    let app = server::router(state, auth_layer, None);
+    let app = server::router(state, auth_layer);
     let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
     let addr = listener.local_addr().unwrap();
     tokio::spawn(async move { axum::serve(listener, app).await.unwrap() });
@@ -916,11 +914,10 @@ async fn test_refresh_with_session_cookie() {
         pkce_store: Arc::new(Mutex::new(HashMap::new())),
         cookie_key: key.clone(),
         api_key_pepper: b"test_pepper".to_vec(),
-        rauthy_base_url: None,
     };
     let auth_layer =
         AuthLayer::disabled(state.db.clone(), b"test".to_vec(), state.cookie_key.clone());
-    let app = server::router(state, auth_layer, None);
+    let app = server::router(state, auth_layer);
     let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
     let addr = listener.local_addr().unwrap();
     tokio::spawn(async move { axum::serve(listener, app).await.unwrap() });
@@ -954,7 +951,7 @@ async fn test_refresh_without_cookie() {
     let state = make_app_state(client, user_id, Some(oidc));
     let auth_layer =
         AuthLayer::disabled(state.db.clone(), b"test".to_vec(), state.cookie_key.clone());
-    let app = server::router(state, auth_layer, None);
+    let app = server::router(state, auth_layer);
     let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
     let addr = listener.local_addr().unwrap();
     tokio::spawn(async move { axum::serve(listener, app).await.unwrap() });
@@ -994,7 +991,7 @@ async fn test_onboarding_with_valid_auth() {
         cookie_key: cookie::Key::generate(),
     };
     let state = make_app_state(client, user_id, None);
-    let app = server::router(state, auth_layer, None);
+    let app = server::router(state, auth_layer);
     let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
     let addr = listener.local_addr().unwrap();
     tokio::spawn(async move { axum::serve(listener, app).await.unwrap() });
@@ -1045,7 +1042,7 @@ async fn test_onboarding_with_missing_fields_returns_400() {
         cookie_key: cookie::Key::generate(),
     };
     let state = make_app_state(client, user_id, None);
-    let app = server::router(state, auth_layer, None);
+    let app = server::router(state, auth_layer);
     let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
     let addr = listener.local_addr().unwrap();
     tokio::spawn(async move { axum::serve(listener, app).await.unwrap() });
@@ -1088,7 +1085,7 @@ async fn test_onboarding_without_auth_returns_401() {
         cookie_key: cookie::Key::generate(),
     };
     let state = make_app_state(client, user_id, None);
-    let app = server::router(state, auth_layer, None);
+    let app = server::router(state, auth_layer);
     let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
     let addr = listener.local_addr().unwrap();
     tokio::spawn(async move { axum::serve(listener, app).await.unwrap() });

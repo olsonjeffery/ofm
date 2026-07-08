@@ -64,7 +64,6 @@ async fn make_state_with_auth() -> (AppState, AuthLayer, String, tempfile::TempD
         pkce_store: Arc::new(Mutex::new(HashMap::new())),
         cookie_key: cookie::Key::generate(),
         api_key_pepper: b"test_pepper".to_vec(),
-        rauthy_base_url: None,
     };
 
     (state, auth_layer, api_key_str, tmp)
@@ -100,13 +99,12 @@ async fn make_state_no_auth() -> (AppState, AuthLayer, tempfile::TempDir) {
         pkce_store: Arc::new(Mutex::new(HashMap::new())),
         cookie_key: cookie::Key::generate(),
         api_key_pepper: b"test_pepper".to_vec(),
-        rauthy_base_url: None,
     };
     (state, auth_layer, tmp)
 }
 
 async fn spawn_app(state: AppState, auth_layer: AuthLayer) -> String {
-    let app = server::router(state, auth_layer, None);
+    let app = server::router(state, auth_layer);
     let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
     let addr = listener.local_addr().unwrap();
     tokio::spawn(async move {
@@ -331,7 +329,6 @@ async fn test_settings_config_body_user_isolation() {
         pkce_store: Arc::new(Mutex::new(HashMap::new())),
         cookie_key: cookie::Key::generate(),
         api_key_pepper: b"test_pepper".to_vec(),
-        rauthy_base_url: None,
     };
 
     let base_url = spawn_app(state, auth_layer).await;
