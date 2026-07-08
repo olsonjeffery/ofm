@@ -13,6 +13,7 @@ pub fn router(state: AppState, auth_layer: AuthLayer) -> Router {
     let public = Router::new()
         .route("/health", get(health))
         .route("/", get(|| async { Redirect::permanent("/webapp") }))
+        .route("/webapp/", get(|| async { Redirect::permanent("/webapp") }))
         .nest("/api/auth", routes::auth::auth_router());
 
     // Public webapp routes (no auth)
