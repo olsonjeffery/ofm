@@ -71,7 +71,7 @@ pub async fn start_rauthy(
             format!("http://127.0.0.1:{}/*", proxy_port),
         ],
         "post_logout_redirect_uris": [
-            format!("http://127.0.0.1:{}/webapp/login", proxy_port),
+            format!("http://127.0.0.1:{}/*", proxy_port),
         ],
         "flows_enabled": ["authorization_code", "refresh_token"],
         "access_token_alg": "EdDSA",

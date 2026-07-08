@@ -110,10 +110,12 @@ async fn logout(
             crate::services::auth::logout(&state.db, &state.oidc_provider, sid).await?;
             if let Some(oidc) = &state.oidc_provider {
                 if let Some(ees) = &oidc.end_session_endpoint {
+                    let post_logout_uri = format!("http://127.0.0.1:{}/webapp", state.cfg_port);
                     end_session_url = Some(format!(
-                        "{}?client_id={}",
+                        "{}?client_id={}&post_logout_redirect_uri={}",
                         ees,
                         urlencoding(&oidc.client_id),
+                        urlencoding(&post_logout_uri),
                     ));
                 }
             }
