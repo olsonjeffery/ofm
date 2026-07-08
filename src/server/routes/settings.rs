@@ -42,15 +42,7 @@ impl ErrorResponse {
 }
 
 #[derive(Deserialize)]
-struct CreateModelRequest {
-    name: String,
-    config_body: String,
-    #[serde(default)]
-    harness: String,
-}
-
-#[derive(Deserialize)]
-struct UpdateModelRequest {
+struct ModelRequest {
     name: String,
     config_body: String,
     #[serde(default)]
@@ -75,7 +67,7 @@ async fn list_models_handler(
 async fn create_model_handler(
     State(state): State<AppState>,
     auth: AuthUser,
-    Json(body): Json<CreateModelRequest>,
+    Json(body): Json<ModelRequest>,
 ) -> Result<(StatusCode, Json<UserModelConfig>), (StatusCode, Json<ErrorResponse>)> {
     settings::create_model_config(
         &state.db,
@@ -93,7 +85,7 @@ async fn update_model_handler(
     State(state): State<AppState>,
     auth: AuthUser,
     Path(id): Path<Uuid>,
-    Json(body): Json<UpdateModelRequest>,
+    Json(body): Json<ModelRequest>,
 ) -> Result<Json<UserModelConfig>, (StatusCode, Json<ErrorResponse>)> {
     match settings::update_model_config(
         &state.db,

@@ -110,10 +110,16 @@ pub struct AuthLayer {
     pub client_id: Option<String>,
     pub pepper: Vec<u8>,
     pub cookie_key: Key,
+    pub default_user_id: Uuid,
 }
 
 impl AuthLayer {
-    pub fn disabled(db: hiqlite::Client, pepper: Vec<u8>, cookie_key: Key) -> Self {
+    pub fn disabled(
+        db: hiqlite::Client,
+        pepper: Vec<u8>,
+        cookie_key: Key,
+        default_user_id: Uuid,
+    ) -> Self {
         Self {
             enabled: false,
             db,
@@ -122,22 +128,18 @@ impl AuthLayer {
             client_id: None,
             pepper,
             cookie_key,
+            default_user_id,
         }
     }
 
-    pub fn from_cache(
-        jwks_cache: JwksCache,
-        db: hiqlite::Client,
-        pepper: Vec<u8>,
-        cookie_key: Key,
-    ) -> Self {
-        let issuer_url = jwks_cache.issuer.clone();
-        let client_id = jwks_cache.client_id.clone();
-        let cache = Arc::new(RwLock::new(Some(jwks_cache)));
-
-        let bg_cache = cache.clone();
-        let bg_issuer = issuer_url.clone();
-        let bg_client_id = client_id.clone();
+    fn spawn_jwks_refresh(
+        cache: Arc<RwLock<Option<JwksCache>>>,
+        issuer_url: &str,
+        client_id: &str,
+    ) {
+        let bg_cache = cache;
+        let bg_issuer = issuer_url.to_string();
+        let bg_client_id = client_id.to_string();
         tokio::spawn(async move {
             let mut interval = tokio::time::interval(std::time::Duration::from_secs(3600));
             loop {
@@ -148,6 +150,20 @@ impl AuthLayer {
                 }
             }
         });
+    }
+
+    pub fn from_cache(
+        jwks_cache: JwksCache,
+        db: hiqlite::Client,
+        pepper: Vec<u8>,
+        cookie_key: Key,
+        default_user_id: Uuid,
+    ) -> Self {
+        let issuer_url = jwks_cache.issuer.clone();
+        let client_id = jwks_cache.client_id.clone();
+        let cache = Arc::new(RwLock::new(Some(jwks_cache)));
+
+        Self::spawn_jwks_refresh(cache.clone(), &issuer_url, &client_id);
 
         Self {
             enabled: true,
@@ -157,6 +173,7 @@ impl AuthLayer {
             client_id: Some(client_id),
             pepper,
             cookie_key,
+            default_user_id,
         }
     }
 
@@ -166,9 +183,16 @@ impl AuthLayer {
         db: hiqlite::Client,
         pepper: Vec<u8>,
         cookie_key: Key,
+        default_user_id: Uuid,
     ) -> Result<Self, Box<dyn std::error::Error>> {
         let cache = fetch_jwks(issuer_url, client_id).await?;
-        Ok(Self::from_cache(cache, db, pepper, cookie_key))
+        Ok(Self::from_cache(
+            cache,
+            db,
+            pepper,
+            cookie_key,
+            default_user_id,
+        ))
     }
 
     pub async fn new(
@@ -176,6 +200,7 @@ impl AuthLayer {
         db: hiqlite::Client,
         pepper: Vec<u8>,
         cookie_key: Key,
+        default_user_id: Uuid,
     ) -> Result<Self, Box<dyn std::error::Error>> {
         if cfg.auth_enabled() {
             let issuer_url = cfg.oidc_issuer_url.as_ref().unwrap();
@@ -183,23 +208,7 @@ impl AuthLayer {
             let cache = fetch_jwks(issuer_url, &client_id).await?;
             let cache = Arc::new(RwLock::new(Some(cache)));
 
-            let bg_cache = cache.clone();
-            let bg_issuer = issuer_url.clone();
-            let bg_client_id = client_id.clone();
-            tokio::spawn(async move {
-                let mut interval = tokio::time::interval(std::time::Duration::from_secs(3600));
-                loop {
-                    interval.tick().await;
-                    match fetch_jwks(&bg_issuer, &bg_client_id).await {
-                        Ok(new_cache) => {
-                            *bg_cache.write().await = Some(new_cache);
-                        }
-                        Err(e) => {
-                            tracing::warn!("JWKS refresh failed: {e}");
-                        }
-                    }
-                }
-            });
+            Self::spawn_jwks_refresh(cache.clone(), issuer_url, &client_id);
 
             Ok(Self {
                 enabled: true,
@@ -209,9 +218,10 @@ impl AuthLayer {
                 client_id: Some(client_id),
                 pepper,
                 cookie_key,
+                default_user_id,
             })
         } else {
-            Ok(Self::disabled(db, pepper, cookie_key))
+            Ok(Self::disabled(db, pepper, cookie_key, default_user_id))
         }
     }
 
@@ -318,6 +328,16 @@ where
 
     fn call(&mut self, request: Request<axum::body::Body>) -> Self::Future {
         if !self.layer.enabled {
+            let auth_user = AuthUser {
+                user_id: self.layer.default_user_id,
+                username: String::new(),
+                oidc_subject: None,
+                is_admin: false,
+                is_technical: false,
+            };
+            let (mut parts, body) = request.into_parts();
+            parts.extensions.insert(auth_user);
+            let request = Request::from_parts(parts, body);
             return Box::pin(self.inner.call(request));
         }
 
@@ -490,7 +510,8 @@ mod tests {
     #[tokio::test]
     async fn test_auth_layer_disabled_passes_through() {
         let (client, _tmp) = make_client().await;
-        let auth_layer = AuthLayer::disabled(client, b"test".to_vec(), Key::generate());
+        let auth_layer =
+            AuthLayer::disabled(client, b"test".to_vec(), Key::generate(), Uuid::nil());
 
         let app = Router::new()
             .route("/", get(|| async { "ok" }))
@@ -513,6 +534,7 @@ mod tests {
             client_id: Some("test-client".into()),
             pepper: b"test".to_vec(),
             cookie_key: Key::generate(),
+            default_user_id: Uuid::nil(),
         };
 
         let app = Router::new()
@@ -557,6 +579,7 @@ mod tests {
             client_id: Some("test-client".to_string()),
             pepper: b"test".to_vec(),
             cookie_key: Key::generate(),
+            default_user_id: Uuid::nil(),
         };
 
         let user_id = Uuid::new_v4();
@@ -637,6 +660,7 @@ mod tests {
             client_id: Some("test-client".to_string()),
             pepper: b"test".to_vec(),
             cookie_key: Key::generate(),
+            default_user_id: Uuid::nil(),
         };
 
         let claims = crate::auth::jwks::Claims {
@@ -697,6 +721,7 @@ mod tests {
             client_id: None,
             pepper: b"test".to_vec(),
             cookie_key: Key::generate(),
+            default_user_id: Uuid::nil(),
         };
 
         async fn auth_handler(auth: AuthUser) -> impl axum::response::IntoResponse {

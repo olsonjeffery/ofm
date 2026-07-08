@@ -45,7 +45,7 @@ impl OmprintConfig {
         });
         Self {
             hostname: std::env::var("OMPRINT_HOSTNAME").unwrap_or_else(|_| "127.0.0.1".into()),
-            port: std::env::var("PORT")
+            port: std::env::var("OMPRINT_PORT")
                 .ok()
                 .and_then(|s| s.parse().ok())
                 .unwrap_or(3183),
@@ -91,10 +91,10 @@ mod tests {
     fn test_defaults() {
         let _guard = ENV_LOCK.lock().unwrap();
         let prev_hostname = std::env::var("OMPRINT_HOSTNAME").ok();
-        let prev_port = std::env::var("PORT").ok();
+        let prev_port = std::env::var("OMPRINT_PORT").ok();
         let prev_footprint = std::env::var("OMPRINT_FOOTPRINT").ok();
         std::env::remove_var("OMPRINT_HOSTNAME");
-        std::env::remove_var("PORT");
+        std::env::remove_var("OMPRINT_PORT");
         std::env::remove_var("OMPRINT_FOOTPRINT");
 
         let home = std::env::var("HOME").unwrap();
@@ -110,7 +110,7 @@ mod tests {
             std::env::set_var("OMPRINT_HOSTNAME", v);
         }
         if let Some(v) = prev_port {
-            std::env::set_var("PORT", v);
+            std::env::set_var("OMPRINT_PORT", v);
         }
         if let Some(v) = prev_footprint {
             std::env::set_var("OMPRINT_FOOTPRINT", v);
@@ -121,7 +121,7 @@ mod tests {
     fn test_env_override() {
         let _guard = ENV_LOCK.lock().unwrap();
         std::env::set_var("OMPRINT_HOSTNAME", "0.0.0.0");
-        std::env::set_var("PORT", "9090");
+        std::env::set_var("OMPRINT_PORT", "9090");
         std::env::set_var("OMPRINT_FOOTPRINT", "/tmp/omprint");
 
         let cfg = OmprintConfig::from_env();
@@ -133,7 +133,7 @@ mod tests {
         assert_eq!(cfg.config_root, "/tmp/omprint/config");
 
         std::env::remove_var("OMPRINT_HOSTNAME");
-        std::env::remove_var("PORT");
+        std::env::remove_var("OMPRINT_PORT");
         std::env::remove_var("OMPRINT_FOOTPRINT");
     }
 
@@ -182,11 +182,11 @@ mod tests {
     #[test]
     fn test_port_invalid_fallback() {
         let _guard = ENV_LOCK.lock().unwrap();
-        std::env::set_var("PORT", "not-a-number");
+        std::env::set_var("OMPRINT_PORT", "not-a-number");
 
         let cfg = OmprintConfig::from_env();
         assert_eq!(cfg.port, 3183);
 
-        std::env::remove_var("PORT");
+        std::env::remove_var("OMPRINT_PORT");
     }
 }
