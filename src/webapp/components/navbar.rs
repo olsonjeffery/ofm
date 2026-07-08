@@ -51,10 +51,7 @@ pub fn Navbar(user_json: Option<String>) -> impl IntoView {
                     } else {
                         view! {
                             <div class="navbar-item">
-                                <a href="/webapp/login" class="button is-primary">
-                                    <span class="icon is-small"><i class="mdi mdi-login"></i></span>
-                                    <span>"Login"</span>
-                                </a>
+                                <crate::webapp::islands::sso_login::SsoLoginButton label="Login" />
                             </div>
                         }
                             .into_any()
