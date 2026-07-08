@@ -72,5 +72,9 @@ axum-extra = { version = "0.10", default-features = false, features = [
 leptos = { version = "0.8", features = ["ssr"] }
 leptos_styling = { version = "0.3", features = ["ssr"] }
 
+# Rauthy lifecycle & reverse proxy
+bytes = "1"
+http-body-util = "0.1"
+
 [features]
 ssr = ["leptos/ssr", "leptos_styling/ssr"]

@@ -16,6 +16,7 @@ use omprint::db;
 use omprint::providers::LlmProvider;
 use omprint::server;
 use omprint::server::state::{AppState, OidcEndpoints};
+use omprint::services::auth::{complete_onboarding, current_user};
 
 fn make_jwt_cache() -> (Vec<u8>, String, JwksCache) {
     let key = b"test-hmac-secret-key-32-bytes-long!";
@@ -104,6 +105,7 @@ async fn insert_user(
 
 fn make_app_state(client: hiqlite::Client, user_id: Uuid, oidc: Option<OidcEndpoints>) -> AppState {
     AppState {
+        cfg_port: 0,
         db: client,
         default_user_id: user_id,
         archive_root: "storage/".into(),
@@ -113,6 +115,7 @@ fn make_app_state(client: hiqlite::Client, user_id: Uuid, oidc: Option<OidcEndpo
         oidc_provider: oidc,
         pkce_store: Arc::new(Mutex::new(HashMap::new())),
         cookie_key: cookie::Key::generate(),
+        api_key_pepper: b"test_pepper".to_vec(),
     }
 }
 
@@ -140,6 +143,7 @@ async fn test_login_returns_authorization_url() {
     let (client, _tmp) = make_client().await;
     let user_id = db::ensure_default_user(&client).await.unwrap();
     let oidc = OidcEndpoints {
+        end_session_endpoint: None,
         authorization_endpoint: "https://provider.test/auth".into(),
         token_endpoint: "https://provider.test/token".into(),
         revocation_endpoint: None,
@@ -195,6 +199,7 @@ async fn test_callback_rejects_invalid_state() {
     let (client, _tmp) = make_client().await;
     let user_id = db::ensure_default_user(&client).await.unwrap();
     let oidc = OidcEndpoints {
+        end_session_endpoint: None,
         authorization_endpoint: "https://provider.test/auth".into(),
         token_endpoint: "https://provider.test/token".into(),
         revocation_endpoint: None,
@@ -299,7 +304,6 @@ async fn test_generate_api_key() {
     let (key, kid, cache) = make_jwt_cache();
     let user_id = Uuid::new_v4();
     let cookie_key = cookie::Key::from(&[0u8; 64]);
-    let pepper = cookie_key.signing().to_vec();
     insert_user(
         &client,
         user_id,
@@ -315,15 +319,18 @@ async fn test_generate_api_key() {
         jwks_cache: Arc::new(tokio::sync::RwLock::new(Some(cache))),
         issuer_url: Some("test-issuer".to_string()),
         client_id: Some("test-client".to_string()),
-        pepper: pepper.clone(),
+        pepper: b"test_pepper".to_vec(),
         cookie_key: cookie::Key::generate(),
     };
     let state = make_app_state(client.clone(), user_id, None);
     // Use deterministic cookie_key matching the pepper
     let state = AppState {
+        cfg_port: 0,
+
         cookie_key,
         ..state
     };
+    let api_key_pepper = state.api_key_pepper.clone();
     let app = server::router(state, auth_layer);
     let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
     let addr = listener.local_addr().unwrap();
@@ -343,7 +350,7 @@ async fn test_generate_api_key() {
     assert!(api_key.starts_with("ccui_"));
     assert_eq!(api_key.len(), 69);
 
-    let hash = api_key::hash_api_key(api_key, &pepper);
+    let hash = api_key::hash_api_key(api_key, &api_key_pepper);
     let mut rows = client
         .query_raw(
             "SELECT api_key_hash FROM users WHERE id = $1",
@@ -661,6 +668,7 @@ async fn test_logout_without_cookie_returns_success() {
     let (client, _tmp) = make_client().await;
     let user_id = db::ensure_default_user(&client).await.unwrap();
     let oidc = OidcEndpoints {
+        end_session_endpoint: None,
         authorization_endpoint: "https://provider.test/auth".into(),
         token_endpoint: "https://provider.test/token".into(),
         revocation_endpoint: None,
@@ -686,7 +694,7 @@ async fn test_logout_without_cookie_returns_success() {
 
     assert_eq!(resp.status(), 200);
     let body: Value = resp.json().await.unwrap();
-    assert_eq!(body["success"], true);
+    assert_eq!(body["redirect_url"], serde_json::Value::Null);
 }
 
 #[tokio::test]
@@ -768,6 +776,7 @@ async fn test_callback_exchanges_code() {
     tokio::spawn(async move { axum::serve(mock_listener, mock_app).await.unwrap() });
 
     let oidc = OidcEndpoints {
+        end_session_endpoint: None,
         authorization_endpoint: "https://provider.test/auth".into(),
         token_endpoint: format!("http://{}/token", mock_addr),
         revocation_endpoint: None,
@@ -891,6 +900,7 @@ async fn test_refresh_with_session_cookie() {
     tokio::spawn(async move { axum::serve(mock_listener, mock_app).await.unwrap() });
 
     let oidc = OidcEndpoints {
+        end_session_endpoint: None,
         authorization_endpoint: format!("http://{}/auth", mock_addr),
         token_endpoint: format!("http://{}/token", mock_addr),
         revocation_endpoint: None,
@@ -903,6 +913,8 @@ async fn test_refresh_with_session_cookie() {
 
     let key = cookie::Key::generate();
     let state = AppState {
+        cfg_port: 0,
+
         db: client.clone(),
         default_user_id,
         archive_root: "storage/".into(),
@@ -912,6 +924,7 @@ async fn test_refresh_with_session_cookie() {
         oidc_provider: Some(oidc),
         pkce_store: Arc::new(Mutex::new(HashMap::new())),
         cookie_key: key.clone(),
+        api_key_pepper: b"test_pepper".to_vec(),
     };
     let auth_layer =
         AuthLayer::disabled(state.db.clone(), b"test".to_vec(), state.cookie_key.clone());
@@ -937,6 +950,7 @@ async fn test_refresh_without_cookie() {
     let (client, _tmp) = make_client().await;
     let user_id = db::ensure_default_user(&client).await.unwrap();
     let oidc = OidcEndpoints {
+        end_session_endpoint: None,
         authorization_endpoint: "https://provider.test/auth".into(),
         token_endpoint: "https://provider.test/token".into(),
         revocation_endpoint: None,
@@ -1055,7 +1069,7 @@ async fn test_onboarding_with_missing_fields_returns_400() {
         .unwrap();
     assert_eq!(resp.status(), 422, "expected 422 for empty payload");
 
-    // Send partial payload (missing is_technical)
+    // Send partial payload (missing is_technical - required field)
     let resp = reqwest::Client::new()
         .patch(format!("http://{}/api/auth/onboarding", addr))
         .header("Authorization", format!("Bearer {token}"))
@@ -1066,7 +1080,48 @@ async fn test_onboarding_with_missing_fields_returns_400() {
         .send()
         .await
         .unwrap();
-    assert_eq!(resp.status(), 422, "expected 422 for partial payload");
+    assert_eq!(resp.status(), 422);
+}
+
+#[tokio::test]
+async fn test_onboarding_db_round_trip() {
+    let (client, _tmp) = make_client().await;
+    let user_id = Uuid::new_v4();
+    let now = chrono::Utc::now().format("%Y-%m-%d %H:%M:%S").to_string();
+
+    client
+        .execute(
+            "INSERT INTO users (id, username, oidc_subject, is_active, created_at) VALUES ($1, $2, $3, 1, $4)",
+            params!(user_id.to_string(), "roundtrip", "roundtrip-sub", now),
+        )
+        .await
+        .unwrap();
+
+    let user = current_user(&client, user_id).await.unwrap();
+    assert!(!user.has_completed_onboarding);
+    assert_eq!(user.git_name, None);
+    assert_eq!(user.git_email, None);
+
+    let saved = complete_onboarding(
+        &client,
+        user_id,
+        "Jane Doe".into(),
+        "jane@example.com".into(),
+        true,
+    )
+    .await
+    .unwrap();
+
+    assert!(saved.has_completed_onboarding);
+    assert_eq!(saved.git_name, Some("Jane Doe".into()));
+    assert_eq!(saved.git_email, Some("jane@example.com".into()));
+    assert!(saved.is_technical);
+
+    let fetched = current_user(&client, user_id).await.unwrap();
+    assert!(fetched.has_completed_onboarding);
+    assert_eq!(fetched.git_name, Some("Jane Doe".into()));
+    assert_eq!(fetched.git_email, Some("jane@example.com".into()));
+    assert!(fetched.is_technical);
 }
 
 #[tokio::test]

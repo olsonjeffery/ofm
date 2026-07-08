@@ -28,6 +28,8 @@ async fn make_state() -> (AppState, AuthLayer, TempDir) {
     let user_id = db::ensure_default_user(&client).await.unwrap();
     let auth_layer = AuthLayer::disabled(client.clone(), b"test".to_vec(), cookie::Key::generate());
     let state = AppState {
+        cfg_port: 0,
+
         db: client,
         default_user_id: user_id,
         archive_root: "storage/".into(),
@@ -37,6 +39,7 @@ async fn make_state() -> (AppState, AuthLayer, TempDir) {
         oidc_provider: None,
         pkce_store: Arc::new(Mutex::new(HashMap::new())),
         cookie_key: cookie::Key::generate(),
+        api_key_pepper: b"test_pepper".to_vec(),
     };
     (state, auth_layer, tmp)
 }
