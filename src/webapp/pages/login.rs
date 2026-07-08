@@ -10,6 +10,7 @@ pub fn LoginPage() -> impl IntoView {
                         <h2>"Sign in to omprint"</h2>
                         <p>"Authenticate with your SSO provider to continue."</p>
                         <button id="sso-login-btn" class="button is-primary">
+                            <span class="icon is-small"><i class="mdi mdi-login"></i></span>
                             "Sign in with SSO"
                         </button>
                     </div>

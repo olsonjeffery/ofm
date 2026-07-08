@@ -116,6 +116,16 @@ where
 
     fn call(&mut self, request: Request<Body>) -> Self::Future {
         if !self.layer.enabled {
+            let auth_user = AuthUser {
+                user_id: uuid::Uuid::nil(),
+                username: String::new(),
+                oidc_subject: None,
+                is_admin: false,
+                is_technical: false,
+            };
+            let (mut parts, body) = request.into_parts();
+            parts.extensions.insert(auth_user);
+            let request = Request::from_parts(parts, body);
             return Box::pin(self.inner.call(request));
         }
 

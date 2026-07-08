@@ -19,7 +19,10 @@ pub fn AgentModelSelect() -> impl IntoView {
                     </tr>
                 </tbody>
             </table>
-            <button class="button is-primary" id="btn-save-agent-models">"Save Agent Settings"</button>
+            <button class="button is-primary" id="btn-save-agent-models">
+                <span class="icon is-small"><i class="mdi mdi-content-save"></i></span>
+                <span>"Save Agent Settings"</span>
+            </button>
         </div>
     }
 }

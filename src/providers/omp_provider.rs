@@ -158,15 +158,11 @@ impl LlmProvider for OmpProvider {
 
     async fn shutdown(&mut self) -> Result<bool, ProviderError> {
         let mut session = self.session.lock().unwrap();
-        if session.is_some() {
-            let _ = session.as_mut().map(|s| {
-                let _ = s.child.kill();
-                let _ = s.child.wait();
-            });
-            *session = None;
-            Ok(true)
-        } else {
-            Ok(false)
+        if let Some(s) = session.as_mut() {
+            let _ = s.child.kill();
+            let _ = s.child.wait();
         }
+        let had_session = session.take().is_some();
+        Ok(had_session)
     }
 }

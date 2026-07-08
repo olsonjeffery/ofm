@@ -16,12 +16,13 @@ pub fn wrap_island(name: &str, path: &str, query_string: &str, html: String) -> 
     } else {
         format!("{}?{}", path, query_string)
     };
+    let safe_url = url.replace('"', "&quot;");
     format!(
         r#"<div class="island box" data-island="{name}">{html}</div>
-<script data-island-url="{url}">/* island fetch handled by global runtime */</script>"#,
+<script data-island-url="{safe_url}">/* island fetch handled by global runtime */</script>"#,
         name = name,
         html = html,
-        url = url,
+        safe_url = safe_url,
     )
 }
 

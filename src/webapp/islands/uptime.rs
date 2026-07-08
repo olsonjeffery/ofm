@@ -11,7 +11,10 @@ pub fn UptimeIsland() -> impl IntoView {
         <div data-island="uptime">
             <h2 class="title is-5">"Server Uptime"</h2>
             <p class="uptime-value has-text-weight-bold is-family-monospace">{elapsed}</p>
-            <button class="button is-small is-light" data-island-refresh>"Update"</button>
+            <button class="button is-small is-light" data-island-refresh>
+                <span class="icon is-small"><i class="mdi mdi-refresh"></i></span>
+                <span>"Update"</span>
+            </button>
         </div>
     }
 }
