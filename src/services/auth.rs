@@ -101,10 +101,7 @@ pub async fn handle_callback(
         urlencoding(&oidc.client_id),
         urlencoding(&oidc.redirect_uri),
         urlencoding(&entry.code_verifier),
-        oidc.client_secret
-            .as_ref()
-            .map(|s| format!("&client_secret={}", urlencoding(s)))
-            .unwrap_or_default(),
+        client_secret_param(&oidc.client_secret),
     );
 
     let client = reqwest::Client::new();
@@ -221,10 +218,7 @@ pub async fn refresh_access_token(
         "grant_type=refresh_token&refresh_token={}&client_id={}{}",
         urlencoding(&session.refresh_token),
         urlencoding(&oidc.client_id),
-        oidc.client_secret
-            .as_ref()
-            .map(|s| format!("&client_secret={}", urlencoding(s)))
-            .unwrap_or_default(),
+        client_secret_param(&oidc.client_secret),
     );
 
     let client = reqwest::Client::new();
@@ -299,10 +293,7 @@ pub async fn logout(
                 let revoke_body = format!(
                     "token={}&token_type_hint=refresh_token{}",
                     urlencoding(&refresh_token),
-                    oidc.client_secret
-                        .as_ref()
-                        .map(|s| format!("&client_secret={}", urlencoding(s)))
-                        .unwrap_or_default(),
+                    client_secret_param(&oidc.client_secret),
                 );
                 let client = reqwest::Client::new();
                 let _ = client
@@ -488,6 +479,13 @@ fn decode_jwt_payload(token: &str) -> Result<serde_json::Value, String> {
 
 pub fn urlencoding(s: &str) -> String {
     url::form_urlencoded::byte_serialize(s.as_bytes()).collect()
+}
+
+fn client_secret_param(client_secret: &Option<String>) -> String {
+    client_secret
+        .as_ref()
+        .map(|s| format!("&client_secret={}", urlencoding(s)))
+        .unwrap_or_default()
 }
 
 pub struct UpdateUserContext {

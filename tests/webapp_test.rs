@@ -27,7 +27,7 @@ async fn make_state() -> (AppState, AuthLayer, TempDir) {
     client.wait_until_healthy_db().await;
     db::run_migrations(&client).await.unwrap();
     let user_id = db::ensure_default_user(&client).await.unwrap();
-    let auth_layer = AuthLayer::disabled(client.clone(), b"test".to_vec(), cookie::Key::generate());
+    let auth_layer = AuthLayer::disabled(client.clone(), b"test".to_vec(), cookie::Key::generate(), user_id);
     let state = AppState {
         cfg_port: 0,
 
@@ -71,7 +71,7 @@ async fn test_redirect_root_to_webapp() {
 }
 
 #[tokio::test]
-async fn test_webapp_shell_page() {
+async fn test_webapp_dashboard_page() {
     let (state, auth_layer, _tmp) = make_state().await;
     let app = server::router(state, auth_layer);
     let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
@@ -89,7 +89,8 @@ async fn test_webapp_shell_page() {
     let body = resp.text().await.unwrap();
     assert!(body.contains("<html"));
     assert!(body.contains("omprint"));
-    assert!(body.contains(r#"data-island="uptime""#));
+    assert!(body.contains("Projects"));
+    assert!(body.contains("New Project"));
 }
 
 #[tokio::test]
@@ -190,6 +191,7 @@ async fn make_state_with_webapp_auth() -> (AppState, AuthLayer, TempDir) {
         client_id: None,
         pepper: b"test".to_vec(),
         cookie_key: cookie::Key::generate(),
+        default_user_id: user_id,
     };
     let state = AppState {
         cfg_port: 0,
@@ -393,6 +395,133 @@ async fn test_webapp_protected_route_allows_with_valid_session() {
     let body = resp.text().await.unwrap();
     assert!(body.contains("<html"));
     assert!(body.contains("omprint"));
+    assert!(body.contains("New Project"));
+}
+
+#[tokio::test]
+async fn test_webapp_board_page() {
+    let (state, auth_layer, _tmp) = make_state().await;
+    let user_id = state.default_user_id;
+    let db = state.db.clone();
+    let app = server::router(state, auth_layer);
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let addr = listener.local_addr().unwrap();
+
+    tokio::spawn(async move {
+        axum::serve(listener, app).await.unwrap();
+    });
+
+    let project_id = Uuid::new_v4();
+    let now = chrono::Utc::now().naive_utc().to_string();
+    db.execute(
+        "INSERT INTO projects (id, user_id, name, repo_folder_path, created_at) VALUES ($1, $2, $3, $4, $5)",
+        hiqlite::params!(project_id.to_string(), user_id.to_string(), "Board Test Project", "/tmp/test", &now),
+    )
+    .await
+    .unwrap();
+
+    let url = format!("http://{}/webapp/projects/{}", addr, project_id);
+    let client = reqwest::Client::new();
+    let resp = client.get(&url).send().await.unwrap();
+
+    assert_eq!(resp.status(), 200);
+    let body = resp.text().await.unwrap();
+    assert!(body.contains("Board Test Project"));
+    assert!(body.contains("Pending"));
+    assert!(body.contains("In Progress"));
+    assert!(body.contains("In Review"));
+    assert!(body.contains("Completed"));
+    assert!(body.contains("New Task"));
+}
+
+#[tokio::test]
+async fn test_webapp_board_page_404() {
+    let (state, auth_layer, _tmp) = make_state().await;
+    let app = server::router(state, auth_layer);
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let addr = listener.local_addr().unwrap();
+
+    tokio::spawn(async move {
+        axum::serve(listener, app).await.unwrap();
+    });
+
+    let url = format!(
+        "http://{}/webapp/projects/{}",
+        addr,
+        Uuid::new_v4()
+    );
+    let client = reqwest::Client::new();
+    let resp = client.get(&url).send().await.unwrap();
+    assert_eq!(resp.status(), 404);
+}
+
+#[tokio::test]
+async fn test_webapp_task_detail_page() {
+    let (state, auth_layer, _tmp) = make_state().await;
+    let user_id = state.default_user_id;
+    let db = state.db.clone();
+    let app = server::router(state, auth_layer);
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let addr = listener.local_addr().unwrap();
+
+    tokio::spawn(async move {
+        axum::serve(listener, app).await.unwrap();
+    });
+
+    let project_id = Uuid::new_v4();
+    let task_id = Uuid::new_v4();
+    let now = chrono::Utc::now().naive_utc().to_string();
+    db.execute(
+        "INSERT INTO projects (id, user_id, name, repo_folder_path, created_at) VALUES ($1, $2, $3, $4, $5)",
+        hiqlite::params!(project_id.to_string(), user_id.to_string(), "Detail Test", "/tmp/test", &now),
+    )
+    .await
+    .unwrap();
+    db.execute(
+        "INSERT INTO tasks (id, project_id, user_id, title, status, created_at) VALUES ($1, $2, $3, $4, $5, $6)",
+        hiqlite::params!(task_id.to_string(), project_id.to_string(), user_id.to_string(), "My Test Task", "pending", &now),
+    )
+    .await
+    .unwrap();
+
+    let url = format!(
+        "http://{}/webapp/projects/{}/tasks/{}",
+        addr, project_id, task_id
+    );
+    let client = reqwest::Client::new();
+    let resp = client.get(&url).send().await.unwrap();
+
+    assert_eq!(resp.status(), 200);
+    let body = resp.text().await.unwrap();
+    assert!(body.contains("My Test Task"));
+    assert!(body.contains("Planification"));
+    assert!(body.contains("Implementation"));
+    assert!(body.contains("Review"));
+    assert!(body.contains("PR"));
+    assert!(body.contains("No document yet"));
+    assert!(body.contains("No runs yet"));
+}
+
+#[tokio::test]
+async fn test_webapp_task_detail_page_404() {
+    let (state, auth_layer, _tmp) = make_state().await;
+    let app = server::router(state, auth_layer);
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let addr = listener.local_addr().unwrap();
+
+    tokio::spawn(async move {
+        axum::serve(listener, app).await.unwrap();
+    });
+
+    let url = format!(
+        "http://{}/webapp/projects/{}/tasks/{}",
+        addr,
+        Uuid::new_v4(),
+        Uuid::new_v4()
+    );
+    let client = reqwest::Client::new();
+    let resp = client.get(&url).send().await.unwrap();
+    assert_eq!(resp.status(), 404);
 }
 
 #[tokio::test]

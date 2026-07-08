@@ -97,7 +97,7 @@ dependency (**NOTE:** this does not apply to `omp` itself)
   eliminated in favor of deriving these paths from `OMPRINT_FOOTPRINT`.
 
 - On startup, `omprint` will begin listening on the configured `OMPRINT_HOSTNAME` +
-`PORT`
+`OMPRINT_PORT`
 - Requests to `/` or `/webapp` are for the `omprint` web application
   - specifically: requests to `/` will redirect to `/webapp`
   - all web routes, assets/content, etc lives under `/webapp`
@@ -106,7 +106,7 @@ which responds to user requests, oversees filesystem actions,
 spawns `pty`s, maintains database state, and so on
 - If configured to host a `rauthy` instance for OAuth, `omprint` will:
   - Use a `pty` to start an instance of `rauthy`, at a random port
-  that differs from the configured `omprint` `PORT`
+  that differs from the configured `omprint` `OMPRINT_PORT`
   - Expose an [axum-based reverse proxy][12] that forwards requests
   and responses to/from `rauthy`; this reverse proxy is exposed
   at `/auth`

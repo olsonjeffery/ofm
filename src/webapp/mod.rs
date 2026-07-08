@@ -9,7 +9,7 @@ pub mod styles;
 
 use std::collections::HashMap;
 
-use axum::extract::{Query, State};
+use axum::extract::{Path, Query, State};
 use axum::response::Html;
 use axum::routing::get;
 use axum::Router;
@@ -18,7 +18,10 @@ use leptos::prelude::*;
 use uuid::Uuid;
 
 use crate::auth::AuthUser;
+use crate::server::error::ServerError;
 use crate::server::state::AppState;
+use crate::services;
+use crate::webapp::components::project_card::TaskCounts;
 
 pub fn webapp_routes() -> Router<AppState> {
     Router::new()
@@ -28,7 +31,9 @@ pub fn webapp_routes() -> Router<AppState> {
 
 pub fn webapp_protected_routes() -> Router<AppState> {
     Router::new()
-        .route("/webapp", get(shell_handler))
+        .route("/webapp", get(dashboard_handler))
+        .route("/webapp/projects/{id}", get(board_handler))
+        .route("/webapp/projects/{project_id}/tasks/{task_id}", get(task_detail_handler))
         .route("/webapp/onboarding", get(onboarding_handler))
         .route("/webapp/settings", get(settings_handler))
         .route("/webapp/islands/uptime", get(uptime_handler))
@@ -126,10 +131,91 @@ async fn settings_handler(auth: AuthUser) -> Html<String> {
     Html(render_shell(&settings_html, Some(user_json)))
 }
 
-async fn shell_handler(auth: AuthUser) -> Html<String> {
+async fn dashboard_handler(
+    auth: AuthUser,
+    State(state): State<AppState>,
+) -> Result<Html<String>, ServerError> {
     let user_json = serde_json::to_string(&auth).unwrap_or_default();
-    let home_html = leptos::view! { <pages::home::HomePage /> }.to_html();
-    Html(render_shell(&home_html, Some(user_json)))
+    let projects = services::projects::list_projects(&state.db, &auth.user_id)
+        .await
+        .map_err(|e| ServerError::Internal(e.to_string()))?;
+    let task_counts = compute_task_counts(&state.db, &projects).await;
+    let page_html =
+        leptos::view! { <pages::dashboard::DashboardPage projects task_counts /> }.to_html();
+    Ok(Html(render_shell(&page_html, Some(user_json))))
+}
+
+async fn board_handler(
+    auth: AuthUser,
+    State(state): State<AppState>,
+    Path(project_id): Path<Uuid>,
+) -> Result<Html<String>, ServerError> {
+    let user_json = serde_json::to_string(&auth).unwrap_or_default();
+    let project = services::projects::get_project(&state.db, &project_id)
+        .await
+        .map_err(|_| ServerError::NotFound("Project not found".into()))?;
+    let tasks = services::tasks::list_tasks(&state.db, &project_id)
+        .await
+        .map_err(|e| ServerError::Internal(e.to_string()))?;
+    let page_html = leptos::view! { <pages::board::BoardPage project tasks /> }.to_html();
+    Ok(Html(render_shell(&page_html, Some(user_json))))
+}
+
+async fn task_detail_handler(
+    auth: AuthUser,
+    State(state): State<AppState>,
+    Path((_project_id, task_id)): Path<(Uuid, Uuid)>,
+) -> Result<Html<String>, ServerError> {
+    let user_json = serde_json::to_string(&auth).unwrap_or_default();
+    let task = services::tasks::get_task(&state.db, &task_id)
+        .await
+        .map_err(|_| ServerError::NotFound("Task not found".into()))?;
+
+    let worktree = services::tasks::get_worktree_by_task(&state.db, &task_id)
+        .await
+        .ok();
+
+    let doc_content = worktree.and_then(|w| {
+        let archive =
+            crate::archive::ArchiveRoot::new(std::path::PathBuf::from(&state.archive_root));
+        let proj_str = w.project_id.to_string();
+        let task_str = w.task_id.to_string();
+        let doc_path = archive.task_doc_path(&proj_str, &task_str);
+        archive.read_task_doc(&doc_path).ok()
+    });
+
+    let agent_runs = services::tasks::list_agent_runs_for_task(&state.db, &task_id)
+        .await
+        .map_err(|e| ServerError::Internal(e.to_string()))?;
+
+    let page_html =
+        leptos::view! { <pages::task_detail::TaskDetailPage task doc_content agent_runs /> }
+            .to_html();
+    Ok(Html(render_shell(&page_html, Some(user_json))))
+}
+
+async fn compute_task_counts(
+    db: &hiqlite::Client,
+    projects: &[crate::db::schema::Project],
+) -> std::collections::HashMap<Uuid, TaskCounts> {
+    let mut counts = std::collections::HashMap::new();
+    for project in projects {
+        let tasks = services::tasks::list_tasks(db, &project.id)
+            .await
+            .unwrap_or_default();
+        let mut tc = TaskCounts::default();
+        for task in &tasks {
+            match task.status.as_str() {
+                "pending" => tc.pending += 1,
+                "in_progress" => tc.in_progress += 1,
+                "in_review" => tc.in_review += 1,
+                "completed" => tc.completed += 1,
+                _ => {}
+            }
+        }
+        counts.insert(project.id, tc);
+    }
+    counts
 }
 
 async fn uptime_handler() -> Html<String> {
