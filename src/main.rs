@@ -208,19 +208,17 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 api_key_pepper.clone(),
                 cookie_key.clone(),
             );
-            (
-                auth_layer,
-                Some(server::state::OidcEndpoints {
-                    authorization_endpoint,
-                    token_endpoint,
-                    revocation_endpoint,
-                    client_id,
-                    client_secret: cfg.oidc_client_secret.clone(),
-                    redirect_uri,
-                    jwks_cache: None,
-                    jwks_issuer: None,
-                }),
-            )
+            let oidc_endpoints = server::state::OidcEndpoints {
+                authorization_endpoint,
+                token_endpoint,
+                revocation_endpoint,
+                client_id,
+                client_secret: cfg.oidc_client_secret.clone(),
+                redirect_uri,
+                jwks_cache: Some(auth_layer.jwks_cache.clone()),
+                jwks_issuer: auth_layer.issuer_url.clone(),
+            };
+            (auth_layer, Some(oidc_endpoints))
         };
 
         (oidc_provider.0, oidc_provider.1)
