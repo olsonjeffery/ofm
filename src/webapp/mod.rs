@@ -78,6 +78,13 @@ async fn callback_handler(
         Err(_) => return redirect_to_login(),
     };
 
+    if user.has_completed_onboarding {
+        return Html(render_shell(
+            r#"<script>window.location.href='/webapp/';</script>"#,
+            None,
+        ));
+    }
+
     let user_json = serde_json::to_string(&user).unwrap_or_default();
 
     let git_name = user.git_name.unwrap_or_default();
