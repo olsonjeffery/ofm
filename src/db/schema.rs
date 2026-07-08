@@ -247,6 +247,7 @@ pub struct SessionDb {
     pub user_id: Uuid,
     pub token_version: i32,
     pub refresh_token: String,
+    pub id_token: Option<String>,
     pub expires_at: String,
     pub created_at: String,
 }
@@ -468,6 +469,7 @@ impl From<&mut Row<'_>> for SessionDb {
             user_id: uuid_from_row(row, "user_id"),
             token_version: row.get::<i64>("token_version") as i32,
             refresh_token: row.get("refresh_token"),
+            id_token: row.get("id_token"),
             expires_at: row.get("expires_at"),
             created_at: row.get("created_at"),
         }

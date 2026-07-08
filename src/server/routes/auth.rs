@@ -107,16 +107,28 @@ async fn logout(
 
     if let Some(cookie) = jar.get("omprint_session") {
         if let Ok(sid) = Uuid::parse_str(cookie.value()) {
+            let id_token = crate::services::auth::find_session(&state.db, sid)
+                .await
+                .ok()
+                .flatten()
+                .and_then(|s| s.id_token);
+
             crate::services::auth::logout(&state.db, &state.oidc_provider, sid).await?;
+
             if let Some(oidc) = &state.oidc_provider {
                 if let Some(ees) = &oidc.end_session_endpoint {
                     let post_logout_uri = format!("http://127.0.0.1:{}/webapp", state.cfg_port);
-                    end_session_url = Some(format!(
+                    let mut url = format!(
                         "{}?client_id={}&post_logout_redirect_uri={}",
                         ees,
                         urlencoding(&oidc.client_id),
                         urlencoding(&post_logout_uri),
-                    ));
+                    );
+                    if let Some(ref token) = id_token {
+                        use std::fmt::Write;
+                        let _ = write!(url, "&id_token_hint={}", urlencoding(token));
+                    }
+                    end_session_url = Some(url);
                 }
             }
         }

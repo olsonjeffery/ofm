@@ -188,10 +188,11 @@ pub async fn handle_callback(
         (id, false)
     };
 
+    let id_token_val = token_data["id_token"].as_str().map(|s| s.to_string());
     let session_id = Uuid::new_v4();
     db.execute(
-        "INSERT INTO sessions (id, user_id, refresh_token, expires_at, created_at, token_version) VALUES ($1, $2, $3, $4, $5, $6)",
-        hiqlite::params!(session_id.to_string(), user_id.to_string(), refresh_token, expires_at, now, user_token_version),
+        "INSERT INTO sessions (id, user_id, refresh_token, id_token, expires_at, created_at, token_version) VALUES ($1, $2, $3, $4, $5, $6, $7)",
+        hiqlite::params!(session_id.to_string(), user_id.to_string(), refresh_token, id_token_val, expires_at, now, user_token_version),
     )
     .await
     .map_err(|e| ServerError::Internal(e.to_string()))?;
@@ -448,7 +449,7 @@ async fn find_user_by_oidc_sub(
     Ok(rows.first_mut().map(|row| User::from(&mut *row)))
 }
 
-async fn find_session(
+pub async fn find_session(
     db: &hiqlite::Client,
     session_id: Uuid,
 ) -> Result<Option<SessionDb>, ServerError> {
