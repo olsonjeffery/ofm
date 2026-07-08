@@ -125,19 +125,19 @@ impl AuthLayer {
         }
     }
 
-    pub async fn from_oidc(
-        issuer_url: &str,
-        client_id: &str,
+    pub fn from_cache(
+        jwks_cache: JwksCache,
         db: hiqlite::Client,
         pepper: Vec<u8>,
         cookie_key: Key,
-    ) -> Result<Self, Box<dyn std::error::Error>> {
-        let cache = fetch_jwks(issuer_url, client_id).await?;
-        let cache = Arc::new(RwLock::new(Some(cache)));
+    ) -> Self {
+        let issuer_url = jwks_cache.issuer.clone();
+        let client_id = jwks_cache.client_id.clone();
+        let cache = Arc::new(RwLock::new(Some(jwks_cache)));
 
         let bg_cache = cache.clone();
-        let bg_issuer = issuer_url.to_string();
-        let bg_client_id = client_id.to_string();
+        let bg_issuer = issuer_url.clone();
+        let bg_client_id = client_id.clone();
         tokio::spawn(async move {
             let mut interval = tokio::time::interval(std::time::Duration::from_secs(3600));
             loop {
@@ -149,15 +149,26 @@ impl AuthLayer {
             }
         });
 
-        Ok(Self {
+        Self {
             enabled: true,
             db,
             jwks_cache: cache,
-            issuer_url: Some(issuer_url.to_string()),
-            client_id: Some(client_id.to_string()),
+            issuer_url: Some(issuer_url),
+            client_id: Some(client_id),
             pepper,
             cookie_key,
-        })
+        }
+    }
+
+    pub async fn from_oidc(
+        issuer_url: &str,
+        client_id: &str,
+        db: hiqlite::Client,
+        pepper: Vec<u8>,
+        cookie_key: Key,
+    ) -> Result<Self, Box<dyn std::error::Error>> {
+        let cache = fetch_jwks(issuer_url, client_id).await?;
+        Ok(Self::from_cache(cache, db, pepper, cookie_key))
     }
 
     pub async fn new(

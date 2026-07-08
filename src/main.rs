@@ -168,15 +168,46 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 .oidc_client_id
                 .clone()
                 .unwrap_or_else(|| "omprint".into());
-            let auth_layer = auth::AuthLayer::from_oidc(
-                &issuer,
-                &client_id,
+
+            let jwks_disc_url = format!(
+                "http://127.0.0.1:{}/auth/v1/.well-known/openid-configuration",
+                rp
+            );
+            let jwks_disc: serde_json::Value = reqwest::get(&jwks_disc_url)
+                .await
+                .map_err(|e| Box::new(std::io::Error::other(e.to_string())))?
+                .json()
+                .await?;
+            let jwks_uri = jwks_disc["jwks_uri"]
+                .as_str()
+                .ok_or("missing jwks_uri")?
+                .to_string();
+            let jwks_resp: serde_json::Value = reqwest::get(&jwks_uri)
+                .await
+                .map_err(|e| Box::new(std::io::Error::other(e.to_string())))?
+                .json()
+                .await?;
+            let keys: std::collections::HashMap<String, jsonwebtoken::jwk::Jwk> = jwks_resp["keys"]
+                .as_array()
+                .ok_or("missing keys array")?
+                .iter()
+                .filter_map(|k| {
+                    let jwk: jsonwebtoken::jwk::Jwk = serde_json::from_value(k.clone()).ok()?;
+                    jwk.common.key_id.clone().map(|kid| (kid, jwk))
+                })
+                .collect();
+
+            let jwks_cache = auth::jwks::JwksCache {
+                keys,
+                issuer: issuer.clone(),
+                client_id: client_id.clone(),
+            };
+            let auth_layer = auth::AuthLayer::from_cache(
+                jwks_cache,
                 client.clone(),
                 api_key_pepper.clone(),
                 cookie_key.clone(),
-            )
-            .await
-            .map_err(|e| Box::new(std::io::Error::other(e.to_string())))?;
+            );
             (
                 auth_layer,
                 Some(server::state::OidcEndpoints {
