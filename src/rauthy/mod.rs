@@ -61,15 +61,40 @@ pub async fn start_rauthy(
     let data_dir = format!("{}/rauthy/data", footprint);
     std::fs::create_dir_all(&data_dir)?;
 
+    let bootstrap_dir = format!("{}/rauthy/bootstrap", footprint);
+    std::fs::create_dir_all(&bootstrap_dir)?;
+    let client_config = serde_json::json!([{
+        "id": "omprint",
+        "name": "Omprint",
+        "enabled": true,
+        "redirect_uris": [
+            format!("http://127.0.0.1:{}/auth/api/auth/callback", proxy_port),
+        ],
+        "flows_enabled": ["authorization_code", "refresh_token", "password"],
+        "scopes": ["openid", "profile", "email"],
+        "default_scopes": ["openid", "profile", "email"],
+        "challenges": ["S256"],
+        "access_token_alg": "EdDSA",
+        "id_token_alg": "EdDSA",
+    }]);
+    std::fs::write(
+        format!("{}/clients.json", bootstrap_dir),
+        serde_json::to_string_pretty(&client_config)?,
+    )?;
+
     let mut cmd = Command::new("docker");
     cmd.args(["run", "--rm", "--name", CONTAINER_NAME]);
     cmd.args(["-u", "0:0"]);
     cmd.arg("-v");
     cmd.arg(format!("{}:/app/data", data_dir));
+    cmd.arg("-v");
+    cmd.arg(format!("{}:/app/bootstrap", bootstrap_dir));
     cmd.arg("-p");
     cmd.arg(format!("{}:8080", port));
     cmd.arg("-e");
     cmd.arg(format!("PUB_URL=localhost:{}/auth", proxy_port));
+    cmd.arg("-e");
+    cmd.arg("BOOTSTRAP_DIR=/app/bootstrap");
     cmd.arg("-e");
     cmd.arg("LISTEN_SCHEME=http");
     cmd.arg("-e");
