@@ -129,21 +129,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         }
     };
 
-    let auth_layer = auth::AuthLayer::new(
-        &cfg,
-        client.clone(),
-        api_key_pepper.clone(),
-        cookie_key.clone(),
-    )
-    .await
-    .unwrap_or_else(|e| {
-        eprintln!("ERROR: Failed to initialize OIDC authentication: {e}");
-        std::process::exit(1);
-    });
-
     let mut _rauthy_instance: Option<rauthy::RauthyInstance> = None;
 
-    let (rauthy_port, rauthy_base_url, oidc_provider) = if cfg.rauthy_enabled {
+    let (auth_layer, rauthy_port, rauthy_base_url, oidc_provider) = if cfg.rauthy_enabled {
         let rp = if cfg.rauthy_port > 0 {
             cfg.rauthy_port
         } else {
@@ -165,6 +153,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 .map_err(|e| Box::new(std::io::Error::other(e.to_string())))?
                 .json()
                 .await?;
+            let issuer = disc["issuer"].as_str().ok_or("missing issuer")?.to_string();
             let authorization_endpoint = disc["authorization_endpoint"]
                 .as_str()
                 .ok_or("missing authorization_endpoint")?
@@ -175,24 +164,49 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 .to_string();
             let revocation_endpoint = disc["revocation_endpoint"].as_str().map(|s| s.to_string());
             let redirect_uri = format!("{}/api/auth/callback", proxy_base);
-            Some(server::state::OidcEndpoints {
-                authorization_endpoint,
-                token_endpoint,
-                revocation_endpoint,
-                client_id: cfg
-                    .oidc_client_id
-                    .clone()
-                    .unwrap_or_else(|| "omprint".into()),
-                client_secret: cfg.oidc_client_secret.clone(),
-                redirect_uri,
-                jwks_cache: Some(auth_layer.jwks_cache.clone()),
-                jwks_issuer: auth_layer.issuer_url.clone(),
-            })
+            let client_id = cfg
+                .oidc_client_id
+                .clone()
+                .unwrap_or_else(|| "omprint".into());
+            let auth_layer = auth::AuthLayer::from_oidc(
+                &issuer,
+                &client_id,
+                client.clone(),
+                api_key_pepper.clone(),
+                cookie_key.clone(),
+            )
+            .await
+            .map_err(|e| Box::new(std::io::Error::other(e.to_string())))?;
+            (
+                auth_layer,
+                Some(server::state::OidcEndpoints {
+                    authorization_endpoint,
+                    token_endpoint,
+                    revocation_endpoint,
+                    client_id,
+                    client_secret: cfg.oidc_client_secret.clone(),
+                    redirect_uri,
+                    jwks_cache: None,
+                    jwks_issuer: None,
+                }),
+            )
         };
 
         let base_url = format!("http://127.0.0.1:{}", rp);
-        (Some(rp), Some(base_url), oidc_provider)
+        (oidc_provider.0, Some(rp), Some(base_url), oidc_provider.1)
     } else {
+        let auth_layer = auth::AuthLayer::new(
+            &cfg,
+            client.clone(),
+            api_key_pepper.clone(),
+            cookie_key.clone(),
+        )
+        .await
+        .unwrap_or_else(|e| {
+            eprintln!("ERROR: Failed to initialize OIDC authentication: {e}");
+            std::process::exit(1);
+        });
+
         if !auth_layer.enabled {
             eprintln!("ERROR: OIDC is not configured. Set OMPRINT_OIDC_ISSUER_URL (and OMPRINT_OIDC_CLIENT_ID) to enable authentication.");
             std::process::exit(1);
@@ -239,7 +253,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             })
         };
 
-        (None, None, oidc_provider)
+        (auth_layer, None, None, oidc_provider)
     };
 
     let state = server::state::AppState {
