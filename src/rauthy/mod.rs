@@ -69,7 +69,7 @@ pub async fn start_rauthy(
     cmd.arg("-p");
     cmd.arg(format!("{}:8080", port));
     cmd.arg("-e");
-    cmd.arg(format!("PUB_URL=http://localhost:{}/auth", proxy_port));
+    cmd.arg(format!("PUB_URL=localhost:{}/auth", proxy_port));
     cmd.arg("-e");
     cmd.arg("LISTEN_SCHEME=http");
     cmd.arg("-e");
