@@ -1,5 +1,3 @@
-#[cfg(unix)]
-use std::os::unix::fs::PermissionsExt;
 use std::process::Stdio;
 use std::time::Duration;
 
@@ -63,7 +61,11 @@ pub async fn start_rauthy(
     let data_dir = format!("{}/rauthy/data", footprint);
     std::fs::create_dir_all(&data_dir)?;
     #[cfg(unix)]
-    std::fs::set_permissions(&data_dir, std::fs::Permissions::from_mode(0o777))?;
+    let _ = std::process::Command::new("chown")
+        .args(["-R", "10001:10001", &data_dir])
+        .stdout(Stdio::null())
+        .stderr(Stdio::null())
+        .status();
 
     let mut child = Command::new("docker")
         .args([
