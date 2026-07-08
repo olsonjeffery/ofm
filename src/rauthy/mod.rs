@@ -61,52 +61,15 @@ pub async fn start_rauthy(
     let data_dir = format!("{}/rauthy/data", footprint);
     std::fs::create_dir_all(&data_dir)?;
 
-    #[cfg(unix)]
-    let user_flag: Option<String> = {
-        let uid = std::process::Command::new("id")
-            .arg("-u")
-            .output()
-            .ok()
-            .and_then(|o| {
-                if o.status.success() {
-                    String::from_utf8(o.stdout)
-                        .ok()
-                        .map(|s| s.trim().to_string())
-                } else {
-                    None
-                }
-            });
-        let gid = std::process::Command::new("id")
-            .arg("-g")
-            .output()
-            .ok()
-            .and_then(|o| {
-                if o.status.success() {
-                    String::from_utf8(o.stdout)
-                        .ok()
-                        .map(|s| s.trim().to_string())
-                } else {
-                    None
-                }
-            });
-        uid.zip(gid).map(|(u, g)| format!("{}:{}", u, g))
-    };
-    #[cfg(not(unix))]
-    let user_flag: Option<String> = None;
-
     let mut cmd = Command::new("docker");
     cmd.args(["run", "--rm", "--name", CONTAINER_NAME]);
-    if let Some(ref u) = user_flag {
-        cmd.args(["-u", u]);
-    }
+    cmd.args(["-u", "0:0"]);
     cmd.arg("-v");
     cmd.arg(format!("{}:/app/data", data_dir));
     cmd.arg("-p");
     cmd.arg(format!("{}:8080", port));
     cmd.arg("-e");
     cmd.arg(format!("PUBLIC_URL=http://localhost:{}/auth", proxy_port));
-    cmd.arg("-e");
-    cmd.arg("TLS_DIR=/app/data/tls");
     cmd.arg("-e");
     cmd.arg("LOCAL_TEST=true");
     cmd.arg(RAUTHY_IMAGE);
