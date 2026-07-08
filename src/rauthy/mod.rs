@@ -96,7 +96,7 @@ pub async fn start_rauthy(
     cmd.arg("-p");
     cmd.arg(format!("{}:8080", port));
     cmd.arg("-e");
-    cmd.arg(format!("PUB_URL=localhost:{}", proxy_port));
+    cmd.arg(format!("PUB_URL=localhost:{}", port));
     cmd.arg("-e");
     cmd.arg("BOOTSTRAP_DIR=/app/bootstrap");
     cmd.arg("-e");

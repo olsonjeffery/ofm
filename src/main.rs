@@ -131,7 +131,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     let mut _rauthy_instance: Option<rauthy::RauthyInstance> = None;
 
-    let (auth_layer, rauthy_port, rauthy_base_url, oidc_provider) = if cfg.rauthy_enabled {
+    let (auth_layer, oidc_provider) = if cfg.rauthy_enabled {
         let rp = if cfg.rauthy_port > 0 {
             cfg.rauthy_port
         } else {
@@ -139,15 +139,15 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 .map_err(|e| Box::new(std::io::Error::other(e.to_string())))?
         };
 
-        tracing::info!("Starting embedded rauthy on port {} (proxied at /auth)", rp);
+        tracing::info!("Starting embedded rauthy on port {}", rp);
         let instance = rauthy::start_rauthy(&cfg.footprint, rp, cfg.port).await?;
         rauthy::wait_until_healthy(rp).await?;
         tracing::info!("rauthy is healthy");
         _rauthy_instance = Some(instance);
 
-        let proxy_base = format!("http://{}:{}/auth", cfg.hostname, cfg.port);
+        let direct_base = format!("http://127.0.0.1:{}", rp);
         let oidc_provider = {
-            let discovery_url = format!("http://127.0.0.1:{}/.well-known/openid-configuration", rp);
+            let discovery_url = format!("{}/.well-known/openid-configuration", direct_base);
             let disc: serde_json::Value = reqwest::get(&discovery_url)
                 .await
                 .map_err(|e| Box::new(std::io::Error::other(e.to_string())))?
@@ -163,7 +163,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 .ok_or("missing token_endpoint")?
                 .to_string();
             let revocation_endpoint = disc["revocation_endpoint"].as_str().map(|s| s.to_string());
-            let redirect_uri = format!("{}/api/auth/callback", proxy_base);
+            let redirect_uri = format!("http://127.0.0.1:{}/api/auth/callback", cfg.port);
             let client_id = cfg
                 .oidc_client_id
                 .clone()
@@ -223,8 +223,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             )
         };
 
-        let base_url = format!("http://127.0.0.1:{}", rp);
-        (oidc_provider.0, Some(rp), Some(base_url), oidc_provider.1)
+        (oidc_provider.0, oidc_provider.1)
     } else {
         let auth_layer = auth::AuthLayer::new(
             &cfg,
@@ -284,7 +283,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             })
         };
 
-        (auth_layer, None, None, oidc_provider)
+        (auth_layer, oidc_provider)
     };
 
     let state = server::state::AppState {
@@ -298,12 +297,11 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         pkce_store,
         cookie_key,
         api_key_pepper,
-        rauthy_base_url,
     };
     tracing::info!("Auth middleware: enabled");
 
     // Server
-    let app = server::router(state, auth_layer, rauthy_port);
+    let app = server::router(state, auth_layer);
     let addr = format!("{}:{}", cfg.hostname, cfg.port);
     tracing::info!("Starting server on {}", addr);
 

@@ -1,5 +1,4 @@
 pub mod error;
-pub mod proxy;
 pub mod routes;
 pub mod state;
 
@@ -10,7 +9,7 @@ use crate::server::state::AppState;
 use crate::webapp;
 use tower_http::services::ServeDir;
 
-pub fn router(state: AppState, auth_layer: AuthLayer, rauthy_port: Option<u16>) -> Router {
+pub fn router(state: AppState, auth_layer: AuthLayer) -> Router {
     let public = Router::new()
         .route("/health", get(health))
         .route("/", get(|| async { Redirect::permanent("/webapp") }))
@@ -46,17 +45,12 @@ pub fn router(state: AppState, auth_layer: AuthLayer, rauthy_port: Option<u16>) 
         .layer(DefaultBodyLimit::max(1024 * 100))
         .layer(auth_layer);
 
-    let mut app = Router::new()
+    Router::new()
         .merge(public)
         .merge(webapp_public)
         .merge(webapp_protected)
-        .merge(protected);
-
-    if rauthy_port.is_some() {
-        app = app.nest("/auth", proxy::rauthy_proxy_router());
-    }
-
-    app.with_state(state)
+        .merge(protected)
+        .with_state(state)
 }
 
 async fn health() -> &'static str {
