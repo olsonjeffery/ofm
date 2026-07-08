@@ -159,7 +159,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
         let proxy_base = format!("http://{}:{}/auth", cfg.hostname, cfg.port);
         let oidc_provider = {
-            let discovery_url = format!("{}/.well-known/openid-configuration", proxy_base);
+            let discovery_url = format!("http://127.0.0.1:{}/.well-known/openid-configuration", rp);
             let disc: serde_json::Value = reqwest::get(&discovery_url)
                 .await
                 .map_err(|e| Box::new(std::io::Error::other(e.to_string())))?
