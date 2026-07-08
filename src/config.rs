@@ -67,11 +67,11 @@ impl OmprintConfig {
                 .ok()
                 .and_then(|s| s.parse().ok())
                 .unwrap_or(8200),
-            rauthy_enabled: std::env::var("RAUTHY_ENABLED")
+            rauthy_enabled: std::env::var("OMPRINT_RAUTHY_ENABLED")
                 .ok()
                 .map(|s| s == "true" || s == "1")
                 .unwrap_or(false),
-            rauthy_port: std::env::var("RAUTHY_PORT")
+            rauthy_port: std::env::var("OMPRINT_RAUTHY_PORT")
                 .ok()
                 .and_then(|s| s.parse().ok())
                 .unwrap_or(0),
