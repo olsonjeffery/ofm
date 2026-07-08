@@ -25,6 +25,7 @@ pub struct AppState {
     pub pkce_store: Arc<Mutex<HashMap<String, PkceEntry>>>,
     pub cookie_key: Key,
     pub api_key_pepper: Vec<u8>,
+    pub cfg_port: u16,
 }
 
 impl FromRef<AppState> for Key {
@@ -37,6 +38,7 @@ impl FromRef<AppState> for Key {
 pub struct OidcEndpoints {
     pub authorization_endpoint: String,
     pub token_endpoint: String,
+    pub end_session_endpoint: Option<String>,
     pub revocation_endpoint: Option<String>,
     pub client_id: String,
     pub client_secret: Option<String>,

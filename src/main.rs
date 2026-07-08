@@ -163,6 +163,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 .ok_or("missing token_endpoint")?
                 .to_string();
             let revocation_endpoint = disc["revocation_endpoint"].as_str().map(|s| s.to_string());
+            let end_session_endpoint = disc["end_session_endpoint"].as_str().map(|s| s.to_string());
             let redirect_uri = format!("http://127.0.0.1:{}/api/auth/callback", cfg.port);
             let client_id = cfg
                 .oidc_client_id
@@ -211,6 +212,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             let oidc_endpoints = server::state::OidcEndpoints {
                 authorization_endpoint,
                 token_endpoint,
+                end_session_endpoint,
                 revocation_endpoint,
                 client_id,
                 client_secret: cfg.oidc_client_secret.clone(),
@@ -260,6 +262,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 .ok_or("missing token_endpoint")?
                 .to_string();
             let revocation_endpoint = disc["revocation_endpoint"].as_str().map(|s| s.to_string());
+            let end_session_endpoint = disc["end_session_endpoint"].as_str().map(|s| s.to_string());
             let redirect_uri = cfg.oidc_redirect_uri.clone().unwrap_or_else(|| {
                 format!(
                     "{}/api/auth/callback",
@@ -272,6 +275,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             Some(server::state::OidcEndpoints {
                 authorization_endpoint,
                 token_endpoint,
+                end_session_endpoint,
                 revocation_endpoint,
                 client_id: cfg.oidc_client_id.clone().unwrap_or_default(),
                 client_secret: cfg.oidc_client_secret.clone(),
@@ -295,6 +299,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         pkce_store,
         cookie_key,
         api_key_pepper,
+        cfg_port: cfg.port,
     };
     tracing::info!("Auth middleware: enabled");
 

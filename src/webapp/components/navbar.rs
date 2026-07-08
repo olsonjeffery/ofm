@@ -69,7 +69,8 @@ pub fn Navbar(user_json: Option<String>) -> impl IntoView {
                 form.addEventListener('submit',function(ev){
                     ev.preventDefault();
                     fetch(form.action,{method:'POST',credentials:'same-origin'})
-                        .then(function(){window.location.href='/webapp/login';})
+                        .then(function(r){return r.json();})
+                        .then(function(d){window.location.href=d.redirect_url||'/webapp/login';})
                         .catch(function(){window.location.href='/webapp/login';});
                 });
             });"#}

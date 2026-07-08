@@ -99,6 +99,8 @@ pub async fn start_rauthy(
     cmd.arg("-e");
     cmd.arg("BOOTSTRAP_DIR=/app/bootstrap");
     cmd.arg("-e");
+    cmd.arg("DISABLE_REFRESH_TOKEN_NBF=true");
+    cmd.arg("-e");
     cmd.arg("LISTEN_SCHEME=http");
     cmd.arg("-e");
     cmd.arg("LOCAL_TEST=true");

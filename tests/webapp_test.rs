@@ -29,6 +29,8 @@ async fn make_state() -> (AppState, AuthLayer, TempDir) {
     let user_id = db::ensure_default_user(&client).await.unwrap();
     let auth_layer = AuthLayer::disabled(client.clone(), b"test".to_vec(), cookie::Key::generate());
     let state = AppState {
+        cfg_port: 0,
+
         db: client,
         default_user_id: user_id,
         archive_root: "storage/".into(),
@@ -190,6 +192,8 @@ async fn make_state_with_webapp_auth() -> (AppState, AuthLayer, TempDir) {
         cookie_key: cookie::Key::generate(),
     };
     let state = AppState {
+        cfg_port: 0,
+
         db: client,
         default_user_id: user_id,
         archive_root: "storage/".into(),
@@ -237,6 +241,8 @@ async fn test_webapp_protected_route_allows_with_valid_session() {
     let (state, auth_layer, _tmp) = make_state_with_webapp_auth().await;
     let key = cookie::Key::generate();
     let state = AppState {
+        cfg_port: 0,
+
         cookie_key: key.clone(),
         ..state
     };
@@ -290,6 +296,8 @@ async fn test_webapp_protected_route_redirects_with_expired_session() {
     let (state, auth_layer, _tmp) = make_state_with_webapp_auth().await;
     let key = cookie::Key::generate();
     let state = AppState {
+        cfg_port: 0,
+
         cookie_key: key.clone(),
         ..state
     };

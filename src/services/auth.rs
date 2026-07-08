@@ -485,7 +485,7 @@ fn decode_jwt_payload(token: &str) -> Result<serde_json::Value, String> {
     serde_json::from_slice(&decoded).map_err(|e| format!("json parse failed: {e}"))
 }
 
-fn urlencoding(s: &str) -> String {
+pub fn urlencoding(s: &str) -> String {
     url::form_urlencoded::byte_serialize(s.as_bytes()).collect()
 }
 

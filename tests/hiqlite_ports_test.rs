@@ -38,6 +38,8 @@ async fn make_state_with_ports(raft_port: u16, api_port: u16) -> (AppState, Auth
     let user_id = db::ensure_default_user(&client).await.unwrap();
     let auth_layer = AuthLayer::disabled(client.clone(), b"test".to_vec(), cookie::Key::generate());
     let state = AppState {
+        cfg_port: 0,
+
         db: client,
         default_user_id: user_id,
         archive_root: "storage/".into(),

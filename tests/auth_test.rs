@@ -104,6 +104,7 @@ async fn insert_user(
 
 fn make_app_state(client: hiqlite::Client, user_id: Uuid, oidc: Option<OidcEndpoints>) -> AppState {
     AppState {
+        cfg_port: 0,
         db: client,
         default_user_id: user_id,
         archive_root: "storage/".into(),
@@ -141,6 +142,7 @@ async fn test_login_returns_authorization_url() {
     let (client, _tmp) = make_client().await;
     let user_id = db::ensure_default_user(&client).await.unwrap();
     let oidc = OidcEndpoints {
+        end_session_endpoint: None,
         authorization_endpoint: "https://provider.test/auth".into(),
         token_endpoint: "https://provider.test/token".into(),
         revocation_endpoint: None,
@@ -196,6 +198,7 @@ async fn test_callback_rejects_invalid_state() {
     let (client, _tmp) = make_client().await;
     let user_id = db::ensure_default_user(&client).await.unwrap();
     let oidc = OidcEndpoints {
+        end_session_endpoint: None,
         authorization_endpoint: "https://provider.test/auth".into(),
         token_endpoint: "https://provider.test/token".into(),
         revocation_endpoint: None,
@@ -321,6 +324,8 @@ async fn test_generate_api_key() {
     let state = make_app_state(client.clone(), user_id, None);
     // Use deterministic cookie_key matching the pepper
     let state = AppState {
+        cfg_port: 0,
+
         cookie_key,
         ..state
     };
@@ -662,6 +667,7 @@ async fn test_logout_without_cookie_returns_success() {
     let (client, _tmp) = make_client().await;
     let user_id = db::ensure_default_user(&client).await.unwrap();
     let oidc = OidcEndpoints {
+        end_session_endpoint: None,
         authorization_endpoint: "https://provider.test/auth".into(),
         token_endpoint: "https://provider.test/token".into(),
         revocation_endpoint: None,
@@ -687,7 +693,7 @@ async fn test_logout_without_cookie_returns_success() {
 
     assert_eq!(resp.status(), 200);
     let body: Value = resp.json().await.unwrap();
-    assert_eq!(body["success"], true);
+    assert_eq!(body["redirect_url"], serde_json::Value::Null);
 }
 
 #[tokio::test]
@@ -769,6 +775,7 @@ async fn test_callback_exchanges_code() {
     tokio::spawn(async move { axum::serve(mock_listener, mock_app).await.unwrap() });
 
     let oidc = OidcEndpoints {
+        end_session_endpoint: None,
         authorization_endpoint: "https://provider.test/auth".into(),
         token_endpoint: format!("http://{}/token", mock_addr),
         revocation_endpoint: None,
@@ -892,6 +899,7 @@ async fn test_refresh_with_session_cookie() {
     tokio::spawn(async move { axum::serve(mock_listener, mock_app).await.unwrap() });
 
     let oidc = OidcEndpoints {
+        end_session_endpoint: None,
         authorization_endpoint: format!("http://{}/auth", mock_addr),
         token_endpoint: format!("http://{}/token", mock_addr),
         revocation_endpoint: None,
@@ -904,6 +912,8 @@ async fn test_refresh_with_session_cookie() {
 
     let key = cookie::Key::generate();
     let state = AppState {
+        cfg_port: 0,
+
         db: client.clone(),
         default_user_id,
         archive_root: "storage/".into(),
@@ -939,6 +949,7 @@ async fn test_refresh_without_cookie() {
     let (client, _tmp) = make_client().await;
     let user_id = db::ensure_default_user(&client).await.unwrap();
     let oidc = OidcEndpoints {
+        end_session_endpoint: None,
         authorization_endpoint: "https://provider.test/auth".into(),
         token_endpoint: "https://provider.test/token".into(),
         revocation_endpoint: None,
