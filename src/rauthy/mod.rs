@@ -67,9 +67,12 @@ pub async fn start_rauthy(
         "id": "omprint",
         "name": "Omprint",
         "enabled": true,
-        "confidential": false,
         "redirect_uris": [
-            format!("http://127.0.0.1:{}/auth/api/auth/callback", proxy_port),
+            format!("http://127.0.0.1:{}/api/auth/callback", proxy_port),
+        ],
+        "allowed_origins": [
+            format!("http://127.0.0.1:{}", proxy_port),
+            format!("http://localhost:{}", proxy_port),
         ],
         "flows_enabled": ["authorization_code", "refresh_token"],
         "access_token_alg": "EdDSA",
