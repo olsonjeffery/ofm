@@ -106,6 +106,8 @@ pub async fn start_rauthy(
     cmd.arg("-e");
     cmd.arg(format!("PUBLIC_URL=http://localhost:{}/auth", proxy_port));
     cmd.arg("-e");
+    cmd.arg("TLS_DIR=/app/data/tls");
+    cmd.arg("-e");
     cmd.arg("LOCAL_TEST=true");
     cmd.arg(RAUTHY_IMAGE);
 
