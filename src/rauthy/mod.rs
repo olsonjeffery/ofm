@@ -60,32 +60,56 @@ pub async fn start_rauthy(
 
     let data_dir = format!("{}/rauthy/data", footprint);
     std::fs::create_dir_all(&data_dir)?;
-    #[cfg(unix)]
-    let _ = std::process::Command::new("chown")
-        .args(["-R", "10001:10001", &data_dir])
-        .stdout(Stdio::null())
-        .stderr(Stdio::null())
-        .status();
 
-    let mut child = Command::new("docker")
-        .args([
-            "run",
-            "--rm",
-            "--name",
-            CONTAINER_NAME,
-            "-v",
-            &format!("{}:/app/data", data_dir),
-            "-p",
-            &format!("{}:8080", port),
-            "-e",
-            &format!("PUBLIC_URL=http://localhost:{}/auth", proxy_port),
-            "-e",
-            "LOCAL_TEST=true",
-            RAUTHY_IMAGE,
-        ])
-        .stdout(Stdio::piped())
-        .stderr(Stdio::piped())
-        .spawn()?;
+    #[cfg(unix)]
+    let user_flag: Option<String> = {
+        let uid = std::process::Command::new("id")
+            .arg("-u")
+            .output()
+            .ok()
+            .and_then(|o| {
+                if o.status.success() {
+                    String::from_utf8(o.stdout)
+                        .ok()
+                        .map(|s| s.trim().to_string())
+                } else {
+                    None
+                }
+            });
+        let gid = std::process::Command::new("id")
+            .arg("-g")
+            .output()
+            .ok()
+            .and_then(|o| {
+                if o.status.success() {
+                    String::from_utf8(o.stdout)
+                        .ok()
+                        .map(|s| s.trim().to_string())
+                } else {
+                    None
+                }
+            });
+        uid.zip(gid).map(|(u, g)| format!("{}:{}", u, g))
+    };
+    #[cfg(not(unix))]
+    let user_flag: Option<String> = None;
+
+    let mut cmd = Command::new("docker");
+    cmd.args(["run", "--rm", "--name", CONTAINER_NAME]);
+    if let Some(ref u) = user_flag {
+        cmd.args(["-u", u]);
+    }
+    cmd.arg("-v");
+    cmd.arg(format!("{}:/app/data", data_dir));
+    cmd.arg("-p");
+    cmd.arg(format!("{}:8080", port));
+    cmd.arg("-e");
+    cmd.arg(format!("PUBLIC_URL=http://localhost:{}/auth", proxy_port));
+    cmd.arg("-e");
+    cmd.arg("LOCAL_TEST=true");
+    cmd.arg(RAUTHY_IMAGE);
+
+    let mut child = cmd.stdout(Stdio::piped()).stderr(Stdio::piped()).spawn()?;
 
     if let Some(stdout) = child.stdout.take() {
         spawn_reader(stdout, "rauthy");
