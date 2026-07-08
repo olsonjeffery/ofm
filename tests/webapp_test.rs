@@ -237,6 +237,114 @@ async fn test_webapp_protected_route_redirects_without_session() {
 }
 
 #[tokio::test]
+async fn test_callback_skips_onboarding_when_completed() {
+    let (state, auth_layer, _tmp) = make_state_with_webapp_auth().await;
+    let key = cookie::Key::generate();
+    let state = AppState {
+        cfg_port: 0,
+        cookie_key: key.clone(),
+        ..state
+    };
+    let db = state.db.clone();
+    let app = server::router(state, auth_layer);
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let addr = listener.local_addr().unwrap();
+    tokio::spawn(async move { axum::serve(listener, app).await.unwrap() });
+
+    let user_id = Uuid::new_v4();
+    let session_id = Uuid::new_v4();
+    let now = chrono::Utc::now().format("%Y-%m-%d %H:%M:%S").to_string();
+    let future = (chrono::Utc::now() + chrono::Duration::days(30))
+        .format("%Y-%m-%d %H:%M:%S")
+        .to_string();
+
+    db.execute(
+        "INSERT INTO users (id, username, oidc_subject, is_active, created_at, has_completed_onboarding, is_technical, git_name, git_email) VALUES ($1, $2, $3, 1, $4, 1, 0, $5, $6)",
+        hiqlite::params!(user_id.to_string(), "doneuser", "done-sub", &now, "Jane Doe", "jane@example.com"),
+    )
+    .await
+    .unwrap();
+
+    db.execute(
+        "INSERT INTO sessions (id, user_id, refresh_token, expires_at, created_at) VALUES ($1, $2, $3, $4, $5)",
+        hiqlite::params!(session_id.to_string(), user_id.to_string(), "refresh-token", future, &now),
+    )
+    .await
+    .unwrap();
+
+    let cookie_str = make_encrypted_cookie(&key, "omprint_session", &session_id.to_string());
+    let resp = reqwest::Client::new()
+        .get(format!("http://{}/webapp/callback", addr))
+        .header("Cookie", cookie_str)
+        .send()
+        .await
+        .unwrap();
+
+    assert_eq!(resp.status(), 200);
+    let body = resp.text().await.unwrap();
+    assert!(
+        body.contains("window.location.href='/webapp/'"),
+        "expected redirect to /webapp/, got: {body}"
+    );
+}
+
+#[tokio::test]
+async fn test_callback_shows_onboarding_when_not_completed() {
+    let (state, auth_layer, _tmp) = make_state_with_webapp_auth().await;
+    let key = cookie::Key::generate();
+    let state = AppState {
+        cfg_port: 0,
+        cookie_key: key.clone(),
+        ..state
+    };
+    let db = state.db.clone();
+    let app = server::router(state, auth_layer);
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let addr = listener.local_addr().unwrap();
+    tokio::spawn(async move { axum::serve(listener, app).await.unwrap() });
+
+    let user_id = Uuid::new_v4();
+    let session_id = Uuid::new_v4();
+    let now = chrono::Utc::now().format("%Y-%m-%d %H:%M:%S").to_string();
+    let future = (chrono::Utc::now() + chrono::Duration::days(30))
+        .format("%Y-%m-%d %H:%M:%S")
+        .to_string();
+
+    db.execute(
+        "INSERT INTO users (id, username, oidc_subject, is_active, created_at, has_completed_onboarding, is_technical) VALUES ($1, $2, $3, 1, $4, 0, 0)",
+        hiqlite::params!(user_id.to_string(), "newuser", "new-sub", &now),
+    )
+    .await
+    .unwrap();
+
+    db.execute(
+        "INSERT INTO sessions (id, user_id, refresh_token, expires_at, created_at) VALUES ($1, $2, $3, $4, $5)",
+        hiqlite::params!(session_id.to_string(), user_id.to_string(), "refresh-token", future, &now),
+    )
+    .await
+    .unwrap();
+
+    let cookie_str = make_encrypted_cookie(&key, "omprint_session", &session_id.to_string());
+    let resp = reqwest::Client::new()
+        .get(format!("http://{}/webapp/callback", addr))
+        .header("Cookie", cookie_str)
+        .send()
+        .await
+        .unwrap();
+
+    assert_eq!(resp.status(), 200);
+    let body = resp.text().await.unwrap();
+    assert!(
+        body.contains("User Onboarding Config"),
+        "expected onboarding form, got: {body}"
+    );
+    assert!(
+        !body.contains(r#"value="Jane""#),
+        "new user form should NOT have pre-filled git_name"
+    );
+}
+
+#[tokio::test]
 async fn test_webapp_protected_route_allows_with_valid_session() {
     let (state, auth_layer, _tmp) = make_state_with_webapp_auth().await;
     let key = cookie::Key::generate();
