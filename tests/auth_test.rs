@@ -15,6 +15,7 @@ use omprint::auth::AuthLayer;
 use omprint::db;
 use omprint::providers::LlmProvider;
 use omprint::server;
+use omprint::services::auth::{complete_onboarding, current_user};
 use omprint::server::state::{AppState, OidcEndpoints};
 
 fn make_jwt_cache() -> (Vec<u8>, String, JwksCache) {
@@ -1068,7 +1069,7 @@ async fn test_onboarding_with_missing_fields_returns_400() {
         .unwrap();
     assert_eq!(resp.status(), 422, "expected 422 for empty payload");
 
-    // Send partial payload (missing is_technical)
+    // Send partial payload (missing is_technical - required field)
     let resp = reqwest::Client::new()
         .patch(format!("http://{}/api/auth/onboarding", addr))
         .header("Authorization", format!("Bearer {token}"))
@@ -1079,7 +1080,48 @@ async fn test_onboarding_with_missing_fields_returns_400() {
         .send()
         .await
         .unwrap();
-    assert_eq!(resp.status(), 422, "expected 422 for partial payload");
+    assert_eq!(resp.status(), 422);
+}
+
+#[tokio::test]
+async fn test_onboarding_db_round_trip() {
+    let (client, _tmp) = make_client().await;
+    let user_id = Uuid::new_v4();
+    let now = chrono::Utc::now().format("%Y-%m-%d %H:%M:%S").to_string();
+
+    client
+        .execute(
+            "INSERT INTO users (id, username, oidc_subject, is_active, created_at) VALUES ($1, $2, $3, 1, $4)",
+            params!(user_id.to_string(), "roundtrip", "roundtrip-sub", now),
+        )
+        .await
+        .unwrap();
+
+    let user = current_user(&client, user_id).await.unwrap();
+    assert!(!user.has_completed_onboarding);
+    assert_eq!(user.git_name, None);
+    assert_eq!(user.git_email, None);
+
+    let saved = complete_onboarding(
+        &client,
+        user_id,
+        "Jane Doe".into(),
+        "jane@example.com".into(),
+        true,
+    )
+    .await
+    .unwrap();
+
+    assert!(saved.has_completed_onboarding);
+    assert_eq!(saved.git_name, Some("Jane Doe".into()));
+    assert_eq!(saved.git_email, Some("jane@example.com".into()));
+    assert!(saved.is_technical);
+
+    let fetched = current_user(&client, user_id).await.unwrap();
+    assert!(fetched.has_completed_onboarding);
+    assert_eq!(fetched.git_name, Some("Jane Doe".into()));
+    assert_eq!(fetched.git_email, Some("jane@example.com".into()));
+    assert!(fetched.is_technical);
 }
 
 #[tokio::test]
