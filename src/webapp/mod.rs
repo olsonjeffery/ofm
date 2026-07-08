@@ -29,6 +29,7 @@ pub fn webapp_routes() -> Router<AppState> {
 pub fn webapp_protected_routes() -> Router<AppState> {
     Router::new()
         .route("/webapp", get(shell_handler))
+        .route("/webapp/onboarding", get(onboarding_handler))
         .route("/webapp/settings", get(settings_handler))
         .route("/webapp/islands/uptime", get(uptime_handler))
         .route("/webapp/islands/infocard", get(infocard_handler))
@@ -49,57 +50,54 @@ async fn callback_handler(
     jar: PrivateCookieJar,
     Query(_params): Query<HashMap<String, String>>,
 ) -> Html<String> {
-    let redirect_to_login = || {
+    let go = |path| {
         Html(render_shell(
-            r#"<script>window.location.href='/webapp/login';</script>"#,
+            &format!("<script>window.location.href='{path}';</script>"),
             None,
         ))
     };
 
     let session_id = match crate::server::routes::auth::parse_session_cookie(&jar) {
         Ok(id) => id,
-        Err(_) => return redirect_to_login(),
+        Err(_) => return go("/webapp/login"),
     };
 
     let user_id = match resolve_user_id_from_session(&state.db, session_id).await {
         Some(id) => id,
-        None => return redirect_to_login(),
-    };
-
-    let access_token: String = match &state.oidc_provider {
-        Some(oidc) => crate::services::auth::refresh_access_token(&state.db, oidc, session_id)
-            .await
-            .unwrap_or_default(),
-        None => String::new(),
+        None => return go("/webapp/login"),
     };
 
     let user = match crate::services::auth::current_user(&state.db, user_id).await {
         Ok(u) => u,
-        Err(_) => return redirect_to_login(),
+        Err(_) => return go("/webapp/login"),
     };
 
     if user.has_completed_onboarding {
-        return Html(render_shell(
-            r#"<script>window.location.href='/webapp/';</script>"#,
-            None,
-        ));
+        go("/webapp/")
+    } else {
+        go("/webapp/onboarding")
     }
+}
 
-    let user_json = serde_json::to_string(&user).unwrap_or_default();
+async fn onboarding_handler(State(state): State<AppState>, auth: AuthUser) -> Html<String> {
+    let user_json = serde_json::to_string(&auth).unwrap_or_default();
+
+    let user = match crate::services::auth::current_user(&state.db, auth.user_id).await {
+        Ok(u) => u,
+        Err(_) => {
+            return Html(render_shell(
+                r#"<script>window.location.href='/webapp/login';</script>"#,
+                None,
+            ))
+        }
+    };
 
     let git_name = user.git_name.unwrap_or_default();
     let git_email = user.git_email.unwrap_or_default();
     let is_technical = user.is_technical;
 
-    let onboarding_html =
-        pages::onboarding::render_onboarding_form(git_name, git_email, is_technical);
-    let onboarding_json = serde_json::to_string(&onboarding_html).unwrap_or_default();
-
-    let page_html = leptos::view! {
-        <pages::callback::CallbackPage access_token user_json=user_json.clone() onboarding_html=onboarding_json />
-    }
-    .to_html();
-    Html(render_shell(&page_html, Some(user_json)))
+    let form_html = pages::onboarding::render_onboarding_form(git_name, git_email, is_technical);
+    Html(render_shell(&form_html, Some(user_json)))
 }
 
 async fn resolve_user_id_from_session(db: &hiqlite::Client, session_id: Uuid) -> Option<Uuid> {

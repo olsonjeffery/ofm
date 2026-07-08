@@ -28,7 +28,7 @@ pub fn Navbar(user_json: Option<String>) -> impl IntoView {
                                 <span class="icon is-small"><i class="mdi mdi-account"></i></span>
                                 <span>{username}</span>
                             </span>
-                            <a class="navbar-item" href="/webapp/callback">
+                            <a class="navbar-item" href="/webapp/onboarding">
                                 <span class="icon is-small"><i class="mdi mdi-account-cog"></i></span>
                                 <span>"User Onboarding Config"</span>
                             </a>

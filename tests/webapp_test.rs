@@ -289,7 +289,7 @@ async fn test_callback_skips_onboarding_when_completed() {
 }
 
 #[tokio::test]
-async fn test_callback_shows_onboarding_when_not_completed() {
+async fn test_callback_routes_to_onboarding_when_not_completed() {
     let (state, auth_layer, _tmp) = make_state_with_webapp_auth().await;
     let key = cookie::Key::generate();
     let state = AppState {
@@ -335,12 +335,8 @@ async fn test_callback_shows_onboarding_when_not_completed() {
     assert_eq!(resp.status(), 200);
     let body = resp.text().await.unwrap();
     assert!(
-        body.contains("User Onboarding Config"),
-        "expected onboarding form, got: {body}"
-    );
-    assert!(
-        !body.contains(r#"value="Jane""#),
-        "new user form should NOT have pre-filled git_name"
+        body.contains("window.location.href='/webapp/onboarding'"),
+        "expected redirect to /webapp/onboarding, got: {body}"
     );
 }
 

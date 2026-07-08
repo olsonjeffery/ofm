@@ -15,8 +15,8 @@ use omprint::auth::AuthLayer;
 use omprint::db;
 use omprint::providers::LlmProvider;
 use omprint::server;
-use omprint::services::auth::{complete_onboarding, current_user};
 use omprint::server::state::{AppState, OidcEndpoints};
+use omprint::services::auth::{complete_onboarding, current_user};
 
 fn make_jwt_cache() -> (Vec<u8>, String, JwksCache) {
     let key = b"test-hmac-secret-key-32-bytes-long!";
