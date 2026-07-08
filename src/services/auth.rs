@@ -185,7 +185,7 @@ pub async fn handle_callback(
         )
         .await
         .map_err(|e| ServerError::Internal(e.to_string()))?;
-        (id, true)
+        (id, false)
     };
 
     let session_id = Uuid::new_v4();
