@@ -123,7 +123,12 @@ fn make_app_state(client: hiqlite::Client, user_id: Uuid, oidc: Option<OidcEndpo
 async fn test_health_check() {
     let (client, _tmp) = make_client().await;
     let user_id = db::ensure_default_user(&client).await.unwrap();
-    let auth_layer = AuthLayer::disabled(client.clone(), b"test".to_vec(), cookie::Key::generate(), user_id);
+    let auth_layer = AuthLayer::disabled(
+        client.clone(),
+        b"test".to_vec(),
+        cookie::Key::generate(),
+        user_id,
+    );
     let state = make_app_state(client, user_id, None);
     let app = server::router(state, auth_layer);
     let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
@@ -154,8 +159,12 @@ async fn test_login_returns_authorization_url() {
         jwks_issuer: None,
     };
     let state = make_app_state(client, user_id, Some(oidc));
-    let auth_layer =
-        AuthLayer::disabled(state.db.clone(), b"test".to_vec(), state.cookie_key.clone(), state.default_user_id);
+    let auth_layer = AuthLayer::disabled(
+        state.db.clone(),
+        b"test".to_vec(),
+        state.cookie_key.clone(),
+        state.default_user_id,
+    );
     let app = server::router(state, auth_layer);
     let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
     let addr = listener.local_addr().unwrap();
@@ -179,8 +188,12 @@ async fn test_login_returns_400_when_oidc_disabled() {
     let (client, _tmp) = make_client().await;
     let user_id = db::ensure_default_user(&client).await.unwrap();
     let state = make_app_state(client, user_id, None);
-    let auth_layer =
-        AuthLayer::disabled(state.db.clone(), b"test".to_vec(), state.cookie_key.clone(), state.default_user_id);
+    let auth_layer = AuthLayer::disabled(
+        state.db.clone(),
+        b"test".to_vec(),
+        state.cookie_key.clone(),
+        state.default_user_id,
+    );
     let app = server::router(state, auth_layer);
     let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
     let addr = listener.local_addr().unwrap();
@@ -210,8 +223,12 @@ async fn test_callback_rejects_invalid_state() {
         jwks_issuer: None,
     };
     let state = make_app_state(client, user_id, Some(oidc));
-    let auth_layer =
-        AuthLayer::disabled(state.db.clone(), b"test".to_vec(), state.cookie_key.clone(), state.default_user_id);
+    let auth_layer = AuthLayer::disabled(
+        state.db.clone(),
+        b"test".to_vec(),
+        state.cookie_key.clone(),
+        state.default_user_id,
+    );
     let app = server::router(state, auth_layer);
     let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
     let addr = listener.local_addr().unwrap();
@@ -240,7 +257,7 @@ async fn test_me_returns_401_without_token() {
         client_id: None,
         pepper: b"test".to_vec(),
         cookie_key: cookie::Key::generate(),
-            default_user_id: Uuid::nil(),
+        default_user_id: Uuid::nil(),
     };
     let state = make_app_state(client, user_id, None);
     let app = server::router(state, auth_layer);
@@ -278,7 +295,7 @@ async fn test_me_returns_user() {
         client_id: Some("test-client".to_string()),
         pepper: b"test".to_vec(),
         cookie_key: cookie::Key::generate(),
-            default_user_id: Uuid::nil(),
+        default_user_id: Uuid::nil(),
     };
     let state = make_app_state(client, user_id, None);
     let app = server::router(state, auth_layer);
@@ -323,7 +340,7 @@ async fn test_generate_api_key() {
         client_id: Some("test-client".to_string()),
         pepper: b"test_pepper".to_vec(),
         cookie_key: cookie::Key::generate(),
-            default_user_id: Uuid::nil(),
+        default_user_id: Uuid::nil(),
     };
     let state = make_app_state(client.clone(), user_id, None);
     // Use deterministic cookie_key matching the pepper
@@ -396,7 +413,7 @@ async fn test_revoke_api_key() {
         client_id: Some("test-client".to_string()),
         pepper: b"test".to_vec(),
         cookie_key: cookie::Key::generate(),
-            default_user_id: Uuid::nil(),
+        default_user_id: Uuid::nil(),
     };
     let state = make_app_state(client.clone(), user_id, None);
     let app = server::router(state, auth_layer);
@@ -448,7 +465,7 @@ async fn test_api_key_auth_accesses_protected_route() {
         client_id: Some("test-client".to_string()),
         pepper: b"test".to_vec(),
         cookie_key: cookie::Key::generate(),
-            default_user_id: Uuid::nil(),
+        default_user_id: Uuid::nil(),
     };
     let state = make_app_state(client, user_id, None);
     let app = server::router(state, auth_layer);
@@ -500,7 +517,7 @@ async fn test_admin_list_users() {
         client_id: Some("test-client".to_string()),
         pepper: b"test".to_vec(),
         cookie_key: cookie::Key::generate(),
-            default_user_id: Uuid::nil(),
+        default_user_id: Uuid::nil(),
     };
     let state = make_app_state(client, admin_user_id, None);
     let app = server::router(state, auth_layer);
@@ -545,7 +562,7 @@ async fn test_admin_list_denied_for_non_admin() {
         client_id: Some("test-client".to_string()),
         pepper: b"test".to_vec(),
         cookie_key: cookie::Key::generate(),
-            default_user_id: Uuid::nil(),
+        default_user_id: Uuid::nil(),
     };
     let state = make_app_state(client, user_id, None);
     let app = server::router(state, auth_layer);
@@ -597,7 +614,7 @@ async fn test_admin_update_user() {
         client_id: Some("test-client".to_string()),
         pepper: b"test".to_vec(),
         cookie_key: cookie::Key::generate(),
-            default_user_id: Uuid::nil(),
+        default_user_id: Uuid::nil(),
     };
     let state = make_app_state(client.clone(), admin_user_id, None);
     let app = server::router(state, auth_layer);
@@ -652,7 +669,7 @@ async fn test_admin_cannot_self_demote() {
         client_id: Some("test-client".to_string()),
         pepper: b"test".to_vec(),
         cookie_key: cookie::Key::generate(),
-            default_user_id: Uuid::nil(),
+        default_user_id: Uuid::nil(),
     };
     let state = make_app_state(client, admin_user_id, None);
     let app = server::router(state, auth_layer);
@@ -688,8 +705,12 @@ async fn test_logout_without_cookie_returns_success() {
         jwks_issuer: None,
     };
     let state = make_app_state(client, user_id, Some(oidc));
-    let auth_layer =
-        AuthLayer::disabled(state.db.clone(), b"test".to_vec(), state.cookie_key.clone(), state.default_user_id);
+    let auth_layer = AuthLayer::disabled(
+        state.db.clone(),
+        b"test".to_vec(),
+        state.cookie_key.clone(),
+        state.default_user_id,
+    );
     let app = server::router(state, auth_layer);
     let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
     let addr = listener.local_addr().unwrap();
@@ -721,7 +742,7 @@ async fn test_me_returns_unauthorized_when_no_user_matches_jwt() {
         client_id: Some("test-client".to_string()),
         pepper: b"test".to_vec(),
         cookie_key: cookie::Key::generate(),
-            default_user_id: Uuid::nil(),
+        default_user_id: Uuid::nil(),
     };
     let state = make_app_state(client, user_id, None);
     let app = server::router(state, auth_layer);
@@ -797,8 +818,12 @@ async fn test_callback_exchanges_code() {
         jwks_issuer: Some("test-issuer".into()),
     };
     let state = make_app_state(client.clone(), user_id, Some(oidc));
-    let auth_layer =
-        AuthLayer::disabled(state.db.clone(), b"test".to_vec(), state.cookie_key.clone(), state.default_user_id);
+    let auth_layer = AuthLayer::disabled(
+        state.db.clone(),
+        b"test".to_vec(),
+        state.cookie_key.clone(),
+        state.default_user_id,
+    );
     let app = server::router(state, auth_layer);
     let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
     let addr = listener.local_addr().unwrap();
@@ -936,8 +961,12 @@ async fn test_refresh_with_session_cookie() {
         cookie_key: key.clone(),
         api_key_pepper: b"test_pepper".to_vec(),
     };
-    let auth_layer =
-        AuthLayer::disabled(state.db.clone(), b"test".to_vec(), state.cookie_key.clone(), state.default_user_id);
+    let auth_layer = AuthLayer::disabled(
+        state.db.clone(),
+        b"test".to_vec(),
+        state.cookie_key.clone(),
+        state.default_user_id,
+    );
     let app = server::router(state, auth_layer);
     let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
     let addr = listener.local_addr().unwrap();
@@ -971,8 +1000,12 @@ async fn test_refresh_without_cookie() {
         jwks_issuer: None,
     };
     let state = make_app_state(client, user_id, Some(oidc));
-    let auth_layer =
-        AuthLayer::disabled(state.db.clone(), b"test".to_vec(), state.cookie_key.clone(), state.default_user_id);
+    let auth_layer = AuthLayer::disabled(
+        state.db.clone(),
+        b"test".to_vec(),
+        state.cookie_key.clone(),
+        state.default_user_id,
+    );
     let app = server::router(state, auth_layer);
     let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
     let addr = listener.local_addr().unwrap();
@@ -1011,7 +1044,7 @@ async fn test_onboarding_with_valid_auth() {
         client_id: Some("test-client".to_string()),
         pepper: b"test".to_vec(),
         cookie_key: cookie::Key::generate(),
-            default_user_id: Uuid::nil(),
+        default_user_id: Uuid::nil(),
     };
     let state = make_app_state(client, user_id, None);
     let app = server::router(state, auth_layer);
@@ -1063,7 +1096,7 @@ async fn test_onboarding_with_missing_fields_returns_400() {
         client_id: Some("test-client".to_string()),
         pepper: b"test".to_vec(),
         cookie_key: cookie::Key::generate(),
-            default_user_id: Uuid::nil(),
+        default_user_id: Uuid::nil(),
     };
     let state = make_app_state(client, user_id, None);
     let app = server::router(state, auth_layer);
@@ -1148,7 +1181,7 @@ async fn test_onboarding_without_auth_returns_401() {
         client_id: Some("test-client".to_string()),
         pepper: b"test".to_vec(),
         cookie_key: cookie::Key::generate(),
-            default_user_id: Uuid::nil(),
+        default_user_id: Uuid::nil(),
     };
     let state = make_app_state(client, user_id, None);
     let app = server::router(state, auth_layer);

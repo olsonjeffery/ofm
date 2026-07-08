@@ -132,7 +132,11 @@ impl AuthLayer {
         }
     }
 
-    fn spawn_jwks_refresh(cache: Arc<RwLock<Option<JwksCache>>>, issuer_url: &str, client_id: &str) {
+    fn spawn_jwks_refresh(
+        cache: Arc<RwLock<Option<JwksCache>>>,
+        issuer_url: &str,
+        client_id: &str,
+    ) {
         let bg_cache = cache;
         let bg_issuer = issuer_url.to_string();
         let bg_client_id = client_id.to_string();
@@ -182,7 +186,13 @@ impl AuthLayer {
         default_user_id: Uuid,
     ) -> Result<Self, Box<dyn std::error::Error>> {
         let cache = fetch_jwks(issuer_url, client_id).await?;
-        Ok(Self::from_cache(cache, db, pepper, cookie_key, default_user_id))
+        Ok(Self::from_cache(
+            cache,
+            db,
+            pepper,
+            cookie_key,
+            default_user_id,
+        ))
     }
 
     pub async fn new(
@@ -500,7 +510,8 @@ mod tests {
     #[tokio::test]
     async fn test_auth_layer_disabled_passes_through() {
         let (client, _tmp) = make_client().await;
-        let auth_layer = AuthLayer::disabled(client, b"test".to_vec(), Key::generate(), Uuid::nil());
+        let auth_layer =
+            AuthLayer::disabled(client, b"test".to_vec(), Key::generate(), Uuid::nil());
 
         let app = Router::new()
             .route("/", get(|| async { "ok" }))

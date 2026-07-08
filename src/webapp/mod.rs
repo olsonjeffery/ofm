@@ -33,7 +33,10 @@ pub fn webapp_protected_routes() -> Router<AppState> {
     Router::new()
         .route("/webapp", get(dashboard_handler))
         .route("/webapp/projects/{id}", get(board_handler))
-        .route("/webapp/projects/{project_id}/tasks/{task_id}", get(task_detail_handler))
+        .route(
+            "/webapp/projects/{project_id}/tasks/{task_id}",
+            get(task_detail_handler),
+        )
         .route("/webapp/onboarding", get(onboarding_handler))
         .route("/webapp/settings", get(settings_handler))
         .route("/webapp/islands/uptime", get(uptime_handler))

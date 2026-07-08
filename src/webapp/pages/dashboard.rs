@@ -7,7 +7,10 @@ use crate::db::schema::Project;
 use crate::webapp::components::project_card::{ProjectCard, TaskCounts};
 
 #[component]
-pub fn DashboardPage(projects: Vec<Project>, task_counts: HashMap<Uuid, TaskCounts>) -> impl IntoView {
+pub fn DashboardPage(
+    projects: Vec<Project>,
+    task_counts: HashMap<Uuid, TaskCounts>,
+) -> impl IntoView {
     view! {
         <section class="section">
             <div class="level">
@@ -118,10 +121,22 @@ mod tests {
             name: "Alpha".into(),
             repo_folder_path: "/tmp/alpha".into(),
             subproject_path: None,
-            created_at: chrono::NaiveDateTime::parse_from_str("2024-01-15 10:00:00", "%Y-%m-%d %H:%M:%S").unwrap(),
+            created_at: chrono::NaiveDateTime::parse_from_str(
+                "2024-01-15 10:00:00",
+                "%Y-%m-%d %H:%M:%S",
+            )
+            .unwrap(),
         };
         let mut task_counts = HashMap::new();
-        task_counts.insert(project.id, TaskCounts { pending: 2, in_progress: 0, in_review: 0, completed: 1 });
+        task_counts.insert(
+            project.id,
+            TaskCounts {
+                pending: 2,
+                in_progress: 0,
+                in_review: 0,
+                completed: 1,
+            },
+        );
         let html = leptos::view! { <DashboardPage projects=vec![project] task_counts /> }.to_html();
         assert!(html.contains("Alpha"));
         assert!(!html.contains("No projects yet"));

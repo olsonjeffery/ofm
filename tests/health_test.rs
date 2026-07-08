@@ -26,7 +26,12 @@ async fn make_state() -> (AppState, AuthLayer, TempDir) {
     client.wait_until_healthy_db().await;
     db::run_migrations(&client).await.unwrap();
     let user_id = db::ensure_default_user(&client).await.unwrap();
-    let auth_layer = AuthLayer::disabled(client.clone(), b"test".to_vec(), cookie::Key::generate(), user_id);
+    let auth_layer = AuthLayer::disabled(
+        client.clone(),
+        b"test".to_vec(),
+        cookie::Key::generate(),
+        user_id,
+    );
     let state = AppState {
         cfg_port: 0,
 

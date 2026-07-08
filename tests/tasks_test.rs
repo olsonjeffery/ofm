@@ -52,7 +52,12 @@ async fn setup_app() -> TestApp {
     .unwrap()
     .id;
 
-    let auth_layer = AuthLayer::disabled(client.clone(), b"test".to_vec(), cookie::Key::generate(), user_id);
+    let auth_layer = AuthLayer::disabled(
+        client.clone(),
+        b"test".to_vec(),
+        cookie::Key::generate(),
+        user_id,
+    );
     let state = AppState {
         cfg_port: 0,
 
@@ -155,7 +160,12 @@ async fn setup_app_with_git() -> TestApp {
     .id;
 
     let app_archive_root = archive_root.clone();
-    let auth_layer = AuthLayer::disabled(client.clone(), b"test".to_vec(), cookie::Key::generate(), user_id);
+    let auth_layer = AuthLayer::disabled(
+        client.clone(),
+        b"test".to_vec(),
+        cookie::Key::generate(),
+        user_id,
+    );
     let state = AppState {
         cfg_port: 0,
 

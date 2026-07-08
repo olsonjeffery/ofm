@@ -27,7 +27,12 @@ async fn make_state() -> (AppState, AuthLayer, TempDir) {
     client.wait_until_healthy_db().await;
     db::run_migrations(&client).await.unwrap();
     let user_id = db::ensure_default_user(&client).await.unwrap();
-    let auth_layer = AuthLayer::disabled(client.clone(), b"test".to_vec(), cookie::Key::generate(), user_id);
+    let auth_layer = AuthLayer::disabled(
+        client.clone(),
+        b"test".to_vec(),
+        cookie::Key::generate(),
+        user_id,
+    );
     let state = AppState {
         cfg_port: 0,
 
@@ -445,11 +450,7 @@ async fn test_webapp_board_page_404() {
         axum::serve(listener, app).await.unwrap();
     });
 
-    let url = format!(
-        "http://{}/webapp/projects/{}",
-        addr,
-        Uuid::new_v4()
-    );
+    let url = format!("http://{}/webapp/projects/{}", addr, Uuid::new_v4());
     let client = reqwest::Client::new();
     let resp = client.get(&url).send().await.unwrap();
     assert_eq!(resp.status(), 404);

@@ -1,5 +1,5 @@
-use leptos::prelude::*;
 use crate::db::schema::Project;
+use leptos::prelude::*;
 
 #[derive(Debug, Clone, Default)]
 pub struct TaskCounts {
@@ -11,8 +11,10 @@ pub struct TaskCounts {
 
 #[component]
 pub fn ProjectCard(project: Project, task_counts: TaskCounts) -> impl IntoView {
-    let total = task_counts.pending + task_counts.in_progress
-        + task_counts.in_review + task_counts.completed;
+    let total = task_counts.pending
+        + task_counts.in_progress
+        + task_counts.in_review
+        + task_counts.completed;
     view! {
         <a href={format!("/webapp/projects/{}", project.id)} class="card">
             <div class="card-content">
@@ -50,14 +52,20 @@ mod tests {
             name: "Test Project".into(),
             repo_folder_path: "/tmp/test-repo".into(),
             subproject_path: None,
-            created_at: NaiveDateTime::parse_from_str("2024-01-15 10:00:00", "%Y-%m-%d %H:%M:%S").unwrap(),
+            created_at: NaiveDateTime::parse_from_str("2024-01-15 10:00:00", "%Y-%m-%d %H:%M:%S")
+                .unwrap(),
         }
     }
 
     #[test]
     fn test_project_card_renders_name() {
         let project = make_project();
-        let counts = TaskCounts { pending: 3, in_progress: 1, in_review: 2, completed: 5 };
+        let counts = TaskCounts {
+            pending: 3,
+            in_progress: 1,
+            in_review: 2,
+            completed: 5,
+        };
         let html = leptos::view! { <ProjectCard project task_counts=counts /> }.to_html();
         assert!(html.contains("Test Project"));
         assert!(html.contains("/tmp/test-repo"));

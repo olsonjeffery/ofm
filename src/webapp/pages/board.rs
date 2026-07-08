@@ -4,7 +4,11 @@ use crate::db::schema::{Project, Task};
 use crate::webapp::components::task_card::TaskCard;
 
 fn tasks_for_status(tasks: &[Task], status: &str) -> Vec<Task> {
-    tasks.iter().filter(|t| t.status == status).cloned().collect()
+    tasks
+        .iter()
+        .filter(|t| t.status == status)
+        .cloned()
+        .collect()
 }
 
 #[component]
@@ -122,7 +126,8 @@ mod tests {
             name: "Test Project".into(),
             repo_folder_path: "/tmp/repo".into(),
             subproject_path: None,
-            created_at: NaiveDateTime::parse_from_str("2024-01-15 10:00:00", "%Y-%m-%d %H:%M:%S").unwrap(),
+            created_at: NaiveDateTime::parse_from_str("2024-01-15 10:00:00", "%Y-%m-%d %H:%M:%S")
+                .unwrap(),
         }
     }
 
@@ -140,7 +145,8 @@ mod tests {
             pr_agent_complete: false,
             refinement_complete: false,
             yolo_mode: false,
-            created_at: NaiveDateTime::parse_from_str("2024-06-01 12:00:00", "%Y-%m-%d %H:%M:%S").unwrap(),
+            created_at: NaiveDateTime::parse_from_str("2024-06-01 12:00:00", "%Y-%m-%d %H:%M:%S")
+                .unwrap(),
         }
     }
 

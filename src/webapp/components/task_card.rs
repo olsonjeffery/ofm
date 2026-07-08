@@ -1,5 +1,5 @@
-use leptos::prelude::*;
 use crate::db::schema::Task;
+use leptos::prelude::*;
 
 fn status_badge_class(status: &str) -> &'static str {
     match status {
@@ -62,7 +62,8 @@ mod tests {
             pr_agent_complete: false,
             refinement_complete: false,
             yolo_mode: false,
-            created_at: NaiveDateTime::parse_from_str("2024-06-01 12:00:00", "%Y-%m-%d %H:%M:%S").unwrap(),
+            created_at: NaiveDateTime::parse_from_str("2024-06-01 12:00:00", "%Y-%m-%d %H:%M:%S")
+                .unwrap(),
         }
     }
 

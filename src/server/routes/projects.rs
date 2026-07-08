@@ -78,7 +78,10 @@ async fn create_project(
     Ok((StatusCode::CREATED, Json(project)))
 }
 
-async fn list_projects(auth: AuthUser, State(state): State<AppState>) -> Result<Json<Vec<Project>>, ServerError> {
+async fn list_projects(
+    auth: AuthUser,
+    State(state): State<AppState>,
+) -> Result<Json<Vec<Project>>, ServerError> {
     let projects = services::projects::list_projects(&state.db, &auth.user_id)
         .await
         .map_err(|e| ServerError::Internal(e.to_string()))?;

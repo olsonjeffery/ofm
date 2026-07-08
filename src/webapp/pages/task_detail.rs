@@ -18,7 +18,9 @@ fn agent_button_state(
         }
     } else {
         match agent_type {
-            AgentType::Planification if task.planification_complete => ("Completed", "is-success", true),
+            AgentType::Planification if task.planification_complete => {
+                ("Completed", "is-success", true)
+            }
             _ => ("Run", "is-primary", false),
         }
     }
@@ -77,7 +79,11 @@ fn status_class(status: &str) -> &'static str {
 }
 
 #[component]
-pub fn TaskDetailPage(task: Task, doc_content: Option<String>, agent_runs: Vec<TaskAgentRun>) -> impl IntoView {
+pub fn TaskDetailPage(
+    task: Task,
+    doc_content: Option<String>,
+    agent_runs: Vec<TaskAgentRun>,
+) -> impl IntoView {
     let status_badge_class = status_class(&task.status);
     let status_label_str = status_label(&task.status);
     let task_id = task.id.to_string();
@@ -246,7 +252,8 @@ mod tests {
             pr_agent_complete: false,
             refinement_complete: false,
             yolo_mode: false,
-            created_at: NaiveDateTime::parse_from_str("2024-06-01 12:00:00", "%Y-%m-%d %H:%M:%S").unwrap(),
+            created_at: NaiveDateTime::parse_from_str("2024-06-01 12:00:00", "%Y-%m-%d %H:%M:%S")
+                .unwrap(),
         }
     }
 
@@ -257,7 +264,8 @@ mod tests {
             agent_type,
             status,
             conversation_id: None,
-            created_at: NaiveDateTime::parse_from_str("2024-06-01 12:00:00", "%Y-%m-%d %H:%M:%S").unwrap(),
+            created_at: NaiveDateTime::parse_from_str("2024-06-01 12:00:00", "%Y-%m-%d %H:%M:%S")
+                .unwrap(),
             completed_at: None,
         }
     }

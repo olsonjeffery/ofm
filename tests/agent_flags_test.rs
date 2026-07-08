@@ -61,7 +61,12 @@ async fn setup_app() -> TestApp {
     .await
     .unwrap();
 
-    let auth_layer = AuthLayer::disabled(client.clone(), b"test".to_vec(), cookie::Key::generate(), user_id);
+    let auth_layer = AuthLayer::disabled(
+        client.clone(),
+        b"test".to_vec(),
+        cookie::Key::generate(),
+        user_id,
+    );
     let state = AppState {
         cfg_port: 0,
 
