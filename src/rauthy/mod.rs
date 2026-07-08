@@ -1,7 +1,8 @@
 use std::process::Stdio;
 use std::time::Duration;
 
-use tokio::process::Command;
+use tokio::io::AsyncBufReadExt;
+use tokio::process::{Child, Command};
 
 const RAUTHY_IMAGE: &str = "ghcr.io/sebadob/rauthy:latest";
 const CONTAINER_NAME: &str = "omprint-rauthy";
@@ -12,6 +13,7 @@ type BoxError = Box<dyn std::error::Error>;
 
 pub struct RauthyInstance {
     pub port: u16,
+    child: Option<Child>,
 }
 
 impl RauthyInstance {
@@ -22,11 +24,9 @@ impl RauthyInstance {
 
 impl Drop for RauthyInstance {
     fn drop(&mut self) {
-        let _ = std::process::Command::new("docker")
-            .args(["kill", CONTAINER_NAME])
-            .stdout(Stdio::null())
-            .stderr(Stdio::null())
-            .status();
+        if let Some(mut child) = self.child.take() {
+            let _ = child.start_kill();
+        }
     }
 }
 
@@ -34,6 +34,15 @@ pub fn find_available_port() -> std::io::Result<u16> {
     let listener = std::net::TcpListener::bind("127.0.0.1:0")?;
     let addr = listener.local_addr()?;
     Ok(addr.port())
+}
+
+fn spawn_reader(reader: impl tokio::io::AsyncRead + Unpin + Send + 'static, label: &'static str) {
+    tokio::spawn(async move {
+        let mut lines = tokio::io::BufReader::new(reader).lines();
+        while let Ok(Some(line)) = lines.next_line().await {
+            tracing::info!("[{label}] {line}");
+        }
+    });
 }
 
 pub async fn start_rauthy(
@@ -52,10 +61,9 @@ pub async fn start_rauthy(
     let data_dir = format!("{}/rauthy/data", footprint);
     std::fs::create_dir_all(&data_dir)?;
 
-    let status = Command::new("docker")
+    let mut child = Command::new("docker")
         .args([
             "run",
-            "-d",
             "--rm",
             "--name",
             CONTAINER_NAME,
@@ -69,16 +77,21 @@ pub async fn start_rauthy(
             "LOCAL_TEST=true",
             RAUTHY_IMAGE,
         ])
-        .stdout(Stdio::null())
-        .stderr(Stdio::null())
-        .status()
-        .await?;
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()?;
 
-    if !status.success() {
-        return Err("docker run for rauthy failed".into());
+    if let Some(stdout) = child.stdout.take() {
+        spawn_reader(stdout, "rauthy");
+    }
+    if let Some(stderr) = child.stderr.take() {
+        spawn_reader(stderr, "rauthy");
     }
 
-    Ok(RauthyInstance { port })
+    Ok(RauthyInstance {
+        port,
+        child: Some(child),
+    })
 }
 
 pub async fn wait_until_healthy(port: u16) -> Result<(), BoxError> {
@@ -90,15 +103,19 @@ pub async fn wait_until_healthy(port: u16) -> Result<(), BoxError> {
     loop {
         if start.elapsed() > HEALTH_TIMEOUT {
             let logs = Command::new("docker")
-                .args(["logs", CONTAINER_NAME, "--tail", "20"])
+                .args(["logs", CONTAINER_NAME, "--tail", "50"])
                 .output()
                 .await
                 .ok();
             if let Some(output) = logs {
-                let stderr = String::from_utf8_lossy(&output.stderr);
                 let stdout = String::from_utf8_lossy(&output.stdout);
-                tracing::error!("rauthy container logs (stdout): {stdout}");
-                tracing::error!("rauthy container logs (stderr): {stderr}");
+                let stderr = String::from_utf8_lossy(&output.stderr);
+                if !stdout.is_empty() {
+                    tracing::error!("rauthy container stdout:\n{stdout}");
+                }
+                if !stderr.is_empty() {
+                    tracing::error!("rauthy container stderr:\n{stderr}");
+                }
             }
             return Err("rauthy health check timed out".into());
         }
@@ -112,13 +129,4 @@ pub async fn wait_until_healthy(port: u16) -> Result<(), BoxError> {
             _ => tokio::time::sleep(HEALTH_POLL_INTERVAL).await,
         }
     }
-}
-
-pub async fn stop_rauthy() {
-    let _ = Command::new("docker")
-        .args(["kill", CONTAINER_NAME])
-        .stdout(Stdio::null())
-        .stderr(Stdio::null())
-        .status()
-        .await;
 }
