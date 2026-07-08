@@ -30,7 +30,7 @@ async fn proxy_handler(State(state): State<AppState>, req: Request<Body>) -> Res
         .query()
         .map(|q| format!("?{q}"))
         .unwrap_or_default();
-    let target = format!("{}{}{}", base_url, path, query);
+    let target = format!("{}/auth{}{}", base_url, path, query);
 
     let method = req.method().clone();
     let mut headers = req.headers().clone();
