@@ -75,7 +75,7 @@ pub async fn initiate_login(
 #[derive(Debug)]
 pub struct CallbackResult {
     pub session_id: Uuid,
-    pub new_user: bool,
+    pub has_completed_onboarding: bool,
 }
 
 pub async fn handle_callback(
@@ -168,14 +168,14 @@ pub async fn handle_callback(
 
     let existing_user = find_user_by_oidc_sub(db, &sub).await?;
     let user_token_version = existing_user.as_ref().map(|u| u.token_version).unwrap_or(0);
-    let (user_id, new_user) = if let Some(user) = existing_user {
+    let (user_id, has_completed_onboarding) = if let Some(user) = existing_user {
         db.execute(
             "UPDATE users SET last_login = $1 WHERE id = $2",
             hiqlite::params!(now.clone(), user.id.to_string()),
         )
         .await
         .map_err(|e| ServerError::Internal(e.to_string()))?;
-        (user.id, false)
+        (user.id, user.has_completed_onboarding)
     } else {
         let id = Uuid::new_v4();
         let username = username.unwrap_or_else(|| sub.clone());
@@ -198,7 +198,7 @@ pub async fn handle_callback(
 
     Ok(CallbackResult {
         session_id,
-        new_user,
+        has_completed_onboarding,
     })
 }
 

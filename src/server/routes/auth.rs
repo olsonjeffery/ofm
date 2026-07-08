@@ -73,7 +73,7 @@ async fn callback(
             .build(),
     );
 
-    let location = if result.new_user {
+    let location = if !result.has_completed_onboarding {
         "/webapp/callback".to_string()
     } else {
         "/webapp/".to_string()
