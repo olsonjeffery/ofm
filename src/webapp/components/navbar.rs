@@ -28,7 +28,7 @@ pub fn Navbar(user_json: Option<String>) -> impl IntoView {
                                 <span class="icon is-small"><i class="mdi mdi-account"></i></span>
                                 <span>{username}</span>
                             </span>
-                            <a class="navbar-item" href="/webapp/callback">
+                            <a class="navbar-item" href="/webapp/onboarding">
                                 <span class="icon is-small"><i class="mdi mdi-account-cog"></i></span>
                                 <span>"User Onboarding Config"</span>
                             </a>
@@ -51,10 +51,7 @@ pub fn Navbar(user_json: Option<String>) -> impl IntoView {
                     } else {
                         view! {
                             <div class="navbar-item">
-                                <a href="/webapp/login" class="button is-primary">
-                                    <span class="icon is-small"><i class="mdi mdi-login"></i></span>
-                                    <span>"Login"</span>
-                                </a>
+                                <crate::webapp::islands::sso_login::SsoLoginButton label="Login" />
                             </div>
                         }
                             .into_any()
@@ -69,7 +66,8 @@ pub fn Navbar(user_json: Option<String>) -> impl IntoView {
                 form.addEventListener('submit',function(ev){
                     ev.preventDefault();
                     fetch(form.action,{method:'POST',credentials:'same-origin'})
-                        .then(function(){window.location.href='/webapp/login';})
+                        .then(function(r){return r.json();})
+                        .then(function(d){window.location.href=d.redirect_url||'/webapp/login';})
                         .catch(function(){window.location.href='/webapp/login';});
                 });
             });"#}

@@ -9,6 +9,7 @@ pub mod logging;
 pub mod omp;
 pub mod orchestration;
 pub mod providers;
+pub mod rauthy;
 pub mod server;
 pub mod services;
 pub mod webapp;

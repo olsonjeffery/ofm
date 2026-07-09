@@ -13,6 +13,7 @@ mod logging;
 mod omp;
 mod orchestration;
 mod providers;
+mod rauthy;
 
 use clap::Parser;
 use std::collections::HashMap;
@@ -111,62 +112,180 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         key
     };
 
-    let auth_layer = auth::AuthLayer::new(
-        &cfg,
-        client.clone(),
-        cookie_key.signing().to_vec(),
-        cookie_key.clone(),
-    )
-    .await
-    .unwrap_or_else(|e| {
-        eprintln!("ERROR: Failed to initialize OIDC authentication: {e}");
-        std::process::exit(1);
-    });
+    let api_key_pepper = {
+        let api_key_pepper_path = std::path::Path::new(&cfg.config_root).join("api_key_pepper.bin");
+        if api_key_pepper_path.exists() {
+            std::fs::read(&api_key_pepper_path)
+                .map_err(|e| Box::new(std::io::Error::other(e.to_string())))?
+        } else {
+            let pepper: Vec<u8> = (0..32).map(|_| rand::random::<u8>()).collect();
+            if let Some(parent) = api_key_pepper_path.parent() {
+                std::fs::create_dir_all(parent)
+                    .map_err(|e| Box::new(std::io::Error::other(e.to_string())))?;
+            }
+            std::fs::write(&api_key_pepper_path, &pepper)
+                .map_err(|e| Box::new(std::io::Error::other(e.to_string())))?;
+            pepper
+        }
+    };
 
-    if !auth_layer.enabled {
-        eprintln!("ERROR: OIDC is not configured. Set OMPRINT_OIDC_ISSUER_URL (and OMPRINT_OIDC_CLIENT_ID) to enable authentication.");
-        std::process::exit(1);
-    }
+    let mut _rauthy_instance: Option<rauthy::RauthyInstance> = None;
 
-    let issuer_url = cfg.oidc_issuer_url.as_ref().unwrap();
-    let oidc_provider = {
-        let discovery_url = format!(
-            "{}/.well-known/openid-configuration",
-            issuer_url.trim_end_matches('/')
-        );
-        let disc: serde_json::Value = reqwest::get(&discovery_url)
-            .await
-            .map_err(|e| Box::new(std::io::Error::other(e.to_string())))?
-            .json()
-            .await?;
-        let authorization_endpoint = disc["authorization_endpoint"]
-            .as_str()
-            .ok_or("missing authorization_endpoint")?
-            .to_string();
-        let token_endpoint = disc["token_endpoint"]
-            .as_str()
-            .ok_or("missing token_endpoint")?
-            .to_string();
-        let revocation_endpoint = disc["revocation_endpoint"].as_str().map(|s| s.to_string());
-        let redirect_uri = cfg.oidc_redirect_uri.clone().unwrap_or_else(|| {
-            format!(
-                "{}/api/auth/callback",
-                cfg.base_url
-                    .as_deref()
-                    .unwrap_or("http://localhost:3183")
-                    .trim_end_matches('/')
-            )
+    let (auth_layer, oidc_provider) = if cfg.rauthy_enabled {
+        let rp = if cfg.rauthy_port > 0 {
+            cfg.rauthy_port
+        } else {
+            rauthy::find_available_port()
+                .map_err(|e| Box::new(std::io::Error::other(e.to_string())))?
+        };
+
+        tracing::info!("Starting embedded rauthy on port {}", rp);
+        let instance = rauthy::start_rauthy(&cfg.footprint, rp, cfg.port).await?;
+        rauthy::wait_until_healthy(rp).await?;
+        tracing::info!("rauthy is healthy");
+        _rauthy_instance = Some(instance);
+
+        let direct_base = format!("http://127.0.0.1:{}", rp);
+        let oidc_provider = {
+            let discovery_url = format!("{}/.well-known/openid-configuration", direct_base);
+            let disc: serde_json::Value = reqwest::get(&discovery_url)
+                .await
+                .map_err(|e| Box::new(std::io::Error::other(e.to_string())))?
+                .json()
+                .await?;
+            let issuer = disc["issuer"].as_str().ok_or("missing issuer")?.to_string();
+            let authorization_endpoint = disc["authorization_endpoint"]
+                .as_str()
+                .ok_or("missing authorization_endpoint")?
+                .to_string();
+            let token_endpoint = disc["token_endpoint"]
+                .as_str()
+                .ok_or("missing token_endpoint")?
+                .to_string();
+            let revocation_endpoint = disc["revocation_endpoint"].as_str().map(|s| s.to_string());
+            let end_session_endpoint = disc["end_session_endpoint"].as_str().map(|s| s.to_string());
+            let redirect_uri = format!("http://127.0.0.1:{}/api/auth/callback", cfg.port);
+            let client_id = cfg
+                .oidc_client_id
+                .clone()
+                .unwrap_or_else(|| "omprint".into());
+
+            let jwks_disc_url = format!(
+                "http://127.0.0.1:{}/auth/v1/.well-known/openid-configuration",
+                rp
+            );
+            let jwks_disc: serde_json::Value = reqwest::get(&jwks_disc_url)
+                .await
+                .map_err(|e| Box::new(std::io::Error::other(e.to_string())))?
+                .json()
+                .await?;
+            let jwks_uri = jwks_disc["jwks_uri"]
+                .as_str()
+                .ok_or("missing jwks_uri")?
+                .to_string();
+            let jwks_resp: serde_json::Value = reqwest::get(&jwks_uri)
+                .await
+                .map_err(|e| Box::new(std::io::Error::other(e.to_string())))?
+                .json()
+                .await?;
+            let keys: std::collections::HashMap<String, jsonwebtoken::jwk::Jwk> = jwks_resp["keys"]
+                .as_array()
+                .ok_or("missing keys array")?
+                .iter()
+                .filter_map(|k| {
+                    let jwk: jsonwebtoken::jwk::Jwk = serde_json::from_value(k.clone()).ok()?;
+                    jwk.common.key_id.clone().map(|kid| (kid, jwk))
+                })
+                .collect();
+
+            let jwks_cache = auth::jwks::JwksCache {
+                keys,
+                issuer: issuer.clone(),
+                client_id: client_id.clone(),
+            };
+            let auth_layer = auth::AuthLayer::from_cache(
+                jwks_cache,
+                client.clone(),
+                api_key_pepper.clone(),
+                cookie_key.clone(),
+            );
+            let oidc_endpoints = server::state::OidcEndpoints {
+                authorization_endpoint,
+                token_endpoint,
+                end_session_endpoint,
+                revocation_endpoint,
+                client_id,
+                client_secret: cfg.oidc_client_secret.clone(),
+                redirect_uri,
+                jwks_cache: Some(auth_layer.jwks_cache.clone()),
+                jwks_issuer: auth_layer.issuer_url.clone(),
+            };
+            (auth_layer, Some(oidc_endpoints))
+        };
+
+        (oidc_provider.0, oidc_provider.1)
+    } else {
+        let auth_layer = auth::AuthLayer::new(
+            &cfg,
+            client.clone(),
+            api_key_pepper.clone(),
+            cookie_key.clone(),
+        )
+        .await
+        .unwrap_or_else(|e| {
+            eprintln!("ERROR: Failed to initialize OIDC authentication: {e}");
+            std::process::exit(1);
         });
-        Some(server::state::OidcEndpoints {
-            authorization_endpoint,
-            token_endpoint,
-            revocation_endpoint,
-            client_id: cfg.oidc_client_id.clone().unwrap_or_default(),
-            client_secret: cfg.oidc_client_secret.clone(),
-            redirect_uri,
-            jwks_cache: Some(auth_layer.jwks_cache.clone()),
-            jwks_issuer: auth_layer.issuer_url.clone(),
-        })
+
+        if !auth_layer.enabled {
+            eprintln!("ERROR: OIDC is not configured. Set OMPRINT_OIDC_ISSUER_URL (and OMPRINT_OIDC_CLIENT_ID) to enable authentication.");
+            std::process::exit(1);
+        }
+
+        let issuer_url = cfg.oidc_issuer_url.as_ref().unwrap();
+        let oidc_provider = {
+            let discovery_url = format!(
+                "{}/.well-known/openid-configuration",
+                issuer_url.trim_end_matches('/')
+            );
+            let disc: serde_json::Value = reqwest::get(&discovery_url)
+                .await
+                .map_err(|e| Box::new(std::io::Error::other(e.to_string())))?
+                .json()
+                .await?;
+            let authorization_endpoint = disc["authorization_endpoint"]
+                .as_str()
+                .ok_or("missing authorization_endpoint")?
+                .to_string();
+            let token_endpoint = disc["token_endpoint"]
+                .as_str()
+                .ok_or("missing token_endpoint")?
+                .to_string();
+            let revocation_endpoint = disc["revocation_endpoint"].as_str().map(|s| s.to_string());
+            let end_session_endpoint = disc["end_session_endpoint"].as_str().map(|s| s.to_string());
+            let redirect_uri = cfg.oidc_redirect_uri.clone().unwrap_or_else(|| {
+                format!(
+                    "{}/api/auth/callback",
+                    cfg.base_url
+                        .as_deref()
+                        .unwrap_or("http://localhost:3183")
+                        .trim_end_matches('/')
+                )
+            });
+            Some(server::state::OidcEndpoints {
+                authorization_endpoint,
+                token_endpoint,
+                end_session_endpoint,
+                revocation_endpoint,
+                client_id: cfg.oidc_client_id.clone().unwrap_or_default(),
+                client_secret: cfg.oidc_client_secret.clone(),
+                redirect_uri,
+                jwks_cache: Some(auth_layer.jwks_cache.clone()),
+                jwks_issuer: auth_layer.issuer_url.clone(),
+            })
+        };
+
+        (auth_layer, oidc_provider)
     };
 
     let state = server::state::AppState {
@@ -179,6 +298,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         oidc_provider,
         pkce_store,
         cookie_key,
+        api_key_pepper,
+        cfg_port: cfg.port,
     };
     tracing::info!("Auth middleware: enabled");
 

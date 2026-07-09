@@ -62,10 +62,11 @@ pub fn OnboardingForm(git_name: String, git_email: String, is_technical: bool) -
                     var btn=form.querySelector('button[type="submit"]');
                     btn.disabled=true;
                     btn.textContent='Saving...';
-                    apiCall('/api/auth/onboarding',{
+                    fetch('/api/auth/onboarding',{
                         method:'PATCH',
                         headers:{'Content-Type':'application/json'},
-                        body:JSON.stringify(data)
+                        body:JSON.stringify(data),
+                        credentials:'same-origin'
                     }).then(function(r){
                         if(r.ok){window.location.href='/webapp/';}
                         else{btn.disabled=false;btn.innerHTML='<span class=\"icon is-small\"><i class=\"mdi mdi-account-check\"></i></span><span>Save</span>';}

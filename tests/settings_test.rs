@@ -54,6 +54,8 @@ async fn make_state_with_auth() -> (AppState, AuthLayer, String, tempfile::TempD
     };
 
     let state = AppState {
+        cfg_port: 0,
+
         db: client,
         default_user_id: user_id,
         archive_root: "storage/".into(),
@@ -63,6 +65,7 @@ async fn make_state_with_auth() -> (AppState, AuthLayer, String, tempfile::TempD
         oidc_provider: None,
         pkce_store: Arc::new(Mutex::new(HashMap::new())),
         cookie_key: cookie::Key::generate(),
+        api_key_pepper: b"test_pepper".to_vec(),
     };
 
     (state, auth_layer, api_key_str, tmp)
@@ -88,6 +91,8 @@ async fn make_state_no_auth() -> (AppState, AuthLayer, tempfile::TempDir) {
     let user_id = db::ensure_default_user(&client).await.unwrap();
     let auth_layer = AuthLayer::disabled(client.clone(), b"test".to_vec(), cookie::Key::generate());
     let state = AppState {
+        cfg_port: 0,
+
         db: client,
         default_user_id: user_id,
         archive_root: "storage/".into(),
@@ -97,6 +102,7 @@ async fn make_state_no_auth() -> (AppState, AuthLayer, tempfile::TempDir) {
         oidc_provider: None,
         pkce_store: Arc::new(Mutex::new(HashMap::new())),
         cookie_key: cookie::Key::generate(),
+        api_key_pepper: b"test_pepper".to_vec(),
     };
     (state, auth_layer, tmp)
 }
@@ -317,6 +323,8 @@ async fn test_settings_config_body_user_isolation() {
     };
 
     let state = AppState {
+        cfg_port: 0,
+
         db: client,
         default_user_id: user_a_id,
         archive_root: "storage/".into(),
@@ -326,6 +334,7 @@ async fn test_settings_config_body_user_isolation() {
         oidc_provider: None,
         pkce_store: Arc::new(Mutex::new(HashMap::new())),
         cookie_key: cookie::Key::generate(),
+        api_key_pepper: b"test_pepper".to_vec(),
     };
 
     let base_url = spawn_app(state, auth_layer).await;

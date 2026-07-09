@@ -75,7 +75,7 @@ pub async fn initiate_login(
 #[derive(Debug)]
 pub struct CallbackResult {
     pub session_id: Uuid,
-    pub new_user: bool,
+    pub has_completed_onboarding: bool,
 }
 
 pub async fn handle_callback(
@@ -167,14 +167,15 @@ pub async fn handle_callback(
         .to_string();
 
     let existing_user = find_user_by_oidc_sub(db, &sub).await?;
-    let (user_id, new_user) = if let Some(user) = existing_user {
+    let user_token_version = existing_user.as_ref().map(|u| u.token_version).unwrap_or(0);
+    let (user_id, has_completed_onboarding) = if let Some(user) = existing_user {
         db.execute(
             "UPDATE users SET last_login = $1 WHERE id = $2",
             hiqlite::params!(now.clone(), user.id.to_string()),
         )
         .await
         .map_err(|e| ServerError::Internal(e.to_string()))?;
-        (user.id, false)
+        (user.id, user.has_completed_onboarding)
     } else {
         let id = Uuid::new_v4();
         let username = username.unwrap_or_else(|| sub.clone());
@@ -184,20 +185,21 @@ pub async fn handle_callback(
         )
         .await
         .map_err(|e| ServerError::Internal(e.to_string()))?;
-        (id, true)
+        (id, false)
     };
 
+    let id_token_val = token_data["id_token"].as_str().map(|s| s.to_string());
     let session_id = Uuid::new_v4();
     db.execute(
-        "INSERT INTO sessions (id, user_id, refresh_token, expires_at, created_at) VALUES ($1, $2, $3, $4, $5)",
-        hiqlite::params!(session_id.to_string(), user_id.to_string(), refresh_token, expires_at, now),
+        "INSERT INTO sessions (id, user_id, refresh_token, id_token, expires_at, created_at, token_version) VALUES ($1, $2, $3, $4, $5, $6, $7)",
+        hiqlite::params!(session_id.to_string(), user_id.to_string(), refresh_token, id_token_val, expires_at, now, user_token_version),
     )
     .await
     .map_err(|e| ServerError::Internal(e.to_string()))?;
 
     Ok(CallbackResult {
         session_id,
-        new_user,
+        has_completed_onboarding,
     })
 }
 
@@ -447,7 +449,7 @@ async fn find_user_by_oidc_sub(
     Ok(rows.first_mut().map(|row| User::from(&mut *row)))
 }
 
-async fn find_session(
+pub async fn find_session(
     db: &hiqlite::Client,
     session_id: Uuid,
 ) -> Result<Option<SessionDb>, ServerError> {
@@ -484,7 +486,7 @@ fn decode_jwt_payload(token: &str) -> Result<serde_json::Value, String> {
     serde_json::from_slice(&decoded).map_err(|e| format!("json parse failed: {e}"))
 }
 
-fn urlencoding(s: &str) -> String {
+pub fn urlencoding(s: &str) -> String {
     url::form_urlencoded::byte_serialize(s.as_bytes()).collect()
 }
 

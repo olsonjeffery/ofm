@@ -1,5 +1,7 @@
 use serde_json::Value;
 
+const INVALID_INPUT_MSG: &str = "input is neither valid JSON nor YAML";
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ConfigFormat {
     Yaml,
@@ -31,9 +33,7 @@ pub fn to_yaml(input: &str) -> Result<String, ConfigFormatError> {
             serde_yaml::to_string(&value)
                 .map_err(|e| ConfigFormatError::InvalidInput(e.to_string()))
         }
-        None => Err(ConfigFormatError::InvalidInput(
-            "input is neither valid JSON nor YAML".to_string(),
-        )),
+        None => Err(ConfigFormatError::InvalidInput(INVALID_INPUT_MSG.into())),
     }
 }
 
@@ -46,17 +46,13 @@ pub fn to_json(input: &str) -> Result<String, ConfigFormatError> {
             serde_json::to_string_pretty(&value)
                 .map_err(|e| ConfigFormatError::InvalidInput(e.to_string()))
         }
-        None => Err(ConfigFormatError::InvalidInput(
-            "input is neither valid JSON nor YAML".to_string(),
-        )),
+        None => Err(ConfigFormatError::InvalidInput(INVALID_INPUT_MSG.into())),
     }
 }
 
 pub fn validate(input: &str) -> Result<(), ConfigFormatError> {
     if detect_format(input).is_none() {
-        return Err(ConfigFormatError::InvalidInput(
-            "input is neither valid JSON nor YAML".into(),
-        ));
+        return Err(ConfigFormatError::InvalidInput(INVALID_INPUT_MSG.into()));
     }
     Ok(())
 }

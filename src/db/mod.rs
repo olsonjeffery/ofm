@@ -203,6 +203,14 @@ const MIGRATIONS: &[(&str, &str)] = &[
             created_at TEXT NOT NULL DEFAULT ''
         )",
     ),
+    (
+        "sessions_add_token_version",
+        "ALTER TABLE sessions ADD COLUMN token_version INTEGER NOT NULL DEFAULT 0",
+    ),
+    (
+        "sessions_add_id_token",
+        "ALTER TABLE sessions ADD COLUMN id_token TEXT",
+    ),
 ];
 
 pub async fn run_migrations(client: &Client) -> Result<usize, Box<dyn std::error::Error>> {
