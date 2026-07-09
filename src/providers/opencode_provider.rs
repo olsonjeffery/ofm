@@ -233,8 +233,7 @@ fn drain_sse_lines(buf: &mut Vec<u8>) -> Vec<String> {
     let mut events = Vec::new();
     while let Some(pos) = buf.iter().position(|&b| b == b'\n') {
         let line_bytes: Vec<u8> = buf.drain(..=pos).collect();
-        let line =
-            String::from_utf8_lossy(&line_bytes[..line_bytes.len().saturating_sub(1)]);
+        let line = String::from_utf8_lossy(&line_bytes[..line_bytes.len().saturating_sub(1)]);
         let trimmed = line.trim();
         if !trimmed.is_empty() && !trimmed.starts_with(':') {
             if let Some(data) = trimmed.strip_prefix("data: ") {

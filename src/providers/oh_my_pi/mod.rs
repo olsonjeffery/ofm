@@ -132,7 +132,10 @@ fn spawn_reader(
                     }
                 }
                 Err(e) => {
-                    tracing::warn!("oh-my-pi: parse error on line of length {}: {e}", line.len());
+                    tracing::warn!(
+                        "oh-my-pi: parse error on line of length {}: {e}",
+                        line.len()
+                    );
                 }
             }
         }
@@ -207,7 +210,9 @@ mod tests {
                 r#"{"type":"error","error":"fail"}"#,
                 |e| matches!(e, ProviderEvent::Error { error } if error == "fail"),
             ),
-            (r#"{"type":"done"}"#, |e| matches!(e, ProviderEvent::Done(_))),
+            (r#"{"type":"done"}"#, |e| {
+                matches!(e, ProviderEvent::Done(_))
+            }),
         ];
 
         for (json, validator) in cases {

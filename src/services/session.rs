@@ -66,10 +66,7 @@ pub async fn resume_session(
         .await
 }
 
-pub async fn abort_session(
-    client: &Client,
-    session_id: &str,
-) -> Result<(), hiqlite::Error> {
+pub async fn abort_session(client: &Client, session_id: &str) -> Result<(), hiqlite::Error> {
     let now = chrono::Utc::now().naive_utc().to_string();
     client
         .execute(
@@ -238,9 +235,7 @@ mod tests {
         .await
         .unwrap();
 
-        abort_session(&client, &result.session_id)
-            .await
-            .unwrap();
+        abort_session(&client, &result.session_id).await.unwrap();
 
         let mut runs = client
             .query_raw(

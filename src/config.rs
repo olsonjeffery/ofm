@@ -302,7 +302,9 @@ fn env_opt_or(key: &str) -> Option<String> {
 fn warn_if_short_api_key(key: &Option<String>) {
     if let Some(key) = key {
         if key.len() < 16 {
-            tracing::warn!("OFM_API_KEY is set but too short (< 16 chars) — auth will be trivially bypassed");
+            tracing::warn!(
+                "OFM_API_KEY is set but too short (< 16 chars) — auth will be trivially bypassed"
+            );
         }
     }
 }

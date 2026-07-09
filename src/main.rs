@@ -174,10 +174,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
         let direct_base = format!("http://127.0.0.1:{}", rp);
         let discovery_url = format!("{}/.well-known/openid-configuration", direct_base);
-        let disc: serde_json::Value = reqwest::get(&discovery_url)
-            .await?
-            .json()
-            .await?;
+        let disc: serde_json::Value = reqwest::get(&discovery_url).await?.json().await?;
         let issuer = disc["issuer"].as_str().ok_or("missing issuer")?.to_string();
         let (authorization_endpoint, token_endpoint, revocation_endpoint, end_session_endpoint) =
             parse_oidc_discovery(&disc)?;
@@ -188,18 +185,12 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             "http://127.0.0.1:{}/auth/v1/.well-known/openid-configuration",
             rp
         );
-        let jwks_disc: serde_json::Value = reqwest::get(&jwks_disc_url)
-            .await?
-            .json()
-            .await?;
+        let jwks_disc: serde_json::Value = reqwest::get(&jwks_disc_url).await?.json().await?;
         let jwks_uri = jwks_disc["jwks_uri"]
             .as_str()
             .ok_or("missing jwks_uri")?
             .to_string();
-        let jwks_resp: serde_json::Value = reqwest::get(&jwks_uri)
-            .await?
-            .json()
-            .await?;
+        let jwks_resp: serde_json::Value = reqwest::get(&jwks_uri).await?.json().await?;
         let keys: std::collections::HashMap<String, jsonwebtoken::jwk::Jwk> = jwks_resp["keys"]
             .as_array()
             .ok_or("missing keys array")?
@@ -258,10 +249,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             "{}/.well-known/openid-configuration",
             issuer_url.trim_end_matches('/')
         );
-        let disc: serde_json::Value = reqwest::get(&discovery_url)
-            .await?
-            .json()
-            .await?;
+        let disc: serde_json::Value = reqwest::get(&discovery_url).await?.json().await?;
         let (authorization_endpoint, token_endpoint, revocation_endpoint, end_session_endpoint) =
             parse_oidc_discovery(&disc)?;
         let redirect_uri = cfg.oidc_redirect_uri.clone().unwrap_or_else(|| {

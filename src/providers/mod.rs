@@ -72,7 +72,8 @@ pub async fn generate_conversation_title(
     );
 
     let binary_path = std::path::Path::new("omp");
-    let provider = match registry::resolve_provider(harness_config, binary_path, config_root).await {
+    let provider = match registry::resolve_provider(harness_config, binary_path, config_root).await
+    {
         Ok(p) => p,
         Err(e) => {
             tracing::warn!("Failed to create provider for title generation: {e}");
