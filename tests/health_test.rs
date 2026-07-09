@@ -1,9 +1,9 @@
-use omprint::auth::AuthLayer;
-use omprint::db;
-use omprint::providers::LlmProvider;
-use omprint::server;
-use omprint::server::state::AppState;
-use omprint::server::ws::bus::BroadcastBus;
+use ofm::auth::AuthLayer;
+use ofm::db;
+use ofm::providers::LlmProvider;
+use ofm::server;
+use ofm::server::state::AppState;
+use ofm::server::ws::bus::BroadcastBus;
 use std::collections::HashMap;
 use std::sync::Arc;
 use tempfile::TempDir;

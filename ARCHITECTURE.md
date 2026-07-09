@@ -3,8 +3,8 @@
 ## Project Layout
 
 ```
-omprint/
-├── Cargo.toml          # Workspace root with omprint binary crate
+ofm/
+├── Cargo.toml          # Workspace root with ofm binary crate
 ├── src/
 │   ├── main.rs         # Entry point: DB init → migrations
 │   ├── lib.rs          # Re-exports db module for integration tests
@@ -17,7 +17,7 @@ omprint/
 └── ARCHITECTURE.md     # This file
 ```
 
-The workspace has a single member crate (`omprint` binary) defined inline. Future tasks may add separate member crates (e.g., `omprint-core`, `omprint-axum`).
+The workspace has a single member crate (`ofm` binary) defined inline. Future tasks may add separate member crates (e.g., `ofm-core`, `ofm-axum`).
 
 ## Database
 

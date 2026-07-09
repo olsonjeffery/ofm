@@ -1,9 +1,9 @@
-use omprint::auth::AuthLayer;
-use omprint::db;
-use omprint::providers::LlmProvider;
-use omprint::server;
-use omprint::server::state::AppState;
-use omprint::server::ws::bus::BroadcastBus;
+use ofm::auth::AuthLayer;
+use ofm::db;
+use ofm::providers::LlmProvider;
+use ofm::server;
+use ofm::server::state::AppState;
+use ofm::server::ws::bus::BroadcastBus;
 use std::collections::HashMap;
 use std::sync::Arc;
 use tempfile::TempDir;
@@ -131,7 +131,7 @@ async fn test_server_with_env_configured_hiqlite_ports() {
     assert_eq!(resp.status(), 200);
     let body = resp.text().await.unwrap();
     assert!(body.contains("<html"));
-    assert!(body.contains("omprint"));
+    assert!(body.contains("ofm"));
 }
 
 #[tokio::test]

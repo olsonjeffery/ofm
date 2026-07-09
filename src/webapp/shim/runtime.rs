@@ -105,7 +105,7 @@ pub fn global_runtime_script() -> String {
         return doFetch();
     };
 
-    window.OmprintWS = {
+    window.OfmWS = {
         status: 'disconnected',
         _ws: null,
         _subscriptions: {},
@@ -253,7 +253,7 @@ pub fn global_runtime_script() -> String {
         }
     };
 
-    document.addEventListener('DOMContentLoaded', function() { window.OmprintWS.connect(); });
+    document.addEventListener('DOMContentLoaded', function() { window.OfmWS.connect(); });
 
     fetch('/api/auth/refresh', { method: 'POST', credentials: 'same-origin' })
         .then(function(r) { return r.ok ? r.json() : null; })

@@ -1,6 +1,6 @@
 # Core — The planning agent
 
-> **⚠️`omprint` ONLY ⚠️:** Rust convention requires functions and `let` bindings
+> **⚠️`ofm` ONLY ⚠️:** Rust convention requires functions and `let` bindings
 > use `snake_case` as a naming convention. In all places where `camelCase`
 > occurs (in citations from the legacy typescript `reference/` implementation),
 > substitute for `snake_case` as appropriate; `PascalCase` is used for `trait`s,
@@ -64,7 +64,7 @@ written, the original is gone.)
    reasonable assumptions for everything else and proceed.
 3. **Write the plan** to the task doc, following the template exactly.
 4. **Verify and signal done.** Read the file back, then run the completion
-   script (`omprint agent plan-complete <task-id>`), which sets `planification_complete`.
+   script (`ofm agent plan-complete <task-id>`), which sets `planification_complete`.
 
 ## The plan template is the contract
 
@@ -80,7 +80,7 @@ The plan must follow a fixed structure
 - **To-Do List** — `Implementation` and `Testing` checkboxes.
 - **Project Docs Update** — doc changes needed, or "Not needed."
 
-> **NOTE: move `plan-template.md` into the `omprint` implementation**
+> **NOTE: move `plan-template.md` into the `ofm` implementation**
 
 ### The critical rule: every to-do item is agent-executable
 
@@ -118,7 +118,7 @@ and the tech/non-tech prompt split, are role behavior — see
       → `templates/planification.md` (Step 1: Explore uses Task tool sub-agent)
 - [x] The plan template. → `templates/plan-template.md`
 - [x] A completion script that sets `planification_complete` and the loop's
-      stop-after-planning gate (`omprint agent complete-plan <task-id>`).
+      stop-after-planning gate (`ofm agent complete-plan <task-id>`).
       → `src/server/routes/agent_flags.rs`
 
 ## Reference map

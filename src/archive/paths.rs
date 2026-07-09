@@ -17,7 +17,7 @@ pub fn sanitize_id(input: &str) -> Result<&str, Box<dyn std::error::Error>> {
 }
 
 pub fn get_archive_root() -> PathBuf {
-    let raw = std::env::var("OMPRINT_FOOTPRINT").unwrap_or("~/.omprint".into());
+    let raw = std::env::var("OFM_FOOTPRINT").unwrap_or("~/.ofm".into());
     PathBuf::from(expand_tilde(&raw)).join("archive")
 }
 
@@ -52,33 +52,33 @@ mod tests {
         F: FnOnce(),
     {
         let _guard = ENV_LOCK.lock().unwrap();
-        let previous = env::var("OMPRINT_FOOTPRINT").ok();
-        env::set_var("OMPRINT_FOOTPRINT", val);
+        let previous = env::var("OFM_FOOTPRINT").ok();
+        env::set_var("OFM_FOOTPRINT", val);
         f();
         if let Some(v) = previous {
-            env::set_var("OMPRINT_FOOTPRINT", v);
+            env::set_var("OFM_FOOTPRINT", v);
         } else {
-            env::remove_var("OMPRINT_FOOTPRINT");
+            env::remove_var("OFM_FOOTPRINT");
         }
     }
 
     #[test]
     fn test_get_archive_root_env_set() {
-        with_footprint("/custom/omprint", || {
-            assert_eq!(get_archive_root(), PathBuf::from("/custom/omprint/archive"));
+        with_footprint("/custom/ofm", || {
+            assert_eq!(get_archive_root(), PathBuf::from("/custom/ofm/archive"));
         });
     }
 
     #[test]
     fn test_get_archive_root_env_unset() {
         let _guard = ENV_LOCK.lock().unwrap();
-        let previous = env::var("OMPRINT_FOOTPRINT").ok();
-        env::remove_var("OMPRINT_FOOTPRINT");
+        let previous = env::var("OFM_FOOTPRINT").ok();
+        env::remove_var("OFM_FOOTPRINT");
         let home = env::var("HOME").unwrap();
         let result = get_archive_root();
-        assert_eq!(result, PathBuf::from(format!("{}/.omprint/archive", home)));
+        assert_eq!(result, PathBuf::from(format!("{}/.ofm/archive", home)));
         if let Some(val) = previous {
-            env::set_var("OMPRINT_FOOTPRINT", val);
+            env::set_var("OFM_FOOTPRINT", val);
         }
     }
 
@@ -122,7 +122,7 @@ mod tests {
     #[test]
     fn test_expand_tilde() {
         let home = env::var("HOME").unwrap();
-        assert_eq!(expand_tilde("~/.omprint"), format!("{}/.omprint", home));
+        assert_eq!(expand_tilde("~/.ofm"), format!("{}/.ofm", home));
         assert_eq!(expand_tilde("/absolute/path"), "/absolute/path");
         assert_eq!(expand_tilde("relative/path"), "relative/path");
     }

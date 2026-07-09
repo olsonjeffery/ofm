@@ -1,13 +1,13 @@
 use std::collections::HashMap;
 use std::sync::Arc;
 
-use omprint::auth::api_key;
-use omprint::auth::AuthLayer;
-use omprint::db;
-use omprint::providers::LlmProvider;
-use omprint::server;
-use omprint::server::state::AppState;
-use omprint::server::ws::bus::BroadcastBus;
+use ofm::auth::api_key;
+use ofm::auth::AuthLayer;
+use ofm::db;
+use ofm::providers::LlmProvider;
+use ofm::server;
+use ofm::server::state::AppState;
+use ofm::server::ws::bus::BroadcastBus;
 use tokio::sync::Mutex;
 
 fn make_api_key() -> (String, String) {
@@ -553,7 +553,7 @@ async fn test_settings_config_body_invalid_body_rejected() {
 #[tokio::test]
 async fn test_config_format_normalization() {
     // Unit-test-level assertions via the service module
-    use omprint::services::config_format;
+    use ofm::services::config_format;
 
     // YAML in → to_yaml returns as-is
     let yaml = "model: gpt-4\ntemperature: 0.7\n";
@@ -582,7 +582,7 @@ async fn test_config_format_normalization() {
 
 #[tokio::test]
 async fn test_config_format_detect() {
-    use omprint::services::config_format;
+    use ofm::services::config_format;
 
     // JSON detected
     assert_eq!(

@@ -1,6 +1,6 @@
 # Core — The pull-request agent
 
-> **⚠️`omprint` ONLY ⚠️:** Rust convention requires functions and `let` bindings
+> **⚠️`ofm` ONLY ⚠️:** Rust convention requires functions and `let` bindings
 > use `snake_case` as a naming convention. In all places where `camelCase`
 > occurs (in citations from the legacy typescript `reference/` implementation),
 > substitute for `snake_case` as appropriate; `PascalCase` is used for `trait`s,
@@ -39,7 +39,7 @@ below. See `generatePrAgentMessage` / `buildPrCreateOrVerifyBlock` in
 
 ## The procedure
 
-> **For `omprint`: Determine if `omp`'s git/github support is sufficient to
+> **For `ofm`: Determine if `omp`'s git/github support is sufficient to
 > replace `bottega`'s dependency on the `gh` cli tool
 
 1. **Create or verify the PR.**
@@ -77,12 +77,12 @@ human-initiated action (`mergeAndCleanup` in
 [`reference/server/services/worktree.ts`](../reference/server/services/worktree.ts));
 the agent never does it.
 
-> **For `omprint` RE: `mergeAndCleanup`: Mimic the GitHub Merge dropdown that
+> **For `ofm` RE: `mergeAndCleanup`: Mimic the GitHub Merge dropdown that
 allows multiple options for how to close the PR (merge vs squash, etc)
 
 ## The git surface it relies on
 
-> **NOTE for `omprint`: `omp` has its own github tool; it should be evaluated
+> **NOTE for `ofm`: `omp` has its own github tool; it should be evaluated
 to confirm that the `gh` dependency is unneeded**
 
 The agent works through the `gh` CLI and git inside the worktree, so its sandbox
@@ -103,7 +103,7 @@ not.
 - [ ] The PR prompt: a create-or-verify opening, the CI poll loop, the fix loop,
       conflict resolution, and the completion call — all bounded.
 - [ ] Server helpers: detect existing PR + URL, create PR, commit/push, wrapping
-      git + `gh` (`bottega`) OR `omp`'s `github` tool (`omprint`).
+      git + `gh` (`bottega`) OR `omp`'s `github` tool (`ofm`).
 - [ ] A completion script that sets `pr_agent_complete`.
 - [ ] Compute the PR status at run start and pass it into the prompt.
 

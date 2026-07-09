@@ -1,4 +1,4 @@
-# Omprint — Specification
+# ofm — Specification
 
 > **Webapp UI Architecture (Island Pattern)**: All webapp UI follows Jason Miller's
 > Islands Architecture. The shell page is SSR-rendered via `leptos::ssr::render_to_string`
@@ -10,17 +10,17 @@
 > `leptos_styling` with `style_sheet!` macro. No WASM, no `leptos_axum`,
 > no `leptos_router`. See `src/webapp/`.
 
-> **⚠️`omprint` ONLY ⚠️:** Rust convention requires functions and `let` bindings
+> **⚠️`ofm` ONLY ⚠️:** Rust convention requires functions and `let` bindings
 > use `snake_case` as a naming convention; In all places where `camelCase`
 > occurs (referring to the typescript `reference/` implementation of `bottega`),
 > substitute for `snake_case` as appropriate; `PascalCase` is used for `trait`s,
 > `struct`s, `enum`s, etc.
 > 
-> **Note:** The `omprint` Rust codebase at `src/` now provides implementations
+> **Note:** The `ofm` Rust codebase at `src/` now provides implementations
 > for many of the features described in the spec. Prefer citations to `src/`
 > over `reference/` wherever equivalents exist.
 
-[`omprint`][1] orchestrates a small team of
+[`ofm`][1] orchestrates a small team of
 coding agents that collaborate on a single task. You describe the work in a
 markdown file; a chain of agents plans it, implements it, reviews it, and
 opens a pull request — iterating on their own until the work is done or they
@@ -28,40 +28,40 @@ hit something only you can resolve.
 
 This repository is **spec-first**. The specification *is* the product. A
 complete, working implementation will be created in the enclosing repository, as
-the `omprint` application. A typescript `reference/` application is kept in
-this directory, for reference during the implementation of [`omprint`][1]. The
+the `ofm` application. A typescript `reference/` application is kept in
+this directory, for reference during the implementation of [`ofm`][1]. The
 Rust codebase's foundational layer (DB schema, CRUD API, worktree management,
 OMP subprocess integration, task archive) is now implemented at `src/`. The
 orchestration loop and agents remain to be built; the reference is retained
 for those unimplemented features.
 
-## `omprint` rust implementation of the `bottega` spec
+## `ofm` rust implementation of the `bottega` spec
 
 We are shipping a single rust binary that uses this spec. The original bottega
 `reference/` implementation (a typescript codebase) is provided for reference
-(with plans to remove as soon as `omprint` is mature).
+(with plans to remove as soon as `ofm` is mature).
 
 These files (`SPEC.md`, `core/` and `extra/`) have been modified to suit the desired
-scope of `omprint`, and they differ from `bottega` in many respects.
+scope of `ofm`, and they differ from `bottega` in many respects.
 
-All new code in the `omprint` workspace will be in the Rust programming language.
+All new code in the `ofm` workspace will be in the Rust programming language.
 
-`omprint` is a single binary application that:
+`ofm` is a single binary application that:
 
 - Serves a web application implementing the client experience in this spec
 - Owns one or more `oh-my-pi`/`omp` subprocesses, whose input/output and lifecycle
 it drives via RPC over `STDIO`
 - A system for driving the `omp` subprocesses, and integrating their input/output
-into the `omprint` state
+into the `ofm` state
 - Hosts an embedded database ([`hiqlite`][3]) with built-in [High availability][8] features
 
-Key `omprint` stack/architectural choices:
+Key `ofm` stack/architectural choices:
 
 - `tokio` + `axum`
   - the core web server
   - OAuth token verification happens with `jsonwebtoken` in a Tower middleware
-  - Anchor-point for the `omprint` `leptos` web application
-  - Hosts API endpoints called by the `omprint` web application
+  - Anchor-point for the `ofm` `leptos` web application
+  - Hosts API endpoints called by the `ofm` web application
   - spawns background workers through `tokio` to own *PTY* sessions
 - `rustls` + `aws-lc-rs` [crate features][9] are used wherever relevant (tools
 doing IO requiring SSL); the goal is to completely eschew any system OpenSSL
@@ -81,10 +81,10 @@ dependency (**NOTE:** this does not apply to `omp` itself)
 - Determine if `omp`'s git/github support is sufficient to replace the
 `bottega` dependency on the `gh` cli tool
 
-## Details on the `omprint` server implementation
+## Details on the `ofm` server implementation
 
-- **Data footprint**: All omprint data (database, archive, config, and dependencies'
-  data) lives under `OMPRINT_FOOTPRINT` (default `~/.omprint`). Fixed sub-directories:
+- **Data footprint**: All ofm data (database, archive, config, and dependencies'
+  data) lives under `OFM_FOOTPRINT` (default `~/.ofm`). Fixed sub-directories:
 
   | Sub-path | Purpose |
   |---|---|
@@ -93,20 +93,20 @@ dependency (**NOTE:** this does not apply to `omp` itself)
   | `{footprint}/config/` | Cookie key, provider configs (`models.yml` etc.) |
   | `{footprint}/rauthy/` | Rauthy persistent state (when self-hosted) |
 
-  The env vars `OMPRINT_DB_PATH`, `OMPRINT_ARCHIVE_ROOT`, and `OMPRINT_CONFIG` are
-  eliminated in favor of deriving these paths from `OMPRINT_FOOTPRINT`.
+  The env vars `OFM_DB_PATH`, `OFM_ARCHIVE_ROOT`, and `OFM_CONFIG` are
+  eliminated in favor of deriving these paths from `OFM_FOOTPRINT`.
 
-- On startup, `omprint` will begin listening on the configured `OMPRINT_HOSTNAME` +
-`OMPRINT_PORT`
-- Requests to `/` or `/webapp` are for the `omprint` web application
+- On startup, `ofm` will begin listening on the configured `OFM_HOSTNAME` +
+`OFM_PORT`
+- Requests to `/` or `/webapp` are for the `ofm` web application
   - specifically: requests to `/` will redirect to `/webapp`
   - all web routes, assets/content, etc lives under `/webapp`
-- Requests against `/api` are for the `omprint` `axum` backend server,
+- Requests against `/api` are for the `ofm` `axum` backend server,
 which responds to user requests, oversees filesystem actions,
 spawns `pty`s, maintains database state, and so on
-- If configured to host a `rauthy` instance for OAuth, `omprint` will:
+- If configured to host a `rauthy` instance for OAuth, `ofm` will:
   - Use a `pty` to start an instance of `rauthy`, at a random port
-  that differs from the configured `omprint` `OMPRINT_PORT`
+  that differs from the configured `ofm` `OFM_PORT`
   - Expose an [axum-based reverse proxy][12] that forwards requests
   and responses to/from `rauthy`; this reverse proxy is exposed
   at `/auth`
@@ -150,16 +150,16 @@ plain file in a repo. That is exactly why the board is an *extra*, not core.
 
 ## Design philosophy: small and simple
 
-`omprint` is meant to stay small. The core is a tight orchestration engine and
+`ofm` is meant to stay small. The core is a tight orchestration engine and
 nothing more. If your team needs something different — ~another harness~, another
 agent role, a different task source — you **fork the behavior into your own
 extra**; you don't grow the core.
 
 This is a deliberate stance, and it shapes the spec:
 
-- **Core is universal.** Every `omprint` deployment has it.
+- **Core is universal.** Every `ofm` deployment has it.
 - **Extra is preference.** Pick a subset; ignore the rest.
-  - `omprint` implements the *entire* surface of `extra/`, undesired
+  - `ofm` implements the *entire* surface of `extra/`, undesired
   modules from `bottega` have been removed, and new ones added
 - We would rather you build your own extra than ask the core to absorb your
   workflow.
@@ -168,7 +168,7 @@ This is a deliberate stance, and it shapes the spec:
 
 Implement all of these for a minimal working tool. Read them in this order.
 
-| Reviewed/Updated for `omprint`? | Spec | What it covers |
+| Reviewed/Updated for `ofm`? | Spec | What it covers |
 |---|---|---|
 | **✅ Yes** | [`core/orchestration-loop.md`](./core/orchestration-loop.md) | **The engine.** The state machine that drives plan → (implement ⇄ review) → PR: agent runs, chaining, the iteration cap, blocking, and how each step decides the next. Start here. |
 | **✅ Yes** |  [`core/task-and-workspace.md`](./core/task-and-workspace.md) | The unit of work: a markdown document plus an isolated git worktree. Lifecycle, and where the doc lives so it survives the PR merge. Deliberately silent on how the doc is authored. |
@@ -181,7 +181,7 @@ Implement all of these for a minimal working tool. Read them in this order.
 
 Opinionated features. Each is independent; implement what you want.
 
-| Reviewed/Updated for `omprint`? | Spec | What it adds |
+| Reviewed/Updated for `ofm`? | Spec | What it adds |
 |---|---|---|
 | **✅ Yes** | [`extra/harnesses/omp.md`](./extra/harnesses/omp.md) | `oh-my-pi`/`omp` integration: subprocess lifecycle, event mapping, transcript mirroring, credential delegation, and capabilities. |
 | **✅ Yes** | [`extra/harnesses/opencode.md`](./extra/harnesses/opencode.md) | OpenCode integration: HTTP+SSE subprocess lifecycle, event mapping, credential delegation via `opencode.json`, session lifecycle. |
@@ -196,17 +196,17 @@ Opinionated features. Each is independent; implement what you want.
 ## The reference implementation
 
 > **⚠️ IMPORTANT ⚠️:** The `reference/` implementation LACKS any content related to
-> `oh-my-pi` or `omprint`-specific features; Where it is referenced is
+> `oh-my-pi` or `ofm`-specific features; Where it is referenced is
 > understood as prior behavior that was retained from [vdaubry/bottega][0].
 > It is a standing **FIXME** that all instances of `reference/` be replaced
-> with links into the `omprint` codebase
+> with links into the `ofm` codebase
 
 `reference/` is a complete, deployed implementation. Use it to resolve any
 ambiguity left by the spec.
 
 - **Stack as built:** TypeScript end to end (React 18 + Vite frontend; Node +
   Express + `ws` backend; SQLite (`better-sqlite3`) for all state). The
-  `omprint` Rust implementation uses `tokio` + `axum` + `hiqlite` instead.
+  `ofm` Rust implementation uses `tokio` + `axum` + `hiqlite` instead.
   You are not required to match either stack — the spec describes behavior —
   but the reference assumes TypeScript, so its citations use that language.
 - **Where to start reading:** [`reference/server/database/init.sql`](./reference/server/database/init.sql)
@@ -223,7 +223,7 @@ ambiguity left by the spec.
   opt-out flags. Keep the core small.
 
 [0]: https://github.com/vdaubry/bottega
-[1]: https://github.com/olsonjeffery/omprint
+[1]: https://github.com/olsonjeffery/ofm
 [2]: https://omp.sh/
 [3]: https://github.com/sebadob/hiqlite
 [4]: https://github.com/wezterm/wezterm/tree/main/pty

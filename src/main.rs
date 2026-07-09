@@ -55,7 +55,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     logging::init();
 
-    let cfg = config::OmprintConfig::from_env();
+    let cfg = config::OfmConfig::from_env();
 
     // DB setup
     std::fs::create_dir_all(&cfg.data_dir)?;
@@ -92,10 +92,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             addr_api: format!("127.0.0.1:{}", cfg.hiqlite_api_port),
         }],
         data_dir: cfg.data_dir.clone().into(),
-        secret_raft: std::env::var("OMPRINT_RAFT_SECRET")
-            .unwrap_or_else(|_| "omprint-raft-secret".into()),
-        secret_api: std::env::var("OMPRINT_API_SECRET")
-            .unwrap_or_else(|_| "omprint-api-secret".into()),
+        secret_raft: std::env::var("OFM_RAFT_SECRET").unwrap_or_else(|_| "ofm-raft-secret".into()),
+        secret_api: std::env::var("OFM_API_SECRET").unwrap_or_else(|_| "ofm-api-secret".into()),
         ..Default::default()
     };
 
@@ -177,10 +175,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             let (authorization_endpoint, token_endpoint, revocation_endpoint, end_session_endpoint) =
                 parse_oidc_discovery(&disc)?;
             let redirect_uri = format!("http://127.0.0.1:{}/api/auth/callback", cfg.port);
-            let client_id = cfg
-                .oidc_client_id
-                .clone()
-                .unwrap_or_else(|| "omprint".into());
+            let client_id = cfg.oidc_client_id.clone().unwrap_or_else(|| "ofm".into());
 
             let jwks_disc_url = format!(
                 "http://127.0.0.1:{}/auth/v1/.well-known/openid-configuration",
@@ -252,7 +247,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         });
 
         if !auth_layer.enabled {
-            eprintln!("ERROR: OIDC is not configured. Set OMPRINT_OIDC_ISSUER_URL (and OMPRINT_OIDC_CLIENT_ID) to enable authentication.");
+            eprintln!("ERROR: OIDC is not configured. Set OFM_OIDC_ISSUER_URL (and OFM_OIDC_CLIENT_ID) to enable authentication.");
             std::process::exit(1);
         }
 

@@ -191,10 +191,10 @@ fn extract_session_from_cookies(headers: &axum::http::HeaderMap, key: &Key) -> O
     }
 
     let private = jar.private(key);
-    let session_cookie = match private.get("omprint_session") {
+    let session_cookie = match private.get("ofm_session") {
         Some(c) => c,
         None => {
-            debug!("extract_session_from_cookies: failed to decrypt omprint_session cookie");
+            debug!("extract_session_from_cookies: failed to decrypt ofm_session cookie");
             return None;
         }
     };
@@ -287,7 +287,7 @@ mod tests {
             .await
             .unwrap();
 
-        let cookie_str = make_encrypted_cookie(&key, "omprint_session", &session_id.to_string());
+        let cookie_str = make_encrypted_cookie(&key, "ofm_session", &session_id.to_string());
         let req = Request::builder()
             .uri("/protected")
             .header("Cookie", cookie_str)
@@ -323,7 +323,7 @@ mod tests {
             .await
             .unwrap();
 
-        let cookie_str = make_encrypted_cookie(&key, "omprint_session", &session_id.to_string());
+        let cookie_str = make_encrypted_cookie(&key, "ofm_session", &session_id.to_string());
         let req = Request::builder()
             .uri("/protected")
             .header("Cookie", cookie_str)

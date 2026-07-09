@@ -16,7 +16,7 @@ use uuid::Uuid;
 
 use crate::auth::jwks::{fetch_jwks, verify_token, JwksCache, VerifyError};
 use crate::auth::session::{AuthMethod, Session};
-use crate::config::OmprintConfig;
+use crate::config::OfmConfig;
 use crate::db::schema::{SessionDb, User};
 
 pub mod api_key;
@@ -196,7 +196,7 @@ impl AuthLayer {
     }
 
     pub async fn new(
-        cfg: &OmprintConfig,
+        cfg: &OfmConfig,
         db: hiqlite::Client,
         pepper: Vec<u8>,
         cookie_key: Key,
@@ -455,7 +455,7 @@ fn extract_session_from_api_cookies(headers: &HeaderMap, key: &Key) -> Option<Uu
     }
 
     let private = jar.private(key);
-    let session_cookie = private.get("omprint_session")?;
+    let session_cookie = private.get("ofm_session")?;
     Uuid::parse_str(session_cookie.value()).ok()
 }
 

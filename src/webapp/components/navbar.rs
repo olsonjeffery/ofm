@@ -16,8 +16,8 @@ pub fn Navbar(user_json: Option<String>) -> impl IntoView {
         <nav class="navbar is-fixed-top" role="navigation" aria-label="main navigation">
             <div class="navbar-brand">
                 <a class="navbar-item" href="/webapp">
-                    <span class="icon is-small"><i class="mdi mdi-home"></i></span>
-                    <strong>" omprint"</strong>
+                    <img src="/webapp/assets/ofm-logo.svg" class="header-logo" />
+                    <strong>" ofm"</strong>
                 </a>
             </div>
             <div class="navbar-menu">
@@ -89,7 +89,7 @@ mod tests {
         assert!(html.contains("Login"));
         assert!(html.contains("/webapp/login"));
         assert!(html.contains("mdi-login"));
-        assert!(html.contains("omprint"));
+        assert!(html.contains("ofm"));
     }
 
     #[test]

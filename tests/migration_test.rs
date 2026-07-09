@@ -1,4 +1,4 @@
-use omprint::db;
+use ofm::db;
 use tempfile::TempDir;
 use uuid::Uuid;
 

@@ -31,8 +31,8 @@ pub fn WsStatus() -> impl IntoView {
                             label.textContent='Disconnected';
                         }}
                     }}
-                    if(window.OmprintWS&&window.OmprintWS.status){{
-                        update(window.OmprintWS.status);
+                    if(window.OfmWS&&window.OfmWS.status){{
+                        update(window.OfmWS.status);
                     }}
                     document.addEventListener('ws-status-changed',function(ev){{
                         update(ev.detail.status);
@@ -71,7 +71,7 @@ mod tests {
     fn test_ws_status_has_js_listener() {
         let html = leptos::view! { <WsStatus /> }.to_html();
         assert!(html.contains("ws-status-changed"));
-        assert!(html.contains("OmprintWS"));
+        assert!(html.contains("OfmWS"));
     }
 
     #[test]

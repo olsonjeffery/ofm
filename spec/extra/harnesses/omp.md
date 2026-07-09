@@ -1,6 +1,6 @@
 # omp-specific implementation patterns
 
-> **⚠️`omprint` ONLY ⚠️:** Rust convention requires functions and `let` bindings
+> **⚠️`ofm` ONLY ⚠️:** Rust convention requires functions and `let` bindings
 > use `snake_case` as a naming convention; In all places where `camelCase`
 > occurs (referring to the typescript `reference/` implementation of `bottega`),
 > substitute for `snake_case` as appropriate; `PascalCase` is used for `trait`s,
@@ -9,9 +9,9 @@
 ## What it is
 
 Pure plumbing behind the core [`omp-integration.md`](../../core/omp-integration.md)
-spec. This file describes how `omprint` actually implements the integration with
+spec. This file describes how `ofm` actually implements the integration with
 `omp` over `STDIO` via `portable-pty`: subprocess lifecycle, event mapping from
-`omp`'s RPC protocol to `omprint`'s internal message types, transcript mirroring
+`omp`'s RPC protocol to `ofm`'s internal message types, transcript mirroring
 into `hiqlite`, credential delegation, and capabilities.
 
 The core spec defines *what* the integration does; this file defines *how*.
@@ -20,7 +20,7 @@ The core spec defines *what* the integration does; this file defines *how*.
 
 ### Spawning
 
-`omprint` uses [`portable-pty`][0] to create a pseudoterminal, fork `omp --mode rpc`,
+`ofm` uses [`portable-pty`][0] to create a pseudoterminal, fork `omp --mode rpc`,
 and obtain:
 
 - `pid` — the subprocess process id (for audit and abort)
@@ -52,7 +52,7 @@ simple and avoids state leakage between turns.
 
 On abort:
 
-1. `omprint` kills the pty subprocess with `SIGKILL`
+1. `ofm` kills the pty subprocess with `SIGKILL`
 2. The agent run row is written to `failed` **synchronously**
 3. The completion handler sees the `failed` status and does not chain
 
@@ -70,14 +70,14 @@ fn abort(pid: u32) {
 When a turn ends normally:
 
 - The `omp` subprocess exits on its own
-- `omprint` closes its `STDIN` writer and `STDOUT` reader
+- `ofm` closes its `STDIN` writer and `STDOUT` reader
 - The pty handle is dropped, releasing system resources
 
 ## Event mapping
 
-`omp`'s native RPC events (JSON-lines on `STDOUT`) map directly to `omprint`'s
+`omp`'s native RPC events (JSON-lines on `STDOUT`) map directly to `ofm`'s
 internal message types. There is no normalization across providers — these are
-the types `omprint` uses:
+the types `ofm` uses:
 
 ### Internal message types
 
@@ -117,7 +117,7 @@ the types `omprint` uses:
 
 ### Error/unparseable events
 
-If an RPC event line cannot be parsed, `omprint` emits a `system` message with
+If an RPC event line cannot be parsed, `ofm` emits a `system` message with
 `subtype: 'unknown'` containing the raw line. The stream continues — an
 unparseable event never crashes the turn.
 
@@ -125,7 +125,7 @@ unparseable event never crashes the turn.
 
 `omp` events are **mirrored** into `hiqlite` as they stream. This is the
 explicit-mirror pattern — `omp` has no built-in session store hook, so
-`omprint` writes each event to the database itself.
+`ofm` writes each event to the database itself.
 
 ### Write-through
 
@@ -163,25 +163,25 @@ Reads back from `hiqlite` for history display and resume context assembly.
 
 ## Credential delegation
 
-`omprint` does **not** store provider credentials. All credential management
+`ofm` does **not** store provider credentials. All credential management
 delegates to `omp`'s existing infrastructure:
 
 - **API keys** are stored in `models.yml` entries, managed by the user through
-  `omp`'s configuration tooling or `omprint`'s settings UI (the `models.yml`
+  `omp`'s configuration tooling or `ofm`'s settings UI (the `models.yml`
   textarea).
 - **Environment variables** for provider auth (e.g., `ANTHROPIC_API_KEY`,
-  `OPENAI_API_KEY`) are set in `omp`'s environment, not in `omprint`'s.
-- `omprint`'s role is limited to:
+  `OPENAI_API_KEY`) are set in `omp`'s environment, not in `ofm`'s.
+- `ofm`'s role is limited to:
   1. Storing the user's `models.yml` content (as raw YAML text)
   2. Passing it to `omp` on spawn via `OMP_MODELS_YML` env var
   3. Letting `omp` handle all credential resolution
 
 There is no `ProviderCredentialStore`, no credential registry, and no per-provider
-auth flow in `omprint`.
+auth flow in `ofm`.
 
 ## Capabilities
 
-`omp` supports the following capabilities. Since `omprint` is `omp`-only, these
+`omp` supports the following capabilities. Since `ofm` is `omp`-only, these
 are **compile-time constants**, not a runtime matrix:
 
 | Capability | Value | Notes |
