@@ -10,7 +10,7 @@ mod cli;
 mod config;
 mod db;
 mod logging;
-mod omp;
+
 mod orchestration;
 mod providers;
 mod rauthy;
@@ -163,8 +163,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         let rp = if cfg.rauthy_port > 0 {
             cfg.rauthy_port
         } else {
-            rauthy::find_available_port()
-                .map_err(|e| Box::new(std::io::Error::other(e.to_string())))?
+            rauthy::find_available_port()?
         };
 
         tracing::info!("Starting embedded rauthy on port {}", rp);
@@ -176,8 +175,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         let direct_base = format!("http://127.0.0.1:{}", rp);
         let discovery_url = format!("{}/.well-known/openid-configuration", direct_base);
         let disc: serde_json::Value = reqwest::get(&discovery_url)
-            .await
-            .map_err(|e| Box::new(std::io::Error::other(e.to_string())))?
+            .await?
             .json()
             .await?;
         let issuer = disc["issuer"].as_str().ok_or("missing issuer")?.to_string();
@@ -191,8 +189,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             rp
         );
         let jwks_disc: serde_json::Value = reqwest::get(&jwks_disc_url)
-            .await
-            .map_err(|e| Box::new(std::io::Error::other(e.to_string())))?
+            .await?
             .json()
             .await?;
         let jwks_uri = jwks_disc["jwks_uri"]
@@ -200,8 +197,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             .ok_or("missing jwks_uri")?
             .to_string();
         let jwks_resp: serde_json::Value = reqwest::get(&jwks_uri)
-            .await
-            .map_err(|e| Box::new(std::io::Error::other(e.to_string())))?
+            .await?
             .json()
             .await?;
         let keys: std::collections::HashMap<String, jsonwebtoken::jwk::Jwk> = jwks_resp["keys"]
@@ -263,8 +259,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             issuer_url.trim_end_matches('/')
         );
         let disc: serde_json::Value = reqwest::get(&discovery_url)
-            .await
-            .map_err(|e| Box::new(std::io::Error::other(e.to_string())))?
+            .await?
             .json()
             .await?;
         let (authorization_endpoint, token_endpoint, revocation_endpoint, end_session_endpoint) =
@@ -298,7 +293,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         default_user_id,
         archive_root: cfg.archive_root.clone(),
         config_root: cfg.config_root.clone(),
-        omp_sessions: Arc::new(Mutex::new(HashMap::new())),
+
         active_sessions: Arc::new(Mutex::new(HashMap::new())),
         oidc_provider,
         pkce_store,

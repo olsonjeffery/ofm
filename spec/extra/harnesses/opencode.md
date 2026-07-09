@@ -8,14 +8,14 @@
 
 ## What it is
 
-An alternative provider harness to the core `omp` integration. Where
-`omp` communicates over `STDIO` via `portable-pty`, the OpenCode provider
+An alternative provider harness to the core `oh-my-pi` integration. Where
+`oh-my-pi` communicates over `STDIO` via `portable-pty`, the OpenCode provider
 communicates over **HTTP + SSE** by spawning a local `opencode serve` process.
 It implements the same `LlmProvider` trait (defined in `src/providers/mod.rs`)
 and maps OpenCode's native event types to `OmpRpcEvent` for compatibility with
 the existing streaming runtime.
 
-The core [`omp-integration.md`](../../core/omp-integration.md) spec defines the
+The core [`oh-my-pi.md`](./oh-my-pi.md) spec defines the
 integration contract; this file documents how the OpenCode provider implements it.
 
 ## Subprocess lifecycle
@@ -23,7 +23,7 @@ integration contract; this file documents how the OpenCode provider implements i
 ### Spawning
 
 The provider spawns `opencode serve` as a child process via
-`std::process::Command`. Unlike `omp`'s `portable-pty` approach, OpenCode uses
+`std::process::Command`. Unlike `oh-my-pi`'s `portable-pty` approach, OpenCode uses
 a standard OS subprocess because the communication is over HTTP, not `STDIO`:
 
 ```rust
@@ -79,7 +79,7 @@ temporary directory. The `OPENCODE_SERVER_PASSWORD` env var secures the HTTP API
 
 ## SSE streaming protocol
 
-Unlike `omp`'s JSON-lines over `STDIO`, OpenCode uses **Server-Sent Events**
+Unlike `oh-my-pi`'s JSON-lines over `STDIO`, OpenCode uses **Server-Sent Events**
 (SSE) over HTTP. The provider maps SSE `data:` lines to `OmpRpcEvent` via
 `map_opencode_event_to_omp_event` in `src/providers/opencode_provider.rs`.
 
@@ -161,7 +161,7 @@ exit. The temp directory with `opencode.json` is cleaned up when
 ## Credential delegation
 
 Credentials are managed through the same `agent_harness_configs` / provider
-config system used by `omp`. The OpenCode provider:
+config system used by `oh-my-pi`. The OpenCode provider:
 
 1. Loads provider configuration from the config directory via
    `ProviderConfigDir::load_provider_config()`
@@ -208,17 +208,17 @@ inherits the same event loop infrastructure. Notable limitations:
 | OpenCode provider impl | `src/providers/opencode_provider.rs` |
 | Config merge / provider config | `src/providers/config.rs` |
 | Provider registry | `src/providers/registry.rs` |
-| RPC event types (shared) | `src/omp/protocol.rs` |
+| RPC event types (shared) | `src/providers/types.rs` |
 
 ## Boundaries (not in this spec)
 
 - The core integration contract — PTY vs HTTP, RPC protocol, streaming runtime,
   transcript persistence, session management →
-  [`../../core/omp-integration.md`](../../core/omp-integration.md).
+  [`./oh-my-pi.md`](./oh-my-pi.md).
 - The orchestration loop that drives turns →
   [`../../core/orchestration-loop.md`](../../core/orchestration-loop.md).
-- Concrete `omp` harness patterns (subprocess lifecycle via `portable-pty`,
+- Concrete `oh-my-pi` harness patterns (subprocess lifecycle via `portable-pty`,
   event mapping, transcript mirroring, credential delegation) →
-  [`./omp.md`](./omp.md).
+  [`./oh-my-pi.md`](./oh-my-pi.md).
 - Which model an agent uses and how per-user settings are resolved →
   [`../../extra/prompt-and-model-customization.md`](../../extra/prompt-and-model-customization.md).

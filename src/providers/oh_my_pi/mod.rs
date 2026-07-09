@@ -4,24 +4,24 @@ use std::io::{BufRead, BufReader, Write};
 use portable_pty::{native_pty_system, CommandBuilder, PtySize};
 use tokio::sync::mpsc;
 
-mod protocol;
+pub mod provider;
 pub mod session;
-pub mod transcript;
-pub use protocol::*;
+
+use crate::providers::types::{ProviderEvent, ResumeInput, TurnInput};
 
 type BoxError = Box<dyn std::error::Error + Send + Sync>;
 
-pub struct OmpSession {
+pub struct OhMyPiSession {
     pub pid: u32,
     pub child: Box<dyn portable_pty::Child + Send + Sync>,
     pub pair: portable_pty::PtyPair,
 }
 
-pub fn spawn_omp(
+pub fn spawn_oh_my_pi(
     binary: &str,
     cwd: &str,
     env_vars: HashMap<String, String>,
-) -> Result<OmpSession, BoxError> {
+) -> Result<OhMyPiSession, BoxError> {
     let system = native_pty_system();
     let pair = system.openpty(PtySize::default())?;
 
@@ -41,14 +41,14 @@ pub fn spawn_omp(
     let child = pair.slave.spawn_command(cmd)?;
     let pid = child.process_id().unwrap_or(0);
 
-    Ok(OmpSession { pid, child, pair })
+    Ok(OhMyPiSession { pid, child, pair })
 }
 
-impl OmpSession {
+impl OhMyPiSession {
     pub fn start_turn(
         &mut self,
         input: &TurnInput,
-        tx: mpsc::Sender<OmpRpcEvent>,
+        tx: mpsc::Sender<ProviderEvent>,
     ) -> Result<(), BoxError> {
         self.send_input_and_read(input, tx)
     }
@@ -56,7 +56,7 @@ impl OmpSession {
     pub fn resume_turn(
         &mut self,
         input: &ResumeInput,
-        tx: mpsc::Sender<OmpRpcEvent>,
+        tx: mpsc::Sender<ProviderEvent>,
     ) -> Result<(), BoxError> {
         self.send_input_and_read(input, tx)
     }
@@ -64,7 +64,7 @@ impl OmpSession {
     fn send_input_and_read<T: serde::Serialize>(
         &mut self,
         input: &T,
-        tx: mpsc::Sender<OmpRpcEvent>,
+        tx: mpsc::Sender<ProviderEvent>,
     ) -> Result<(), BoxError> {
         let mut writer = self.pair.master.take_writer()?;
         let json = serde_json::to_string(input)?;
@@ -78,7 +78,7 @@ impl OmpSession {
     }
 }
 
-impl Drop for OmpSession {
+impl Drop for OhMyPiSession {
     fn drop(&mut self) {
         let _ = self.child.kill();
         let _ = self.child.wait();
@@ -88,7 +88,7 @@ impl Drop for OmpSession {
 fn spawn_reader(
     reader: Box<dyn std::io::Read + Send>,
     mut killer: Box<dyn portable_pty::ChildKiller + Send>,
-    tx: mpsc::Sender<OmpRpcEvent>,
+    tx: mpsc::Sender<ProviderEvent>,
 ) {
     const MAX_LINE_LEN: usize = 10 * 1024 * 1024;
     const READ_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(300);
@@ -98,7 +98,7 @@ fn spawn_reader(
         let reader = BufReader::new(reader);
         for line in reader.lines() {
             if start.elapsed() > READ_TIMEOUT {
-                tracing::warn!("omp: read timeout exceeded, killing subprocess");
+                tracing::warn!("oh-my-pi: read timeout exceeded, killing subprocess");
                 let _ = killer.kill();
                 return;
             }
@@ -106,7 +106,7 @@ fn spawn_reader(
             let line = match line {
                 Ok(l) => l,
                 Err(e) => {
-                    tracing::warn!("omp: read error: {e}");
+                    tracing::warn!("oh-my-pi: read error: {e}");
                     break;
                 }
             };
@@ -116,13 +116,13 @@ fn spawn_reader(
             }
 
             if line.len() > MAX_LINE_LEN {
-                tracing::warn!("omp: line too long ({} bytes), skipping", line.len());
+                tracing::warn!("oh-my-pi: line too long ({} bytes), skipping", line.len());
                 continue;
             }
 
-            match serde_json::from_str::<OmpRpcEvent>(&line) {
+            match serde_json::from_str::<ProviderEvent>(&line) {
                 Ok(event) => {
-                    let is_done = matches!(&event, OmpRpcEvent::Done(_));
+                    let is_done = matches!(&event, ProviderEvent::Done(_));
                     if tx.blocking_send(event).is_err() {
                         let _ = killer.kill();
                         return;
@@ -132,7 +132,7 @@ fn spawn_reader(
                     }
                 }
                 Err(e) => {
-                    tracing::warn!("omp: parse error on line of length {}: {e}", line.len());
+                    tracing::warn!("oh-my-pi: parse error on line of length {}: {e}", line.len());
                 }
             }
         }
@@ -164,54 +164,54 @@ mod tests {
 
     #[test]
     fn parse_all_event_types() {
-        let cases: Vec<(&str, fn(&OmpRpcEvent) -> bool)> = vec![
+        let cases: Vec<(&str, fn(&ProviderEvent) -> bool)> = vec![
             (
                 r#"{"type":"session_start","session_id":"sess-1"}"#,
-                |e| matches!(e, OmpRpcEvent::SessionStart { session_id } if session_id == "sess-1"),
+                |e| matches!(e, ProviderEvent::SessionStart { session_id } if session_id == "sess-1"),
             ),
             (
                 r#"{"type":"text","text":"hello"}"#,
-                |e| matches!(e, OmpRpcEvent::Text { text } if text == "hello"),
+                |e| matches!(e, ProviderEvent::Text { text } if text == "hello"),
             ),
             (
                 r#"{"type":"text_chunk","delta":"wor"}"#,
-                |e| matches!(e, OmpRpcEvent::TextChunk { delta } if delta == "wor"),
+                |e| matches!(e, ProviderEvent::TextChunk { delta } if delta == "wor"),
             ),
             (
                 r#"{"type":"tool_use","tool_name":"read","tool_use_id":"id1","input":{}}"#,
                 |e| {
-                    matches!(e, OmpRpcEvent::ToolUse { tool_name, tool_use_id: Some(id), .. }
+                    matches!(e, ProviderEvent::ToolUse { tool_name, tool_use_id: Some(id), .. }
                         if tool_name == "read" && id == "id1")
                 },
             ),
             (
                 r#"{"type":"tool_result","tool_use_id":"id1","result":"ok"}"#,
                 |e| {
-                    matches!(e, OmpRpcEvent::ToolResult { tool_use_id: Some(id), result }
+                    matches!(e, ProviderEvent::ToolResult { tool_use_id: Some(id), result }
                         if id == "id1" && result == "ok")
                 },
             ),
             (
                 r#"{"type":"thinking","thinking":"hmm"}"#,
-                |e| matches!(e, OmpRpcEvent::Thinking { thinking } if thinking == "hmm"),
+                |e| matches!(e, ProviderEvent::Thinking { thinking } if thinking == "hmm"),
             ),
             (
                 r#"{"type":"thinking_chunk","delta":"hmm"}"#,
-                |e| matches!(e, OmpRpcEvent::ThinkingChunk { delta } if delta == "hmm"),
+                |e| matches!(e, ProviderEvent::ThinkingChunk { delta } if delta == "hmm"),
             ),
             (
                 r#"{"type":"context_usage","tokens_in":10,"tokens_out":20}"#,
-                |e| matches!(e, OmpRpcEvent::ContextUsage(_)),
+                |e| matches!(e, ProviderEvent::ContextUsage(_)),
             ),
             (
                 r#"{"type":"error","error":"fail"}"#,
-                |e| matches!(e, OmpRpcEvent::Error { error } if error == "fail"),
+                |e| matches!(e, ProviderEvent::Error { error } if error == "fail"),
             ),
-            (r#"{"type":"done"}"#, |e| matches!(e, OmpRpcEvent::Done(_))),
+            (r#"{"type":"done"}"#, |e| matches!(e, ProviderEvent::Done(_))),
         ];
 
         for (json, validator) in cases {
-            let event: OmpRpcEvent = serde_json::from_str(json).unwrap();
+            let event: ProviderEvent = serde_json::from_str(json).unwrap();
             assert!(validator(&event), "failed to parse event: {json}");
         }
     }
@@ -261,7 +261,7 @@ mod tests {
         );
 
         let env = HashMap::new();
-        let mut session = spawn_omp(bin.to_str().unwrap(), "/tmp", env).unwrap();
+        let mut session = spawn_oh_my_pi(bin.to_str().unwrap(), "/tmp", env).unwrap();
         let (tx, mut rx) = mpsc::channel(16);
         let input = TurnInput::new(
             "test".into(),
@@ -294,7 +294,7 @@ mod tests {
         );
 
         let env = HashMap::new();
-        let mut session = spawn_omp(bin.to_str().unwrap(), "/tmp", env).unwrap();
+        let mut session = spawn_oh_my_pi(bin.to_str().unwrap(), "/tmp", env).unwrap();
         let (tx, mut rx) = mpsc::channel(16);
         let input = TurnInput::new(
             "test".into(),
@@ -316,9 +316,9 @@ mod tests {
         }
 
         assert_eq!(events.len(), 3, "expected 3 events before channel close");
-        assert!(matches!(events[0], OmpRpcEvent::Text { .. }));
-        assert!(matches!(events[1], OmpRpcEvent::Text { .. }));
-        assert!(matches!(events[2], OmpRpcEvent::Done(_)));
+        assert!(matches!(events[0], ProviderEvent::Text { .. }));
+        assert!(matches!(events[1], ProviderEvent::Text { .. }));
+        assert!(matches!(events[2], ProviderEvent::Done(_)));
     }
 
     #[tokio::test]
@@ -331,7 +331,7 @@ mod tests {
         );
 
         let env = HashMap::new();
-        let mut session = spawn_omp(bin.to_str().unwrap(), "/tmp", env).unwrap();
+        let mut session = spawn_oh_my_pi(bin.to_str().unwrap(), "/tmp", env).unwrap();
         let pid = session.pid;
         let (tx, rx) = mpsc::channel(16);
         let input = TurnInput::new(
@@ -374,7 +374,7 @@ mod tests {
         );
 
         let env = HashMap::new();
-        let mut session = spawn_omp(bin.to_str().unwrap(), "/tmp", env).unwrap();
+        let mut session = spawn_oh_my_pi(bin.to_str().unwrap(), "/tmp", env).unwrap();
         let (tx, mut rx) = mpsc::channel(16);
         let input = TurnInput::new(
             "test".into(),
@@ -401,15 +401,15 @@ mod tests {
             "expected 3 valid events, got {}",
             events.len()
         );
-        assert!(matches!(events[0], OmpRpcEvent::Text { .. }));
-        assert!(matches!(events[1], OmpRpcEvent::Text { .. }));
-        assert!(matches!(events[2], OmpRpcEvent::Done(_)));
+        assert!(matches!(events[0], ProviderEvent::Text { .. }));
+        assert!(matches!(events[1], ProviderEvent::Text { .. }));
+        assert!(matches!(events[2], ProviderEvent::Done(_)));
     }
 
     #[test]
     fn spawn_failure() {
         let env = HashMap::new();
-        let result = spawn_omp("/nonexistent/path/to/omp", "/tmp", env);
+        let result = spawn_oh_my_pi("/nonexistent/path/to/omp", "/tmp", env);
         assert!(result.is_err(), "expected Err for nonexistent binary");
     }
 
@@ -423,7 +423,7 @@ mod tests {
         );
 
         let env = HashMap::new();
-        let mut session = spawn_omp(bin.to_str().unwrap(), "/tmp", env).unwrap();
+        let mut session = spawn_oh_my_pi(bin.to_str().unwrap(), "/tmp", env).unwrap();
         let (tx, mut rx) = mpsc::channel(16);
         let input = TurnInput::new(
             "hello stdin".into(),
@@ -443,7 +443,7 @@ mod tests {
             .expect("expected Some event");
 
         match event {
-            OmpRpcEvent::Text { text } => {
+            ProviderEvent::Text { text } => {
                 assert_eq!(text, "stdin-ok", "expected stdin confirmation text");
             }
             other => panic!("expected Text event, got: {other:?}"),
@@ -454,7 +454,7 @@ mod tests {
             .await
             .unwrap()
             .expect("expected Done event");
-        assert!(matches!(done, OmpRpcEvent::Done(_)));
+        assert!(matches!(done, ProviderEvent::Done(_)));
     }
 
     #[tokio::test]
@@ -470,7 +470,7 @@ mod tests {
         );
 
         let env = HashMap::new();
-        let mut session = spawn_omp(bin.to_str().unwrap(), "/tmp", env).unwrap();
+        let mut session = spawn_oh_my_pi(bin.to_str().unwrap(), "/tmp", env).unwrap();
         let (tx, mut rx) = mpsc::channel(16);
         let input = TurnInput::new(
             "test".into(),
@@ -489,7 +489,7 @@ mod tests {
             .expect("expected Some event");
 
         match event {
-            OmpRpcEvent::Text { text } => {
+            ProviderEvent::Text { text } => {
                 assert_eq!(
                     text, "args-ok",
                     "expected --mode rpc args to be passed, got: {text}"

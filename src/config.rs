@@ -88,11 +88,7 @@ impl OfmConfig {
         let footprint_raw = std::env::var("OFM_FOOTPRINT").unwrap_or_else(|_| "~/.ofm".into());
         let footprint = expand_tilde(&footprint_raw);
         let api_key = std::env::var("OFM_API_KEY").ok();
-        if let Some(key) = &api_key {
-            if key.len() < 16 {
-                tracing::warn!("OFM_API_KEY is set but too short (< 16 chars) — auth will be trivially bypassed");
-            }
-        }
+        warn_if_short_api_key(&api_key);
         let hostname = std::env::var("OFM_HOSTNAME").unwrap_or_else(|_| "127.0.0.1".into());
         let port = std::env::var("OFM_PORT")
             .ok()
@@ -151,11 +147,7 @@ impl OfmConfig {
         });
 
         let api_key = std::env::var("OFM_API_KEY").ok();
-        if let Some(key) = &api_key {
-            if key.len() < 16 {
-                tracing::warn!("OFM_API_KEY is set but too short (< 16 chars) — auth will be trivially bypassed");
-            }
-        }
+        warn_if_short_api_key(&api_key);
 
         let hostname = env_opt_or("OFM_HOSTNAME")
             .or_else(|| {
@@ -305,6 +297,14 @@ impl OfmConfig {
 
 fn env_opt_or(key: &str) -> Option<String> {
     std::env::var(key).ok()
+}
+
+fn warn_if_short_api_key(key: &Option<String>) {
+    if let Some(key) = key {
+        if key.len() < 16 {
+            tracing::warn!("OFM_API_KEY is set but too short (< 16 chars) — auth will be trivially bypassed");
+        }
+    }
 }
 
 fn find_yaml_path(config_root: &str) -> Option<String> {

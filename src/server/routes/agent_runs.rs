@@ -11,7 +11,7 @@ use serde::Deserialize;
 use uuid::Uuid;
 
 use crate::db::schema::{AgentType, TaskAgentRun};
-use crate::omp::session;
+use crate::services::session;
 use crate::orchestration::guards;
 use crate::providers;
 use crate::providers::registry;
@@ -21,6 +21,10 @@ use crate::services::tasks;
 #[derive(Debug, Deserialize)]
 struct StartAgentRunRequest {
     agent_type: String,
+}
+
+fn internal_err(e: impl std::fmt::Display) -> ServerError {
+    ServerError::Internal(e.to_string())
 }
 
 pub fn agent_runs_router() -> Router<AppState> {
@@ -44,7 +48,7 @@ async fn post_create_agent_run(
 
     tasks::increment_workflow_run_count(&state.db, &task_id)
         .await
-        .map_err(|e| ServerError::Internal(e.to_string()))?;
+        .map_err(internal_err)?;
 
     // Phase 8: Resolve provider config (graceful fallback if no config exists)
     let config_root = PathBuf::from(&state.config_root);
@@ -119,7 +123,7 @@ async fn post_create_agent_run(
 
     let run = tasks::get_agent_run_by_conversation(&state.db, &session_result.conversation_id)
         .await
-        .map_err(|e| ServerError::Internal(e.to_string()))?;
+        .map_err(internal_err)?;
 
     Ok((StatusCode::CREATED, Json(run)))
 }
@@ -134,7 +138,7 @@ async fn list_agent_runs(
 
     let runs = tasks::list_agent_runs_for_task(&state.db, &task_id)
         .await
-        .map_err(|e| ServerError::Internal(e.to_string()))?;
+        .map_err(internal_err)?;
 
     Ok(Json(runs))
 }

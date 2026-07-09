@@ -1,12 +1,7 @@
-use std::collections::HashMap;
-use std::sync::Arc;
-
 use hiqlite::Client;
-use tokio::sync::Mutex;
 use uuid::Uuid;
 
 use crate::db::schema::{AgentType, Conversation, RunStatus};
-use crate::omp::OmpSession;
 
 pub struct SessionStart {
     pub conversation_id: Uuid,
@@ -74,7 +69,6 @@ pub async fn resume_session(
 pub async fn abort_session(
     client: &Client,
     session_id: &str,
-    sessions: &Arc<Mutex<HashMap<String, OmpSession>>>,
 ) -> Result<(), hiqlite::Error> {
     let now = chrono::Utc::now().naive_utc().to_string();
     client
@@ -84,27 +78,13 @@ pub async fn abort_session(
         )
         .await?;
 
-    sessions.lock().await.remove(session_id);
-
     Ok(())
-}
-
-pub async fn register_session(
-    sessions: &Arc<Mutex<HashMap<String, OmpSession>>>,
-    session_id: &str,
-    session: OmpSession,
-) {
-    sessions
-        .lock()
-        .await
-        .insert(session_id.to_string(), session);
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
     use crate::db;
-    use crate::omp::OmpSession;
     use tempfile::TempDir;
 
     async fn make_client() -> (hiqlite::Client, Uuid, TempDir) {
@@ -247,8 +227,6 @@ mod tests {
     #[tokio::test]
     async fn test_abort_session_marks_run_failed() {
         let (client, task_id, _tmp) = make_client().await;
-        let sessions: Arc<Mutex<HashMap<String, OmpSession>>> =
-            Arc::new(Mutex::new(HashMap::new()));
 
         let result = start_session(
             &client,
@@ -260,7 +238,7 @@ mod tests {
         .await
         .unwrap();
 
-        abort_session(&client, &result.session_id, &sessions)
+        abort_session(&client, &result.session_id)
             .await
             .unwrap();
 
@@ -280,48 +258,5 @@ mod tests {
             completed_at.is_some(),
             "completed_at should be set after abort"
         );
-    }
-
-    #[tokio::test]
-    async fn test_abort_session_removes_from_map() {
-        let (client, task_id, _tmp) = make_client().await;
-        let sessions: Arc<Mutex<HashMap<String, OmpSession>>> =
-            Arc::new(Mutex::new(HashMap::new()));
-
-        let result = start_session(
-            &client,
-            task_id,
-            "map-model",
-            "balanced",
-            AgentType::Implementation,
-        )
-        .await
-        .unwrap();
-
-        // create a mock session to register
-        let system = portable_pty::native_pty_system();
-        let pair = system.openpty(portable_pty::PtySize::default()).unwrap();
-        let cmd = portable_pty::CommandBuilder::new("true");
-        let child = pair.slave.spawn_command(cmd).unwrap();
-        let pid = child.process_id().unwrap_or(0);
-        let mock_session = OmpSession { pid, child, pair };
-
-        register_session(&sessions, &result.session_id, mock_session).await;
-
-        // Verify it's in the map
-        {
-            let map = sessions.lock().await;
-            assert!(map.contains_key(&result.session_id));
-        }
-
-        abort_session(&client, &result.session_id, &sessions)
-            .await
-            .unwrap();
-
-        // Verify it's removed
-        {
-            let map = sessions.lock().await;
-            assert!(!map.contains_key(&result.session_id));
-        }
     }
 }

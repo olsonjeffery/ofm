@@ -37,7 +37,7 @@ itself lives on disk (the doc in an archive, the code in a worktree).
 - **task** — belongs to a project. Carries `title`, `status`, and the workflow
   flags. Backed by a markdown doc and a worktree.
 - **conversation** — belongs to a task. One streaming session, whether a manual
-  chat or an agent run. See [`omp-integration.md`](./omp-integration.md).
+  chat or an agent run. See [`oh-my-pi.md`](../extra/harnesses/oh-my-pi.md).
 
 Schema: `src/db/schema.rs` (Rust domain model) and `src/db/mod.rs` (13 DDL migrations). See also the reference [`reference/server/database/init.sql`](../reference/server/database/init.sql).
 
@@ -158,7 +158,7 @@ path in the prompt is authoritative — agents are told not to look elsewhere.
 - The workflow flags and the loop that reads them →
   [`orchestration-loop.md`](./orchestration-loop.md).
 - How a conversation streams and persists its transcript →
-  [`omp-integration.md`](./omp-integration.md).
+  [`oh-my-pi.md`](../extra/harnesses/oh-my-pi.md).
 - How tasks get authored (board UI, Jira/Notion import) →
   [`kanban-board.md`](../extra/kanban-board.md).
 - Opening the PR and merging/cleaning up the worktree →
