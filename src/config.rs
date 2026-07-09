@@ -54,32 +54,6 @@ pub struct GroupRauthy {
     pub rauthy_port: Option<u16>,
 }
 
-impl OfmConfigFile {
-    pub fn from_ofm_config(cfg: &OfmConfig) -> Self {
-        OfmConfigFile {
-            server: Some(GroupServer {
-                hostname: Some(cfg.hostname.clone()),
-                port: Some(cfg.port),
-                url: Some(cfg.url.clone()),
-            }),
-            auth: Some(GroupAuth {
-                oidc_issuer_url: cfg.oidc_issuer_url.clone(),
-                oidc_client_id: cfg.oidc_client_id.clone(),
-                base_url: cfg.base_url.clone(),
-                oidc_redirect_uri: cfg.oidc_redirect_uri.clone(),
-            }),
-            raft: Some(GroupRaft {
-                hiqlite_raft_port: Some(cfg.hiqlite_raft_port),
-                hiqlite_api_port: Some(cfg.hiqlite_api_port),
-            }),
-            rauthy: Some(GroupRauthy {
-                rauthy_enabled: Some(cfg.rauthy_enabled),
-                rauthy_port: Some(cfg.rauthy_port),
-            }),
-        }
-    }
-}
-
 // ── Main config struct ────────────────────────────────────────────────────
 
 pub struct OfmConfig {
@@ -235,7 +209,7 @@ impl OfmConfig {
                 .and_then(|y| y.auth.as_ref()?.oidc_client_id.clone())
         });
 
-        let oidc_client_secret = std::env::var("OIDC_CLIENT_SECRET").ok();
+        let oidc_client_secret = env_opt_or("OIDC_CLIENT_SECRET");
 
         let hiqlite_raft_port = std::env::var("OFM_HIQLITE_RAFT_PORT")
             .ok()
@@ -508,12 +482,6 @@ mod tests {
     #[test]
     fn test_defaults() {
         let _guard = ENV_LOCK.lock().unwrap();
-        let prev_hostname = std::env::var("OFM_HOSTNAME").ok();
-        let prev_port = std::env::var("OFM_PORT").ok();
-        let prev_footprint = std::env::var("OFM_FOOTPRINT").ok();
-        std::env::remove_var("OFM_HOSTNAME");
-        std::env::remove_var("OFM_PORT");
-        std::env::remove_var("OFM_FOOTPRINT");
         set_ofm_env(&[]);
         let home = std::env::var("HOME").unwrap();
         let cfg = OfmConfig::from_env();

@@ -109,3 +109,16 @@ cargo test --lib -- board
 
 # Run integration tests (brings up in-process server)
 cargo test --tests -- webapp_test
+
+## Documentation Updates
+
+Every task implementation **must**:
+
+1. **Update relevant spec files** if the implementation changes behavior described in `spec/SPEC.md` or any `spec/core/*.md` / `spec/extra/*.md` file.
+2. **Update ARCHITECTURE.md** if new modules are added, module responsibilities change, or dependencies change.
+3. **Update README.md** if user-facing behavior changes (ports, env vars, auth, setup).
+4. **Update existing `src/` citations** in spec files if line numbers or file paths change.
+5. **Reference the updated doc files** in the task output or PR description.
+6. **Leave a `FIXME` comment** in the doc for the next human pass if a citation needs updating but the implementation agent cannot verify correctness (e.g., line numbers).
+
+Documentation drift is unacceptable. If the implementation changes something the spec describes, update the spec in the same task.
