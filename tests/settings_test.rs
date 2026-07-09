@@ -1,12 +1,13 @@
 use std::collections::HashMap;
 use std::sync::Arc;
 
-use omprint::auth::api_key;
-use omprint::auth::AuthLayer;
-use omprint::db;
-use omprint::providers::LlmProvider;
-use omprint::server;
-use omprint::server::state::AppState;
+use ofm::auth::api_key;
+use ofm::auth::AuthLayer;
+use ofm::db;
+use ofm::providers::LlmProvider;
+use ofm::server;
+use ofm::server::state::AppState;
+use ofm::server::ws::bus::BroadcastBus;
 use tokio::sync::Mutex;
 
 fn make_api_key() -> (String, String) {
@@ -67,6 +68,7 @@ async fn make_state_with_auth() -> (AppState, AuthLayer, String, tempfile::TempD
         pkce_store: Arc::new(Mutex::new(HashMap::new())),
         cookie_key: cookie::Key::generate(),
         api_key_pepper: b"test_pepper".to_vec(),
+        ws_bus: BroadcastBus::new(),
     };
 
     (state, auth_layer, api_key_str, tmp)
@@ -109,6 +111,7 @@ async fn make_state_no_auth() -> (AppState, AuthLayer, tempfile::TempDir) {
         pkce_store: Arc::new(Mutex::new(HashMap::new())),
         cookie_key: cookie::Key::generate(),
         api_key_pepper: b"test_pepper".to_vec(),
+        ws_bus: BroadcastBus::new(),
     };
     (state, auth_layer, tmp)
 }
@@ -342,6 +345,7 @@ async fn test_settings_config_body_user_isolation() {
         pkce_store: Arc::new(Mutex::new(HashMap::new())),
         cookie_key: cookie::Key::generate(),
         api_key_pepper: b"test_pepper".to_vec(),
+        ws_bus: BroadcastBus::new(),
     };
 
     let base_url = spawn_app(state, auth_layer).await;
@@ -549,7 +553,7 @@ async fn test_settings_config_body_invalid_body_rejected() {
 #[tokio::test]
 async fn test_config_format_normalization() {
     // Unit-test-level assertions via the service module
-    use omprint::services::config_format;
+    use ofm::services::config_format;
 
     // YAML in → to_yaml returns as-is
     let yaml = "model: gpt-4\ntemperature: 0.7\n";
@@ -578,7 +582,7 @@ async fn test_config_format_normalization() {
 
 #[tokio::test]
 async fn test_config_format_detect() {
-    use omprint::services::config_format;
+    use ofm::services::config_format;
 
     // JSON detected
     assert_eq!(

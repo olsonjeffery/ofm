@@ -16,11 +16,14 @@ pub fn Navbar(user_json: Option<String>) -> impl IntoView {
         <nav class="navbar is-fixed-top" role="navigation" aria-label="main navigation">
             <div class="navbar-brand">
                 <a class="navbar-item" href="/webapp">
-                    <span class="icon is-small"><i class="mdi mdi-home"></i></span>
-                    <strong>" omprint"</strong>
+                    <img src="/webapp/assets/ofm-logo.svg" class="header-logo" />
+                    <strong>" ofm"</strong>
                 </a>
             </div>
             <div class="navbar-menu">
+                <div class="navbar-start">
+                    <crate::webapp::components::ws_status::WsStatus />
+                </div>
                 <div class="navbar-end">
                     {if is_logged_in {
                         view! {
@@ -86,7 +89,7 @@ mod tests {
         assert!(html.contains("Login"));
         assert!(html.contains("/webapp/login"));
         assert!(html.contains("mdi-login"));
-        assert!(html.contains("omprint"));
+        assert!(html.contains("ofm"));
     }
 
     #[test]
@@ -107,6 +110,6 @@ mod tests {
         let user_json: Option<String> = None;
         let html = leptos::view! { <Navbar user_json /> }.to_html();
         assert!(html.contains("/webapp"));
-        assert!(html.contains("mdi-home"));
+        assert!(html.contains("ofm-logo.svg"));
     }
 }

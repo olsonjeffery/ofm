@@ -1,23 +1,23 @@
 # Core — The direct `omp` integration
 
-> **⚠️`omprint` ONLY ⚠️:** Rust convention requires functions and `let` bindings
+> **⚠️`ofm` ONLY ⚠️:** Rust convention requires functions and `let` bindings
 > use `snake_case` as a naming convention; In all places where `camelCase`
 > occurs (referring to the typescript `reference/` implementation of `bottega`),
 > substitute for `snake_case` as appropriate; `PascalCase` is used for `trait`s,
 > `struct`s, `enum`s, etc.
 > 
-> **Note:** The `omprint` Rust codebase at `src/` now provides implementations
+> **Note:** The `ofm` Rust codebase at `src/` now provides implementations
 > for many of the features described in this spec. Prefer citations to `src/`
 > over `reference/` wherever equivalents exist.
 
-This is the seam that makes the pipeline work. `omprint` runs all coding-agent
+This is the seam that makes the pipeline work. `ofm` runs all coding-agent
 turns through [`omp` (`oh-my-pi`)][0] — there is exactly one harness, and this
 spec describes exactly how that integration works.
 
 ## Why it is core
 
 The orchestration loop and the agents are useless without something that
-actually runs a coding-agent turn. For `omprint`, that thing is `omp` in RPC
+actually runs a coding-agent turn. For `ofm`, that thing is `omp` in RPC
 mode, spawned as a subprocess via [`portable-pty`][1]. The loop never concerns
 itself with multiple backends, credential stores for different providers, or a
 capability matrix normalizing across SDKs — there is only `omp`.
@@ -28,8 +28,8 @@ unified vocabulary normalizing across providers, and no provider registry.
 
 ## The `omp` subprocess
 
-`omprint` spawns `omp --mode rpc` via `portable-pty`. Each agent turn is a fresh `omp`
-session (or a resume of a prior session). The pty gives `omprint` `STDIN`/`STDOUT`
+`ofm` spawns `omp --mode rpc` via `portable-pty`. Each agent turn is a fresh `omp`
+session (or a resume of a prior session). The pty gives `ofm` `STDIN`/`STDOUT`
 control, `pid` for audit, and `SIGKILL` for abort.
 
 ### Spawn command
@@ -43,10 +43,10 @@ omp --mode rpc
 | Variable | Purpose |
 |---|---|
 | `OMP_MODELS_YML` | Inline or file-path to the `models.yml` content (see models.yml passthrough below) |
-| `OMPRINT_ARCHIVE_ROOT` | The task archive path, for agent context resolution |
+| `OFM_ARCHIVE_ROOT` | The task archive path, for agent context resolution |
 | `PATH` | Inherited, so `omp` and `git` are available to the agent |
 
-Additional environment variables from `omprint`'s configuration are passed
+Additional environment variables from `ofm`'s configuration are passed
 through as needed (e.g., proxy settings).
 
 ### Working directory (`cwd`)
@@ -63,7 +63,7 @@ format — there is no normalization layer.
 
 ### Turn start
 
-`omprint` writes the turn input (see Per-turn input below) as a JSON object to
+`ofm` writes the turn input (see Per-turn input below) as a JSON object to
 `STDIN`, followed by a newline:
 
 ```json
@@ -103,7 +103,7 @@ discrete event:
 
 ### Turn resume
 
-To resume a prior session, `omprint` sends a resume message with the stored
+To resume a prior session, `ofm` sends a resume message with the stored
 `session_id`:
 
 ```json
@@ -116,12 +116,12 @@ To resume a prior session, `omprint` sends a resume message with the stored
 
 ### Turn abort
 
-`omprint` kills the pty subprocess with `SIGKILL`. There is no graceful
+`ofm` kills the pty subprocess with `SIGKILL`. There is no graceful
 shutdown message — the subprocess is destroyed.
 
 ### Detecting turn completion
 
-The `done` event signals that the turn has completed. `omprint` detects this
+The `done` event signals that the turn has completed. `ofm` detects this
 by monitoring the `STDOUT` stream for the `done` event type. When the
 subprocess exits its `STDOUT` stream ends, which also signals completion
 (if the `done` event was already received).
@@ -129,9 +129,9 @@ subprocess exits its `STDOUT` stream ends, which also signals completion
 ### Namespace convention for `omp` sub-agents
 
 `omp` supports sub-agents for different roles [`plan`, `impl`, `review`, `pr`].
-These map to `omprint`'s agent types as follows:
+These map to `ofm`'s agent types as follows:
 
-| `omprint` agent type | `omp` sub-agent | Purpose |
+| `ofm` agent type | `omp` sub-agent | Purpose |
 |---|---|---|
 | `planification` | `plan` | Planning the work |
 | `implementation` | `impl` | Implementing changes |
@@ -140,12 +140,12 @@ These map to `omprint`'s agent types as follows:
 | `refinement` | `plan` | Polishing between review and PR |
 | `yolo` | `impl` | Single-agent mode |
 
-`omprint` sets the `OMP_AGENT_TYPE` environment variable (or passes it in the
+`ofm` sets the `OMP_AGENT_TYPE` environment variable (or passes it in the
 RPC start message) to inform `omp` which sub-agent configuration to use.
 
 ## Per-turn input
 
-At turn start, `omprint` sends the following fields to `omp`:
+At turn start, `ofm` sends the following fields to `omp`:
 
 | Field | Source | Description |
 |---|---|---|
@@ -283,12 +283,12 @@ when the session ends or is aborted.
 
 ## models.yml passthrough
 
-`omprint` does not manage provider credentials directly. Instead:
+`ofm` does not manage provider credentials directly. Instead:
 
 1. **Users manage `models.yml` entries** through the settings UI — a textarea
    where they can write or paste YAML content defining provider backends and
    their API keys.
-2. **Content is stored** in `omprint`'s database/configuration, scoped per user
+2. **Content is stored** in `ofm`'s database/configuration, scoped per user
    (or globally, depending on deployment).
 3. **Injected on spawn.** The stored `models.yml` content is passed to the
    `omp --mode rpc` subprocess via the `OMP_MODELS_YML` environment variable (or an
@@ -350,13 +350,13 @@ configured providers and their available models:
 - **Fallback:** If no models are configured for a provider, `omp` returns
   a single `"default"` entry as a placeholder.
 
-### Usage in `omprint`
+### Usage in `ofm`
 
 The model listing is surfaced in the settings UI to let users select which
 model an agent type uses. The flow is:
 
 1. User opens per-agent model settings in the UI
-2. `omprint` calls `registry::get_models_for_config` (`src/providers/registry.rs:86`)
+2. `ofm` calls `registry::get_models_for_config` (`src/providers/registry.rs:86`)
    which resolves the provider and calls `get_models_list()`
 3. The returned model list populates a dropdown/selector in the settings UI
 4. The user's selection is stored as the `model` field in the per-agent config,
@@ -364,7 +364,7 @@ model an agent type uses. The flow is:
 
 ## Orphan recovery
 
-On `omprint` restart:
+On `ofm` restart:
 
 1. **Kill orphan subprocesses.** Any `omp` subprocess still alive from a prior
    run is killed (discovered via stored `pid` or process group).

@@ -53,7 +53,7 @@ mod tests {
     #[test]
     fn test_completion_signal_is_rust_cli() {
         let prompt = build_planning_prompt("", "path/to/doc.md", "42", "path/to/template.md");
-        assert!(prompt.contains("omprint agent complete-plan"));
+        assert!(prompt.contains("ofm agent complete-plan"));
         assert!(!prompt.contains("tsx"));
     }
 

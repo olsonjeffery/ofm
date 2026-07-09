@@ -10,7 +10,7 @@
 > `leptos_styling` with `style_sheet!` macro. No WASM, no `leptos_axum`,
 > no `leptos_router`. See `src/webapp/`.
 
-> **⚠️`omprint` ONLY ⚠️:** Rust convention requires functions and `let` bindings
+> **⚠️`ofm` ONLY ⚠️:** Rust convention requires functions and `let` bindings
 > use `snake_case` as a naming convention; In all places where `camelCase`
 > occurs (referring to the typescript `reference/` implementation of `bottega`),
 > substitute for `snake_case` as appropriate; `PascalCase` is used for `trait`s,
@@ -24,7 +24,7 @@
 
 ## What it adds
 
-Turns `omprint` from a single-operator tool into something a small company can
+Turns `ofm` from a single-operator tool into something a small company can
 deploy: real **user accounts**, **OAuth2/OIDC login** via PKCE, per-user
 **API keys** for scripted access, **project-membership authorization** that
 scopes every task/project/agent-run to the people allowed to see it, an
@@ -33,7 +33,7 @@ scopes every task/project/agent-run to the people allowed to see it, an
 the manual plan-review gate).
 
 **Scope note up front — this is *app-level* auth: who is allowed to use
-`omprint`.** It is **not** the `omp` provider credentials an agent needs to
+`ofm`.** It is **not** the `omp` provider credentials an agent needs to
 actually run a turn. Those are a different concern and live in the harness spec
 ([`harnesses/omp.md`](./harnesses/omp.md)) and in
 [`prompt-and-model-customization.md`](./prompt-and-model-customization.md).
@@ -47,20 +47,20 @@ Core assumes a single operator on a private box — every request is implicitly
 opinionated layer a company adds when more than one person shares a deployment;
 skip it and core still works.
 
-## OAuth2/OIDC — how `omprint` authenticates users
+## OAuth2/OIDC — how `ofm` authenticates users
 
-`omprint` mandates OAuth2/OIDC for all identity and access management. The
+`ofm` mandates OAuth2/OIDC for all identity and access management. The
 reference implementation's bcrypt password hashing, self-signed JWTs, and
 `token_version`-based invalidation are **replaced** by the OAuth2 Authorization
 Code Flow with PKCE.
 
 The system supports two modes:
 
-1. **External well-known OIDC endpoint** — `omprint` fetches the provider's
+1. **External well-known OIDC endpoint** — `ofm` fetches the provider's
    JWKS from its well-known configuration at startup, caches it, and verifies
    every incoming Bearer token's JWT signature and claims locally. The leptos
    client runs the PKCE flow against the external provider.
-2. **Self-hosted rauthy** — `omprint` manages a rauthy instance via PTY
+2. **Self-hosted rauthy** — `ofm` manages a rauthy instance via PTY
    subprocess, proxied at `/auth` through an axum reverse proxy, with an
    initial admin bootstrap flow.
 
@@ -109,11 +109,11 @@ following configuration is required:
 | `OIDC_CLIENT_SECRET` | Yes | The client secret for server-side code exchange at the token endpoint. |
 | `OIDC_SCOPES` | No | Space-separated scopes (default: `openid profile email`). |
 | `OIDC_ADMIN_CLAIM` | No | A JSON-path claim for auto-detecting admin users on first login (e.g. `realm_access.roles` containing `admin`). If absent, the first user to log in is auto-granted admin. |
-| `OM_PRINT_BASE_URL` | Yes | The public base URL of this omprint instance (for constructing the redirect URI sent to the provider: `{base_url}/webapp/auth/callback`). |
+| `OM_PRINT_BASE_URL` | Yes | The public base URL of this ofm instance (for constructing the redirect URI sent to the provider: `{base_url}/webapp/auth/callback`). |
 
 ### Well-known discovery process
 
-On startup, `omprint` performs OIDC discovery by sending a `GET` request to
+On startup, `ofm` performs OIDC discovery by sending a `GET` request to
 `{OIDC_ISSUER_URL}/.well-known/openid-configuration`. The response is a JSON
 document conforming to the OIDC Discovery spec, containing at minimum:
 
@@ -132,27 +132,27 @@ server fails loud at startup.
 ## Configuration — self-hosted rauthy
 
 When no `OIDC_ISSUER_URL` is provided (or `RAUTHY_ENABLED=true` is set),
-`omprint` manages its own rauthy OIDC instance:
+`ofm` manages its own rauthy OIDC instance:
 
 | Config key | Required | Description |
 |---|---|---|
 | `RAUTHY_ENABLED` | No | Set `true` to explicitly enable rauthy mode. Inferred from absence of `OIDC_ISSUER_URL`. |
-| `RAUTHY_BIN_PATH` | No | Path to rauthy binary. If absent, omprint fetches a known-good release. |
+| `RAUTHY_BIN_PATH` | No | Path to rauthy binary. If absent, ofm fetches a known-good release. |
 | `RAUTHY_DATA_DIR` | No | Path for rauthy's persistent state (default: `{footprint}/rauthy/`). |
-| `RAUTHY_ADMIN_EMAIL` | No | Email for the initial bootstrap admin (default: `admin@omprint.local`). |
-| `RAUTHY_ADMIN_PASSWORD` | No | Admin password. If absent, omprint auto-generates one and displays it once at first startup (similar to the reference's first-user register flow). |
+| `RAUTHY_ADMIN_EMAIL` | No | Email for the initial bootstrap admin (default: `admin@localhost`). |
+| `RAUTHY_ADMIN_PASSWORD` | No | Admin password. If absent, ofm auto-generates one and displays it once at first startup (similar to the reference's first-user register flow). |
 
 ### PTY lifecycle
 
-- On startup, `omprint` spawns rauthy in a PTY at `omprint` PORT + 199.
-- `omprint` configures rauthy via environment variables passed to the
-  subprocess (rauthy's config surface is mapped from `omprint`'s own config).
+- On startup, `ofm` spawns rauthy in a PTY at `ofm` PORT + 199.
+- `ofm` configures rauthy via environment variables passed to the
+  subprocess (rauthy's config surface is mapped from `ofm`'s own config).
 - An axum reverse proxy at `/auth` forwards requests to the rauthy port.
-- Health check: `GET /auth/health` must return 200 before `omprint` marks
+- Health check: `GET /auth/health` must return 200 before `ofm` marks
   itself ready.
-- On shutdown, `omprint` sends SIGTERM to the rauthy PTY and waits for it to
+- On shutdown, `ofm` sends SIGTERM to the rauthy PTY and waits for it to
   exit.
-- Crash recovery: if rauthy dies, `omprint` restarts it with exponential
+- Crash recovery: if rauthy dies, `ofm` restarts it with exponential
   backoff (1s, 2s, 4s, ... up to a configurable max interval).
 
 ### Initial admin bootstrap
@@ -160,14 +160,14 @@ When no `OIDC_ISSUER_URL` is provided (or `RAUTHY_ENABLED=true` is set),
 If rauthy has no users (first run), the admin credentials from config (or
 auto-generated ones) are used:
 
-1. `omprint` creates the initial admin user in rauthy via its admin API.
-2. `omprint`'s setup UI shows the admin credentials **once** (like the
+1. `ofm` creates the initial admin user in rauthy via its admin API.
+2. `ofm`'s setup UI shows the admin credentials **once** (like the
    reference's first-user `needsSetup` flow). The password is never stored or
    displayed again.
 3. The admin logs into rauthy through the `/auth` proxy, then is redirected
-   back to `omprint`'s OAuth callback, where a local user record is created
+   back to `ofm`'s OAuth callback, where a local user record is created
    with `is_admin = 1`.
-4. The admin can then create additional users through `omprint`'s admin panel,
+4. The admin can then create additional users through `ofm`'s admin panel,
    which maps to rauthy's user management API. Additional users complete the
    OAuth login flow on first access.
 
@@ -247,7 +247,7 @@ See the reference implementation: `reference/server/services/userApiKey.ts`
 (`generateApiKey`, `findUserByApiKey`, `isApiKeyFormat`, `getApiKeyStatus`,
 `revokeApiKey`) and `reference/server/routes/account.ts`.
 
-**FIXME:** Replace references above with links to the `omprint` Rust
+**FIXME:** Replace references above with links to the `ofm` Rust
 implementation once it exists.
 
 ## The auth middleware — JWKS-based token verification

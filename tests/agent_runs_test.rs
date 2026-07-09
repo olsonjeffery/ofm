@@ -1,8 +1,9 @@
-use omprint::auth::AuthLayer;
-use omprint::db;
-use omprint::providers::LlmProvider;
-use omprint::server;
-use omprint::server::state::AppState;
+use ofm::auth::AuthLayer;
+use ofm::db;
+use ofm::providers::LlmProvider;
+use ofm::server;
+use ofm::server::state::AppState;
+use ofm::server::ws::bus::BroadcastBus;
 
 use std::collections::HashMap;
 use std::sync::Arc;
@@ -37,7 +38,7 @@ async fn setup_app() -> TestApp {
     db::run_migrations(&client).await.unwrap();
     let user_id = db::ensure_default_user(&client).await.unwrap();
 
-    let project_id = omprint::services::projects::create_project(
+    let project_id = ofm::services::projects::create_project(
         &client,
         &user_id,
         "test-project",
@@ -67,6 +68,7 @@ async fn setup_app() -> TestApp {
         pkce_store: Arc::new(Mutex::new(HashMap::new())),
         cookie_key: cookie::Key::generate(),
         api_key_pepper: b"test_pepper".to_vec(),
+        ws_bus: BroadcastBus::new(),
     };
 
     let app = server::router(state, auth_layer);
@@ -245,7 +247,7 @@ async fn test_list_agent_runs() {
 
         let body: serde_json::Value = resp.json().await.unwrap();
         let run_id = Uuid::parse_str(body["id"].as_str().unwrap()).unwrap();
-        omprint::services::tasks::mark_agent_run_failed(&app.db, &run_id)
+        ofm::services::tasks::mark_agent_run_failed(&app.db, &run_id)
             .await
             .unwrap();
     }

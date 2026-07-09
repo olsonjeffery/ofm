@@ -84,7 +84,7 @@ mod tests {
     #[test]
     fn test_completion_script_is_rust_cli() {
         let prompt = build_pull_request_prompt("", &PullRequestStatus::NoPr);
-        assert!(prompt.contains("omprint agent complete-pr"));
+        assert!(prompt.contains("ofm agent complete-pr"));
         assert!(!prompt.contains("tsx"));
     }
 

@@ -1,3 +1,5 @@
+#[cfg(unix)]
+use std::os::unix::fs::PermissionsExt;
 use std::process::Stdio;
 use std::time::Duration;
 
@@ -5,14 +7,14 @@ use tokio::io::AsyncBufReadExt;
 use tokio::process::{Child, Command};
 
 const RAUTHY_IMAGE: &str = "ghcr.io/sebadob/rauthy:latest";
-const CONTAINER_NAME: &str = "omprint-rauthy";
+const CONTAINER_NAME: &str = "ofm-rauthy";
 const HEALTH_POLL_INTERVAL: Duration = Duration::from_millis(500);
 const HEALTH_TIMEOUT: Duration = Duration::from_secs(120);
 
 type BoxError = Box<dyn std::error::Error>;
 
 pub struct RauthyInstance {
-    pub port: u16,
+    port: u16,
     child: Option<Child>,
 }
 
@@ -60,12 +62,16 @@ pub async fn start_rauthy(
 
     let data_dir = format!("{}/rauthy/data", footprint);
     std::fs::create_dir_all(&data_dir)?;
+    // Rauthy runs as UID 10001:10001 inside the container. Ensure the mounted
+    // data volume is writable by that user without requiring root on the host.
+    #[cfg(unix)]
+    std::fs::set_permissions(&data_dir, std::fs::Permissions::from_mode(0o777))?;
 
     let bootstrap_dir = format!("{}/rauthy/bootstrap", footprint);
     std::fs::create_dir_all(&bootstrap_dir)?;
     let client_config = serde_json::json!([{
-        "id": "omprint",
-        "name": "Omprint",
+        "id": "ofm",
+        "name": "Ofm",
         "enabled": true,
         "redirect_uris": [
             format!("http://127.0.0.1:{}/*", proxy_port),
@@ -90,7 +96,7 @@ pub async fn start_rauthy(
 
     let mut cmd = Command::new("docker");
     cmd.args(["run", "--rm", "--name", CONTAINER_NAME]);
-    cmd.args(["-u", "0:0"]);
+
     cmd.arg("-v");
     cmd.arg(format!("{}:/app/data", data_dir));
     cmd.arg("-v");

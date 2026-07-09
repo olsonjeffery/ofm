@@ -6,10 +6,10 @@ resolver = "2"
 version = "0.1.0"
 edition = "2021"
 license = "AGPL-3.0-only"
-repository = "https://github.com/anomalyco/omprint"
+repository = "https://github.com/olsonjeffery/ofm"
 
 [package]
-name = "omprint"
+name = "ofm"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
@@ -17,7 +17,8 @@ repository.workspace = true
 
 [dependencies]
 tokio = { version = "1", features = ["full"] }
-axum = { version = "0.8", features = ["macros"] }
+futures-util = "0.3"
+axum = { version = "0.8", features = ["macros", "ws"] }
 hiqlite = { version = "0.13", default-features = false, features = [
   "auto-heal",
   "sqlite",

@@ -29,8 +29,8 @@ mod tests {
     #[test]
     fn test_no_completion_script() {
         let prompt = build_implementation_prompt("");
-        assert!(!prompt.contains("omprint agent complete-"));
-        assert!(!prompt.contains("omprint agent block-"));
+        assert!(!prompt.contains("ofm agent complete-"));
+        assert!(!prompt.contains("ofm agent block-"));
     }
 
     #[test]

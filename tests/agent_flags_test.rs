@@ -1,8 +1,9 @@
-use omprint::auth::AuthLayer;
-use omprint::db;
-use omprint::providers::LlmProvider;
-use omprint::server;
-use omprint::server::state::AppState;
+use ofm::auth::AuthLayer;
+use ofm::db;
+use ofm::providers::LlmProvider;
+use ofm::server;
+use ofm::server::state::AppState;
+use ofm::server::ws::bus::BroadcastBus;
 
 use hiqlite::Client;
 use std::collections::HashMap;
@@ -38,7 +39,7 @@ async fn setup_app() -> TestApp {
     db::run_migrations(&client).await.unwrap();
     let user_id = db::ensure_default_user(&client).await.unwrap();
 
-    let project_id = omprint::services::projects::create_project(
+    let project_id = ofm::services::projects::create_project(
         &client,
         &user_id,
         "test-project",
@@ -50,7 +51,7 @@ async fn setup_app() -> TestApp {
     .id;
 
     let task_id = Uuid::new_v4();
-    omprint::services::tasks::create_task(
+    ofm::services::tasks::create_task(
         &client,
         &task_id,
         &project_id,
@@ -80,6 +81,7 @@ async fn setup_app() -> TestApp {
         pkce_store: Arc::new(Mutex::new(HashMap::new())),
         cookie_key: cookie::Key::generate(),
         api_key_pepper: b"test_pepper".to_vec(),
+        ws_bus: BroadcastBus::new(),
     };
 
     let app = server::router(state, auth_layer);
@@ -110,9 +112,7 @@ async fn assert_task_flags(
     blocked: bool,
     pr: bool,
 ) {
-    let task = omprint::services::tasks::get_task(db, task_id)
-        .await
-        .unwrap();
+    let task = ofm::services::tasks::get_task(db, task_id).await.unwrap();
     assert_eq!(task.planification_complete, plan, "planification_complete");
     assert_eq!(task.workflow_complete, workflow, "workflow_complete");
     assert_eq!(task.workflow_blocked, blocked, "workflow_blocked");
@@ -246,16 +246,12 @@ async fn test_cli_complete_plan_exits_zero_and_flips_flag() {
 
     let binary = std::env::current_exe()
         .ok()
-        .and_then(|p| {
-            p.parent()
-                .and_then(|p| p.parent())
-                .map(|p| p.join("omprint"))
-        })
-        .expect("could not locate omprint binary");
+        .and_then(|p| p.parent().and_then(|p| p.parent()).map(|p| p.join("ofm")))
+        .expect("could not locate ofm binary");
 
     let output = tokio::process::Command::new(&binary)
         .args(["agent", "complete-plan", &task_id])
-        .env("OMPRINT_URL", &app.addr)
+        .env("OFM_URL", &app.addr)
         .output()
         .await
         .unwrap();
@@ -275,12 +271,8 @@ async fn test_cli_all_commands_exit_zero() {
 
     let binary = std::env::current_exe()
         .ok()
-        .and_then(|p| {
-            p.parent()
-                .and_then(|p| p.parent())
-                .map(|p| p.join("omprint"))
-        })
-        .expect("could not locate omprint binary");
+        .and_then(|p| p.parent().and_then(|p| p.parent()).map(|p| p.join("ofm")))
+        .expect("could not locate ofm binary");
 
     for (action, plan, workflow, blocked, pr) in &[
         ("complete-plan", true, false, false, false),
@@ -290,7 +282,7 @@ async fn test_cli_all_commands_exit_zero() {
     ] {
         let output = tokio::process::Command::new(&binary)
             .args(["agent", action, &task_id])
-            .env("OMPRINT_URL", &app.addr)
+            .env("OFM_URL", &app.addr)
             .output()
             .await
             .unwrap();

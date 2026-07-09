@@ -39,8 +39,8 @@ mod tests {
     #[test]
     fn test_completion_scripts_are_rust_cli() {
         let prompt = build_review_prompt("");
-        assert!(prompt.contains("omprint agent complete-workflow"));
-        assert!(prompt.contains("omprint agent block-workflow"));
+        assert!(prompt.contains("ofm agent complete-workflow"));
+        assert!(prompt.contains("ofm agent block-workflow"));
         assert!(!prompt.contains("tsx"));
     }
 

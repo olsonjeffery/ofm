@@ -45,7 +45,7 @@ gh pr view --json mergeStateStatus,mergeable --jq '{ mergeStateStatus, mergeable
 **If mergeable is "MERGEABLE" (no conflicts):**
 Run the completion script:
 ```bash
-omprint agent complete-pr {{taskId}}
+ofm agent complete-pr {{taskId}}
 ```
 
 **If mergeable is "CONFLICTING" (has conflicts):**

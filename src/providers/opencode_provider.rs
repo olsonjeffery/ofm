@@ -478,7 +478,7 @@ impl LlmProvider for OpenCodeProvider {
             .http_client
             .post(format!("{base_url}/session"))
             .header("Authorization", format!("Bearer {password}"))
-            .json(&serde_json::json!({"title": "omprint session"}))
+            .json(&serde_json::json!({"title": "ofm session"}))
             .send()
             .await?;
         if !session_resp.status().is_success() {
