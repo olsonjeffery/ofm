@@ -6,9 +6,10 @@
 > substitute for `snake_case` as appropriate; `PascalCase` is used for `trait`s,
 > `struct`s, `enum`s, etc.
 > 
-> **Implementation status:** This spec module is not yet implemented in the Rust
-> codebase. Citations into `reference/` are retained as guidance; they will be
-> replaced with Rust equivalents when implementation begins.
+> **Implementation status:** This spec module is **partially implemented** in the
+> Rust codebase. The PR prompt builder exists at `src/agents/pull_request.rs`.
+> Full PR agent lifecycle (CI monitoring, conflict resolution, merge handling)
+> is not yet wired. `reference/` citations are retained for those parts.
 
 The terminal agent. It takes the verified work sitting in the task's worktree
 and gets it to a green, mergeable pull request — opening the PR, driving CI to

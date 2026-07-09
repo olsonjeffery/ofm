@@ -1,5 +1,15 @@
 # Extra — The refinement agent
 
+> **⚠️`ofm` ONLY ⚠️:** Rust convention requires functions and `let` bindings
+> use `snake_case` as a naming convention. In all places where `camelCase`
+> occurs (in citations from the legacy typescript `reference/` implementation),
+> substitute for `snake_case` as appropriate; `PascalCase` is used for `trait`s,
+> `struct`s, `enum`s, etc.
+> 
+> **Implementation status:** This extra is **not yet implemented** in the Rust
+> codebase. All citations into `reference/` are retained as guidance; they will
+> be replaced with `src/` equivalents when implementation begins.
+
 ## What it adds
 
 A single optional polish pass that runs **after review approves the work and
