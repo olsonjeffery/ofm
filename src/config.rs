@@ -131,7 +131,7 @@ impl OfmConfig {
                 .map(|base| format!("{}/api/auth/callback", base.trim_end_matches('/')))
         });
         let url =
-            std::env::var("OFM_URL").unwrap_or_else(|_| format!("http://{}:{}", &hostname, &port));
+            std::env::var("OFM_URL").unwrap_or_else(|_| format!("http://{}:{}", hostname, port));
         Self {
             hostname,
             port,
