@@ -1,5 +1,6 @@
 use std::path::Path as StdPath;
 
+use crate::auth::AuthUser;
 use crate::db::schema::Project;
 use crate::server::error::ServerError;
 use crate::server::state::AppState;
@@ -37,6 +38,7 @@ pub fn projects_router() -> Router<AppState> {
 }
 
 async fn create_project(
+    auth: AuthUser,
     State(state): State<AppState>,
     Json(body): Json<CreateProjectRequest>,
 ) -> Result<(StatusCode, Json<Project>), ServerError> {
@@ -57,7 +59,7 @@ async fn create_project(
     }
     let project = services::projects::create_project(
         &state.db,
-        &state.default_user_id,
+        &auth.user_id,
         body.name.trim(),
         body.repo_folder_path.trim(),
         body.subproject_path
@@ -76,8 +78,11 @@ async fn create_project(
     Ok((StatusCode::CREATED, Json(project)))
 }
 
-async fn list_projects(State(state): State<AppState>) -> Result<Json<Vec<Project>>, ServerError> {
-    let projects = services::projects::list_projects(&state.db, &state.default_user_id)
+async fn list_projects(
+    auth: AuthUser,
+    State(state): State<AppState>,
+) -> Result<Json<Vec<Project>>, ServerError> {
+    let projects = services::projects::list_projects(&state.db, &auth.user_id)
         .await
         .map_err(|e| ServerError::Internal(e.to_string()))?;
     Ok(Json(projects))

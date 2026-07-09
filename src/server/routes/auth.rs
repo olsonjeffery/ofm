@@ -125,8 +125,7 @@ async fn logout(
                         urlencoding(&post_logout_uri),
                     );
                     if let Some(ref token) = id_token {
-                        use std::fmt::Write;
-                        let _ = write!(url, "&id_token_hint={}", urlencoding(token));
+                        url.push_str(&format!("&id_token_hint={}", urlencoding(token)));
                     }
                     end_session_url = Some(url);
                 }

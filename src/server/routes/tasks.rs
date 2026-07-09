@@ -1,4 +1,5 @@
 use crate::archive;
+use crate::auth::AuthUser;
 use crate::db::schema::Task;
 use crate::server::error::ServerError;
 use crate::server::state::AppState;
@@ -54,6 +55,7 @@ pub fn tasks_router() -> Router<AppState> {
 }
 
 async fn create_task(
+    auth: AuthUser,
     State(state): State<AppState>,
     Json(body): Json<CreateTaskRequest>,
 ) -> Result<(axum::http::StatusCode, Json<Task>), ServerError> {
@@ -86,7 +88,7 @@ async fn create_task(
         &state.db,
         &task_id,
         &body.project_id,
-        &state.default_user_id,
+        &auth.user_id,
         body.title.trim(),
         &status,
     )

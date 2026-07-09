@@ -76,5 +76,11 @@ leptos_styling = { version = "0.3", features = ["ssr"] }
 bytes = "1"
 http-body-util = "0.1"
 
+# Markdown rendering (server-side)
+pulldown-cmark = "0.13"
+
+# HTML sanitization for rendered markdown
+ammonia = "4"
+
 [features]
 ssr = ["leptos/ssr", "leptos_styling/ssr"]

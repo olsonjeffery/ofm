@@ -7,7 +7,7 @@ use axum::http::{header, Request, StatusCode};
 use axum::response::{IntoResponse, Response};
 use cookie::Key;
 use tower::{Layer, Service};
-use tracing::warn;
+use tracing::{debug, warn};
 use uuid::Uuid;
 
 use crate::auth::AuthUser;
@@ -191,10 +191,7 @@ fn extract_session_from_cookies(headers: &axum::http::HeaderMap, key: &Key) -> O
     let session_cookie = match private.get("omprint_session") {
         Some(c) => c,
         None => {
-            warn!("extract_session_from_cookies: failed to decrypt omprint_session cookie");
-            for c in jar.iter() {
-                warn!("  cookie present: name={}", c.name());
-            }
+            debug!("extract_session_from_cookies: failed to decrypt omprint_session cookie");
             return None;
         }
     };

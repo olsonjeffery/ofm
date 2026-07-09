@@ -176,7 +176,7 @@ The following input files are available in `{}`:
 
 When running Playwright MCP tests, start the project's dev server on port {port}:
 1. Check project files (README, package.json, Procfile) for the start command
-2. Start server with your assigned port (e.g., `PORT={port} bin/dev` or `npm run dev -- --port {port}`)
+2. Start server with your assigned port (e.g., `OMPRINT_PORT={port} cargo run` or `OMPRINT_PORT={port} bin/dev`)
 3. Run Playwright tests against `http://localhost:{port}`
 4. Stop the server when testing is complete: `lsof -ti:{port} | xargs kill -9 2>/dev/null || true`
 

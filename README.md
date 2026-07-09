@@ -125,6 +125,9 @@ cargo build
 cargo run
 ```
 
+The server listens on the port specified by `OMPRINT_PORT` (default `3183`).
+Set `OMPRINT_FOOTPRINT` to control the data directory (default `~/.omprint`).
+
 On first run, this will:
 1. Create a `data/` directory for the embedded database
 2. Apply all pending migrations to initialize the schema

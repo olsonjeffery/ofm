@@ -208,6 +208,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 client.clone(),
                 api_key_pepper.clone(),
                 cookie_key.clone(),
+                default_user_id,
             );
             let oidc_endpoints = server::state::OidcEndpoints {
                 authorization_endpoint,
@@ -230,6 +231,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             client.clone(),
             api_key_pepper.clone(),
             cookie_key.clone(),
+            default_user_id,
         )
         .await
         .unwrap_or_else(|e| {
