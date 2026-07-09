@@ -92,8 +92,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             addr_api: format!("127.0.0.1:{}", cfg.hiqlite_api_port),
         }],
         data_dir: cfg.data_dir.clone().into(),
-        secret_raft: std::env::var("OFM_RAFT_SECRET").unwrap_or_else(|_| "ofm-raft-secret".into()),
-        secret_api: std::env::var("OFM_API_SECRET").unwrap_or_else(|_| "ofm-api-secret".into()),
+        secret_raft: std::env::var("OFM_RAFT_SECRET")
+            .unwrap_or_else(|_| "ofm-raft-secret-0123456".into()),
+        secret_api: std::env::var("OFM_API_SECRET")
+            .unwrap_or_else(|_| "ofm-api-secret-0123456".into()),
         ..Default::default()
     };
 
