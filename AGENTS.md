@@ -35,7 +35,7 @@ All env vars use the `OMPRINT_` prefix. Key ones:
 
 ## Playwright CLI Setup (one-time, per user)
 
-For end-to-end browser testing with Playwright MCP:
+For end-to-end browser testing with Playwright (no MCP, just CLI that is agent-friendly):
 
 ```bash
 # 1. Install the CLI tool globally (idempotent — npm will skip if already present)
@@ -44,10 +44,7 @@ npm install -g @playwright/cli@latest
 # 2. Verify the binary is on PATH
 which playwright-cli
 
-# 3. Verify the binary is on PATH
-which playwright-cli
-
-# 4. Install Chromium browser (idempotent — ignores if already installed)
+# 3. Install Chromium browser (idempotent — ignores if already installed)
 npx playwright install chromium
 ```
 
@@ -68,9 +65,11 @@ playwright-cli snapshot
 playwright-cli close
 ```
 
-## Rauthy — Local OIDC for Isolated Testing
+Use `playwright-cli --help` to explore the CLI's capabilities
 
-The project includes built-in rauthy lifecycle management (spawn/proxy/cleanup).
+## `omprint` + Rauthy for isolated, local testing
+
+The project includes built-in rauthy lifecycle management (spawn/cleanup).
 To start an isolated server for end-to-end testing:
 
 ```bash
