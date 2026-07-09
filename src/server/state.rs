@@ -8,7 +8,6 @@ use tokio::sync::{Mutex, RwLock};
 use uuid::Uuid;
 
 use crate::auth::jwks::JwksCache;
-use crate::omp::OmpSession;
 use crate::providers::LlmProvider;
 use crate::server::ws::bus::BroadcastBus;
 
@@ -20,7 +19,6 @@ pub struct AppState {
     pub default_user_id: Uuid,
     pub archive_root: String,
     pub config_root: String,
-    pub omp_sessions: Arc<Mutex<HashMap<String, OmpSession>>>,
     pub active_sessions: Arc<Mutex<HashMap<String, Box<dyn LlmProvider>>>>,
     pub oidc_provider: Option<OidcEndpoints>,
     pub pkce_store: Arc<Mutex<HashMap<String, PkceEntry>>>,

@@ -29,7 +29,7 @@ mod tests {
     use super::*;
     use crate::db;
     use crate::db::schema::{AgentType, Task};
-    use crate::omp::session;
+    use crate::services::session;
     use tempfile::TempDir;
 
     async fn make_client() -> (hiqlite::Client, Uuid, TempDir) {

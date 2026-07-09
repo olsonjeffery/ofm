@@ -1,4 +1,4 @@
-# omp-specific implementation patterns
+# oh-my-pi-specific implementation patterns
 
 > **⚠️`ofm` ONLY ⚠️:** Rust convention requires functions and `let` bindings
 > use `snake_case` as a naming convention; In all places where `camelCase`
@@ -8,37 +8,25 @@
 
 ## What it is
 
-Pure plumbing behind the core [`omp-integration.md`](../../core/omp-integration.md)
-spec. This file describes how `ofm` actually implements the integration with
-`omp` over `STDIO` via `portable-pty`: subprocess lifecycle, event mapping from
-`omp`'s RPC protocol to `ofm`'s internal message types, transcript mirroring
+This file describes how `ofm` actually implements the integration with
+`oh-my-pi` over `STDIO` via `portable-pty`: subprocess lifecycle, event mapping from
+`oh-my-pi`'s RPC protocol to `ofm`'s internal message types, transcript mirroring
 into `hiqlite`, credential delegation, and capabilities.
-
-The core spec defines *what* the integration does; this file defines *how*.
 
 ## Subprocess lifecycle
 
 ### Spawning
 
-`ofm` uses [`portable-pty`][0] to create a pseudoterminal, fork `omp --mode rpc`,
-and obtain:
+`ofm` uses [`portable-pty`][0] to create a pseudoterminal, fork `omp --mode rpc`
+(see `src/providers/oh_my_pi/mod.rs` → `spawn_oh_my_pi`), and obtain:
 
 - `pid` — the subprocess process id (for audit and abort)
 - `STDIN` writer — to send RPC messages
 - `STDOUT` reader — to receive RPC events
 
-```rust
-let pair = PortablePty::create()?;
-let mut child = pair.fork()?;
-child.exec("omp", &["--mode", "rpc"])?;
-let pid = child.pid();
-let stdin = child.take_stdin()?;
-let stdout = child.take_stdout()?;
-```
-
 ### Per-turn lifecycle
 
-Each agent turn gets a **fresh `omp` subprocess**. The subprocess:
+Each agent turn gets a **fresh `oh-my-pi` subprocess** (spawning `omp --mode rpc`). The subprocess:
 
 1. Is spawned at turn start
 2. Receives the turn input (start/resume message) via `STDIN`
@@ -69,13 +57,13 @@ fn abort(pid: u32) {
 
 When a turn ends normally:
 
-- The `omp` subprocess exits on its own
+- The `oh-my-pi` subprocess exits on its own
 - `ofm` closes its `STDIN` writer and `STDOUT` reader
 - The pty handle is dropped, releasing system resources
 
 ## Event mapping
 
-`omp`'s native RPC events (JSON-lines on `STDOUT`) map directly to `ofm`'s
+`oh-my-pi`'s native RPC events (JSON-lines on `STDOUT`) map directly to `ofm`'s
 internal message types. There is no normalization across providers — these are
 the types `ofm` uses:
 
@@ -94,7 +82,7 @@ the types `ofm` uses:
 
 ### RPC event to internal type mapping
 
-| `omp` RPC event | Internal type | Notes |
+| `oh-my-pi` RPC event | Internal type | Notes |
 |---|---|---|
 | `session_start` | (internal, not persisted) | Captured for session management |
 | `text` | `assistant` | Full assistant text turn |
@@ -104,13 +92,13 @@ the types `ofm` uses:
 | `thinking` | `assistant_thinking` | Full thinking turn |
 | `thinking_chunk` | `stream_delta` | Streaming thinking start with subtype |
 | `context_usage` | (event broadcast, not persisted) | Fed to the context usage tracker |
-| `error` | `system` (subtype: `'error'`) | Error messages from `omp` |
+| `error` | `system` (subtype: `'error'`) | Error messages from `oh-my-pi` |
 | `done` | `result` | Terminal event; carries `model_usage` |
 
 ### Sequencing and IDs
 
 - Each event receives a monotonic `seq` per `(project_key, session_id)`
-- IDs are derived from `omp`'s event IDs when present, or synthesized
+- IDs are derived from `oh-my-pi`'s event IDs when present, or synthesized
   deterministically otherwise
 - The `provider_session_id` is stamped on every message from the `session_start`
   event
@@ -123,18 +111,17 @@ unparseable event never crashes the turn.
 
 ## Transcript mirroring
 
-`omp` events are **mirrored** into `hiqlite` as they stream. This is the
-explicit-mirror pattern — `omp` has no built-in session store hook, so
+Events are **mirrored** into `hiqlite` as they stream. This is the
+explicit-mirror pattern — `oh-my-pi` has no built-in session store hook, so
 `ofm` writes each event to the database itself.
 
 ### Write-through
 
 ```
 on each parsed event:
-  1. assign uuid (use omp's event_id if present, else synthesize)
-  2. assign monotonic seq for (project_key, session_id)
-  3. upsert into messages table on uuid
-  4. if first event: persist session_id on conversation row
+  1. assign monotonic seq for (project_key, session_id)
+  2. insert into messages table
+  3. if first event: persist session_id on conversation row
 ```
 
 ### Idempotency
@@ -149,74 +136,63 @@ pair. This ensures events are always in order regardless of write timing.
 
 ### `load_transcript`
 
-```rust
-fn load_transcript(project_key: &str, session_id: &str)
-    -> Vec<OmpRpcEvent>
-{
-    // SELECT * FROM messages
-    // WHERE project_key = $1 AND session_id = $2
-    // ORDER BY seq ASC
-}
-```
-
 Reads back from `hiqlite` for history display and resume context assembly.
+See `src/services/transcript.rs`.
 
 ## Credential delegation
 
 `ofm` does **not** store provider credentials. All credential management
-delegates to `omp`'s existing infrastructure:
+delegates to `oh-my-pi`'s existing infrastructure:
 
 - **API keys** are stored in `models.yml` entries, managed by the user through
-  `omp`'s configuration tooling or `ofm`'s settings UI (the `models.yml`
+  `oh-my-pi`'s configuration tooling or `ofm`'s settings UI (the `models.yml`
   textarea).
 - **Environment variables** for provider auth (e.g., `ANTHROPIC_API_KEY`,
-  `OPENAI_API_KEY`) are set in `omp`'s environment, not in `ofm`'s.
+  `OPENAI_API_KEY`) are set in `oh-my-pi`'s environment, not in `ofm`'s.
 - `ofm`'s role is limited to:
   1. Storing the user's `models.yml` content (as raw YAML text)
   2. Passing it to `omp` on spawn via `OMP_MODELS_YML` env var
-  3. Letting `omp` handle all credential resolution
+  3. Letting `oh-my-pi` handle all credential resolution
 
 There is no `ProviderCredentialStore`, no credential registry, and no per-provider
 auth flow in `ofm`.
 
 ## Capabilities
 
-`omp` supports the following capabilities. Since `ofm` is `omp`-only, these
-are **compile-time constants**, not a runtime matrix:
+`oh-my-pi` supports the following capabilities:
 
 | Capability | Value | Notes |
 |---|---|---|
-| `supports_ask_user_question` | `true` | `omp` supports asking the user for clarification |
+| `supports_ask_user_question` | `true` | `oh-my-pi` supports asking the user for clarification |
 | `supports_thinking_delta` | `true` | Streaming thinking/reasoning deltas |
 | `supports_context_usage_breakdown` | `true` | Per-category context usage reporting |
 | `supports_mcp_servers` | `true` | MCP server integration |
 | `supports_images` | `true` | Image attachments in messages |
 
-Verify these against [`omp` documentation][1] for the current state.
+Verify these against [`oh-my-pi` documentation][1] for the current state.
 
-> **NOTE regarding `ask` in RPC mode:** `omp`'s `ask` tool is tightly coupled to the TUI and is unavailable in RPC mode; we need to build an ask tool and inject it into `omp` on startup (we will probably need to build several tools for custom/tight-integration)
+> **NOTE regarding `ask` in RPC mode:** `oh-my-pi`'s `ask` tool is tightly coupled to the TUI and is unavailable in RPC mode; we need to build an ask tool and inject it into `oh-my-pi` on startup (we will probably need to build several tools for custom/tight-integration)
 
 ## What to build
 
-- [x] `portable-pty` subprocess spawning for `omp --mode rpc` with `pid`, `STDIN`
-      writer, `STDOUT` reader → `src/omp/mod.rs` (`spawn_omp`)
+- [x] `portable-pty` subprocess spawning for `oh-my-pi` (`omp --mode rpc`) with `pid`, `STDIN`
+      writer, `STDOUT` reader → `src/providers/oh_my_pi/mod.rs` (`spawn_oh_my_pi`)
 - [x] Per-turn subprocess lifecycle (fresh subprocess per turn, cleanup on end)
-      → `src/omp/mod.rs` (`OmpSession::start_turn`, `OmpSession::resume_turn`,
+      → `src/providers/oh_my_pi/mod.rs` (`OhMyPiSession::start_turn`, `OhMyPiSession::resume_turn`,
       `Drop` impl kills child)
 - [x] Abort: `SIGKILL` + synchronous `failed` write on agent run
-      → `src/omp/session.rs` (`abort_session`), `src/omp/mod.rs` (`Drop` impl)
-- [x] Event parser: JSON-lines decoder mapping `omp` RPC events to internal
-      message types with the table above → `src/omp/protocol.rs` + `spawn_reader`
+      → `src/services/session.rs` (`abort_session`), `src/providers/oh_my_pi/mod.rs` (`Drop` impl)
+- [x] Event parser: JSON-lines decoder mapping `oh-my-pi` RPC events to internal
+      message types with the table above → `src/providers/types.rs` + `spawn_reader`
+      in `src/providers/oh_my_pi/mod.rs`
 - [x] Error recovery for unparseable events (emit warning, continue)
-      → `src/omp/mod.rs` (`spawn_reader` handles parse errors gracefully)
+      → `src/providers/oh_my_pi/mod.rs` (`spawn_reader` handles parse errors gracefully)
 - [x] Transcript mirror: write-through to `hiqlite` `messages` table, monotonic
-      `seq` → `src/omp/transcript.rs` (`persist_event`)
+      `seq` → `src/services/transcript.rs` (`persist_event`)
 - [x] `load_transcript`: read from `hiqlite` ordered by `seq`
-      → `src/omp/transcript.rs`
+      → `src/services/transcript.rs`
 - [x] `OMP_MODELS_YML` env var injection on subprocess spawn
-      → `src/omp/mod.rs` (`spawn_omp` passes env_vars via `cmd.env`)
-- [x] Compile-time capability constants matching the table above
-      → (hardcoded in this spec; no runtime matrix needed)
+      → `src/providers/oh_my_pi/mod.rs` (`spawn_oh_my_pi` passes env_vars via `cmd.env`)
 
 See also the sibling [opencode.md](./opencode.md) harness spec for the OpenCode
 provider, which uses HTTP+SSE instead of `portable-pty`.
@@ -225,18 +201,15 @@ provider, which uses HTTP+SSE instead of `portable-pty`.
 
 | Concern | Rust (implemented) | Legacy reference |
 |---|---|---|---|
-| Subprocess spawn + lifecycle | `src/omp/mod.rs` | `reference/server/services/providers/anthropic/index.ts` |
-| Event parsing + reader loop | `src/omp/mod.rs`, `src/omp/protocol.rs` | (pattern: `mapMessage.ts`) |
-| Transcript mirror | `src/omp/transcript.rs` | (pattern: `messageMirror.ts`) |
-| Session store | `src/omp/session.rs` | (pattern: `sqliteSessionStore.ts`) |
-| `omp` RPC docs | — | [https://omp.sh/docs](https://omp.sh/docs) |
+| Subprocess spawn + lifecycle | `src/providers/oh_my_pi/mod.rs` | `reference/server/services/providers/anthropic/index.ts` |
+| Event parsing + reader loop | `src/providers/oh_my_pi/mod.rs`, `src/providers/types.rs` | (pattern: `mapMessage.ts`) |
+| Transcript mirror | `src/services/transcript.rs` | (pattern: `messageMirror.ts`) |
+| Session store | `src/services/session.rs` | (pattern: `sqliteSessionStore.ts`) |
+| `oh-my-pi` RPC docs | — | [https://omp.sh/docs](https://omp.sh/docs) |
 | `models.yml` format | — | [https://omp.sh/docs/custom-models](https://omp.sh/docs/custom-models) |
 
 ## Boundaries (not in this spec)
 
-- The core integration contract — subprocess spawning, RPC protocol, streaming
-  runtime, transcript persistence, session management, and `models.yml`
-  passthrough → [`../../core/omp-integration.md`](../../core/omp-integration.md).
 - The orchestration loop that drives turns →
   [`../../core/orchestration-loop.md`](../../core/orchestration-loop.md).
 - Which model an agent uses and how per-user settings are resolved →

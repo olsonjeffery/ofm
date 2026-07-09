@@ -31,7 +31,7 @@ complete, working implementation will be created in the enclosing repository, as
 the `ofm` application. A typescript `reference/` application is kept in
 this directory, for reference during the implementation of [`ofm`][1]. The
 Rust codebase's foundational layer (DB schema, CRUD API, worktree management,
-OMP subprocess integration, task archive, orchestration state machine,
+oh-my-pi subprocess integration (via `portable-pty`), OpenCode provider integration (via HTTP+SSE), task archive, orchestration state machine,
 agent prompt builders) is now implemented at `src/`. The orchestration loop
 completion handler, state machine transitions, and agent prompt builders for
 planning, implementation, review, and PR are implemented. The full
@@ -53,9 +53,10 @@ All new code in the `ofm` workspace will be in the Rust programming language.
 `ofm` is a single binary application that:
 
 - Serves a web application implementing the client experience in this spec
-- Owns one or more `oh-my-pi`/`omp` subprocesses, whose input/output and lifecycle
-it drives via RPC over `STDIO`
-- A system for driving the `omp` subprocesses, and integrating their input/output
+- Owns one or more coding-harness subprocesses: `oh-my-pi` (via `portable-pty` RPC over `STDIO`)
+  and/or OpenCode (via HTTP+SSE), whose input/output and lifecycle
+it drives
+- A system for driving the harness subprocesses, and integrating their input/output
 into the `ofm` state
 - Hosts an embedded database ([`hiqlite`][3]) with built-in [High availability][8] features
 
@@ -69,7 +70,7 @@ Key `ofm` stack/architectural choices:
   - spawns background workers through `tokio` to own *PTY* sessions
 - `rustls` + `aws-lc-rs` [crate features][9] are used wherever relevant (tools
 doing IO requiring SSL); the goal is to completely eschew any system OpenSSL
-dependency (**NOTE:** this does not apply to `omp` itself)
+dependency (**NOTE:** this does not apply to `oh-my-pi` itself)
 - [`leptos`][11], with SSR, as the web application framework
   - Provides the client [OAUTH Authorization Code Flow + PKCE][5]
   - The user onboarding & configuration experience is managed here
@@ -81,8 +82,8 @@ dependency (**NOTE:** this does not apply to `omp` itself)
   - If configured, a `pty` will be created on startup to manage a
   [rauthy][7] instance
   - Usages of `git` happen via `pty` sub-processes
-  - Spawn instances of `omp` during the loop and manage their lifecycle
-- Determine if `omp`'s git/github support is sufficient to replace the
+  - Spawn instances of the coding harnesses (`oh-my-pi`, OpenCode) during the loop
+- Determine if the built-in git/github support is sufficient to replace the
 `bottega` dependency on the `gh` cli tool
 
 ## Details on the `ofm` server implementation
@@ -124,11 +125,11 @@ Point a coding agent at this file and say "build this." Then:
    smallest. The core docs are written as **behavior** — what the tool does and
    why — with technical guidance and pointers into `reference/` (and increasingly `src/`)
    for the parts that were genuinely hard to get right. Direct Rust implementations
-   exist in `src/omp/mod.rs` (PTY subprocess lifecycle), `src/worktree/mod.rs`
+    exist in `src/providers/oh_my_pi/mod.rs` (PTY subprocess lifecycle), `src/worktree/mod.rs`
    (worktree create/remove/status), `src/archive/mod.rs` (task doc I/O, archive
    cleanup, context prompt assembly), `src/orchestration/` (state machine,
    completion handler, guards, recovery), `src/providers/` (LlmProvider trait,
-   OmpProvider, OpenCodeProvider, config resolution, registry), and
+    OhMyPiProvider, OpenCodeProvider, config resolution, registry), and
    `src/agents/planning.rs` (planning prompt assembly),
    `src/agents/implementation.rs` (implementation prompt),
    `src/agents/review.rs` (review prompt),
@@ -182,7 +183,7 @@ Implement all of these for a minimal working tool. Read them in this order.
 |---|---|---|
 | **✅ Yes** | [`core/orchestration-loop.md`](./core/orchestration-loop.md) | **The engine.** The state machine that drives plan → (implement ⇄ review) → PR: agent runs, chaining, the iteration cap, blocking, and how each step decides the next. Start here. |
 | **✅ Yes** |  [`core/task-and-workspace.md`](./core/task-and-workspace.md) | The unit of work: a markdown document plus an isolated git worktree. Lifecycle, and where the doc lives so it survives the PR merge. Deliberately silent on how the doc is authored. |
-| **✅ Yes** | [`core/omp-integration.md`](./core/omp-integration.md) | The direct `omp` integration: spawning via `portable-pty`, the RPC message protocol, per-turn input, the streaming runtime, transcript persistence, session management, `models.yml` passthrough, and orphan recovery. See also the provider abstraction at `src/providers/` (`LlmProvider` trait, `OmpProvider`, `OpenCodeProvider`, config resolution). |
+| **✅ Yes** | (content moved to [`extra/harnesses/oh-my-pi.md`](./extra/harnesses/oh-my-pi.md)) | The direct `oh-my-pi` integration: spawning via `portable-pty`, the RPC message protocol, per-turn input, the streaming runtime, transcript persistence, session management, `models.yml` passthrough, and orphan recovery. See also the provider abstraction at `src/providers/` (`LlmProvider` trait, `OhMyPiProvider`, `OpenCodeProvider`, config resolution). |
 | **✅ Yes** | [`core/planning-agent.md`](./core/planning-agent.md) | The agent that turns a prompt + task doc into a structured implementation plan written back into the doc. |
 | **⚠️ Partial** | [`core/execution-loop.md`](./core/execution-loop.md) | The implementation agent and the review agent, and how they alternate until the work passes review. Prompt builders exist at `src/agents/implementation.rs` and `src/agents/review.rs`; full turn-lifecycle wiring is pending per `core/execution-loop.md`. |
 | **⚠️ Partial** | [`core/pull-request-agent.md`](./core/pull-request-agent.md) | The terminal agent: open the PR, drive CI to green, resolve conflicts, and signal completion. PR prompt builder exists at `src/agents/pull_request.rs`; full PR agent lifecycle (CI monitoring, conflict resolution, merge) is not yet wired. |
@@ -193,7 +194,7 @@ Opinionated features. Each is independent; implement what you want.
 
 | Reviewed/Updated for `ofm`? | Spec | What it adds |
 |---|---|---|
-| **✅ Yes** | [`extra/harnesses/omp.md`](./extra/harnesses/omp.md) | `oh-my-pi`/`omp` integration: subprocess lifecycle, event mapping, transcript mirroring, credential delegation, and capabilities. |
+| **✅ Yes** | [`extra/harnesses/oh-my-pi.md`](./extra/harnesses/oh-my-pi.md) | `oh-my-pi` integration: subprocess lifecycle, event mapping, transcript mirroring, credential delegation, and capabilities. |
 | **✅ Yes** | [`extra/harnesses/opencode.md`](./extra/harnesses/opencode.md) | OpenCode integration: HTTP+SSE subprocess lifecycle, event mapping, credential delegation via `opencode.json`, session lifecycle. |
 | **✅ Yes** | [`extra/kanban-board.md`](./extra/kanban-board.md) | The opinionated projects/tasks board and 4-screen UI for authoring tasks. |
 | **🚫 No** | [`extra/refinement-agent.md`](./extra/refinement-agent.md) | An extra agent that polishes the work between review and PR. |
@@ -228,7 +229,7 @@ equivalent exists at `src/`, prefer that citation.
 
 ## Non-goals
 
-- Supporting any coding harness besides [`oh-my-pi`/`omp`][2]. That is
+- Supporting any coding harness beyond the built-in providers (`oh-my-pi`, OpenCode). That is
   what `extra/` and forking are for.
 - Backwards-compatibility shims, configuration for hypothetical needs, or
   opt-out flags. Keep the core small.

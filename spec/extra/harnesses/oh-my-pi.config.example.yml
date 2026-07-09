@@ -1,6 +1,6 @@
-# `models.yml` — omp provider configuration example
+# `models.yml` — oh-my-pi provider configuration example
 #
-# This file defines the providers and models available to omp (oh-my-pi).
+# This file defines the providers and models available to oh-my-pi.
 # It is passed to `omp rpc` via the `OMP_MODELS_YML` environment variable.
 #
 # See https://omp.sh/docs/custom-models for full documentation.

@@ -14,11 +14,11 @@ ofm/
 │   ├── auth/            # OAuth/OIDC, JWKS, API keys, sessions
 │   ├── server/          # Axum router, state, error, routes/, ws/
 │   ├── webapp/          # Leptos SSR pages, islands, components
-│   ├── omp/             # PTY spawn/reader, protocol, session, transcript
+│   ├── providers/oh_my_pi/ # oh-my-pi: PTY spawn/reader, session management
 │   ├── orchestration/   # State machine, guards, recovery, completion
-│   ├── providers/       # LlmProvider trait, Omp/OpenCode providers
+│   ├── providers/       # LlmProvider trait, oh-my-pi/opencode providers
 │   ├── agents/          # Prompt builders (planning, impl, review, PR)
-│   ├── services/        # Auth, projects, tasks, settings, etc.
+│   ├── services/        # Auth, projects, tasks, settings, session, transcript
 │   ├── archive/         # Task doc I/O, context prompt
 │   ├── worktree/        # Git worktree management
 │   ├── rauthy/          # Local rauthy lifecycle
@@ -90,8 +90,8 @@ The workspace has a single member crate (`ofm` binary) defined inline.
 4. **Rauthy**: If `OFM_RAUTHY_ENABLED`, spawn rauthy via PTY, wait for health, configure reverse proxy at `/auth`.
 5. **Server**: Start axum HTTP server with WebSocket support on configured `OFM_HOSTNAME:OFM_PORT`.
 6. **WebSocket**: Accept connections, manage task subscriptions, stream agent events.
-7. **OMP Sessions**: Spawn `omp --mode rpc` subprocesses per turn, manage PTY lifecycle, stream events.
-8. **Shutdown**: Graceful shutdown — stop accepting connections, kill omp sessions, stop rauthy, close DB.
+7. **oh-my-pi sessions**: Spawn `omp --mode rpc` subprocesses per turn, manage PTY lifecycle, stream events.
+8. **Shutdown**: Graceful shutdown — stop accepting connections, kill subprocesses, stop rauthy, close DB.
 
 ## WebSocket Real-Time Bus
 
@@ -131,11 +131,11 @@ Configuration is loaded from YAML files with environment variable overlay:
 - **`AuthLayer` Tower middleware** for request authentication (JWT via JWKS, API key hash lookup)
 - **`spawn_blocking`** for blocking I/O operations (PTY reads), sending events through `mpsc::Sender::blocking_send`
 
-## OMP Subprocess Invocation
+## Subprocess Invocation
 
 The `omp` (oh-my-pi) binary is invoked as `omp --mode rpc` — the `--mode` flag
 with value `rpc` is the correct CLI form. Do NOT use the positional `omp rpc`
-form — that is incorrect. The spawn call in `src/omp/mod.rs:29` is the single
+form — that is incorrect. The spawn call in `src/providers/oh_my_pi/mod.rs` is the single
 source of truth: `cmd.arg("--mode").arg("rpc")`.
 
 ## Design Decisions
@@ -146,5 +146,5 @@ source of truth: `cmd.arg("--mode").arg("rpc")`.
 - **Raw SQL DDL over migration framework**: DDL is wrapped in a simple `_migrations` tracking table, keeping the migration system self-contained.
 - **WebSocket for live UI**: Real-time updates via WebSocket subscriptions instead of polling, enabling live agent-streaming and board state updates.
 - **Leptos Islands over SPA**: Server-side rendered islands reduce client JS bundle and simplify auth (SSR handlers share server-side auth context without a separate token refresh for the SPA shell).
-- **OMP-only harness**: Core uses only `omp` as the agent harness; `opencode` is a secondary provider option through the `LlmProvider` trait abstraction.
+- **Dual harness**: Both `oh-my-pi` and `opencode` are first-class peers behind the `LlmProvider` trait abstraction.
 - **Footprint-derived paths**: `OFM_FOOTPRINT` is the single root for all data directories, eliminating the env-var explosion of `OFM_DB_PATH`, `OFM_ARCHIVE_ROOT`, `OFM_CONFIG`.
