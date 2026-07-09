@@ -1,10 +1,28 @@
-# `ofm`
+# Orchestration Force Multiplier (`ofm`)
 
 This is the repository for `ofm`: An orchestration harness, for agentic code delivery.
 
-(Pronounced like _imprint_, with an _'ohm'_ prefix instead of _'im'_)
+(Pronouce it as an acronym: oh-eff-em)
 
-## Value Proposition
+## Core Values
+
+**Capability**: The system increases the User's productivity, helping them leverage
+the power of agentic coding within a bounded structure (see [Guardrails](#guardrails)
+below). An intuitive, web-based user interface creates an environment that let's
+Users focus on defining requirements and providing needed feedback to LLM agents,
+instead of thrashing with tooling or environment setup. `playwright-cli` comes out
+of the box as an agent enhancement.
+
+**Visibility**: `ofm` preserves logs of agent activity it drives. All prompts
+are surfaced and auditable; no secret sauce. The web-based user interface and kanban
+style task board provides at-a-glance snapshots of current progress, highlighting
+points of interactivity or needed User intervention to get a coding agent back on-track.
+
+**Flexibility**: All prompts can be changed on a global, per-project and/or per-user
+basis. A choice between `oh-my-pi` and `opencode` (two capable, multi-provider capable
+coding agent harnesses) allows the user to use different approaches where warranted.
+Multiple points of extensibility to build out capabilities within coding agents to
+provide a positive feedback loop into the Capability core value.
 
 ### Guardrails
 
