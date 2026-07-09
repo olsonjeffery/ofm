@@ -6,3 +6,4 @@ pub mod markdown_viewer;
 pub mod navbar;
 pub mod project_card;
 pub mod task_card;
+pub mod ws_status;

@@ -16,6 +16,7 @@ mod providers;
 mod rauthy;
 
 use clap::Parser;
+use server::ws::bus::BroadcastBus;
 use std::collections::HashMap;
 use std::sync::Arc;
 use tokio::sync::Mutex;
@@ -24,6 +25,23 @@ mod server;
 mod services;
 mod webapp;
 mod worktree;
+
+fn parse_oidc_discovery(
+    disc: &serde_json::Value,
+) -> Result<(String, String, Option<String>, Option<String>), Box<dyn std::error::Error>> {
+    Ok((
+        disc["authorization_endpoint"]
+            .as_str()
+            .ok_or("missing authorization_endpoint")?
+            .to_string(),
+        disc["token_endpoint"]
+            .as_str()
+            .ok_or("missing token_endpoint")?
+            .to_string(),
+        disc["revocation_endpoint"].as_str().map(|s| s.to_string()),
+        disc["end_session_endpoint"].as_str().map(|s| s.to_string()),
+    ))
+}
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
@@ -154,16 +172,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 .json()
                 .await?;
             let issuer = disc["issuer"].as_str().ok_or("missing issuer")?.to_string();
-            let authorization_endpoint = disc["authorization_endpoint"]
-                .as_str()
-                .ok_or("missing authorization_endpoint")?
-                .to_string();
-            let token_endpoint = disc["token_endpoint"]
-                .as_str()
-                .ok_or("missing token_endpoint")?
-                .to_string();
-            let revocation_endpoint = disc["revocation_endpoint"].as_str().map(|s| s.to_string());
-            let end_session_endpoint = disc["end_session_endpoint"].as_str().map(|s| s.to_string());
+            let (authorization_endpoint, token_endpoint, revocation_endpoint, end_session_endpoint) =
+                parse_oidc_discovery(&disc)?;
             let redirect_uri = format!("http://127.0.0.1:{}/api/auth/callback", cfg.port);
             let client_id = cfg
                 .oidc_client_id
@@ -255,16 +265,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 .map_err(|e| Box::new(std::io::Error::other(e.to_string())))?
                 .json()
                 .await?;
-            let authorization_endpoint = disc["authorization_endpoint"]
-                .as_str()
-                .ok_or("missing authorization_endpoint")?
-                .to_string();
-            let token_endpoint = disc["token_endpoint"]
-                .as_str()
-                .ok_or("missing token_endpoint")?
-                .to_string();
-            let revocation_endpoint = disc["revocation_endpoint"].as_str().map(|s| s.to_string());
-            let end_session_endpoint = disc["end_session_endpoint"].as_str().map(|s| s.to_string());
+            let (authorization_endpoint, token_endpoint, revocation_endpoint, end_session_endpoint) =
+                parse_oidc_discovery(&disc)?;
             let redirect_uri = cfg.oidc_redirect_uri.clone().unwrap_or_else(|| {
                 format!(
                     "{}/api/auth/callback",
@@ -302,6 +304,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         cookie_key,
         api_key_pepper,
         cfg_port: cfg.port,
+        ws_bus: BroadcastBus::new(),
     };
     tracing::info!("Auth middleware: enabled");
 

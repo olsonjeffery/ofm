@@ -21,6 +21,9 @@ pub fn Navbar(user_json: Option<String>) -> impl IntoView {
                 </a>
             </div>
             <div class="navbar-menu">
+                <div class="navbar-start">
+                    <crate::webapp::components::ws_status::WsStatus />
+                </div>
                 <div class="navbar-end">
                     {if is_logged_in {
                         view! {

@@ -16,6 +16,7 @@ use omprint::db;
 use omprint::providers::LlmProvider;
 use omprint::server;
 use omprint::server::state::{AppState, OidcEndpoints};
+use omprint::server::ws::bus::BroadcastBus;
 use omprint::services::auth::{complete_onboarding, current_user};
 
 fn make_jwt_cache() -> (Vec<u8>, String, JwksCache) {
@@ -116,6 +117,7 @@ fn make_app_state(client: hiqlite::Client, user_id: Uuid, oidc: Option<OidcEndpo
         pkce_store: Arc::new(Mutex::new(HashMap::new())),
         cookie_key: cookie::Key::generate(),
         api_key_pepper: b"test_pepper".to_vec(),
+        ws_bus: BroadcastBus::new(),
     }
 }
 
@@ -960,6 +962,7 @@ async fn test_refresh_with_session_cookie() {
         pkce_store: Arc::new(Mutex::new(HashMap::new())),
         cookie_key: key.clone(),
         api_key_pepper: b"test_pepper".to_vec(),
+        ws_bus: BroadcastBus::new(),
     };
     let auth_layer = AuthLayer::disabled(
         state.db.clone(),

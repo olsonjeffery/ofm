@@ -3,6 +3,7 @@ use omprint::db;
 use omprint::providers::LlmProvider;
 use omprint::server;
 use omprint::server::state::AppState;
+use omprint::server::ws::bus::BroadcastBus;
 use std::collections::HashMap;
 use std::sync::Arc;
 use tempfile::TempDir;
@@ -55,6 +56,7 @@ async fn make_state_with_ports(raft_port: u16, api_port: u16) -> (AppState, Auth
         pkce_store: Arc::new(Mutex::new(HashMap::new())),
         cookie_key: cookie::Key::generate(),
         api_key_pepper: b"test_pepper".to_vec(),
+        ws_bus: BroadcastBus::new(),
     };
     (state, auth_layer, tmp)
 }

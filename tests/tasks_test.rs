@@ -3,6 +3,7 @@ use omprint::db;
 use omprint::providers::LlmProvider;
 use omprint::server;
 use omprint::server::state::AppState;
+use omprint::server::ws::bus::BroadcastBus;
 
 use hiqlite::Client;
 use std::collections::HashMap;
@@ -71,6 +72,7 @@ async fn setup_app() -> TestApp {
         pkce_store: Arc::new(Mutex::new(HashMap::new())),
         cookie_key: cookie::Key::generate(),
         api_key_pepper: b"test_pepper".to_vec(),
+        ws_bus: BroadcastBus::new(),
     };
 
     let app = server::router(state, auth_layer);
@@ -179,6 +181,7 @@ async fn setup_app_with_git() -> TestApp {
         pkce_store: Arc::new(Mutex::new(HashMap::new())),
         cookie_key: cookie::Key::generate(),
         api_key_pepper: b"test_pepper".to_vec(),
+        ws_bus: BroadcastBus::new(),
     };
 
     let app = server::router(state, auth_layer);

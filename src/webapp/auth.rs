@@ -58,6 +58,7 @@ pub struct WebappAuthLayer {
     enabled: bool,
     db: hiqlite::Client,
     cookie_key: Key,
+    default_user_id: Uuid,
 }
 
 impl WebappAuthLayer {
@@ -66,14 +67,16 @@ impl WebappAuthLayer {
             enabled: true,
             db,
             cookie_key,
+            default_user_id: Uuid::nil(),
         }
     }
 
-    pub fn disabled(db: hiqlite::Client, cookie_key: Key) -> Self {
+    pub fn disabled(db: hiqlite::Client, cookie_key: Key, default_user_id: Uuid) -> Self {
         Self {
             enabled: false,
             db,
             cookie_key,
+            default_user_id,
         }
     }
 }
@@ -111,7 +114,7 @@ where
     fn call(&mut self, request: Request<Body>) -> Self::Future {
         if !self.layer.enabled {
             let auth_user = AuthUser {
-                user_id: uuid::Uuid::nil(),
+                user_id: self.layer.default_user_id,
                 username: String::new(),
                 oidc_subject: None,
                 is_admin: false,

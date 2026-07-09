@@ -1,6 +1,7 @@
 pub mod error;
 pub mod routes;
 pub mod state;
+pub mod ws;
 
 use axum::{extract::DefaultBodyLimit, response::Redirect, routing::get, Router};
 
@@ -17,14 +18,15 @@ pub fn router(state: AppState, auth_layer: AuthLayer) -> Router {
         .nest("/api/auth", routes::auth::auth_router());
 
     // Public webapp routes (no auth)
-    let webapp_public = Router::new().merge(webapp::webapp_routes());
-    let webapp_public = webapp_public.nest_service("/webapp/assets", ServeDir::new("assets"));
+    let webapp_public = Router::new()
+        .merge(webapp::webapp_routes())
+        .nest_service("/webapp/assets", ServeDir::new("assets"));
 
     // Protected webapp routes (session cookie auth required, redirects to login on failure)
     let webapp_auth_layer = if auth_layer.enabled {
         webapp::auth::WebappAuthLayer::new(state.db.clone(), state.cookie_key.clone())
     } else {
-        webapp::auth::WebappAuthLayer::disabled(state.db.clone(), state.cookie_key.clone())
+        webapp::auth::WebappAuthLayer::disabled(state.db.clone(), state.cookie_key.clone(), state.default_user_id)
     };
     let webapp_protected = webapp::webapp_protected_routes().layer(webapp_auth_layer);
 
@@ -42,6 +44,7 @@ pub fn router(state: AppState, auth_layer: AuthLayer) -> Router {
             routes::agent_configs::provider_configs_router(),
         )
         .nest("/api/settings", routes::settings::settings_router())
+        .route("/ws", get(ws::ws_handler))
         .layer(DefaultBodyLimit::max(1024 * 100))
         .layer(auth_layer);
 
