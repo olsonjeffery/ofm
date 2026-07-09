@@ -41,10 +41,7 @@ impl BroadcastBus {
         })
     }
 
-    pub async fn subscribe(
-        &self,
-        topic: &WsTopic,
-    ) -> broadcast::Receiver<Arc<ServerMessage>> {
+    pub async fn subscribe(&self, topic: &WsTopic) -> broadcast::Receiver<Arc<ServerMessage>> {
         let mut channels = self.channels.lock().await;
         let channel = channels
             .entry(topic.clone())
@@ -71,11 +68,7 @@ impl BroadcastBus {
         let _ = channel.sender.send(msg);
     }
 
-    pub async fn events_since(
-        &self,
-        topic: &WsTopic,
-        since: DateTime<Utc>,
-    ) -> Vec<ServerMessage> {
+    pub async fn events_since(&self, topic: &WsTopic, since: DateTime<Utc>) -> Vec<ServerMessage> {
         let channels = self.channels.lock().await;
         let Some(channel) = channels.get(topic) else {
             return Vec::new();
@@ -208,7 +201,9 @@ mod tests {
             bus.broadcast(&topic, test_event(&topic, ts)).await;
         }
 
-        let all = bus.events_since(&topic, Utc::now() - Duration::days(1)).await;
+        let all = bus
+            .events_since(&topic, Utc::now() - Duration::days(1))
+            .await;
         assert!(all.len() <= MAX_RECENT_EVENTS);
         assert_eq!(all.len(), MAX_RECENT_EVENTS);
     }

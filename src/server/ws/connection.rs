@@ -53,9 +53,11 @@ pub async fn handle_socket(
 
                         for topic in topics {
                             let authorized = match topic.kind {
-                                WsTopicKind::Project => services::projects::get_project(&db, &topic.id.0)
-                                    .await
-                                    .is_ok_and(|p| p.user_id == user_id),
+                                WsTopicKind::Project => {
+                                    services::projects::get_project(&db, &topic.id.0)
+                                        .await
+                                        .is_ok_and(|p| p.user_id == user_id)
+                                }
                                 WsTopicKind::Task => services::tasks::get_task(&db, &topic.id.0)
                                     .await
                                     .is_ok_and(|t| t.user_id == user_id),
@@ -64,7 +66,10 @@ pub async fn handle_socket(
                                 send_json(
                                     &msg_tx,
                                     &ServerMessage::Error {
-                                        message: format!("not authorized for topic {:?}", topic.kind),
+                                        message: format!(
+                                            "not authorized for topic {:?}",
+                                            topic.kind
+                                        ),
                                     },
                                 )
                                 .await;

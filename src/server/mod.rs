@@ -26,7 +26,11 @@ pub fn router(state: AppState, auth_layer: AuthLayer) -> Router {
     let webapp_auth_layer = if auth_layer.enabled {
         webapp::auth::WebappAuthLayer::new(state.db.clone(), state.cookie_key.clone())
     } else {
-        webapp::auth::WebappAuthLayer::disabled(state.db.clone(), state.cookie_key.clone(), state.default_user_id)
+        webapp::auth::WebappAuthLayer::disabled(
+            state.db.clone(),
+            state.cookie_key.clone(),
+            state.default_user_id,
+        )
     };
     let webapp_protected = webapp::webapp_protected_routes().layer(webapp_auth_layer);
 

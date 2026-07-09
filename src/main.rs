@@ -26,9 +26,11 @@ mod services;
 mod webapp;
 mod worktree;
 
+type OidcDiscoveryResult = (String, String, Option<String>, Option<String>);
+
 fn parse_oidc_discovery(
     disc: &serde_json::Value,
-) -> Result<(String, String, Option<String>, Option<String>), Box<dyn std::error::Error>> {
+) -> Result<OidcDiscoveryResult, Box<dyn std::error::Error>> {
     Ok((
         disc["authorization_endpoint"]
             .as_str()
