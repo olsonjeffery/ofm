@@ -6,9 +6,13 @@
 > substitute for `snake_case` as appropriate; `PascalCase` is used for `trait`s,
 > `struct`s, `enum`s, etc.
 > 
-> **Implementation status:** This spec module is not yet implemented in the Rust
-> codebase. Citations into `reference/` are retained as guidance; they will be
-> replaced with Rust equivalents when implementation begins.
+> **Implementation status:** This spec module is **partially implemented** in the
+> Rust codebase. Prompt builders exist at `src/agents/implementation.rs` and
+> `src/agents/review.rs`; the orchestration state machine at
+> `src/orchestration/state_machine.rs` handles turn lifecycle. The full
+> implementation/review agent loop wiring (completion handler chaining,
+> Review Findings scratchpad, iteration-aware prompts) is not yet complete.
+> `reference/` citations are retained for those parts.
 
 The autonomous heart of the pipeline: an **implementation** agent does the work
 from the plan, a **review** agent independently verifies it, and they alternate

@@ -69,7 +69,7 @@ integer used in filesystem paths. This means:
   worktree being torn down when the task's PR merges. If it lived inside the
   worktree it would vanish with it. Keeping it in a separate archive means the
   plan, the to-do checklist, and the review history outlive any single
-   worktree. See `get_archive_root` / `get_task_doc_path` in [`src/archive/paths.rs`](../src/archive/paths.rs) and `ArchiveRoot` in [`src/archive/mod.rs`](../src/archive/mod.rs).
+   worktree. See `get_archive_root` / `get_task_doc_path` in [`src/archive/paths.rs`](../../src/archive/paths.rs) and `ArchiveRoot` in [`src/archive/mod.rs`](../../src/archive/mod.rs).
 - **Seeding:** created at task creation with the user's original request (the
   task description), or empty/title-only if there is none. The planning agent
   later rewrites it into a full plan but must quote the original request
@@ -81,7 +81,7 @@ integer used in filesystem paths. This means:
   review **recording** (`recordings/task-{taskId}.webm`) live alongside the doc,
   for the same survive-the-merge reason.
 - Helpers: `read_task_doc` / `write_task_doc` / `delete_task_doc` / `delete_task_archive`
-  in [`src/archive/mod.rs`](../src/archive/mod.rs).
+  in [`src/archive/mod.rs`](../../src/archive/mod.rs).
 
 ## The worktree — the isolated workspace
 
@@ -94,11 +94,11 @@ integer used in filesystem paths. This means:
   main checkout is never disturbed.
 - **Created at task creation** when the project path is a git repo; if worktree
    creation fails, the task row is rolled back (see the create handler in
-   [`src/server/routes/tasks.rs`](../src/server/routes/tasks.rs) (`create_task` handler, includes worktree creation with rollback)).
+   [`src/server/routes/tasks.rs`](../../src/server/routes/tasks.rs) (`create_task` handler, includes worktree creation with rollback)).
 - **Create-time conveniences** so an agent can build and test immediately:
   symlink the repo's `.env*` files into the worktree, create gitignored dirs,
    and copy `node_modules` / `.venv` in the background. See `create_worktree` in
-   [`src/worktree/mod.rs`](../src/worktree/mod.rs) (branch naming, default-branch detection, env symlinks, gitignored dirs, dependency copy).
+   [`src/worktree/mod.rs`](../../src/worktree/mod.rs) (branch naming, default-branch detection, env symlinks, gitignored dirs, dependency copy).
   - **NOTE**: Windows may require copying files, because its support for
   symlinks (and user creation/management) is conditional on system policies
   - **`ofm` ONLY:** On a per-project basis allow the User to configure

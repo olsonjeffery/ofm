@@ -31,9 +31,13 @@ complete, working implementation will be created in the enclosing repository, as
 the `ofm` application. A typescript `reference/` application is kept in
 this directory, for reference during the implementation of [`ofm`][1]. The
 Rust codebase's foundational layer (DB schema, CRUD API, worktree management,
-OMP subprocess integration, task archive) is now implemented at `src/`. The
-orchestration loop and agents remain to be built; the reference is retained
-for those unimplemented features.
+OMP subprocess integration, task archive, orchestration state machine,
+agent prompt builders) is now implemented at `src/`. The orchestration loop
+completion handler, state machine transitions, and agent prompt builders for
+planning, implementation, review, and PR are implemented. The full
+implementation/review agent loop wiring (chaining through the completion
+handler) is partially wired; the reference is retained for the remaining
+end-to-end lifecycle details.
 
 ## `ofm` rust implementation of the `bottega` spec
 
@@ -125,7 +129,13 @@ Point a coding agent at this file and say "build this." Then:
    cleanup, context prompt assembly), `src/orchestration/` (state machine,
    completion handler, guards, recovery), `src/providers/` (LlmProvider trait,
    OmpProvider, OpenCodeProvider, config resolution, registry), and
-   `src/agents/planning.rs` (planning prompt assembly).
+   `src/agents/planning.rs` (planning prompt assembly),
+   `src/agents/implementation.rs` (implementation prompt),
+   `src/agents/review.rs` (review prompt),
+   `src/agents/pull_request.rs` (PR prompt).
+   The web application lives at `src/webapp/` (Leptos SSR + islands).
+   CRUD service logic lives at `src/services/` (auth, projects, tasks, settings).
+   Authentication and OAuth middleware lives at `src/auth/`.
 3. Implement whichever [`extra/`](./extra) features you want. These are
    **opinionated**: they reflect one company's preferences, not universal
    truths. Skip any of them and core still works.
@@ -174,8 +184,8 @@ Implement all of these for a minimal working tool. Read them in this order.
 | **✅ Yes** |  [`core/task-and-workspace.md`](./core/task-and-workspace.md) | The unit of work: a markdown document plus an isolated git worktree. Lifecycle, and where the doc lives so it survives the PR merge. Deliberately silent on how the doc is authored. |
 | **✅ Yes** | [`core/omp-integration.md`](./core/omp-integration.md) | The direct `omp` integration: spawning via `portable-pty`, the RPC message protocol, per-turn input, the streaming runtime, transcript persistence, session management, `models.yml` passthrough, and orphan recovery. See also the provider abstraction at `src/providers/` (`LlmProvider` trait, `OmpProvider`, `OpenCodeProvider`, config resolution). |
 | **✅ Yes** | [`core/planning-agent.md`](./core/planning-agent.md) | The agent that turns a prompt + task doc into a structured implementation plan written back into the doc. |
-| **✅ Yes** | [`core/execution-loop.md`](./core/execution-loop.md) | The implementation agent and the thread-review agent, and how they alternate until the work passes review. |
-| **✅ Yes** | [`core/pull-request-agent.md`](./core/pull-request-agent.md) | The terminal agent: open the PR, drive CI to green, resolve conflicts, and signal completion. |
+| **⚠️ Partial** | [`core/execution-loop.md`](./core/execution-loop.md) | The implementation agent and the review agent, and how they alternate until the work passes review. Prompt builders exist at `src/agents/implementation.rs` and `src/agents/review.rs`; full turn-lifecycle wiring is pending per `core/execution-loop.md`. |
+| **⚠️ Partial** | [`core/pull-request-agent.md`](./core/pull-request-agent.md) | The terminal agent: open the PR, drive CI to green, resolve conflicts, and signal completion. PR prompt builder exists at `src/agents/pull_request.rs`; full PR agent lifecycle (CI monitoring, conflict resolution, merge) is not yet wired. |
 
 ## Optional specifications — `extra/`
 
@@ -201,8 +211,8 @@ Opinionated features. Each is independent; implement what you want.
 > It is a standing **FIXME** that all instances of `reference/` be replaced
 > with links into the `ofm` codebase
 
-`reference/` is a complete, deployed implementation. Use it to resolve any
-ambiguity left by the spec.
+`reference/` is retained for features not yet ported to Rust. Where a Rust
+equivalent exists at `src/`, prefer that citation.
 
 - **Stack as built:** TypeScript end to end (React 18 + Vite frontend; Node +
   Express + `ws` backend; SQLite (`better-sqlite3`) for all state). The
@@ -214,6 +224,7 @@ ambiguity left by the spec.
   (an architecture tour).
 - **Citations:** spec files link to specific files and, where it helps, methods
   or line ranges. Treat each as "here is how we solved it," not "copy this."
+  **Prefer `src/` citations over `reference/` wherever Rust equivalents exist.**
 
 ## Non-goals
 

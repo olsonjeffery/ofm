@@ -118,7 +118,7 @@ This repository is licensed & distributed under the terms of the [GNU AGPL][12].
 [8]: https://systemd.io/
 [9]: https://github.com/vdaubry/bottega/blob/main/extra/auth-and-multi-user.md
 [10]: https://en.wikipedia.org/wiki/Identity_and_access_management
-[11]: ./spec/SPEC.md].
+[11]: ./spec/SPEC.md
 [12]: ./LICENSE
 [13]: https://github.com/vdaubry/bottega/blob/main/SPEC.md
 [14]: https://vdaubry.github.io/bottega-launch/
