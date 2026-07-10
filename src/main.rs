@@ -30,6 +30,16 @@ fn box_io_err(e: std::io::Error) -> Box<dyn std::error::Error> {
     Box::new(std::io::Error::other(e.to_string()))
 }
 
+fn ensure_secret_file(path: &std::path::Path, data: &[u8]) -> Result<(), Box<dyn std::error::Error>> {
+    if let Some(parent) = path.parent() {
+        std::fs::create_dir_all(parent).map_err(box_io_err)?;
+    }
+    std::fs::write(path, data).map_err(box_io_err)?;
+    #[cfg(unix)]
+    std::fs::set_permissions(path, std::fs::Permissions::from_mode(0o600))?;
+    Ok(())
+}
+
 type OidcDiscoveryResult = (String, String, Option<String>, Option<String>);
 
 fn parse_oidc_discovery(
@@ -127,32 +137,20 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         cookie::Key::from(&data)
     } else {
         let key = cookie::Key::generate();
-        if let Some(parent) = cookie_key_path.parent() {
-            std::fs::create_dir_all(parent).map_err(box_io_err)?;
-        }
         let mut combined = vec![0u8; 64];
         combined[..32].copy_from_slice(key.signing());
         combined[32..64].copy_from_slice(key.encryption());
-        std::fs::write(&cookie_key_path, &combined).map_err(box_io_err)?;
-        #[cfg(unix)]
-        std::fs::set_permissions(&cookie_key_path, std::fs::Permissions::from_mode(0o600))?;
+        ensure_secret_file(&cookie_key_path, &combined)?;
         key
     };
 
-    let api_key_pepper = {
-        let api_key_pepper_path = std::path::Path::new(&cfg.config_root).join("api_key_pepper.bin");
-        if api_key_pepper_path.exists() {
-            std::fs::read(&api_key_pepper_path).map_err(box_io_err)?
-        } else {
-            let pepper: Vec<u8> = (0..32).map(|_| rand::random::<u8>()).collect();
-            if let Some(parent) = api_key_pepper_path.parent() {
-                std::fs::create_dir_all(parent).map_err(box_io_err)?;
-            }
-            std::fs::write(&api_key_pepper_path, &pepper).map_err(box_io_err)?;
-            #[cfg(unix)]
-            std::fs::set_permissions(&api_key_pepper_path, std::fs::Permissions::from_mode(0o600))?;
-            pepper
-        }
+    let api_key_pepper_path = std::path::Path::new(&cfg.config_root).join("api_key_pepper.bin");
+    let api_key_pepper = if api_key_pepper_path.exists() {
+        std::fs::read(&api_key_pepper_path).map_err(box_io_err)?
+    } else {
+        let pepper: Vec<u8> = (0..32).map(|_| rand::random::<u8>()).collect();
+        ensure_secret_file(&api_key_pepper_path, &pepper)?;
+        pepper
     };
 
     let mut _rauthy_instance: Option<rauthy::RauthyInstance> = None;

@@ -1,4 +1,5 @@
 pub mod board;
+pub mod chat;
 pub mod dashboard;
 pub mod home;
 pub mod login;

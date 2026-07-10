@@ -3,6 +3,7 @@ pub mod agent_configs;
 pub mod agent_flags;
 pub mod agent_runs;
 pub mod auth;
+pub mod conversations;
 pub mod projects;
 pub mod settings;
 pub mod tasks;

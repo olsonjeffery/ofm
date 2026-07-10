@@ -13,7 +13,15 @@ ofm/
 │   ├── db/              # mod.rs (DDL, migrations), schema.rs (models)
 │   ├── auth/            # OAuth/OIDC, JWKS, API keys, sessions
 │   ├── server/          # Axum router, state, error, routes/, ws/
+│   │   └── routes/
+│   │       └── conversations.rs  # Chat API endpoints (Phase 2)
 │   ├── webapp/          # Leptos SSR pages, islands, components
+│   │   ├── pages/chat.rs       # Real-time chat view (Phase 4)
+│   │   └── components/
+│   │       ├── conversation_list.rs  # Conversation sidebar (Phase 5)
+│   │       ├── message_stream.rs     # Streaming event display (Phase 5)
+│   │       ├── chat_input.rs         # Manual message input (Phase 5)
+│   │       └── agent_run_banner.rs   # Agent run status banner (Phase 5)
 │   ├── providers/oh_my_pi/ # oh-my-pi: PTY spawn/reader, session management
 │   ├── orchestration/   # State machine, guards, recovery, completion
 │   ├── providers/       # LlmProvider trait, oh-my-pi/opencode providers
@@ -96,6 +104,17 @@ The workspace has a single member crate (`ofm` binary) defined inline.
 ## WebSocket Real-Time Bus
 
 The server maintains a WebSocket hub for live UI updates. Clients subscribe to per-task channels. Events (streaming deltas, agent-run status changes, task-blocked signals) are broadcast to subscribers in real time. Subscription management handles reconnection and scoped interest sets (only the tasks currently visible on screen).
+
+## Real-Time Chat
+
+The chat view (`/webapp/projects/{project_id}/tasks/{task_id}/chat`) provides a real-time conversation interface:
+
+- **Event broadcasting**: When `post_create_agent_run` starts an agent turn, it calls `provider.start_turn(input)` which returns an `mpsc::Receiver<ProviderEvent>`. A background task reads events, persists them via `transcript::persist_event()`, maps `ProviderEvent` → `ServerMessage::Event`, and broadcasts via `ws_bus` under the task's `WsTopic`. On `Done`, it calls `completion_handler` to advance the state machine.
+- **Provider-agnostic**: The broadcast task consumes `mpsc::Receiver<ProviderEvent>`, staying completely trait-agnostic. Both `OhMyPiProvider` and `OpenCodeProvider` work identically.
+- **Manual chat**: `POST /api/tasks/{task_id}/conversations/{id}/messages` — persists the user message, loads the transcript, calls `provider.resume_turn()`, and spawns a broadcast task for the response events.
+- **Orchestrator phase skip**: When a phase's agent config is missing (no model configured), `post_create_agent_run` creates a `Blocked` run and returns immediately. `next_agent()` checks config statuses before returning `StartAgent`, skipping unconfigured phases.
+- **Chat API**: `GET /api/tasks/{task_id}/conversations` lists conversations with their associated runs; `GET /api/tasks/{task_id}/conversations/{id}` returns a conversation with its full message transcript.
+- **UI Components**: The chat page has four Leptos SSR components — `ConversationList` (sidebar), `MessageStream` (event display), `ChatInput` (message input with agent-type selector), and `AgentRunBanner` (status bar with config indicators).
 
 ## WebApp (Leptos Islands)
 

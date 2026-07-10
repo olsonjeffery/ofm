@@ -10,6 +10,7 @@ use tokio::sync::Mutex;
 use uuid::Uuid;
 
 use crate::db::schema::{AgentType, RunStatus};
+use crate::providers::registry;
 use crate::providers::LlmProvider;
 use crate::server::error::ServerError;
 use crate::services::tasks;
@@ -64,7 +65,9 @@ pub async fn completion_handler(
         return Ok(NextAction::Stop);
     }
 
-    Ok(state_machine::next_agent(&task, &run.agent_type))
+    let config_statuses =
+        registry::resolve_agent_config_statuses(client, task.user_id, task.project_id).await;
+    Ok(state_machine::next_agent(&task, &run.agent_type, &config_statuses))
 }
 
 #[cfg(test)]
@@ -159,6 +162,26 @@ mod tests {
         )
         .await
         .unwrap();
+
+        // Seed a review config so the phase-skip check passes
+        let now = chrono::Utc::now().naive_utc().to_string();
+        client
+            .execute(
+                "INSERT INTO agent_harness_configs (id, agent_type, harness, provider_config_ref, scope_type, model, effort, created_at, updated_at) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)",
+                hiqlite::params!(
+                    uuid::Uuid::new_v4().to_string(),
+                    "review",
+                    "oh-my-pi",
+                    "test.yaml",
+                    "global",
+                    "gpt-4",
+                    "balanced",
+                    &now,
+                    &now,
+                ),
+            )
+            .await
+            .unwrap();
 
         let sessions = empty_sessions();
         let action = completion_handler(&client, result.conversation_id, &sessions)

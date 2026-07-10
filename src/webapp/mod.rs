@@ -38,6 +38,10 @@ pub fn webapp_protected_routes() -> Router<AppState> {
             "/webapp/projects/{project_id}/tasks/{task_id}",
             get(task_detail_handler),
         )
+        .route(
+            "/webapp/projects/{project_id}/tasks/{task_id}/chat",
+            get(chat_handler),
+        )
         .route("/webapp/onboarding", get(onboarding_handler))
         .route("/webapp/settings", get(settings_handler))
         .route("/webapp/islands/uptime", get(uptime_handler))
@@ -212,6 +216,55 @@ async fn task_detail_handler(
             doc_content
             agent_runs
             agent_config_statuses=agent_config_statuses
+        />
+    }
+    .to_html();
+    Ok(Html(render_shell(&page_html, Some(user_json))))
+}
+
+async fn chat_handler(
+    auth: AuthUser,
+    State(state): State<AppState>,
+    Path((project_id, task_id)): Path<(i64, i64)>,
+) -> Result<Html<String>, ServerError> {
+    let user_json = serde_json::to_string(&auth).unwrap_or_default();
+
+    let project = services::projects::get_project(&state.db, project_id)
+        .await
+        .map_err(|_| ServerError::NotFound("Project not found".into()))?;
+    if project.user_id != auth.user_id {
+        return Err(ServerError::NotFound("Project not found".into()));
+    }
+
+    let task = services::tasks::get_task(&state.db, task_id)
+        .await
+        .map_err(|_| ServerError::NotFound("Task not found".into()))?;
+
+    let conversations = services::tasks::list_conversations_for_task(&state.db, task_id)
+        .await
+        .unwrap_or_default();
+
+    let agent_config_statuses =
+        registry::resolve_agent_config_statuses(&state.db, auth.user_id, project_id).await;
+
+    let current_run = services::tasks::get_running_agent_for_task(&state.db, task_id)
+        .await
+        .ok()
+        .flatten()
+        .or_else(|| {
+            conversations
+                .first()
+                .and_then(|cwr| cwr.run.clone())
+        });
+
+    let page_html = leptos::view! {
+        <pages::chat::ChatPage
+            project_id
+            task_id
+            task
+            conversations
+            agent_config_statuses
+            current_run
         />
     }
     .to_html();

@@ -202,7 +202,7 @@ Opinionated features. Each is independent; implement what you want.
 | **🚫 No** | [`extra/pr-comment-retrigger.md`](./extra/pr-comment-retrigger.md) | Re-run the PR agent automatically when a PR receives review comments (periodic PR polling). |
 | **⚠️ Partial** | [`extra/prompt-and-model-customization.md`](./extra/prompt-and-model-customization.md) | Harness-model config via `agent_harness_configs` and scope-precedence resolution is implemented (`src/providers/`); prompt overrides and template engine are not yet implemented. |
 | **✅ Yes** | [`extra/auth-and-multi-user.md`](./extra/auth-and-multi-user.md) | OAuth-integration, Accounts, API keys, project membership, admin, and role-driven behavior. Note: only `ensure_default_user` is implemented in the Rust codebase. |
-| **✅ Yes** | [`extra/chat-ux.md`](./extra/chat-ux.md) | Manual-chat conveniences: slash commands, file attachments, voice input, title generation (implemented in `src/providers/mod.rs`), the context-usage meter. |
+| **✅ Yes** | [`extra/chat-ux.md`](./extra/chat-ux.md) | Real-time chat view (`src/webapp/pages/chat.rs`), conversation sidebar (`src/webapp/components/conversation_list.rs`), streaming message display (`src/webapp/components/message_stream.rs`), manual chat input (`src/webapp/components/chat_input.rs`), agent run banner (`src/webapp/components/agent_run_banner.rs`), chat API endpoints (`src/server/routes/conversations.rs`), broadcast task in `post_create_agent_run` (`src/server/routes/agent_runs.rs`), orchestrator phase-skip (`src/orchestration/state_machine.rs`). Manual conveniences (slash commands, file attachments, voice input, context-usage meter) are not yet implemented. |
 
 ## The reference implementation
 

@@ -528,6 +528,50 @@ async fn test_webapp_task_detail_page_404() {
 }
 
 #[tokio::test]
+async fn test_webapp_chat_page() {
+    let (state, auth_layer, _tmp) = make_state().await;
+    let user_id = state.default_user_id;
+    let db = state.db.clone();
+    let app = server::router(state, auth_layer);
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let addr = listener.local_addr().unwrap();
+
+    tokio::spawn(async move {
+        axum::serve(listener, app).await.unwrap();
+    });
+
+    let project_id = int64_id();
+    let task_id = int64_id();
+    let now = chrono::Utc::now().naive_utc().to_string();
+    db.execute(
+        "INSERT INTO projects (id, user_id, name, repo_folder_path, created_at) VALUES ($1, $2, $3, $4, $5)",
+        hiqlite::params!(project_id, user_id.to_string(), "Chat Test", "/tmp/test", &now),
+    )
+    .await
+    .unwrap();
+    db.execute(
+        "INSERT INTO tasks (id, project_id, user_id, title, status, created_at) VALUES ($1, $2, $3, $4, $5, $6)",
+        hiqlite::params!(task_id, project_id, user_id.to_string(), "Chat Task", "pending", &now),
+    )
+    .await
+    .unwrap();
+
+    let url = format!(
+        "http://{}/webapp/projects/{}/tasks/{}/chat",
+        addr, project_id, task_id
+    );
+    let client = reqwest::Client::new();
+    let resp = client.get(&url).send().await.unwrap();
+
+    assert_eq!(resp.status(), 200);
+    let body = resp.text().await.unwrap();
+    assert!(body.contains("Chat Task"));
+    assert!(body.contains("Chat"));
+    assert!(body.contains("Conversations"));
+    assert!(body.contains("Start Agent Run"));
+}
+
+#[tokio::test]
 async fn test_webapp_protected_route_redirects_with_expired_session() {
     let (state, auth_layer, _tmp) = make_state_with_webapp_auth().await;
     let key = cookie::Key::generate();

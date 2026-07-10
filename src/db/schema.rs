@@ -135,6 +135,12 @@ pub struct Conversation {
     pub created_at: NaiveDateTime,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ConversationWithRun {
+    pub conversation: Conversation,
+    pub run: Option<TaskAgentRun>,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "snake_case")]
 pub enum ScopeType {

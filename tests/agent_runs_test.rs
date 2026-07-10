@@ -38,6 +38,26 @@ async fn setup_app() -> TestApp {
     db::run_migrations(&client).await.unwrap();
     let user_id = db::ensure_default_user(&client).await.unwrap();
 
+    // Seed a harness config so config checks pass (Phase 3 feature)
+    let now = chrono::Utc::now().naive_utc().to_string();
+    client
+        .execute(
+            "INSERT INTO agent_harness_configs (id, agent_type, harness, provider_config_ref, scope_type, model, effort, created_at, updated_at) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)",
+            hiqlite::params!(
+                Uuid::new_v4().to_string(),
+                "implementation",
+                "oh-my-pi",
+                "test-config.yaml",
+                "global",
+                "gpt-4",
+                "balanced",
+                &now,
+                &now
+            ),
+        )
+        .await
+        .unwrap();
+
     let project_id = ofm::services::projects::create_project(
         &client,
         &user_id,
