@@ -1,3 +1,7 @@
+<p align="center">
+  <img style="width:25%;height:25%;" src="assets/ofm-logo.svg" />
+</p>
+
 # Orchestration Force Multiplier (`ofm`)
 
 This is the repository for `ofm`: An orchestration harness, for agentic code delivery.
