@@ -4,35 +4,45 @@
 
 # Orchestration Force Multiplier (`ofm`)
 
-This is the repository for `ofm`: An orchestration harness, for agentic code delivery.
+This is the repository for `ofm`: An orchestration harness, for agentic code delivery. Think of it as a meta-system that sits atop your coding agent to make you even more productive.
 
 (Pronouce it as an acronym: oh-eff-em)
 
 ## Core Values
 
-**Capability** 💪: The system increases the User's productivity, helping them leverage
-the power of agentic coding within a bounded structure (see [Guardrails](#guardrails)
-below). An intuitive, web-based user interface creates an environment that let's
+### Capability 💪
+
+- The system provides a more rigid structure around the [_Ralph Wiggum Loop_][1]
+(hereafter referred to as _the loop_), helping agentic coders to spend more time
+producing high-quality software, instead of fighting with the agent harness
+- Simultaneously, we don't want _too much structure_; that only stifles productivity
+and burns countless tokens on redundency checks (looking at you, [opencode-swarm][18])
+- An intuitive, web-based user interface creates an environment that let's
 Users focus on defining requirements and providing needed feedback to LLM agents,
-instead of thrashing with tooling or environment setup. `playwright-cli` comes out
-of the box as an agent enhancement.
+instead of thrashing with tooling or environment setup
+- `playwright-cli` comes out of the box as an agent enhancement
 
-**Visibility** 👁️: `ofm` preserves logs of agent activity it drives. All prompts
-are surfaced and auditable; no secret sauce. The web-based user interface and kanban
-style task board provides at-a-glance snapshots of current progress, highlighting
-points of interactivity or needed User intervention to get a coding agent back on-track.
+### Visibility 👁️
+- `ofm` preserves logs of agent activity it drives
+- All prompts are surfaced and auditable; no secret sauce or dumbing-down for Users
+- The web-based user interface and kanban style task board provides at-a-glance
+snapshots of current progress, highlighting points of interactivity or needed User
+intervention to get a coding agent back on-track
 
-**Flexibility** ♾️: All prompts can be changed on a global, per-project and/or per-user
-basis. A choice between `oh-my-pi` and `opencode` (two capable, multi-provider capable
-coding agent harnesses) allows the user to use different approaches where warranted.
-Multiple points of extensibility to build out capabilities within coding agents to
-provide a positive feedback loop into the Capability core value.
+### Flexibility ♾️
 
-### Guardrails
+- All prompts can be changed on a global, per-project and/or per-user
+basis
+- A choice between [`oh-my-pi`][0] and [`opencode`][17] (two open-source,
+multi-provider capable coding agent harnesses) allows the user to use different
+approaches where warranted
+- Multiple points of extensibility to build out capabilities within coding agents,
+providing a positive feedback loop into the Capability core value
+- `ofm` is [Free Software][12] in the purest sense of the term: It cannot be taken
+closed source _by anyone_ (including the founding author); It can be productized,
+yet all changes must be contributed back into the public repository for the benefit
+of all
 
-`ofm` provides a more rigid structure around the [_Ralph Wiggum Loop_][1] (hereafter
-referred to as _the loop_), helping agentic coders to spend more time
-producing high-quality software, instead of fighting with the agent harness.
 
 ### The `bottega` method
 
@@ -128,3 +138,5 @@ This repository is licensed & distributed under the terms of the [GNU AGPL][12].
 [14]: https://vdaubry.github.io/bottega-launch/
 [15]: https://omp.sh/docs/providers
 [16]: https://github.com/rtk-ai/rtk
+[17]: https://opencode.ai
+[18]: https://github.com/ZaxbyHub/opencode-swarm/
