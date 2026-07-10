@@ -96,6 +96,10 @@ The `.ofm` directory is gitignored so it won't accidentally be committed.
 delete `$PWD/.ofm/rauthy` and restart to trigger a fresh install with a
 new password.
 
+> 💡**Resetting `ofm`**: The `.ofm` footprint can be deleted then recreated (by
+> restarting `ofm`) between testing phases, if a reset of `ofm` state is desired,
+> or if the admin password is lost.
+
 ## Unit / Integration Tests
 
 ```bash

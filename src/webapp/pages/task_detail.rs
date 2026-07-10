@@ -149,20 +149,14 @@ pub fn TaskDetailPage(
                                 <div class="box" style="padding:0.75rem">
                                     <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:0.5rem">
                                         <strong>{agent_label}</strong>
-                                        {if let Some(s) = status {
-                                            if s.configured {
-                                                view! {
-                                                    <span class="tag is-success">
-                                                        {format!("{} ({})",
-                                                            s.label.as_deref().unwrap_or("config"),
-                                                            s.scope.as_deref().unwrap_or("?"))}
-                                                    </span>
-                                                }.into_any()
-                                            } else {
-                                                view! {
-                                                    <span class="tag is-danger">"No Agent Config"</span>
-                                                }.into_any()
-                                            }
+                                        {if let Some(s) = status.filter(|s| s.configured) {
+                                            view! {
+                                                <span class="tag is-success">
+                                                    {format!("{} ({})",
+                                                        s.label.as_deref().unwrap_or("config"),
+                                                        s.scope.as_deref().unwrap_or("?"))}
+                                                </span>
+                                            }.into_any()
                                         } else {
                                             view! {
                                                 <span class="tag is-danger">"No Agent Config"</span>

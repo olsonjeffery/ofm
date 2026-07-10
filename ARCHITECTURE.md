@@ -87,7 +87,7 @@ The workspace has a single member crate (`ofm` binary) defined inline.
 1. **Config**: Load `OfmConfig` from YAML file + env var overlay (`OFM_*`).
 2. **Logging**: Initialize tracing/logging based on config.
 3. **Database**: Start hiqlite node with `data_dir`, run pending migrations.
-4. **Rauthy**: If `OFM_RAUTHY_ENABLED`, spawn rauthy via PTY, wait for health, configure reverse proxy at `/auth`.
+4. **Rauthy**: If `OFM_RAUTHY_ENABLED`, spawn rauthy via PTY, wait for health, configure reverse proxy at `/auth`. The container runs with the host user's UID via Docker's `--user` flag so files in the rauthy data directory are owned by the host user and cleanup does not require root.
 5. **Server**: Start axum HTTP server with WebSocket support on configured `OFM_HOSTNAME:OFM_PORT`.
 6. **WebSocket**: Accept connections, manage task subscriptions, stream agent events.
 7. **oh-my-pi sessions**: Spawn `omp --mode rpc` subprocesses per turn, manage PTY lifecycle, stream events.

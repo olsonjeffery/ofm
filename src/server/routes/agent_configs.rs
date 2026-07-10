@@ -10,6 +10,7 @@ use axum::{
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
+use crate::auth::AuthUser;
 use crate::db::schema::{AgentHarnessConfig, AgentType, ScopeType};
 use crate::providers::config::ProviderConfigDir;
 use crate::providers::registry;
@@ -45,10 +46,12 @@ pub fn agent_configs_router() -> Router<AppState> {
 }
 
 async fn create_agent_config(
+    auth: AuthUser,
     State(state): State<AppState>,
     Path(project_id): Path<i64>,
     Json(body): Json<CreateAgentConfigRequest>,
 ) -> Result<(StatusCode, Json<AgentHarnessConfig>), ServerError> {
+    verify_project_ownership(&state, project_id, &auth.user_id).await?;
     validate_config_ref(&body.provider_config_ref)?;
 
     let agent_type = AgentType::from_str(&body.agent_type).map_err(ServerError::BadRequest)?;
@@ -77,9 +80,11 @@ async fn create_agent_config(
 }
 
 async fn list_agent_configs(
+    auth: AuthUser,
     State(state): State<AppState>,
     Path(project_id): Path<i64>,
 ) -> Result<Json<Vec<AgentHarnessConfig>>, ServerError> {
+    verify_project_ownership(&state, project_id, &auth.user_id).await?;
     let configs = services::agent_configs::list_agent_configs(&state.db, Some(project_id))
         .await
         .map_err(|e| ServerError::Internal(e.to_string()))?;
@@ -87,9 +92,11 @@ async fn list_agent_configs(
 }
 
 async fn delete_agent_config(
+    auth: AuthUser,
     State(state): State<AppState>,
-    Path((_project_id, config_id)): Path<(i64, Uuid)>,
+    Path((project_id, config_id)): Path<(i64, Uuid)>,
 ) -> Result<StatusCode, ServerError> {
+    verify_project_ownership(&state, project_id, &auth.user_id).await?;
     let deleted = services::agent_configs::delete_agent_config(&state.db, &config_id)
         .await
         .map_err(|e| ServerError::Internal(e.to_string()))?;
@@ -105,10 +112,12 @@ struct SelectModelRequest {
 }
 
 async fn select_model(
+    auth: AuthUser,
     State(state): State<AppState>,
-    Path((_project_id, config_id)): Path<(i64, Uuid)>,
+    Path((project_id, config_id)): Path<(i64, Uuid)>,
     Json(body): Json<SelectModelRequest>,
 ) -> Result<Json<AgentHarnessConfig>, ServerError> {
+    verify_project_ownership(&state, project_id, &auth.user_id).await?;
     let config =
         services::agent_configs::update_agent_config_model(&state.db, &config_id, &body.model)
             .await
@@ -145,6 +154,20 @@ async fn list_provider_config_files(
         })
         .collect();
     Ok(Json(files))
+}
+
+async fn verify_project_ownership(
+    state: &AppState,
+    project_id: i64,
+    user_id: &Uuid,
+) -> Result<(), ServerError> {
+    let project = services::projects::get_project(&state.db, project_id)
+        .await
+        .map_err(|_| ServerError::NotFound("Project not found".into()))?;
+    if project.user_id != *user_id {
+        return Err(ServerError::NotFound("Project not found".into()));
+    }
+    Ok(())
 }
 
 fn validate_config_ref(name: &str) -> Result<(), ServerError> {
