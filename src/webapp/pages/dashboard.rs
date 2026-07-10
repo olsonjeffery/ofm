@@ -1,7 +1,6 @@
 use std::collections::HashMap;
 
 use leptos::prelude::*;
-use uuid::Uuid;
 
 use crate::db::schema::Project;
 use crate::webapp::components::project_card::{ProjectCard, TaskCounts};
@@ -9,7 +8,7 @@ use crate::webapp::components::project_card::{ProjectCard, TaskCounts};
 #[component]
 pub fn DashboardPage(
     projects: Vec<Project>,
-    task_counts: HashMap<Uuid, TaskCounts>,
+    task_counts: HashMap<i64, TaskCounts>,
 ) -> impl IntoView {
     view! {
         <section class="section">
@@ -116,8 +115,8 @@ mod tests {
     #[test]
     fn test_dashboard_shows_project_list() {
         let project = Project {
-            id: Uuid::parse_str("00000000-0000-0000-0000-000000000001").unwrap(),
-            user_id: Uuid::new_v4(),
+            id: 1,
+            user_id: uuid::Uuid::new_v4(),
             name: "Alpha".into(),
             repo_folder_path: "/tmp/alpha".into(),
             subproject_path: None,

@@ -46,7 +46,7 @@ pub fn agent_configs_router() -> Router<AppState> {
 
 async fn create_agent_config(
     State(state): State<AppState>,
-    Path(_project_id): Path<Uuid>,
+    Path(project_id): Path<i64>,
     Json(body): Json<CreateAgentConfigRequest>,
 ) -> Result<(StatusCode, Json<AgentHarnessConfig>), ServerError> {
     validate_config_ref(&body.provider_config_ref)?;
@@ -66,7 +66,7 @@ async fn create_agent_config(
         &body.provider_config_ref,
         &scope_type,
         None,
-        Some(&_project_id),
+        Some(project_id),
         body.model.as_deref(),
         body.effort.as_deref(),
     )
@@ -78,9 +78,9 @@ async fn create_agent_config(
 
 async fn list_agent_configs(
     State(state): State<AppState>,
-    Path(project_id): Path<Uuid>,
+    Path(project_id): Path<i64>,
 ) -> Result<Json<Vec<AgentHarnessConfig>>, ServerError> {
-    let configs = services::agent_configs::list_agent_configs(&state.db, Some(&project_id))
+    let configs = services::agent_configs::list_agent_configs(&state.db, Some(project_id))
         .await
         .map_err(|e| ServerError::Internal(e.to_string()))?;
     Ok(Json(configs))
@@ -88,7 +88,7 @@ async fn list_agent_configs(
 
 async fn delete_agent_config(
     State(state): State<AppState>,
-    Path((_project_id, config_id)): Path<(Uuid, Uuid)>,
+    Path((_project_id, config_id)): Path<(i64, Uuid)>,
 ) -> Result<StatusCode, ServerError> {
     let deleted = services::agent_configs::delete_agent_config(&state.db, &config_id)
         .await
@@ -106,7 +106,7 @@ struct SelectModelRequest {
 
 async fn select_model(
     State(state): State<AppState>,
-    Path((_project_id, config_id)): Path<(Uuid, Uuid)>,
+    Path((_project_id, config_id)): Path<(i64, Uuid)>,
     Json(body): Json<SelectModelRequest>,
 ) -> Result<Json<AgentHarnessConfig>, ServerError> {
     let config =

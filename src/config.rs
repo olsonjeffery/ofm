@@ -90,10 +90,7 @@ impl OfmConfig {
         let api_key = std::env::var("OFM_API_KEY").ok();
         warn_if_short_api_key(&api_key);
         let hostname = std::env::var("OFM_HOSTNAME").unwrap_or_else(|_| "127.0.0.1".into());
-        let port = std::env::var("OFM_PORT")
-            .ok()
-            .and_then(|s| s.parse().ok())
-            .unwrap_or(3183);
+        let port = env_u16("OFM_PORT").unwrap_or(3183);
         let base_url = std::env::var("OM_PRINT_BASE_URL").ok();
         let redirect_uri = std::env::var("OIDC_REDIRECT_URI").ok().or_else(|| {
             base_url
@@ -116,22 +113,10 @@ impl OfmConfig {
             oidc_client_secret: std::env::var("OIDC_CLIENT_SECRET").ok(),
             base_url,
             oidc_redirect_uri: redirect_uri,
-            hiqlite_raft_port: std::env::var("OFM_HIQLITE_RAFT_PORT")
-                .ok()
-                .and_then(|s| s.parse().ok())
-                .unwrap_or(8100),
-            hiqlite_api_port: std::env::var("OFM_HIQLITE_API_PORT")
-                .ok()
-                .and_then(|s| s.parse().ok())
-                .unwrap_or(8200),
-            rauthy_enabled: std::env::var("OFM_RAUTHY_ENABLED")
-                .ok()
-                .map(|s| s == "true" || s == "1")
-                .unwrap_or(false),
-            rauthy_port: std::env::var("OFM_RAUTHY_PORT")
-                .ok()
-                .and_then(|s| s.parse().ok())
-                .unwrap_or(0),
+            hiqlite_raft_port: env_u16("OFM_HIQLITE_RAFT_PORT").unwrap_or(8100),
+            hiqlite_api_port: env_u16("OFM_HIQLITE_API_PORT").unwrap_or(8200),
+            rauthy_enabled: env_bool("OFM_RAUTHY_ENABLED").unwrap_or(false),
+            rauthy_port: env_u16("OFM_RAUTHY_PORT").unwrap_or(0),
         }
     }
 
@@ -157,9 +142,7 @@ impl OfmConfig {
             })
             .unwrap_or_else(|| "127.0.0.1".into());
 
-        let port = std::env::var("OFM_PORT")
-            .ok()
-            .and_then(|s| s.parse().ok())
+        let port = env_u16("OFM_PORT")
             .or_else(|| yaml_cfg.as_ref().and_then(|y| y.server.as_ref()?.port))
             .unwrap_or(3183u16);
 
@@ -203,9 +186,7 @@ impl OfmConfig {
 
         let oidc_client_secret = env_opt_or("OIDC_CLIENT_SECRET");
 
-        let hiqlite_raft_port = std::env::var("OFM_HIQLITE_RAFT_PORT")
-            .ok()
-            .and_then(|s| s.parse().ok())
+        let hiqlite_raft_port = env_u16("OFM_HIQLITE_RAFT_PORT")
             .or_else(|| {
                 yaml_cfg
                     .as_ref()
@@ -213,9 +194,7 @@ impl OfmConfig {
             })
             .unwrap_or(8100u16);
 
-        let hiqlite_api_port = std::env::var("OFM_HIQLITE_API_PORT")
-            .ok()
-            .and_then(|s| s.parse().ok())
+        let hiqlite_api_port = env_u16("OFM_HIQLITE_API_PORT")
             .or_else(|| {
                 yaml_cfg
                     .as_ref()
@@ -223,9 +202,7 @@ impl OfmConfig {
             })
             .unwrap_or(8200u16);
 
-        let rauthy_enabled = std::env::var("OFM_RAUTHY_ENABLED")
-            .ok()
-            .map(|s| s == "true" || s == "1")
+        let rauthy_enabled = env_bool("OFM_RAUTHY_ENABLED")
             .or_else(|| {
                 yaml_cfg
                     .as_ref()
@@ -233,9 +210,7 @@ impl OfmConfig {
             })
             .unwrap_or(false);
 
-        let rauthy_port = std::env::var("OFM_RAUTHY_PORT")
-            .ok()
-            .and_then(|s| s.parse().ok())
+        let rauthy_port = env_u16("OFM_RAUTHY_PORT")
             .or_else(|| {
                 yaml_cfg
                     .as_ref()
@@ -299,6 +274,14 @@ fn env_opt_or(key: &str) -> Option<String> {
     std::env::var(key).ok()
 }
 
+fn env_u16(key: &str) -> Option<u16> {
+    std::env::var(key).ok().and_then(|s| s.parse().ok())
+}
+
+fn env_bool(key: &str) -> Option<bool> {
+    std::env::var(key).ok().map(|s| s == "true" || s == "1")
+}
+
 fn warn_if_short_api_key(key: &Option<String>) {
     if let Some(key) = key {
         if key.len() < 16 {
@@ -322,122 +305,167 @@ fn find_yaml_path(config_root: &str) -> Option<String> {
 }
 
 fn generate_yaml_template(cfg: &OfmConfigFile) -> String {
+    use std::fmt::Write;
     let mut s = String::new();
 
-    s.push_str("# OFM configuration file\n");
-    s.push_str("# Environment variables always take precedence over values in this file.\n");
-    s.push_str(
-        "# This file was auto-generated. You can edit it; changes are preserved on restart.\n",
+    writeln!(s, "# OFM configuration file").ok();
+    writeln!(
+        s,
+        "# Environment variables always take precedence over values in this file."
+    )
+    .ok();
+    writeln!(
+        s,
+        "# This file was auto-generated. You can edit it; changes are preserved on restart."
+    )
+    .ok();
+    writeln!(s, "#").ok();
+    writeln!(
+        s,
+        "# Secrets (API_KEY, RAFT_SECRET, API_SECRET, OIDC_CLIENT_SECRET) are never"
+    )
+    .ok();
+    writeln!(
+        s,
+        "# written to this file \u{2014} they must be set via environment variables."
+    )
+    .ok();
+    s.push('\n');
+
+    let emit = |s: &mut String,
+                key: &str,
+                comment: &str,
+                env: &str,
+                default: &str,
+                value: Option<String>,
+                optional: bool| {
+        writeln!(s, "  # {comment}").ok();
+        writeln!(s, "  # Env: {env} (default: {default})").ok();
+        if let Some(v) = value {
+            writeln!(s, "  {key}: {v}").ok();
+        } else if optional {
+            writeln!(s, "  # {key}: {default}").ok();
+        } else {
+            writeln!(s, "  {key}: {default}").ok();
+        }
+    };
+
+    writeln!(s, "server:").ok();
+    emit(
+        &mut s,
+        "HOSTNAME",
+        "IP address or hostname to bind the HTTP server on.",
+        "OFM_HOSTNAME",
+        "127.0.0.1",
+        cfg.server.as_ref().and_then(|g| g.hostname.clone()),
+        false,
     );
-    s.push_str("#\n");
-    s.push_str("# Secrets (API_KEY, RAFT_SECRET, API_SECRET, OIDC_CLIENT_SECRET) are never\n");
-    s.push_str("# written to this file \u{2014} they must be set via environment variables.\n\n");
+    emit(
+        &mut s,
+        "PORT",
+        "TCP port to bind the HTTP server on.",
+        "OFM_PORT",
+        "3183",
+        cfg.server
+            .as_ref()
+            .and_then(|g| g.port.map(|v| v.to_string())),
+        false,
+    );
+    emit(
+        &mut s,
+        "URL",
+        "Public-facing URL (used by the CLI agent subcommand).",
+        "OFM_URL",
+        "http://127.0.0.1:3183",
+        cfg.server.as_ref().and_then(|g| g.url.clone()),
+        false,
+    );
 
-    // server
-    s.push_str("server:\n");
-    s.push_str("  # IP address or hostname to bind the HTTP server on.\n");
-    s.push_str("  # Env: OFM_HOSTNAME (default: 127.0.0.1)\n");
-    if let Some(v) = cfg.server.as_ref().and_then(|g| g.hostname.as_ref()) {
-        s.push_str(&format!("  HOSTNAME: {v}\n"));
-    } else {
-        s.push_str("  HOSTNAME: 127.0.0.1\n");
-    }
-    s.push('\n');
+    writeln!(s, "auth:").ok();
+    emit(
+        &mut s,
+        "OIDC_ISSUER_URL",
+        "OIDC issuer URL for external authentication.",
+        "OFM_OIDC_ISSUER_URL",
+        "https://auth.example.com",
+        cfg.auth.as_ref().and_then(|g| g.oidc_issuer_url.clone()),
+        true,
+    );
+    emit(
+        &mut s,
+        "OIDC_CLIENT_ID",
+        "OIDC client ID registered with the issuer.",
+        "OFM_OIDC_CLIENT_ID",
+        "my-client",
+        cfg.auth.as_ref().and_then(|g| g.oidc_client_id.clone()),
+        true,
+    );
+    emit(
+        &mut s,
+        "BASE_URL",
+        "Base URL for OAuth redirects.",
+        "OM_PRINT_BASE_URL",
+        "http://localhost:3183",
+        cfg.auth.as_ref().and_then(|g| g.base_url.clone()),
+        true,
+    );
+    emit(
+        &mut s,
+        "OIDC_REDIRECT_URI",
+        "Explicit OIDC redirect URI. Computed from BASE_URL if not set.",
+        "OIDC_REDIRECT_URI",
+        "http://localhost:3183/api/auth/callback",
+        cfg.auth.as_ref().and_then(|g| g.oidc_redirect_uri.clone()),
+        true,
+    );
 
-    s.push_str("  # TCP port to bind the HTTP server on.\n");
-    s.push_str("  # Env: OFM_PORT (default: 3183)\n");
-    if let Some(v) = cfg.server.as_ref().and_then(|g| g.port) {
-        s.push_str(&format!("  PORT: {v}\n"));
-    } else {
-        s.push_str("  PORT: 3183\n");
-    }
-    s.push('\n');
+    writeln!(s, "raft:").ok();
+    emit(
+        &mut s,
+        "HIQLITE_RAFT_PORT",
+        "Raft port for hiqlite cluster communication.",
+        "OFM_HIQLITE_RAFT_PORT",
+        "8100",
+        cfg.raft
+            .as_ref()
+            .and_then(|g| g.hiqlite_raft_port.map(|v| v.to_string())),
+        false,
+    );
+    emit(
+        &mut s,
+        "HIQLITE_API_PORT",
+        "API port for hiqlite client connections.",
+        "OFM_HIQLITE_API_PORT",
+        "8200",
+        cfg.raft
+            .as_ref()
+            .and_then(|g| g.hiqlite_api_port.map(|v| v.to_string())),
+        false,
+    );
 
-    s.push_str("  # Public-facing URL (used by the CLI agent subcommand).\n");
-    s.push_str("  # Env: OFM_URL (default: http://127.0.0.1:3183)\n");
-    if let Some(v) = cfg.server.as_ref().and_then(|g| g.url.as_ref()) {
-        s.push_str(&format!("  URL: {v}\n"));
-    } else {
-        s.push_str("  URL: http://127.0.0.1:3183\n");
-    }
-    s.push('\n');
-
-    // auth
-    s.push_str("auth:\n");
-    s.push_str("  # OIDC issuer URL for external authentication.\n");
-    s.push_str("  # Env: OFM_OIDC_ISSUER_URL (optional)\n");
-    if let Some(v) = cfg.auth.as_ref().and_then(|g| g.oidc_issuer_url.as_ref()) {
-        s.push_str(&format!("  OIDC_ISSUER_URL: {v}\n"));
-    } else {
-        s.push_str("  # OIDC_ISSUER_URL: https://auth.example.com\n");
-    }
-    s.push('\n');
-
-    s.push_str("  # OIDC client ID registered with the issuer.\n");
-    s.push_str("  # Env: OFM_OIDC_CLIENT_ID (optional)\n");
-    if let Some(v) = cfg.auth.as_ref().and_then(|g| g.oidc_client_id.as_ref()) {
-        s.push_str(&format!("  OIDC_CLIENT_ID: {v}\n"));
-    } else {
-        s.push_str("  # OIDC_CLIENT_ID: my-client\n");
-    }
-    s.push('\n');
-
-    s.push_str("  # Base URL for OAuth redirects.\n");
-    s.push_str("  # Env: OM_PRINT_BASE_URL (optional)\n");
-    if let Some(v) = cfg.auth.as_ref().and_then(|g| g.base_url.as_ref()) {
-        s.push_str(&format!("  BASE_URL: {v}\n"));
-    } else {
-        s.push_str("  # BASE_URL: http://localhost:3183\n");
-    }
-    s.push('\n');
-
-    s.push_str("  # Explicit OIDC redirect URI. Computed from BASE_URL if not set.\n");
-    s.push_str("  # Env: OIDC_REDIRECT_URI (optional)\n");
-    if let Some(v) = cfg.auth.as_ref().and_then(|g| g.oidc_redirect_uri.as_ref()) {
-        s.push_str(&format!("  OIDC_REDIRECT_URI: {v}\n"));
-    } else {
-        s.push_str("  # OIDC_REDIRECT_URI: http://localhost:3183/api/auth/callback\n");
-    }
-    s.push('\n');
-
-    // raft
-    s.push_str("raft:\n");
-    s.push_str("  # Raft port for hiqlite cluster communication.\n");
-    s.push_str("  # Env: OFM_HIQLITE_RAFT_PORT (default: 8100)\n");
-    if let Some(v) = cfg.raft.as_ref().and_then(|g| g.hiqlite_raft_port) {
-        s.push_str(&format!("  HIQLITE_RAFT_PORT: {v}\n"));
-    } else {
-        s.push_str("  HIQLITE_RAFT_PORT: 8100\n");
-    }
-    s.push('\n');
-
-    s.push_str("  # API port for hiqlite client connections.\n");
-    s.push_str("  # Env: OFM_HIQLITE_API_PORT (default: 8200)\n");
-    if let Some(v) = cfg.raft.as_ref().and_then(|g| g.hiqlite_api_port) {
-        s.push_str(&format!("  HIQLITE_API_PORT: {v}\n"));
-    } else {
-        s.push_str("  HIQLITE_API_PORT: 8200\n");
-    }
-    s.push('\n');
-
-    // rauthy
-    s.push_str("rauthy:\n");
-    s.push_str("  # Enable the embedded rauthy OIDC provider.\n");
-    s.push_str("  # Env: OFM_RAUTHY_ENABLED (default: false)\n");
-    if let Some(v) = cfg.rauthy.as_ref().and_then(|g| g.rauthy_enabled) {
-        s.push_str(&format!("  RAUTHY_ENABLED: {v}\n"));
-    } else {
-        s.push_str("  RAUTHY_ENABLED: false\n");
-    }
-    s.push('\n');
-
-    s.push_str("  # Port for the embedded rauthy instance (0 = random available port).\n");
-    s.push_str("  # Env: OFM_RAUTHY_PORT (default: 0)\n");
-    if let Some(v) = cfg.rauthy.as_ref().and_then(|g| g.rauthy_port) {
-        s.push_str(&format!("  RAUTHY_PORT: {v}\n"));
-    } else {
-        s.push_str("  RAUTHY_PORT: 0\n");
-    }
+    writeln!(s, "rauthy:").ok();
+    emit(
+        &mut s,
+        "RAUTHY_ENABLED",
+        "Enable the embedded rauthy OIDC provider.",
+        "OFM_RAUTHY_ENABLED",
+        "false",
+        cfg.rauthy
+            .as_ref()
+            .and_then(|g| g.rauthy_enabled.map(|v| v.to_string())),
+        false,
+    );
+    emit(
+        &mut s,
+        "RAUTHY_PORT",
+        "Port for the embedded rauthy instance (0 = random available port).",
+        "OFM_RAUTHY_PORT",
+        "0",
+        cfg.rauthy
+            .as_ref()
+            .and_then(|g| g.rauthy_port.map(|v| v.to_string())),
+        false,
+    );
 
     s
 }

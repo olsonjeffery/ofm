@@ -1,7 +1,6 @@
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
-use uuid::Uuid;
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
@@ -11,7 +10,7 @@ pub enum WsTopicKind {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
-pub struct TopicId(pub Uuid);
+pub struct TopicId(pub i64);
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub struct WsTopic {
@@ -74,7 +73,7 @@ mod tests {
     fn example_topic() -> WsTopic {
         WsTopic {
             kind: WsTopicKind::Task,
-            id: TopicId(Uuid::parse_str("550e8400-e29b-41d4-a716-446655440000").unwrap()),
+            id: TopicId(42),
         }
     }
 

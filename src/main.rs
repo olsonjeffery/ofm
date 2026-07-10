@@ -26,6 +26,10 @@ mod services;
 mod webapp;
 mod worktree;
 
+fn box_io_err(e: std::io::Error) -> Box<dyn std::error::Error> {
+    Box::new(std::io::Error::other(e.to_string()))
+}
+
 type OidcDiscoveryResult = (String, String, Option<String>, Option<String>);
 
 fn parse_oidc_discovery(
@@ -119,20 +123,17 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     let cookie_key_path = std::path::Path::new(&cfg.config_root).join("cookie_key.bin");
     let cookie_key = if cookie_key_path.exists() {
-        let data = std::fs::read(&cookie_key_path)
-            .map_err(|e| Box::new(std::io::Error::other(e.to_string())))?;
+        let data = std::fs::read(&cookie_key_path).map_err(box_io_err)?;
         cookie::Key::from(&data)
     } else {
         let key = cookie::Key::generate();
         if let Some(parent) = cookie_key_path.parent() {
-            std::fs::create_dir_all(parent)
-                .map_err(|e| Box::new(std::io::Error::other(e.to_string())))?;
+            std::fs::create_dir_all(parent).map_err(box_io_err)?;
         }
         let mut combined = vec![0u8; 64];
         combined[..32].copy_from_slice(key.signing());
         combined[32..64].copy_from_slice(key.encryption());
-        std::fs::write(&cookie_key_path, &combined)
-            .map_err(|e| Box::new(std::io::Error::other(e.to_string())))?;
+        std::fs::write(&cookie_key_path, &combined).map_err(box_io_err)?;
         #[cfg(unix)]
         std::fs::set_permissions(&cookie_key_path, std::fs::Permissions::from_mode(0o600))?;
         key
@@ -141,16 +142,13 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let api_key_pepper = {
         let api_key_pepper_path = std::path::Path::new(&cfg.config_root).join("api_key_pepper.bin");
         if api_key_pepper_path.exists() {
-            std::fs::read(&api_key_pepper_path)
-                .map_err(|e| Box::new(std::io::Error::other(e.to_string())))?
+            std::fs::read(&api_key_pepper_path).map_err(box_io_err)?
         } else {
             let pepper: Vec<u8> = (0..32).map(|_| rand::random::<u8>()).collect();
             if let Some(parent) = api_key_pepper_path.parent() {
-                std::fs::create_dir_all(parent)
-                    .map_err(|e| Box::new(std::io::Error::other(e.to_string())))?;
+                std::fs::create_dir_all(parent).map_err(box_io_err)?;
             }
-            std::fs::write(&api_key_pepper_path, &pepper)
-                .map_err(|e| Box::new(std::io::Error::other(e.to_string())))?;
+            std::fs::write(&api_key_pepper_path, &pepper).map_err(box_io_err)?;
             #[cfg(unix)]
             std::fs::set_permissions(&api_key_pepper_path, std::fs::Permissions::from_mode(0o600))?;
             pepper

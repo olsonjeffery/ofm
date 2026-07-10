@@ -5,10 +5,16 @@ use ofm::server;
 use ofm::server::state::AppState;
 use ofm::server::ws::bus::BroadcastBus;
 use std::collections::HashMap;
+use std::sync::atomic::{AtomicI64, Ordering};
 use std::sync::Arc;
 use tempfile::TempDir;
 use tokio::sync::Mutex;
 use uuid::Uuid;
+
+fn int64_id() -> i64 {
+    static NEXT_ID: AtomicI64 = AtomicI64::new(1);
+    NEXT_ID.fetch_add(1, Ordering::Relaxed)
+}
 
 async fn make_state() -> (AppState, AuthLayer, TempDir) {
     let tmp = TempDir::new().unwrap();
@@ -417,11 +423,11 @@ async fn test_webapp_board_page() {
         axum::serve(listener, app).await.unwrap();
     });
 
-    let project_id = Uuid::new_v4();
+    let project_id = int64_id();
     let now = chrono::Utc::now().naive_utc().to_string();
     db.execute(
         "INSERT INTO projects (id, user_id, name, repo_folder_path, created_at) VALUES ($1, $2, $3, $4, $5)",
-        hiqlite::params!(project_id.to_string(), user_id.to_string(), "Board Test Project", "/tmp/test", &now),
+        hiqlite::params!(project_id, user_id.to_string(), "Board Test Project", "/tmp/test", &now),
     )
     .await
     .unwrap();
@@ -451,7 +457,7 @@ async fn test_webapp_board_page_404() {
         axum::serve(listener, app).await.unwrap();
     });
 
-    let url = format!("http://{}/webapp/projects/{}", addr, Uuid::new_v4());
+    let url = format!("http://{}/webapp/projects/{}", addr, 99999);
     let client = reqwest::Client::new();
     let resp = client.get(&url).send().await.unwrap();
     assert_eq!(resp.status(), 404);
@@ -470,18 +476,18 @@ async fn test_webapp_task_detail_page() {
         axum::serve(listener, app).await.unwrap();
     });
 
-    let project_id = Uuid::new_v4();
-    let task_id = Uuid::new_v4();
+    let project_id = int64_id();
+    let task_id = int64_id();
     let now = chrono::Utc::now().naive_utc().to_string();
     db.execute(
         "INSERT INTO projects (id, user_id, name, repo_folder_path, created_at) VALUES ($1, $2, $3, $4, $5)",
-        hiqlite::params!(project_id.to_string(), user_id.to_string(), "Detail Test", "/tmp/test", &now),
+        hiqlite::params!(project_id, user_id.to_string(), "Detail Test", "/tmp/test", &now),
     )
     .await
     .unwrap();
     db.execute(
         "INSERT INTO tasks (id, project_id, user_id, title, status, created_at) VALUES ($1, $2, $3, $4, $5, $6)",
-        hiqlite::params!(task_id.to_string(), project_id.to_string(), user_id.to_string(), "My Test Task", "pending", &now),
+        hiqlite::params!(task_id, project_id, user_id.to_string(), "My Test Task", "pending", &now),
     )
     .await
     .unwrap();
@@ -515,12 +521,7 @@ async fn test_webapp_task_detail_page_404() {
         axum::serve(listener, app).await.unwrap();
     });
 
-    let url = format!(
-        "http://{}/webapp/projects/{}/tasks/{}",
-        addr,
-        Uuid::new_v4(),
-        Uuid::new_v4()
-    );
+    let url = format!("http://{}/webapp/projects/{}/tasks/{}", addr, 99999, 99999);
     let client = reqwest::Client::new();
     let resp = client.get(&url).send().await.unwrap();
     assert_eq!(resp.status(), 404);

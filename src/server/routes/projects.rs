@@ -12,7 +12,6 @@ use axum::{
     Json, Router,
 };
 use serde::Deserialize;
-use uuid::Uuid;
 
 #[derive(Debug, Deserialize)]
 pub struct CreateProjectRequest {
@@ -91,9 +90,9 @@ async fn list_projects(
 async fn get_project(
     auth: AuthUser,
     State(state): State<AppState>,
-    Path(id): Path<Uuid>,
+    Path(id): Path<i64>,
 ) -> Result<Json<Project>, ServerError> {
-    let project = services::projects::get_project(&state.db, &id)
+    let project = services::projects::get_project(&state.db, id)
         .await
         .map_err(|_| ServerError::NotFound("Project not found".into()))?;
     if project.user_id != auth.user_id {
@@ -105,10 +104,10 @@ async fn get_project(
 async fn update_project(
     auth: AuthUser,
     State(state): State<AppState>,
-    Path(id): Path<Uuid>,
+    Path(id): Path<i64>,
     Json(body): Json<UpdateProjectRequest>,
 ) -> Result<Json<Project>, ServerError> {
-    let existing = services::projects::get_project(&state.db, &id)
+    let existing = services::projects::get_project(&state.db, id)
         .await
         .map_err(|_| ServerError::NotFound("Project not found".into()))?;
     if existing.user_id != auth.user_id {
@@ -137,7 +136,7 @@ async fn update_project(
     }
     let project = services::projects::update_project(
         &state.db,
-        &id,
+        id,
         body.name.as_deref().map(|s| s.trim()),
         body.repo_folder_path.as_deref().map(|s| s.trim()),
         body.subproject_path.as_deref(),
@@ -158,15 +157,15 @@ async fn update_project(
 async fn delete_project(
     auth: AuthUser,
     State(state): State<AppState>,
-    Path(id): Path<Uuid>,
+    Path(id): Path<i64>,
 ) -> Result<Json<serde_json::Value>, ServerError> {
-    let existing = services::projects::get_project(&state.db, &id)
+    let existing = services::projects::get_project(&state.db, id)
         .await
         .map_err(|_| ServerError::NotFound("Project not found".into()))?;
     if existing.user_id != auth.user_id {
         return Err(ServerError::NotFound("Project not found".into()));
     }
-    let deleted = services::projects::delete_project(&state.db, &id)
+    let deleted = services::projects::delete_project(&state.db, id)
         .await
         .map_err(|e| ServerError::Internal(e.to_string()))?;
     if !deleted {
@@ -175,35 +174,28 @@ async fn delete_project(
     Ok(Json(serde_json::json!({ "success": true })))
 }
 
-fn validate_repo_path(path: &str) -> Result<(), ServerError> {
+fn validate_no_path_traversal(path: &str, field: &str) -> Result<(), ServerError> {
     if path.contains("..") {
-        return Err(ServerError::BadRequest(
-            "repo_folder_path must not contain path traversal sequences".into(),
-        ));
+        return Err(ServerError::BadRequest(format!(
+            "{field} must not contain path traversal sequences"
+        )));
     }
+    if path.len() > 4096 {
+        return Err(ServerError::BadRequest(format!("{field} is too long")));
+    }
+    Ok(())
+}
+
+fn validate_repo_path(path: &str) -> Result<(), ServerError> {
+    validate_no_path_traversal(path, "repo_folder_path")?;
     if !StdPath::new(path).has_root() {
         return Err(ServerError::BadRequest(
             "repo_folder_path must be an absolute path".into(),
-        ));
-    }
-    if path.len() > 4096 {
-        return Err(ServerError::BadRequest(
-            "repo_folder_path is too long".into(),
         ));
     }
     Ok(())
 }
 
 fn validate_subproject_path(path: &str) -> Result<(), ServerError> {
-    if path.contains("..") {
-        return Err(ServerError::BadRequest(
-            "subproject_path must not contain path traversal sequences".into(),
-        ));
-    }
-    if path.len() > 4096 {
-        return Err(ServerError::BadRequest(
-            "subproject_path is too long".into(),
-        ));
-    }
-    Ok(())
+    validate_no_path_traversal(path, "subproject_path")
 }

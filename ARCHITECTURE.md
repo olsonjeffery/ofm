@@ -33,7 +33,7 @@ The workspace has a single member crate (`ofm` binary) defined inline.
 ## Database
 
 - **Engine**: [hiqlite](https://crates.io/crates/hiqlite) — async, Raft-capable embedded SQLite with built-in durability via WAL + auto-heal crash recovery. Single-node deployment eliminates the Mutex bottleneck in axum handlers.
-- **Schema**: 13+ tables defined via raw SQL DDL in `src/db/mod.rs`. UUIDs are stored as `TEXT`, booleans as `INTEGER` (0/1), JSON as `TEXT`, and timestamps as ISO 8601 `TEXT` strings.
+- **Schema**: 15+ tables defined via raw SQL DDL in `src/db/mod.rs`. Project and task IDs use `INTEGER PRIMARY KEY AUTOINCREMENT`; other UUIDs (users, sessions, conversations) are stored as `TEXT`. Booleans are `INTEGER` (0/1), JSON as `TEXT`, and timestamps as ISO 8601 `TEXT` strings.
 - **Migration system**: A `_migrations` tracking table records which migrations have been applied. Each migration is a named SQL DDL statement; only unapplied migrations execute on startup.
 
 ### Tables
@@ -127,7 +127,7 @@ Configuration is loaded from YAML files with environment variable overlay:
 
 - **snake_case** naming for all columns and Rust identifiers
 - **Custom error types** via `src/server/error.rs` — `AppError` enum with typed HTTP responses, replacing `Box<dyn Error>`
-- **`TEXT` storage** for UUIDs, timestamps, and JSON values (SQLite convention)
+- **`TEXT` storage** for UUIDs (users, sessions, conversations, etc.), timestamps, and JSON values; project/task IDs use `INTEGER` (SQLite convention)
 - **`AuthLayer` Tower middleware** for request authentication (JWT via JWKS, API key hash lookup)
 - **`spawn_blocking`** for blocking I/O operations (PTY reads), sending events through `mpsc::Sender::blocking_send`
 

@@ -18,13 +18,12 @@ pub fn next_agent(task: &Task, current_agent: &AgentType) -> NextAction {
 mod tests {
     use super::*;
     use crate::db::schema::Task;
-    use uuid::Uuid;
 
     fn make_task() -> Task {
         Task {
-            id: Uuid::new_v4(),
-            project_id: Uuid::new_v4(),
-            user_id: Uuid::new_v4(),
+            id: 1,
+            project_id: 1,
+            user_id: uuid::Uuid::new_v4(),
             title: "test".into(),
             status: "pending".into(),
             workflow_complete: false,

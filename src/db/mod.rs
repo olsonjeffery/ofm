@@ -23,7 +23,7 @@ const MIGRATIONS: &[(&str, &str)] = &[
     (
         "create_projects",
         "CREATE TABLE IF NOT EXISTS projects (
-            id TEXT PRIMARY KEY,
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
             user_id TEXT NOT NULL REFERENCES users(id),
             name TEXT NOT NULL,
             repo_folder_path TEXT NOT NULL,
@@ -35,7 +35,7 @@ const MIGRATIONS: &[(&str, &str)] = &[
         "create_project_members",
         "CREATE TABLE IF NOT EXISTS project_members (
             id TEXT PRIMARY KEY,
-            project_id TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+            project_id INTEGER NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
             user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
             UNIQUE(project_id, user_id)
         )",
@@ -43,8 +43,8 @@ const MIGRATIONS: &[(&str, &str)] = &[
     (
         "create_tasks",
         "CREATE TABLE IF NOT EXISTS tasks (
-            id TEXT PRIMARY KEY,
-            project_id TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            project_id INTEGER NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
             user_id TEXT NOT NULL REFERENCES users(id),
             title TEXT NOT NULL,
             status TEXT NOT NULL DEFAULT 'pending',
@@ -62,7 +62,7 @@ const MIGRATIONS: &[(&str, &str)] = &[
         "create_conversations",
         "CREATE TABLE IF NOT EXISTS conversations (
             id TEXT PRIMARY KEY,
-            task_id TEXT NOT NULL REFERENCES tasks(id) ON DELETE CASCADE,
+            task_id INTEGER NOT NULL REFERENCES tasks(id) ON DELETE CASCADE,
             omp_session_id TEXT,
             model TEXT NOT NULL,
             effort TEXT NOT NULL DEFAULT 'medium',
@@ -73,7 +73,7 @@ const MIGRATIONS: &[(&str, &str)] = &[
         "create_task_agent_runs",
         "CREATE TABLE IF NOT EXISTS task_agent_runs (
             id TEXT PRIMARY KEY,
-            task_id TEXT NOT NULL REFERENCES tasks(id) ON DELETE CASCADE,
+            task_id INTEGER NOT NULL REFERENCES tasks(id) ON DELETE CASCADE,
             agent_type TEXT NOT NULL,
             status TEXT NOT NULL DEFAULT 'pending',
             conversation_id TEXT REFERENCES conversations(id) ON DELETE SET NULL,
@@ -84,7 +84,7 @@ const MIGRATIONS: &[(&str, &str)] = &[
     (
         "create_messages",
         "CREATE TABLE IF NOT EXISTS messages (
-            project_key TEXT NOT NULL,
+            project_key INTEGER NOT NULL,
             session_id TEXT NOT NULL,
             seq INTEGER NOT NULL,
             entry_json TEXT NOT NULL,
@@ -94,7 +94,7 @@ const MIGRATIONS: &[(&str, &str)] = &[
     (
         "create_session_summaries",
         "CREATE TABLE IF NOT EXISTS session_summaries (
-            project_key TEXT NOT NULL,
+            project_key INTEGER NOT NULL,
             session_id TEXT NOT NULL,
             mtime TEXT NOT NULL,
             summary_json TEXT NOT NULL,
@@ -123,10 +123,8 @@ const MIGRATIONS: &[(&str, &str)] = &[
         "create_worktrees",
         "CREATE TABLE IF NOT EXISTS worktrees (
             id TEXT PRIMARY KEY,
-            project_uuid TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
-            task_uuid TEXT NOT NULL REFERENCES tasks(id) ON DELETE CASCADE,
-            project_id INTEGER NOT NULL,
-            task_id INTEGER NOT NULL,
+            project_id INTEGER NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+            task_id INTEGER NOT NULL REFERENCES tasks(id) ON DELETE CASCADE,
             worktree_path TEXT NOT NULL,
             branch TEXT NOT NULL,
             created_at TEXT NOT NULL DEFAULT ''
@@ -153,7 +151,7 @@ const MIGRATIONS: &[(&str, &str)] = &[
             provider_config_ref TEXT NOT NULL,
             scope_type TEXT NOT NULL DEFAULT 'global',
             user_id TEXT,
-            project_id TEXT,
+            project_id INTEGER,
             model TEXT,
             effort TEXT,
             created_at TEXT NOT NULL DEFAULT '',

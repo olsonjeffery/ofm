@@ -8,7 +8,6 @@ use axum::{
     Json, Router,
 };
 use serde::Deserialize;
-use uuid::Uuid;
 
 use crate::db::schema::{AgentType, TaskAgentRun};
 use crate::orchestration;
@@ -30,12 +29,12 @@ pub fn agent_runs_router() -> Router<AppState> {
 
 async fn post_create_agent_run(
     State(state): State<AppState>,
-    Path(task_id): Path<Uuid>,
+    Path(task_id): Path<i64>,
     Json(body): Json<StartAgentRunRequest>,
 ) -> Result<(StatusCode, Json<TaskAgentRun>), ServerError> {
     let agent_type = AgentType::from_str(&body.agent_type).map_err(ServerError::BadRequest)?;
 
-    let task = tasks::get_task(&state.db, &task_id)
+    let task = tasks::get_task(&state.db, task_id)
         .await
         .map_err(|_| ServerError::NotFound("Task not found".into()))?;
 
@@ -43,7 +42,7 @@ async fn post_create_agent_run(
 
     guards::iteration_cap(&task)?;
 
-    tasks::increment_workflow_run_count(&state.db, &task_id)
+    tasks::increment_workflow_run_count(&state.db, task_id)
         .await
         .map_err(orchestration::internal_err)?;
 
@@ -53,7 +52,7 @@ async fn post_create_agent_run(
         &state.db,
         &agent_type,
         Some(&task.user_id),
-        Some(&task.project_id),
+        Some(task.project_id),
     )
     .await;
 
@@ -127,13 +126,13 @@ async fn post_create_agent_run(
 
 async fn list_agent_runs(
     State(state): State<AppState>,
-    Path(task_id): Path<Uuid>,
+    Path(task_id): Path<i64>,
 ) -> Result<Json<Vec<TaskAgentRun>>, ServerError> {
-    tasks::get_task(&state.db, &task_id)
+    tasks::get_task(&state.db, task_id)
         .await
         .map_err(|_| ServerError::NotFound("Task not found".into()))?;
 
-    let runs = tasks::list_agent_runs_for_task(&state.db, &task_id)
+    let runs = tasks::list_agent_runs_for_task(&state.db, task_id)
         .await
         .map_err(orchestration::internal_err)?;
 

@@ -99,12 +99,11 @@ mod tests {
     use super::*;
 
     use chrono::Duration;
-    use uuid::Uuid;
 
     fn test_topic() -> WsTopic {
         WsTopic {
             kind: super::super::message::WsTopicKind::Task,
-            id: super::super::message::TopicId(Uuid::new_v4()),
+            id: super::super::message::TopicId(42),
         }
     }
 
@@ -214,7 +213,7 @@ mod tests {
         let topic_a = test_topic();
         let topic_b = {
             let mut t = topic_a.clone();
-            t.id = super::super::message::TopicId(Uuid::new_v4());
+            t.id = super::super::message::TopicId(99);
             t
         };
 

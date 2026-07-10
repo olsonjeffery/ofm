@@ -47,18 +47,26 @@ flips `pending → in_progress` on the first agent activity (see
 
 ### Integer- vs UUID-based IDs
 
-The database uses **UUIDs** for all primary keys (`Task.id`, `Project.id`). The
-archive path pattern `task-{taskId}.md` accepts a string ID (e.g. `"42"` or a
-UUID) — the `sanitize_id` function in `src/archive/paths.rs` rejects path
-traversal but is otherwise opaque to the ID format.
+Projects and tasks use **auto-increment integer IDs** (`INTEGER PRIMARY KEY
+AUTOINCREMENT` in SQLite). All other entities (users, sessions, conversations,
+messages) retain UUID primary keys, but their foreign key columns referencing
+projects/tasks use integers.
 
-However, `src/worktree/mod.rs` uses **integer IDs** (`u32`) for worktree paths
-and branch naming — e.g. `project-1/task-42/` and `task/42-foo-bar`. The
-`uuid_to_u32` function XOR-folds a UUID's 128 bits into a `u32` to derive the
-integer used in filesystem paths. This means:
-- **Archive paths** use the original ID string (UUID or integer) directly
-- **Worktree paths** (`src/worktree/mod.rs`) and branch names always use folded
-  `u32` integers for brevity in filesystem and git operations
+The archive path pattern `task-{taskId}.md` accepts the integer ID — the
+`sanitize_id` function in `src/archive/paths.rs` rejects path traversal but is
+otherwise opaque to the ID format.
+
+Both archive and worktree paths use the same integer IDs directly:
+- **Archive paths**: `{archive_root}/projects/{project_id}/tasks/task-{task_id}.md`
+- **Worktree paths** (`src/worktree/mod.rs`): `{repo}-worktrees/project-{project_id}/task-{task_id}/`
+- **Branch names**: `task/{task_id}-{sanitized-title}`
+
+**Security stance**: Integer IDs being sequentially guessable is NOT a concern.
+These are development tool resources, not sensitive financial/medical data. No
+rate-limiting or authorization hardening beyond what exists is required.
+
+**Refinement prevention**: This integer ID scheme is an intentional design
+decision. Do not revert to UUIDs.
 
 ## The markdown document — the source of truth for "what to build"
 
@@ -85,7 +93,7 @@ integer used in filesystem paths. This means:
 
 ## The worktree — the isolated workspace
 
-- **One git worktree per task**, at `{repo_folder_path}-worktrees/task-{taskId}/`
+- **One git worktree per task**, at `{repo_folder_path}-worktrees/project-{projectId}/task-{taskId}/`
   — a sibling directory, never inside the repo itself.
 - **Branch:** `task/{taskId}-{sanitized-title}`, cut from the repo's default
   branch (resolved via `origin/HEAD`, falling back to `main`/`master`).

@@ -15,7 +15,7 @@ struct TestApp {
     addr: String,
     _handle: tokio::task::JoinHandle<()>,
     db: hiqlite::Client,
-    project_id: Uuid,
+    project_id: i64,
     _db_dir: TempDir,
 }
 
@@ -102,51 +102,33 @@ async fn default_user_id(db: &hiqlite::Client) -> Uuid {
     Uuid::parse_str(&id_str).unwrap()
 }
 
-async fn create_task_seed(db: &hiqlite::Client, project_id: &Uuid) -> Uuid {
+async fn create_task_seed(db: &hiqlite::Client, project_id: i64) -> i64 {
     let user_id = default_user_id(db).await;
-    let task_id = Uuid::new_v4();
-    db.execute(
-        "INSERT INTO tasks (id, project_id, user_id, title, status) VALUES ($1, $2, $3, $4, $5)",
-        hiqlite::params!(
-            task_id.to_string(),
-            project_id.to_string(),
-            user_id.to_string(),
-            "test-task",
-            "pending"
-        ),
-    )
-    .await
-    .unwrap();
-    task_id
+    let task = ofm::services::tasks::create_task(db, project_id, &user_id, "test-task", "pending")
+        .await
+        .unwrap();
+    task.id
 }
 
-async fn create_task_seed_with_count(
-    db: &hiqlite::Client,
-    project_id: &Uuid,
-    run_count: i32,
-) -> Uuid {
+async fn create_task_seed_with_count(db: &hiqlite::Client, project_id: i64, run_count: i32) -> i64 {
     let user_id = default_user_id(db).await;
-    let task_id = Uuid::new_v4();
+    let task = ofm::services::tasks::create_task(db, project_id, &user_id, "test-task", "pending")
+        .await
+        .unwrap();
+    // Update run count after creation
     db.execute(
-        "INSERT INTO tasks (id, project_id, user_id, title, status, workflow_run_count) VALUES ($1, $2, $3, $4, $5, $6)",
-        hiqlite::params!(
-            task_id.to_string(),
-            project_id.to_string(),
-            user_id.to_string(),
-            "test-task",
-            "pending",
-            run_count as i64
-        ),
+        "UPDATE tasks SET workflow_run_count = $1 WHERE id = $2",
+        hiqlite::params!(run_count as i64, task.id),
     )
     .await
     .unwrap();
-    task_id
+    task.id
 }
 
 #[tokio::test]
 async fn test_create_agent_run_201() {
     let app = setup_app().await;
-    let task_id = create_task_seed(&app.db, &app.project_id).await;
+    let task_id = create_task_seed(&app.db, app.project_id).await;
 
     let resp = client()
         .post(format!("{}/api/tasks/{}/agent-runs", app.addr, task_id))
@@ -158,7 +140,7 @@ async fn test_create_agent_run_201() {
     assert_eq!(resp.status(), 201);
     let body: serde_json::Value = resp.json().await.unwrap();
     assert_eq!(body["status"], "running");
-    assert_eq!(body["task_id"].as_str().unwrap(), task_id.to_string());
+    assert_eq!(body["task_id"].as_i64().unwrap(), task_id);
     assert_eq!(body["agent_type"], "implementation");
     assert!(body["id"].as_str().unwrap().len() > 0);
 }
@@ -166,7 +148,7 @@ async fn test_create_agent_run_201() {
 #[tokio::test]
 async fn test_create_agent_run_409_concurrent() {
     let app = setup_app().await;
-    let task_id = create_task_seed(&app.db, &app.project_id).await;
+    let task_id = create_task_seed(&app.db, app.project_id).await;
 
     let resp = client()
         .post(format!("{}/api/tasks/{}/agent-runs", app.addr, task_id))
@@ -188,7 +170,7 @@ async fn test_create_agent_run_409_concurrent() {
 #[tokio::test]
 async fn test_create_agent_run_404_task_not_found() {
     let app = setup_app().await;
-    let fake_id = Uuid::new_v4();
+    let fake_id: i64 = 99999;
 
     let resp = client()
         .post(format!("{}/api/tasks/{}/agent-runs", app.addr, fake_id))
@@ -203,7 +185,7 @@ async fn test_create_agent_run_404_task_not_found() {
 #[tokio::test]
 async fn test_create_agent_run_400_invalid_agent_type() {
     let app = setup_app().await;
-    let task_id = create_task_seed(&app.db, &app.project_id).await;
+    let task_id = create_task_seed(&app.db, app.project_id).await;
 
     let resp = client()
         .post(format!("{}/api/tasks/{}/agent-runs", app.addr, task_id))
@@ -218,7 +200,7 @@ async fn test_create_agent_run_400_invalid_agent_type() {
 #[tokio::test]
 async fn test_create_agent_run_409_iteration_cap() {
     let app = setup_app().await;
-    let task_id = create_task_seed_with_count(&app.db, &app.project_id, 25).await;
+    let task_id = create_task_seed_with_count(&app.db, app.project_id, 25).await;
 
     let resp = client()
         .post(format!("{}/api/tasks/{}/agent-runs", app.addr, task_id))
@@ -233,7 +215,7 @@ async fn test_create_agent_run_409_iteration_cap() {
 #[tokio::test]
 async fn test_list_agent_runs() {
     let app = setup_app().await;
-    let task_id = create_task_seed(&app.db, &app.project_id).await;
+    let task_id = create_task_seed(&app.db, app.project_id).await;
 
     for _ in 0..3 {
         let resp = client()
