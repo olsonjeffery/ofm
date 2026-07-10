@@ -170,7 +170,7 @@ Update the task documentation file at `{{taskDocPath}}`:
 #### If READY:
 1. **Run the completion command** to signal the workflow is complete:
 ```bash
-omprint agent complete-workflow {{taskId}}
+ofm agent complete-workflow {{taskId}}
 ```
 This stops the automated agent loop and awaits final user review.
 
@@ -178,7 +178,7 @@ This stops the automated agent loop and awaits final user review.
 1. **Update the "Review Findings" section** explaining what is blocking progress and what user action is needed
 2. **Run the block command** to pause the workflow:
 ```bash
-omprint agent block-workflow {{taskId}}
+ofm agent block-workflow {{taskId}}
 ```
 This stops the automated agent loop until the user resumes it after providing the needed input.
 

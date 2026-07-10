@@ -1,6 +1,6 @@
 use std::path::Path;
 
-use omprint::worktree::*;
+use ofm::worktree::*;
 use tempfile::TempDir;
 
 async fn init_test_repo(dir: &Path) {

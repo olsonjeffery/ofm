@@ -1,6 +1,6 @@
 # Core — The execution loop
 
-> **⚠️`omprint` ONLY ⚠️:** Rust convention requires functions and `let` bindings
+> **⚠️`ofm` ONLY ⚠️:** Rust convention requires functions and `let` bindings
 > use `snake_case` as a naming convention. In all places where `camelCase`
 > occurs (in citations from the legacy typescript `reference/` implementation),
 > substitute for `snake_case` as appropriate; `PascalCase` is used for `trait`s,
@@ -119,7 +119,7 @@ keeps the loop dumb and reliable (see
 > a nicety, not load-bearing — skip it if your harness has no browser-driving
 > MCP.
 
-For `omprint`:
+For `ofm`:
 
 > **`omp` can handle this through the `npm:pi-playwright` package
 

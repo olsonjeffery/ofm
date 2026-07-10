@@ -152,7 +152,7 @@ the task channel (the task viewer's conversation list). It is invoked from the
 logs and returns — the conversation is unaffected.
 
 > The reference titler shells out to the `claude` CLI directly rather than going
-> through the streaming runtime. For `omprint`, route title generation through
+> through the streaming runtime. For `ofm`, route title generation through
 > the `omp` RPC session instead. It is a cosmetic nicety either way.
 
 ## Context-usage meter

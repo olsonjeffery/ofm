@@ -89,20 +89,31 @@ async fn list_projects(
 }
 
 async fn get_project(
+    auth: AuthUser,
     State(state): State<AppState>,
     Path(id): Path<Uuid>,
 ) -> Result<Json<Project>, ServerError> {
     let project = services::projects::get_project(&state.db, &id)
         .await
         .map_err(|_| ServerError::NotFound("Project not found".into()))?;
+    if project.user_id != auth.user_id {
+        return Err(ServerError::NotFound("Project not found".into()));
+    }
     Ok(Json(project))
 }
 
 async fn update_project(
+    auth: AuthUser,
     State(state): State<AppState>,
     Path(id): Path<Uuid>,
     Json(body): Json<UpdateProjectRequest>,
 ) -> Result<Json<Project>, ServerError> {
+    let existing = services::projects::get_project(&state.db, &id)
+        .await
+        .map_err(|_| ServerError::NotFound("Project not found".into()))?;
+    if existing.user_id != auth.user_id {
+        return Err(ServerError::NotFound("Project not found".into()));
+    }
     if body.name.as_deref().is_some_and(|n| n.trim().is_empty()) {
         return Err(ServerError::BadRequest("name must not be empty".into()));
     }
@@ -145,9 +156,16 @@ async fn update_project(
 }
 
 async fn delete_project(
+    auth: AuthUser,
     State(state): State<AppState>,
     Path(id): Path<Uuid>,
 ) -> Result<Json<serde_json::Value>, ServerError> {
+    let existing = services::projects::get_project(&state.db, &id)
+        .await
+        .map_err(|_| ServerError::NotFound("Project not found".into()))?;
+    if existing.user_id != auth.user_id {
+        return Err(ServerError::NotFound("Project not found".into()));
+    }
     let deleted = services::projects::delete_project(&state.db, &id)
         .await
         .map_err(|e| ServerError::Internal(e.to_string()))?;

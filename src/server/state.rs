@@ -10,6 +10,7 @@ use uuid::Uuid;
 use crate::auth::jwks::JwksCache;
 use crate::omp::OmpSession;
 use crate::providers::LlmProvider;
+use crate::server::ws::bus::BroadcastBus;
 
 type SharedJwksCache = Option<Arc<RwLock<Option<JwksCache>>>>;
 
@@ -26,6 +27,7 @@ pub struct AppState {
     pub cookie_key: Key,
     pub api_key_pepper: Vec<u8>,
     pub cfg_port: u16,
+    pub ws_bus: Arc<BroadcastBus>,
 }
 
 impl FromRef<AppState> for Key {

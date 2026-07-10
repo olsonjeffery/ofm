@@ -1,8 +1,8 @@
 use std::path::Path;
 use std::time::Duration;
 
-use omprint::providers::omp_provider::OmpProvider;
-use omprint::providers::{HarnessConfig, LlmProvider};
+use ofm::providers::omp_provider::OmpProvider;
+use ofm::providers::{HarnessConfig, LlmProvider};
 use tempfile::TempDir;
 
 fn has_binary(name: &str) -> bool {

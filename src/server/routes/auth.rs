@@ -67,7 +67,7 @@ async fn callback(
     .await?;
 
     let jar = jar.add(
-        Cookie::build(("omprint_session", result.session_id.to_string()))
+        Cookie::build(("ofm_session", result.session_id.to_string()))
             .http_only(true)
             .same_site(SameSite::Lax)
             .path("/")
@@ -105,7 +105,7 @@ async fn logout(
 ) -> Result<(PrivateCookieJar, Json<serde_json::Value>), ServerError> {
     let mut end_session_url: Option<String> = None;
 
-    if let Some(cookie) = jar.get("omprint_session") {
+    if let Some(cookie) = jar.get("ofm_session") {
         if let Ok(sid) = Uuid::parse_str(cookie.value()) {
             let id_token = crate::services::auth::find_session(&state.db, sid)
                 .await
@@ -133,7 +133,7 @@ async fn logout(
         }
     }
 
-    let jar = jar.remove(Cookie::from("omprint_session"));
+    let jar = jar.remove(Cookie::from("ofm_session"));
 
     Ok((jar, Json(json!({ "redirect_url": end_session_url }))))
 }
@@ -210,7 +210,7 @@ async fn revoke_api_key_handler(
 
 pub(crate) fn parse_session_cookie(jar: &PrivateCookieJar) -> Result<Uuid, ServerError> {
     let cookie = jar
-        .get("omprint_session")
+        .get("ofm_session")
         .ok_or_else(|| ServerError::BadRequest("no session cookie".into()))?;
     Uuid::parse_str(cookie.value())
         .map_err(|_| ServerError::BadRequest("invalid session cookie".into()))

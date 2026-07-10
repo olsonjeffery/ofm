@@ -16,6 +16,7 @@ mod providers;
 mod rauthy;
 
 use clap::Parser;
+use server::ws::bus::BroadcastBus;
 use std::collections::HashMap;
 use std::sync::Arc;
 use tokio::sync::Mutex;
@@ -24,6 +25,25 @@ mod server;
 mod services;
 mod webapp;
 mod worktree;
+
+type OidcDiscoveryResult = (String, String, Option<String>, Option<String>);
+
+fn parse_oidc_discovery(
+    disc: &serde_json::Value,
+) -> Result<OidcDiscoveryResult, Box<dyn std::error::Error>> {
+    Ok((
+        disc["authorization_endpoint"]
+            .as_str()
+            .ok_or("missing authorization_endpoint")?
+            .to_string(),
+        disc["token_endpoint"]
+            .as_str()
+            .ok_or("missing token_endpoint")?
+            .to_string(),
+        disc["revocation_endpoint"].as_str().map(|s| s.to_string()),
+        disc["end_session_endpoint"].as_str().map(|s| s.to_string()),
+    ))
+}
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
@@ -35,7 +55,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     logging::init();
 
-    let cfg = config::OmprintConfig::from_env();
+    let cfg = config::OfmConfig::from_env();
 
     // DB setup
     std::fs::create_dir_all(&cfg.data_dir)?;
@@ -72,10 +92,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             addr_api: format!("127.0.0.1:{}", cfg.hiqlite_api_port),
         }],
         data_dir: cfg.data_dir.clone().into(),
-        secret_raft: std::env::var("OMPRINT_RAFT_SECRET")
-            .unwrap_or_else(|_| "omprint-raft-secret".into()),
-        secret_api: std::env::var("OMPRINT_API_SECRET")
-            .unwrap_or_else(|_| "omprint-api-secret".into()),
+        secret_raft: std::env::var("OFM_RAFT_SECRET")
+            .unwrap_or_else(|_| "ofm-raft-secret-0123456".into()),
+        secret_api: std::env::var("OFM_API_SECRET")
+            .unwrap_or_else(|_| "ofm-api-secret-0123456".into()),
         ..Default::default()
     };
 
@@ -154,21 +174,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 .json()
                 .await?;
             let issuer = disc["issuer"].as_str().ok_or("missing issuer")?.to_string();
-            let authorization_endpoint = disc["authorization_endpoint"]
-                .as_str()
-                .ok_or("missing authorization_endpoint")?
-                .to_string();
-            let token_endpoint = disc["token_endpoint"]
-                .as_str()
-                .ok_or("missing token_endpoint")?
-                .to_string();
-            let revocation_endpoint = disc["revocation_endpoint"].as_str().map(|s| s.to_string());
-            let end_session_endpoint = disc["end_session_endpoint"].as_str().map(|s| s.to_string());
+            let (authorization_endpoint, token_endpoint, revocation_endpoint, end_session_endpoint) =
+                parse_oidc_discovery(&disc)?;
             let redirect_uri = format!("http://127.0.0.1:{}/api/auth/callback", cfg.port);
-            let client_id = cfg
-                .oidc_client_id
-                .clone()
-                .unwrap_or_else(|| "omprint".into());
+            let client_id = cfg.oidc_client_id.clone().unwrap_or_else(|| "ofm".into());
 
             let jwks_disc_url = format!(
                 "http://127.0.0.1:{}/auth/v1/.well-known/openid-configuration",
@@ -240,7 +249,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         });
 
         if !auth_layer.enabled {
-            eprintln!("ERROR: OIDC is not configured. Set OMPRINT_OIDC_ISSUER_URL (and OMPRINT_OIDC_CLIENT_ID) to enable authentication.");
+            eprintln!("ERROR: OIDC is not configured. Set OFM_OIDC_ISSUER_URL (and OFM_OIDC_CLIENT_ID) to enable authentication.");
             std::process::exit(1);
         }
 
@@ -255,16 +264,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 .map_err(|e| Box::new(std::io::Error::other(e.to_string())))?
                 .json()
                 .await?;
-            let authorization_endpoint = disc["authorization_endpoint"]
-                .as_str()
-                .ok_or("missing authorization_endpoint")?
-                .to_string();
-            let token_endpoint = disc["token_endpoint"]
-                .as_str()
-                .ok_or("missing token_endpoint")?
-                .to_string();
-            let revocation_endpoint = disc["revocation_endpoint"].as_str().map(|s| s.to_string());
-            let end_session_endpoint = disc["end_session_endpoint"].as_str().map(|s| s.to_string());
+            let (authorization_endpoint, token_endpoint, revocation_endpoint, end_session_endpoint) =
+                parse_oidc_discovery(&disc)?;
             let redirect_uri = cfg.oidc_redirect_uri.clone().unwrap_or_else(|| {
                 format!(
                     "{}/api/auth/callback",
@@ -302,6 +303,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         cookie_key,
         api_key_pepper,
         cfg_port: cfg.port,
+        ws_bus: BroadcastBus::new(),
     };
     tracing::info!("Auth middleware: enabled");
 

@@ -157,6 +157,9 @@ async fn board_handler(
     let project = services::projects::get_project(&state.db, &project_id)
         .await
         .map_err(|_| ServerError::NotFound("Project not found".into()))?;
+    if project.user_id != auth.user_id {
+        return Err(ServerError::NotFound("Project not found".into()));
+    }
     let tasks = services::tasks::list_tasks(&state.db, &project_id)
         .await
         .map_err(|e| ServerError::Internal(e.to_string()))?;
@@ -167,9 +170,17 @@ async fn board_handler(
 async fn task_detail_handler(
     auth: AuthUser,
     State(state): State<AppState>,
-    Path((_project_id, task_id)): Path<(Uuid, Uuid)>,
+    Path((project_id, task_id)): Path<(Uuid, Uuid)>,
 ) -> Result<Html<String>, ServerError> {
     let user_json = serde_json::to_string(&auth).unwrap_or_default();
+
+    let project = services::projects::get_project(&state.db, &project_id)
+        .await
+        .map_err(|_| ServerError::NotFound("Project not found".into()))?;
+    if project.user_id != auth.user_id {
+        return Err(ServerError::NotFound("Project not found".into()));
+    }
+
     let task = services::tasks::get_task(&state.db, &task_id)
         .await
         .map_err(|_| ServerError::NotFound("Task not found".into()))?;

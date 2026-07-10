@@ -9,14 +9,15 @@ use serde_json::{json, Value};
 use tokio::sync::Mutex;
 use uuid::Uuid;
 
-use omprint::auth::api_key;
-use omprint::auth::jwks::{base64url_encode, Claims, JwksCache};
-use omprint::auth::AuthLayer;
-use omprint::db;
-use omprint::providers::LlmProvider;
-use omprint::server;
-use omprint::server::state::{AppState, OidcEndpoints};
-use omprint::services::auth::{complete_onboarding, current_user};
+use ofm::auth::api_key;
+use ofm::auth::jwks::{base64url_encode, Claims, JwksCache};
+use ofm::auth::AuthLayer;
+use ofm::db;
+use ofm::providers::LlmProvider;
+use ofm::server;
+use ofm::server::state::{AppState, OidcEndpoints};
+use ofm::server::ws::bus::BroadcastBus;
+use ofm::services::auth::{complete_onboarding, current_user};
 
 fn make_jwt_cache() -> (Vec<u8>, String, JwksCache) {
     let key = b"test-hmac-secret-key-32-bytes-long!";
@@ -116,6 +117,7 @@ fn make_app_state(client: hiqlite::Client, user_id: Uuid, oidc: Option<OidcEndpo
         pkce_store: Arc::new(Mutex::new(HashMap::new())),
         cookie_key: cookie::Key::generate(),
         api_key_pepper: b"test_pepper".to_vec(),
+        ws_bus: BroadcastBus::new(),
     }
 }
 
@@ -871,7 +873,7 @@ async fn test_callback_exchanges_code() {
         .unwrap()
         .to_string();
     assert!(
-        set_cookie.contains("omprint_session"),
+        set_cookie.contains("ofm_session"),
         "set-cookie: {set_cookie}"
     );
     assert!(set_cookie.contains("HttpOnly"), "set-cookie: {set_cookie}");
@@ -960,6 +962,7 @@ async fn test_refresh_with_session_cookie() {
         pkce_store: Arc::new(Mutex::new(HashMap::new())),
         cookie_key: key.clone(),
         api_key_pepper: b"test_pepper".to_vec(),
+        ws_bus: BroadcastBus::new(),
     };
     let auth_layer = AuthLayer::disabled(
         state.db.clone(),
@@ -972,7 +975,7 @@ async fn test_refresh_with_session_cookie() {
     let addr = listener.local_addr().unwrap();
     tokio::spawn(async move { axum::serve(listener, app).await.unwrap() });
 
-    let cookie_str = make_encrypted_cookie(&key, "omprint_session", &session_id.to_string());
+    let cookie_str = make_encrypted_cookie(&key, "ofm_session", &session_id.to_string());
     let resp = reqwest::Client::new()
         .post(format!("http://{}/api/auth/refresh", addr))
         .header("Cookie", cookie_str)

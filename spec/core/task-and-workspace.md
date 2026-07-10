@@ -1,12 +1,12 @@
 # Core — Task and workspace
 
-> **⚠️`omprint` ONLY ⚠️:** Rust convention requires functions and `let` bindings
+> **⚠️`ofm` ONLY ⚠️:** Rust convention requires functions and `let` bindings
 > use `snake_case` as a naming convention; In all places where `camelCase`
 > occurs (referring to the typescript `reference/` implementation of `bottega`),
 > substitute for `snake_case` as appropriate; `PascalCase` is used for `trait`s,
 > `struct`s, `enum`s, etc.
 > 
-> **Note:** The `omprint` Rust codebase at `src/` now provides implementations
+> **Note:** The `ofm` Rust codebase at `src/` now provides implementations
 > for many of the features described in this spec. Prefer citations to `src/`
 > over `reference/` wherever equivalents exist.
 
@@ -63,8 +63,8 @@ integer used in filesystem paths. This means:
 ## The markdown document — the source of truth for "what to build"
 
 - **Location:** a central, per-user archive **outside the repo** —
-  `~/.omprint/projects/{projectId}/tasks/task-{taskId}.md` (root overridable via
-  `OMPRINT_ARCHIVE_ROOT`).
+  `~/.ofm/projects/{projectId}/tasks/task-{taskId}.md` (root overridable via
+  `ofm_ARCHIVE_ROOT`).
 - **Why outside the repo (the load-bearing decision):** the doc must survive the
   worktree being torn down when the task's PR merges. If it lived inside the
   worktree it would vanish with it. Keeping it in a separate archive means the
@@ -101,7 +101,7 @@ integer used in filesystem paths. This means:
    [`src/worktree/mod.rs`](../src/worktree/mod.rs) (branch naming, default-branch detection, env symlinks, gitignored dirs, dependency copy).
   - **NOTE**: Windows may require copying files, because its support for
   symlinks (and user creation/management) is conditional on system policies
-  - **`omprint` ONLY:** On a per-project basis allow the User to configure
+  - **`ofm` ONLY:** On a per-project basis allow the User to configure
   zero-or-more additional files to copy/symlink from the repo to the worktree,
   as above
 - **Effective working directory:** an agent runs with `cwd` = the worktree
@@ -110,7 +110,7 @@ integer used in filesystem paths. This means:
   `startAgentRun` — see [`orchestration-loop.md`](./orchestration-loop.md).
 - **Per-task dev-server port:** `3100 + (taskId % 900)`, handed to the agent in
   its context so parallel tasks don't fight over ports (`getDevServerPort`).
-  - **`omprint` ONLY:** This should be exposed at a well-known environment variable
+  - **`ofm` ONLY:** This should be exposed at a well-known environment variable
   that the target codebase can use in its dev server automation
 - **Teardown:** `removeWorktree` (`git worktree remove --force` + delete the
   branch) plus `deleteTaskArchive` (doc + inputs + recording) on task delete.

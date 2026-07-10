@@ -1,8 +1,9 @@
-use omprint::auth::AuthLayer;
-use omprint::db;
-use omprint::providers::LlmProvider;
-use omprint::server;
-use omprint::server::state::AppState;
+use ofm::auth::AuthLayer;
+use ofm::db;
+use ofm::providers::LlmProvider;
+use ofm::server;
+use ofm::server::state::AppState;
+use ofm::server::ws::bus::BroadcastBus;
 use std::collections::HashMap;
 use std::sync::Arc;
 use tempfile::TempDir;
@@ -46,6 +47,7 @@ async fn make_state() -> (AppState, AuthLayer, TempDir) {
         pkce_store: Arc::new(Mutex::new(HashMap::new())),
         cookie_key: cookie::Key::generate(),
         api_key_pepper: b"test_pepper".to_vec(),
+        ws_bus: BroadcastBus::new(),
     };
     (state, auth_layer, tmp)
 }
@@ -93,7 +95,7 @@ async fn test_webapp_dashboard_page() {
     assert_eq!(resp.status(), 200);
     let body = resp.text().await.unwrap();
     assert!(body.contains("<html"));
-    assert!(body.contains("omprint"));
+    assert!(body.contains("ofm"));
     assert!(body.contains("Projects"));
     assert!(body.contains("New Project"));
 }
@@ -211,6 +213,7 @@ async fn make_state_with_webapp_auth() -> (AppState, AuthLayer, TempDir) {
         pkce_store: Arc::new(Mutex::new(HashMap::new())),
         cookie_key: cookie::Key::generate(),
         api_key_pepper: b"test_pepper".to_vec(),
+        ws_bus: BroadcastBus::new(),
     };
     (state, auth_layer, tmp)
 }
@@ -279,7 +282,7 @@ async fn test_callback_skips_onboarding_when_completed() {
     .await
     .unwrap();
 
-    let cookie_str = make_encrypted_cookie(&key, "omprint_session", &session_id.to_string());
+    let cookie_str = make_encrypted_cookie(&key, "ofm_session", &session_id.to_string());
     let resp = reqwest::Client::new()
         .get(format!("http://{}/webapp/callback", addr))
         .header("Cookie", cookie_str)
@@ -331,7 +334,7 @@ async fn test_callback_routes_to_onboarding_when_not_completed() {
     .await
     .unwrap();
 
-    let cookie_str = make_encrypted_cookie(&key, "omprint_session", &session_id.to_string());
+    let cookie_str = make_encrypted_cookie(&key, "ofm_session", &session_id.to_string());
     let resp = reqwest::Client::new()
         .get(format!("http://{}/webapp/callback", addr))
         .header("Cookie", cookie_str)
@@ -387,7 +390,7 @@ async fn test_webapp_protected_route_allows_with_valid_session() {
     .await
     .unwrap();
 
-    let cookie_str = make_encrypted_cookie(&key, "omprint_session", &session_id.to_string());
+    let cookie_str = make_encrypted_cookie(&key, "ofm_session", &session_id.to_string());
     let client = reqwest::Client::new();
     let resp = client
         .get(format!("http://{}/webapp", addr))
@@ -399,7 +402,7 @@ async fn test_webapp_protected_route_allows_with_valid_session() {
     assert_eq!(resp.status(), 200);
     let body = resp.text().await.unwrap();
     assert!(body.contains("<html"));
-    assert!(body.contains("omprint"));
+    assert!(body.contains("ofm"));
     assert!(body.contains("New Project"));
 }
 
@@ -565,7 +568,7 @@ async fn test_webapp_protected_route_redirects_with_expired_session() {
     .await
     .unwrap();
 
-    let cookie_str = make_encrypted_cookie(&key, "omprint_session", &session_id.to_string());
+    let cookie_str = make_encrypted_cookie(&key, "ofm_session", &session_id.to_string());
     let client = reqwest::Client::builder()
         .redirect(reqwest::redirect::Policy::none())
         .build()

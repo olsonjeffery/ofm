@@ -3,7 +3,7 @@ pub mod agent;
 use clap::{Parser, Subcommand};
 
 #[derive(Parser)]
-#[command(name = "omprint")]
+#[command(name = "ofm")]
 pub struct Cli {
     #[command(subcommand)]
     pub command: Option<Command>,

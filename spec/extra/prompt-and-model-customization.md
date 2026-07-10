@@ -54,14 +54,14 @@ reference. See the `PROMPT_DEFINITIONS` array in
 The registry is what the settings UI lists and what variable-validation checks
 against.
 
-### The override lookup: default vs `~/.omprint/prompts/`
+### The override lookup: default vs `~/.ofm/prompts/`
 
 Resolution is two-tier and dead simple. For a prompt named `X`:
 
 - The **default** lives at `server/constants/{prompts,templates}/X.md` (bundled
   with the app via `include_str!`).
 - An **override** may live at `<archiveRoot>/{prompts,templates}/X.md`, where
-  `archiveRoot` is `$BOTTEGA_ARCHIVE_ROOT` or `~/.omprint` by default.
+  `archiveRoot` is `$BOTTEGA_ARCHIVE_ROOT` or `~/.ofm` by default.
 
 `loadPrompt(name)` returns the override file if it exists, otherwise the default
 (`loadOverride` → `loadDefault`). That is the entire override mechanism — file

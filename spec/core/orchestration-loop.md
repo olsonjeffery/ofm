@@ -1,6 +1,6 @@
 # Core — The orchestration loop
 
-> **⚠️`omprint` ONLY ⚠️:** Rust convention requires functions and `let` bindings
+> **⚠️`ofm` ONLY ⚠️:** Rust convention requires functions and `let` bindings
 > use `snake_case` as a naming convention. In all places where `camelCase`
 > occurs (in citations from the legacy typescript `reference/` implementation),
 > substitute for `snake_case` as appropriate; `PascalCase` is used for `trait`s,
@@ -51,10 +51,10 @@ the loop needs to know about them.
 
 | Agent | Does | Signals "done" by (completion handler) |
 |---|---|---|
-| **planning** (`planification`) | Turns the task doc + original request into a structured plan, written back into the doc. Touches nothing but the doc. | Running `complete-plan.ts` (`bottega`) OR `omprint agent complete-plan <task-id>` → sets `planification_complete`. |
+| **planning** (`planification`) | Turns the task doc + original request into a structured plan, written back into the doc. Touches nothing but the doc. | Running `complete-plan.ts` (`bottega`) OR `ofm agent complete-plan <task-id>` → sets `planification_complete`. |
 | **implementation** | Implements the unchecked to-do items from the plan, inside the worktree. | Ending its turn. No script — completion is implicit. |
-| **review** | Verifies the implementation against the plan, runs tests, and decides READY / NEEDS_WORK / BLOCKED. | READY → `complete-workflow.ts` (`bottega`) OR `omprint agent complete-workflow <task-id>` (sets `workflow_complete`). BLOCKED → `block-workflow.ts` (`bottega`) OR `omprint agent block-workflow <task-id>` (sets `workflow_blocked`). NEEDS_WORK → no script, just ends. |
-| **PR** (`pr`) | Opens the pull request, drives CI to green, resolves conflicts. Terminal. | Running `complete-pr.ts` (`bottega`) OR `omprint agent complete-pr` → sets `pr_agent_complete`. |
+| **review** | Verifies the implementation against the plan, runs tests, and decides READY / NEEDS_WORK / BLOCKED. | READY → `complete-workflow.ts` (`bottega`) OR `ofm agent complete-workflow <task-id>` (sets `workflow_complete`). BLOCKED → `block-workflow.ts` (`bottega`) OR `ofm agent block-workflow <task-id>` (sets `workflow_blocked`). NEEDS_WORK → no script, just ends. |
+| **PR** (`pr`) | Opens the pull request, drives CI to green, resolves conflicts. Terminal. | Running `complete-pr.ts` (`bottega`) OR `ofm agent complete-pr` → sets `pr_agent_complete`. |
 
 The agent-type enum in the schema also contains `refinement` and `yolo`. Those
 are **extras** ([`refinement-agent.md`](../extra/refinement-agent.md),
@@ -143,17 +143,17 @@ those flags after the turn ends.
 
 | Script | Flag set | Run by |
 |---|---|---|
-| [`reference/scripts/complete-plan.ts`](../reference/scripts/complete-plan.ts) (`bottega`) OR `omprint agent complete-plan <task-id>` | `planification_complete` | planning agent |
-| [`reference/scripts/complete-workflow.ts`](../reference/scripts/complete-workflow.ts) (`bottega`) OR `omprint agent complete-workflow <task-id>` | `workflow_complete` | review agent, on READY |
-| [`reference/scripts/block-workflow.ts`](../reference/scripts/block-workflow.ts) (`bottega`) OR `omprint agent block-workflow <task-id>` | `workflow_blocked` | review agent, on BLOCKED |
-| [`reference/scripts/complete-pr.ts`](../reference/scripts/complete-pr.ts) (`bottega`) OR `omprint agent complete-pr <task-id>` | `pr_agent_complete` | PR agent |
+| [`reference/scripts/complete-plan.ts`](../reference/scripts/complete-plan.ts) (`bottega`) OR `ofm agent complete-plan <task-id>` | `planification_complete` | planning agent |
+| [`reference/scripts/complete-workflow.ts`](../reference/scripts/complete-workflow.ts) (`bottega`) OR `ofm agent complete-workflow <task-id>` | `workflow_complete` | review agent, on READY |
+| [`reference/scripts/block-workflow.ts`](../reference/scripts/block-workflow.ts) (`bottega`) OR `ofm agent block-workflow <task-id>` | `workflow_blocked` | review agent, on BLOCKED |
+| [`reference/scripts/complete-pr.ts`](../reference/scripts/complete-pr.ts) (`bottega`) OR `ofm agent complete-pr <task-id>` | `pr_agent_complete` | PR agent |
 
 Each script is tiny: validate the task id, flip one boolean, exit. They run
 inside the agent's own sandbox (`bottega`; the agent has shell access) OR
-via the `omprint agent <action> <task-id>` command against the same
-database the server uses. Build them as standalone entry points in `omprint`
-an agent can invoke as `omprint agent <action> <task-id>`; the agent should
-have access to the `omprint` bin.
+via the `ofm agent <action> <task-id>` command against the same
+database the server uses. Build them as standalone entry points in `ofm`
+an agent can invoke as `ofm agent <action> <task-id>`; the agent should
+have access to the `ofm` bin.
 
 The payoff: the orchestrator stays dumb and robust. It does not need to
 understand what an agent decided — it only reads four booleans.
@@ -184,7 +184,7 @@ and the obvious "pass success/failure into the handler" design is the wrong one.
   already running; chaining re-checks "is an agent running for this task?"
   immediately before starting the next run and bails if something is live.
 - **Settle before chaining.** Chaining starts the next run after a short delay
-  (the reference uses a ~1s `setTimeout`; `omprint` can use `tokio::time::sleep()`
+  (the reference uses a ~1s `setTimeout`; `ofm` can use `tokio::time::sleep()`
   and a 1,000 millisecond timeout) so the finishing turn's status write
   and broadcasts land first, and it **re-reads the task flags inside that
   callback** — the task may have been completed or blocked in the gap.
@@ -243,7 +243,7 @@ The direct `omp` integration that step calls is in [`omp-integration.md`](./omp-
       chained starts. See `src/server/routes/agent_runs.rs` (`post_create_agent_run`).
 - [x] A completion handler wired as the streaming on-complete hook, implementing
       the transitions above. See `src/orchestration/mod.rs` (`completion_handler`).
-- [x] The four signalling actions under `omprint agent ...`
+- [x] The four signalling actions under `ofm agent ...`
       See `src/server/routes/agent_flags.rs`.
 - [x] The "one running agent per task" guard (manual 409 + pre-chain re-check).
       See `src/orchestration/guards.rs`.

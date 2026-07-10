@@ -1,15 +1,33 @@
-*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
-
-body {
-    font-family: system-ui, -apple-system, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+*,
+*::before,
+*::after {
+    box-sizing: border-box;
+    margin: 0;
+    padding: 0;
 }
 
-.island-container { margin-bottom: 1.5rem; }
+body {
+    font-family:
+        system-ui,
+        -apple-system,
+        "Segoe UI",
+        Roboto,
+        Helvetica,
+        Arial,
+        sans-serif;
+}
+
+.island-container {
+    margin-bottom: 1.5rem;
+}
 
 .island {
     transition: opacity 0.2s;
 }
-.island-loading { opacity: 0.5; pointer-events: none; }
+.island-loading {
+    opacity: 0.5;
+    pointer-events: none;
+}
 .island-error {
     border-color: #fc8181;
     background: #fff5f5;
@@ -27,8 +45,13 @@ body {
     padding: 0.5rem 0;
 }
 
-#omprint-navbar.navbar {
-  background-color: #fff;
-  min-height: 50px;
-  box-shadow: #090a0c1a 0 0 16px;
+#ofm-navbar.navbar {
+    background-color: #fff;
+    min-height: 50px;
+    box-shadow: #090a0c1a 0 0 16px;
+}
+
+.header-logo {
+    width: 20em;
+    height: 20em;
 }

@@ -1,6 +1,6 @@
 # OpenCode provider implementation patterns
 
-> **⚠️`omprint` ONLY ⚠️:** Rust convention requires functions and `let` bindings
+> **⚠️`ofm` ONLY ⚠️:** Rust convention requires functions and `let` bindings
 > use `snake_case` as a naming convention; In all places where `camelCase`
 > occurs (referring to the typescript `reference/` implementation of `bottega`),
 > substitute for `snake_case` as appropriate; `PascalCase` is used for `trait`s,

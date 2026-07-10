@@ -147,9 +147,16 @@ async fn create_task(
 }
 
 async fn list_tasks(
+    auth: AuthUser,
     State(state): State<AppState>,
     Query(query): Query<ListTasksQuery>,
 ) -> Result<Json<Vec<Task>>, ServerError> {
+    let project = services::projects::get_project(&state.db, &query.project_id)
+        .await
+        .map_err(|_| ServerError::NotFound("Project not found".into()))?;
+    if project.user_id != auth.user_id {
+        return Err(ServerError::NotFound("Project not found".into()));
+    }
     let tasks = services::tasks::list_tasks(&state.db, &query.project_id)
         .await
         .map_err(|e| ServerError::Internal(e.to_string()))?;
@@ -157,12 +164,16 @@ async fn list_tasks(
 }
 
 async fn get_task(
+    auth: AuthUser,
     State(state): State<AppState>,
     Path(id): Path<Uuid>,
 ) -> Result<Json<TaskDetailResponse>, ServerError> {
     let task = services::tasks::get_task(&state.db, &id)
         .await
         .map_err(|_| ServerError::NotFound("Task not found".into()))?;
+    if task.user_id != auth.user_id {
+        return Err(ServerError::NotFound("Task not found".into()));
+    }
 
     let worktree = services::tasks::get_worktree_by_task(&state.db, &id)
         .await
@@ -195,10 +206,17 @@ async fn get_task(
 }
 
 async fn update_task(
+    auth: AuthUser,
     State(state): State<AppState>,
     Path(id): Path<Uuid>,
     Json(body): Json<UpdateTaskRequest>,
 ) -> Result<Json<Task>, ServerError> {
+    let existing = services::tasks::get_task(&state.db, &id)
+        .await
+        .map_err(|_| ServerError::NotFound("Task not found".into()))?;
+    if existing.user_id != auth.user_id {
+        return Err(ServerError::NotFound("Task not found".into()));
+    }
     if body.title.is_none() && body.status.is_none() {
         return Err(ServerError::BadRequest(
             "at least one field (title, status) must be provided".into(),
@@ -240,12 +258,16 @@ async fn update_task(
 }
 
 async fn delete_task(
+    auth: AuthUser,
     State(state): State<AppState>,
     Path(id): Path<Uuid>,
 ) -> Result<axum::http::StatusCode, ServerError> {
     let task = services::tasks::get_task(&state.db, &id)
         .await
         .map_err(|_| ServerError::NotFound("Task not found".into()))?;
+    if task.user_id != auth.user_id {
+        return Err(ServerError::NotFound("Task not found".into()));
+    }
     let worktree = services::tasks::get_worktree_by_task(&state.db, &id)
         .await
         .ok();

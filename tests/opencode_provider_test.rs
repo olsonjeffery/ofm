@@ -1,8 +1,8 @@
 use std::time::Duration;
 
-use omprint::providers::config::ProviderConfigDir;
-use omprint::providers::opencode_provider::OpenCodeProvider;
-use omprint::providers::{HarnessConfig, LlmProvider};
+use ofm::providers::config::ProviderConfigDir;
+use ofm::providers::opencode_provider::OpenCodeProvider;
+use ofm::providers::{HarnessConfig, LlmProvider};
 
 fn has_binary(name: &str) -> bool {
     std::process::Command::new("which")

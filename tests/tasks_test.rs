@@ -1,8 +1,9 @@
-use omprint::auth::AuthLayer;
-use omprint::db;
-use omprint::providers::LlmProvider;
-use omprint::server;
-use omprint::server::state::AppState;
+use ofm::auth::AuthLayer;
+use ofm::db;
+use ofm::providers::LlmProvider;
+use ofm::server;
+use ofm::server::state::AppState;
+use ofm::server::ws::bus::BroadcastBus;
 
 use hiqlite::Client;
 use std::collections::HashMap;
@@ -41,7 +42,7 @@ async fn setup_app() -> TestApp {
     db::run_migrations(&client).await.unwrap();
     let user_id = db::ensure_default_user(&client).await.unwrap();
 
-    let project_id = omprint::services::projects::create_project(
+    let project_id = ofm::services::projects::create_project(
         &client,
         &user_id,
         "test-project",
@@ -71,6 +72,7 @@ async fn setup_app() -> TestApp {
         pkce_store: Arc::new(Mutex::new(HashMap::new())),
         cookie_key: cookie::Key::generate(),
         api_key_pepper: b"test_pepper".to_vec(),
+        ws_bus: BroadcastBus::new(),
     };
 
     let app = server::router(state, auth_layer);
@@ -148,16 +150,11 @@ async fn setup_app_with_git() -> TestApp {
     db::run_migrations(&client).await.unwrap();
     let user_id = db::ensure_default_user(&client).await.unwrap();
 
-    let project_id = omprint::services::projects::create_project(
-        &client,
-        &user_id,
-        "test-project",
-        &git_path,
-        None,
-    )
-    .await
-    .unwrap()
-    .id;
+    let project_id =
+        ofm::services::projects::create_project(&client, &user_id, "test-project", &git_path, None)
+            .await
+            .unwrap()
+            .id;
 
     let app_archive_root = archive_root.clone();
     let auth_layer = AuthLayer::disabled(
@@ -179,6 +176,7 @@ async fn setup_app_with_git() -> TestApp {
         pkce_store: Arc::new(Mutex::new(HashMap::new())),
         cookie_key: cookie::Key::generate(),
         api_key_pepper: b"test_pepper".to_vec(),
+        ws_bus: BroadcastBus::new(),
     };
 
     let app = server::router(state, auth_layer);
@@ -231,7 +229,7 @@ async fn test_create_task() {
 
     let task_uuid = Uuid::parse_str(body["id"].as_str().unwrap()).unwrap();
 
-    let worktree = omprint::services::tasks::get_worktree_by_task(&app.db, &task_uuid)
+    let worktree = ofm::services::tasks::get_worktree_by_task(&app.db, &task_uuid)
         .await
         .unwrap();
 
@@ -513,7 +511,7 @@ async fn test_delete_task() {
     let int_proj;
     let int_task;
     {
-        let w = omprint::services::tasks::get_worktree_by_task(&app.db, &task_uuid)
+        let w = ofm::services::tasks::get_worktree_by_task(&app.db, &task_uuid)
             .await
             .unwrap();
         worktree_path = w.worktree_path.clone();
