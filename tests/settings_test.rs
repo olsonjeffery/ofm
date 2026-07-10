@@ -195,13 +195,13 @@ async fn test_settings_config_body_crud() {
     let base_url = spawn_app(state, auth_layer).await;
 
     // Create
-    let resp = create_config(&base_url, &api_key, "test-cfg", "key: value", "openai").await;
+    let resp = create_config(&base_url, &api_key, "test-cfg", "key: value", "oh-my-pi").await;
     assert_eq!(resp.status(), 201);
     let body: serde_json::Value = resp.json().await.unwrap();
     let id = body["id"].as_str().unwrap().to_string();
     assert_eq!(body["name"], "test-cfg");
     assert_eq!(body["config_body"], "key: value");
-    assert_eq!(body["harness"], "openai");
+    assert_eq!(body["harness"], "oh-my-pi");
 
     // List (verify created entry)
     let resp = list_configs(&base_url, &api_key).await;
@@ -217,14 +217,14 @@ async fn test_settings_config_body_crud() {
         &id,
         "updated-cfg",
         r#"{"key": "updated"}"#,
-        "anthropic",
+        "opencode",
     )
     .await;
     assert_eq!(resp.status(), 200);
     let updated: serde_json::Value = resp.json().await.unwrap();
     assert_eq!(updated["name"], "updated-cfg");
     assert_eq!(updated["config_body"], r#"{"key": "updated"}"#);
-    assert_eq!(updated["harness"], "anthropic");
+    assert_eq!(updated["harness"], "opencode");
 
     // List (verify update persisted)
     let resp = list_configs(&base_url, &api_key).await;
@@ -348,7 +348,14 @@ async fn test_settings_config_body_user_isolation() {
     let base_url = spawn_app(state, auth_layer).await;
 
     // User A creates config
-    let resp = create_config(&base_url, &user_a_key, "user-a-cfg", "key: value", "openai").await;
+    let resp = create_config(
+        &base_url,
+        &user_a_key,
+        "user-a-cfg",
+        "key: value",
+        "oh-my-pi",
+    )
+    .await;
     assert_eq!(resp.status(), 201);
     let created: serde_json::Value = resp.json().await.unwrap();
     let config_id = created["id"].as_str().unwrap().to_string();
