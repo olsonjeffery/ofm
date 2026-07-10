@@ -4,7 +4,6 @@ use axum::{
     routing::post,
     Router,
 };
-use uuid::Uuid;
 
 use crate::server::{error::ServerError, state::AppState};
 use crate::services::tasks;
@@ -17,7 +16,7 @@ pub fn agent_flags_router() -> Router<AppState> {
         .route("/complete-pr", post(complete_pr))
 }
 
-async fn require_task(state: &AppState, task_id: &Uuid) -> Result<(), ServerError> {
+async fn require_task(state: &AppState, task_id: i64) -> Result<(), ServerError> {
     tasks::get_task(&state.db, task_id)
         .await
         .map_err(|_| ServerError::NotFound("Task not found".into()))?;
@@ -28,10 +27,10 @@ macro_rules! flag_handler {
     ($name:ident, $mark_fn:expr) => {
         async fn $name(
             State(state): State<AppState>,
-            Path(task_id): Path<Uuid>,
+            Path(task_id): Path<i64>,
         ) -> Result<StatusCode, ServerError> {
-            require_task(&state, &task_id).await?;
-            $mark_fn(&state.db, &task_id)
+            require_task(&state, task_id).await?;
+            $mark_fn(&state.db, task_id)
                 .await
                 .map_err(|e| ServerError::Internal(e.to_string()))?;
             Ok(StatusCode::OK)

@@ -8,48 +8,50 @@ fn utc_now() -> String {
 
 pub async fn create_task(
     client: &Client,
-    id: &Uuid,
-    project_id: &Uuid,
+    project_id: i64,
     user_id: &Uuid,
     title: &str,
     status: &str,
 ) -> Result<Task, hiqlite::Error> {
+    let id: i64 = {
+        let mut rows = client
+            .query_raw(
+                "SELECT COALESCE(MAX(id), 0) + 1 AS next_id FROM tasks",
+                hiqlite::params!(),
+            )
+            .await?;
+        rows.first_mut().map(|r| r.get::<i64>("next_id")).unwrap_or(1)
+    };
     client
         .execute(
             "INSERT INTO tasks (id, project_id, user_id, title, status) VALUES ($1, $2, $3, $4, $5)",
-            hiqlite::params!(
-                id.to_string(),
-                project_id.to_string(),
-                user_id.to_string(),
-                title,
-                status
-            ),
+            hiqlite::params!(id, project_id, user_id.to_string(), title, status),
         )
         .await?;
     get_task(client, id).await
 }
 
-pub async fn list_tasks(client: &Client, project_id: &Uuid) -> Result<Vec<Task>, hiqlite::Error> {
+pub async fn list_tasks(client: &Client, project_id: i64) -> Result<Vec<Task>, hiqlite::Error> {
     client
         .query_map::<Task, _>(
             "SELECT id, project_id, user_id, title, status, workflow_complete, workflow_blocked, workflow_run_count, planification_complete, pr_agent_complete, refinement_complete, yolo_mode, created_at FROM tasks WHERE project_id = $1 ORDER BY created_at DESC",
-            hiqlite::params!(project_id.to_string()),
+            hiqlite::params!(project_id),
         )
         .await
 }
 
-pub async fn get_task(client: &Client, task_id: &Uuid) -> Result<Task, hiqlite::Error> {
+pub async fn get_task(client: &Client, task_id: i64) -> Result<Task, hiqlite::Error> {
     client
         .query_map_one::<Task, _>(
             "SELECT id, project_id, user_id, title, status, workflow_complete, workflow_blocked, workflow_run_count, planification_complete, pr_agent_complete, refinement_complete, yolo_mode, created_at FROM tasks WHERE id = $1",
-            hiqlite::params!(task_id.to_string()),
+            hiqlite::params!(task_id),
         )
         .await
 }
 
 pub async fn update_task(
     client: &Client,
-    task_id: &Uuid,
+    task_id: i64,
     title: Option<&str>,
     status: Option<&str>,
 ) -> Result<Task, hiqlite::Error> {
@@ -59,17 +61,17 @@ pub async fn update_task(
     client
         .execute(
             "UPDATE tasks SET title = COALESCE($1, title), status = COALESCE($2, status) WHERE id = $3",
-            hiqlite::params!(title, status, task_id.to_string()),
+            hiqlite::params!(title, status, task_id),
         )
         .await?;
     get_task(client, task_id).await
 }
 
-pub async fn delete_task(client: &Client, task_id: &Uuid) -> Result<bool, hiqlite::Error> {
+pub async fn delete_task(client: &Client, task_id: i64) -> Result<bool, hiqlite::Error> {
     let rows = client
         .execute(
             "DELETE FROM tasks WHERE id = $1",
-            hiqlite::params!(task_id.to_string()),
+            hiqlite::params!(task_id),
         )
         .await?;
     Ok(rows > 0)
@@ -79,49 +81,45 @@ pub async fn delete_task(client: &Client, task_id: &Uuid) -> Result<bool, hiqlit
 pub async fn insert_worktree(
     client: &Client,
     id: &Uuid,
-    project_uuid: &Uuid,
-    task_uuid: &Uuid,
-    project_id: u32,
-    task_id: u32,
+    project_id: i64,
+    task_id: i64,
     worktree_path: &str,
     repo_path: &str,
     branch: &str,
 ) -> Result<Worktree, hiqlite::Error> {
     client
         .execute(
-            "INSERT INTO worktrees (id, project_uuid, task_uuid, project_id, task_id, worktree_path, repo_path, branch) VALUES ($1, $2, $3, $4, $5, $6, $7, $8)",
+            "INSERT INTO worktrees (id, project_id, task_id, worktree_path, repo_path, branch) VALUES ($1, $2, $3, $4, $5, $6)",
             hiqlite::params!(
                 id.to_string(),
-                project_uuid.to_string(),
-                task_uuid.to_string(),
-                project_id as i64,
-                task_id as i64,
+                project_id,
+                task_id,
                 worktree_path,
                 repo_path,
                 branch
             ),
         )
         .await?;
-    get_worktree_by_task(client, task_uuid).await
+    get_worktree_by_task(client, task_id).await
 }
 
 pub async fn get_worktree_by_task(
     client: &Client,
-    task_uuid: &Uuid,
+    task_id: i64,
 ) -> Result<Worktree, hiqlite::Error> {
     client
         .query_map_one::<Worktree, _>(
-            "SELECT id, project_uuid, task_uuid, project_id, task_id, worktree_path, repo_path, branch, created_at FROM worktrees WHERE task_uuid = $1",
-            hiqlite::params!(task_uuid.to_string()),
+            "SELECT id, project_id, task_id, worktree_path, repo_path, branch, created_at FROM worktrees WHERE task_id = $1",
+            hiqlite::params!(task_id),
         )
         .await
 }
 
-pub async fn delete_worktree(client: &Client, task_uuid: &Uuid) -> Result<bool, hiqlite::Error> {
+pub async fn delete_worktree(client: &Client, task_id: i64) -> Result<bool, hiqlite::Error> {
     let rows = client
         .execute(
-            "DELETE FROM worktrees WHERE task_uuid = $1",
-            hiqlite::params!(task_uuid.to_string()),
+            "DELETE FROM worktrees WHERE task_id = $1",
+            hiqlite::params!(task_id),
         )
         .await?;
     Ok(rows > 0)
@@ -129,7 +127,7 @@ pub async fn delete_worktree(client: &Client, task_uuid: &Uuid) -> Result<bool, 
 
 pub async fn create_agent_run(
     client: &Client,
-    task_id: &Uuid,
+    task_id: i64,
     agent_type: &AgentType,
     conversation_id: &Uuid,
 ) -> Result<TaskAgentRun, hiqlite::Error> {
@@ -140,7 +138,7 @@ pub async fn create_agent_run(
             "INSERT INTO task_agent_runs (id, task_id, agent_type, status, conversation_id, created_at) VALUES ($1, $2, $3, $4, $5, $6)",
             hiqlite::params!(
                 id.to_string(),
-                task_id.to_string(),
+                task_id,
                 agent_type.to_string(),
                 RunStatus::Running.to_string(),
                 conversation_id.to_string(),
@@ -174,12 +172,12 @@ pub async fn get_agent_run_by_conversation(
 
 pub async fn get_running_agent_for_task(
     client: &Client,
-    task_id: &Uuid,
+    task_id: i64,
 ) -> Result<Option<TaskAgentRun>, hiqlite::Error> {
     let mut rows = client
         .query_raw(
             "SELECT id, task_id, agent_type, status, conversation_id, created_at, completed_at FROM task_agent_runs WHERE task_id = $1 AND status = 'running' LIMIT 1",
-            hiqlite::params!(task_id.to_string()),
+            hiqlite::params!(task_id),
         )
         .await?;
     if rows.is_empty() {
@@ -191,12 +189,12 @@ pub async fn get_running_agent_for_task(
 
 pub async fn list_agent_runs_for_task(
     client: &Client,
-    task_id: &Uuid,
+    task_id: i64,
 ) -> Result<Vec<TaskAgentRun>, hiqlite::Error> {
     client
         .query_map::<TaskAgentRun, _>(
             "SELECT id, task_id, agent_type, status, conversation_id, created_at, completed_at FROM task_agent_runs WHERE task_id = $1 ORDER BY created_at DESC",
-            hiqlite::params!(task_id.to_string()),
+            hiqlite::params!(task_id),
         )
         .await
 }
@@ -244,12 +242,12 @@ pub async fn sweep_running_agent_runs_to_failed(client: &Client) -> Result<usize
 
 pub async fn increment_workflow_run_count(
     client: &Client,
-    task_id: &Uuid,
+    task_id: i64,
 ) -> Result<(), hiqlite::Error> {
     client
         .execute(
             "UPDATE tasks SET workflow_run_count = workflow_run_count + 1 WHERE id = $1",
-            hiqlite::params!(task_id.to_string()),
+            hiqlite::params!(task_id),
         )
         .await?;
     Ok(())
@@ -264,7 +262,7 @@ const VALID_FLAG_COLUMNS: &[&str] = &[
 
 async fn set_task_flag(
     client: &Client,
-    task_id: &Uuid,
+    task_id: i64,
     column: &str,
 ) -> Result<(), hiqlite::Error> {
     if !VALID_FLAG_COLUMNS.contains(&column) {
@@ -275,28 +273,28 @@ async fn set_task_flag(
     client
         .execute(
             format!("UPDATE tasks SET {column} = 1 WHERE id = $1"),
-            hiqlite::params!(task_id.to_string()),
+            hiqlite::params!(task_id),
         )
         .await?;
     Ok(())
 }
 
-pub async fn mark_task_blocked(client: &Client, task_id: &Uuid) -> Result<(), hiqlite::Error> {
+pub async fn mark_task_blocked(client: &Client, task_id: i64) -> Result<(), hiqlite::Error> {
     set_task_flag(client, task_id, "workflow_blocked").await
 }
 
 pub async fn mark_planification_complete(
     client: &Client,
-    task_id: &Uuid,
+    task_id: i64,
 ) -> Result<(), hiqlite::Error> {
     set_task_flag(client, task_id, "planification_complete").await
 }
 
-pub async fn mark_workflow_complete(client: &Client, task_id: &Uuid) -> Result<(), hiqlite::Error> {
+pub async fn mark_workflow_complete(client: &Client, task_id: i64) -> Result<(), hiqlite::Error> {
     set_task_flag(client, task_id, "workflow_complete").await
 }
 
-pub async fn mark_pr_agent_complete(client: &Client, task_id: &Uuid) -> Result<(), hiqlite::Error> {
+pub async fn mark_pr_agent_complete(client: &Client, task_id: i64) -> Result<(), hiqlite::Error> {
     set_task_flag(client, task_id, "pr_agent_complete").await
 }
 
@@ -306,7 +304,6 @@ mod tests {
     use crate::db;
     use crate::services::projects;
     use tempfile::TempDir;
-    use uuid::Uuid;
 
     async fn make_client() -> (Client, TempDir) {
         let db_dir = TempDir::new().unwrap();
@@ -328,29 +325,21 @@ mod tests {
         (client, db_dir)
     }
 
-    async fn seed_task(client: &Client) -> (Uuid, Uuid) {
+    async fn seed_task(client: &Client) -> (i64, i64) {
         let user_id = db::ensure_default_user(client).await.unwrap();
-        let project_id = projects::create_project(client, &user_id, "test", "/tmp/test", None)
+        let project = projects::create_project(client, &user_id, "test", "/tmp/test", None)
             .await
-            .unwrap()
-            .id;
-        let task_id = Uuid::new_v4();
-        create_task(
-            client,
-            &task_id,
-            &project_id,
-            &user_id,
-            "test task",
-            "pending",
-        )
-        .await
-        .unwrap();
-        (project_id, task_id)
+            .unwrap();
+        let project_id = project.id;
+        let task = create_task(client, project_id, &user_id, "test task", "pending")
+            .await
+            .unwrap();
+        (project_id, task.id)
     }
 
     type FlagState = (bool, bool, bool, bool);
 
-    async fn assert_flags(client: &Client, task_id: &Uuid, expected: FlagState) {
+    async fn assert_flags(client: &Client, task_id: i64, expected: FlagState) {
         let task = get_task(client, task_id).await.unwrap();
         assert_eq!(
             task.planification_complete, expected.0,
@@ -366,11 +355,11 @@ mod tests {
         let (client, _tmp) = make_client().await;
         let (_, task_id) = seed_task(&client).await;
 
-        mark_planification_complete(&client, &task_id)
+        mark_planification_complete(&client, task_id)
             .await
             .unwrap();
 
-        assert_flags(&client, &task_id, (true, false, false, false)).await;
+        assert_flags(&client, task_id, (true, false, false, false)).await;
     }
 
     #[tokio::test]
@@ -378,9 +367,9 @@ mod tests {
         let (client, _tmp) = make_client().await;
         let (_, task_id) = seed_task(&client).await;
 
-        mark_workflow_complete(&client, &task_id).await.unwrap();
+        mark_workflow_complete(&client, task_id).await.unwrap();
 
-        assert_flags(&client, &task_id, (false, true, false, false)).await;
+        assert_flags(&client, task_id, (false, true, false, false)).await;
     }
 
     #[tokio::test]
@@ -388,9 +377,9 @@ mod tests {
         let (client, _tmp) = make_client().await;
         let (_, task_id) = seed_task(&client).await;
 
-        mark_pr_agent_complete(&client, &task_id).await.unwrap();
+        mark_pr_agent_complete(&client, task_id).await.unwrap();
 
-        assert_flags(&client, &task_id, (false, false, false, true)).await;
+        assert_flags(&client, task_id, (false, false, false, true)).await;
     }
 
     #[tokio::test]
@@ -398,9 +387,9 @@ mod tests {
         let (client, _tmp) = make_client().await;
         let (_, task_id) = seed_task(&client).await;
 
-        mark_task_blocked(&client, &task_id).await.unwrap();
+        mark_task_blocked(&client, task_id).await.unwrap();
 
-        assert_flags(&client, &task_id, (false, false, true, false)).await;
+        assert_flags(&client, task_id, (false, false, true, false)).await;
     }
 
     #[tokio::test]
@@ -408,11 +397,11 @@ mod tests {
         let (client, _tmp) = make_client().await;
         let (_, task_id) = seed_task(&client).await;
 
-        mark_planification_complete(&client, &task_id)
+        mark_planification_complete(&client, task_id)
             .await
             .unwrap();
-        mark_pr_agent_complete(&client, &task_id).await.unwrap();
+        mark_pr_agent_complete(&client, task_id).await.unwrap();
 
-        assert_flags(&client, &task_id, (true, false, false, true)).await;
+        assert_flags(&client, task_id, (true, false, false, true)).await;
     }
 }

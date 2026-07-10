@@ -53,12 +53,12 @@ pub async fn completion_handler(
         }
     }
 
-    let task = tasks::get_task(client, &run.task_id)
+    let task = tasks::get_task(client, run.task_id)
         .await
         .map_err(internal_err)?;
 
     if task.workflow_run_count >= MAX_WORKFLOW_RUNS {
-        tasks::mark_task_blocked(client, &run.task_id)
+        tasks::mark_task_blocked(client, run.task_id)
             .await
             .map_err(internal_err)?;
         return Ok(NextAction::Stop);
@@ -79,7 +79,7 @@ mod tests {
         Arc::new(Mutex::new(HashMap::new()))
     }
 
-    async fn make_client() -> (hiqlite::Client, Uuid, TempDir) {
+    async fn make_client() -> (hiqlite::Client, i64, TempDir) {
         let tmp = TempDir::new().unwrap();
         let config = hiqlite::NodeConfig {
             node_id: 1,
@@ -98,32 +98,44 @@ mod tests {
         db::run_migrations(&client).await.unwrap();
 
         let user_id = db::ensure_default_user(&client).await.unwrap();
-        let project_id = Uuid::new_v4();
-        client
-            .execute(
-                "INSERT INTO projects (id, user_id, name, repo_folder_path) VALUES ($1, $2, $3, $4)",
-                hiqlite::params!(
-                    project_id.to_string(),
-                    user_id.to_string(),
-                    "test-proj",
-                    "/tmp/repo"
-                ),
-            )
-            .await
-            .unwrap();
-        let task_id = Uuid::new_v4();
-        client
-            .execute(
-                "INSERT INTO tasks (id, project_id, user_id, title) VALUES ($1, $2, $3, $4)",
-                hiqlite::params!(
-                    task_id.to_string(),
-                    project_id.to_string(),
-                    user_id.to_string(),
-                    "test-task"
-                ),
-            )
-            .await
-            .unwrap();
+
+        let project_id: i64 = {
+            let mut rows = client
+                .query_raw(
+                    "SELECT COALESCE(MAX(id), 0) + 1 AS next_id FROM projects",
+                    hiqlite::params!(),
+                )
+                .await
+                .unwrap();
+            let id = rows.first_mut().map(|r| r.get::<i64>("next_id")).unwrap_or(1);
+            client
+                .execute(
+                    "INSERT INTO projects (id, user_id, name, repo_folder_path) VALUES ($1, $2, $3, $4)",
+                    hiqlite::params!(id, user_id.to_string(), "test-proj", "/tmp/repo"),
+                )
+                .await
+                .unwrap();
+            id
+        };
+
+        let task_id: i64 = {
+            let mut rows = client
+                .query_raw(
+                    "SELECT COALESCE(MAX(id), 0) + 1 AS next_id FROM tasks",
+                    hiqlite::params!(),
+                )
+                .await
+                .unwrap();
+            let id = rows.first_mut().map(|r| r.get::<i64>("next_id")).unwrap_or(1);
+            client
+                .execute(
+                    "INSERT INTO tasks (id, project_id, user_id, title) VALUES ($1, $2, $3, $4)",
+                    hiqlite::params!(id, project_id, user_id.to_string(), "test-task"),
+                )
+                .await
+                .unwrap();
+            id
+        };
 
         (client, task_id, tmp)
     }
@@ -210,7 +222,7 @@ mod tests {
         client
             .execute(
                 "UPDATE tasks SET workflow_run_count = 25 WHERE id = $1",
-                hiqlite::params!(task_id.to_string()),
+                hiqlite::params!(task_id),
             )
             .await
             .unwrap();
@@ -232,7 +244,7 @@ mod tests {
 
         assert!(matches!(action, NextAction::Stop));
 
-        let task = tasks::get_task(&client, &task_id).await.unwrap();
+        let task = tasks::get_task(&client, task_id).await.unwrap();
         assert!(task.workflow_blocked);
     }
 }

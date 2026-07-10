@@ -38,9 +38,9 @@ pub async fn resolve_harness_config(
     db: &Client,
     agent_type: &AgentType,
     user_id: Option<&Uuid>,
-    project_id: Option<&Uuid>,
+    project_id: Option<i64>,
 ) -> Result<HarnessConfig, ProviderError> {
-    let scopes: [(ScopeType, Option<&Uuid>, Option<&Uuid>); 4] = [
+    let scopes: [(ScopeType, Option<&Uuid>, Option<i64>); 4] = [
         (ScopeType::UserProject, user_id, project_id),
         (ScopeType::Project, None, project_id),
         (ScopeType::User, user_id, None),
@@ -74,7 +74,7 @@ pub async fn resolve_harness_config(
 pub async fn resolve_agent_config_statuses(
     db: &Client,
     user_id: Uuid,
-    project_id: Uuid,
+    project_id: i64,
 ) -> Vec<AgentConfigStatus> {
     let agent_types = [
         "planification",
@@ -90,7 +90,7 @@ pub async fn resolve_agent_config_statuses(
             Err(_) => continue,
         };
         let result =
-            resolve_harness_config(db, &agent_type, Some(&user_id), Some(&project_id)).await;
+            resolve_harness_config(db, &agent_type, Some(&user_id), Some(project_id)).await;
         match result {
             Ok(cfg) => results.push(AgentConfigStatus {
                 agent_type: at_str.to_string(),
@@ -114,16 +114,15 @@ async fn lookup_config(
     agent_type: &AgentType,
     scope_type: ScopeType,
     user_id: Option<&Uuid>,
-    project_id: Option<&Uuid>,
+    project_id: Option<i64>,
 ) -> Result<Option<AgentHarnessConfig>, ProviderError> {
     let user_id_str = user_id.map(|u| u.to_string());
-    let project_id_str = project_id.map(|p| p.to_string());
     let result = db
         .query_map_one::<AgentHarnessConfig, _>(
             "SELECT id, agent_type, harness, provider_config_ref, scope_type, user_id, project_id, model, effort, created_at, updated_at \
              FROM agent_harness_configs \
-             WHERE agent_type = $1 AND scope_type = $2 AND COALESCE(user_id, '') = COALESCE($3, '') AND COALESCE(project_id, '') = COALESCE($4, '')",
-            hiqlite::params!(agent_type.to_string(), scope_type.to_string(), user_id_str, project_id_str),
+             WHERE agent_type = $1 AND scope_type = $2 AND COALESCE(user_id, '') = COALESCE($3, '') AND COALESCE(project_id, -1) = COALESCE($4, -1)",
+            hiqlite::params!(agent_type.to_string(), scope_type.to_string(), user_id_str, project_id),
         )
         .await;
     match result {
@@ -285,7 +284,6 @@ mod tests {
         let agent_type = AgentType::Review;
         let now = chrono::Utc::now().naive_utc().to_string();
         let user_id = Uuid::new_v4();
-        let project_id = Uuid::new_v4();
 
         // Insert a User-scoped config (user_id set, project_id NULL)
         client
@@ -328,7 +326,7 @@ mod tests {
 
         // Call with both IDs — should find User-scoped config (higher precedence than Global)
         let result =
-            resolve_harness_config(&client, &agent_type, Some(&user_id), Some(&project_id))
+            resolve_harness_config(&client, &agent_type, Some(&user_id), None)
                 .await
                 .unwrap();
         assert_eq!(result.harness, "oh-my-pi");
@@ -336,7 +334,7 @@ mod tests {
         assert_eq!(result.scope, ScopeType::User);
 
         // Call with only project_id — should find Global (no user scope matches, no project scope)
-        let result = resolve_harness_config(&client, &agent_type, None, Some(&project_id))
+        let result = resolve_harness_config(&client, &agent_type, None, Some(42))
             .await
             .unwrap();
         assert_eq!(result.harness, "opencode");

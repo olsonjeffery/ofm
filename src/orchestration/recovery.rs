@@ -33,32 +33,44 @@ mod tests {
         db::run_migrations(&client).await.unwrap();
 
         let user_id = db::ensure_default_user(&client).await.unwrap();
-        let project_id = Uuid::new_v4();
-        client
-            .execute(
-                "INSERT INTO projects (id, user_id, name, repo_folder_path) VALUES ($1, $2, $3, $4)",
-                hiqlite::params!(
-                    project_id.to_string(),
-                    user_id.to_string(),
-                    "test-proj",
-                    "/tmp/repo"
-                ),
-            )
-            .await
-            .unwrap();
-        let task_id = Uuid::new_v4();
-        client
-            .execute(
-                "INSERT INTO tasks (id, project_id, user_id, title) VALUES ($1, $2, $3, $4)",
-                hiqlite::params!(
-                    task_id.to_string(),
-                    project_id.to_string(),
-                    user_id.to_string(),
-                    "test-task"
-                ),
-            )
-            .await
-            .unwrap();
+
+        let project_id: i64 = {
+            let mut rows = client
+                .query_raw(
+                    "SELECT COALESCE(MAX(id), 0) + 1 AS next_id FROM projects",
+                    hiqlite::params!(),
+                )
+                .await
+                .unwrap();
+            let id = rows.first_mut().map(|r| r.get::<i64>("next_id")).unwrap_or(1);
+            client
+                .execute(
+                    "INSERT INTO projects (id, user_id, name, repo_folder_path) VALUES ($1, $2, $3, $4)",
+                    hiqlite::params!(id, user_id.to_string(), "test-proj", "/tmp/repo"),
+                )
+                .await
+                .unwrap();
+            id
+        };
+
+        let task_id: i64 = {
+            let mut rows = client
+                .query_raw(
+                    "SELECT COALESCE(MAX(id), 0) + 1 AS next_id FROM tasks",
+                    hiqlite::params!(),
+                )
+                .await
+                .unwrap();
+            let id = rows.first_mut().map(|r| r.get::<i64>("next_id")).unwrap_or(1);
+            client
+                .execute(
+                    "INSERT INTO tasks (id, project_id, user_id, title) VALUES ($1, $2, $3, $4)",
+                    hiqlite::params!(id, project_id, user_id.to_string(), "test-task"),
+                )
+                .await
+                .unwrap();
+            id
+        };
 
         let now = chrono::Utc::now().naive_utc().to_string();
         client
@@ -66,7 +78,7 @@ mod tests {
                 "INSERT INTO task_agent_runs (id, task_id, agent_type, status, created_at) VALUES ($1, $2, $3, $4, $5)",
                 hiqlite::params!(
                     Uuid::new_v4().to_string(),
-                    task_id.to_string(),
+                    task_id,
                     AgentType::Implementation.to_string(),
                     RunStatus::Running.to_string(),
                     &now

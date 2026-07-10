@@ -10,14 +10,13 @@ use std::collections::HashMap;
 use std::sync::Arc;
 use tempfile::TempDir;
 use tokio::sync::Mutex;
-use uuid::Uuid;
 
 struct TestApp {
     addr: String,
     _handle: tokio::task::JoinHandle<()>,
     db: Client,
-    project_id: Uuid,
-    task_id: Uuid,
+    project_id: i64,
+    task_id: i64,
 }
 
 async fn setup_app() -> TestApp {
@@ -50,17 +49,16 @@ async fn setup_app() -> TestApp {
     .unwrap()
     .id;
 
-    let task_id = Uuid::new_v4();
-    ofm::services::tasks::create_task(
+    let task_id = ofm::services::tasks::create_task(
         &client,
-        &task_id,
-        &project_id,
+        project_id,
         &user_id,
         "test task",
         "pending",
     )
     .await
-    .unwrap();
+    .unwrap()
+    .id;
 
     let auth_layer = AuthLayer::disabled(
         client.clone(),
@@ -105,7 +103,7 @@ fn client() -> reqwest::Client {
 
 async fn assert_task_flags(
     db: &Client,
-    task_id: &Uuid,
+    task_id: i64,
     plan: bool,
     workflow: bool,
     blocked: bool,
@@ -130,7 +128,7 @@ async fn test_complete_plan() {
         .await
         .unwrap();
     assert_eq!(resp.status(), 200);
-    assert_task_flags(&app.db, &app.task_id, true, false, false, false).await;
+    assert_task_flags(&app.db, app.task_id, true, false, false, false).await;
 }
 
 #[tokio::test]
@@ -145,7 +143,7 @@ async fn test_complete_workflow() {
         .await
         .unwrap();
     assert_eq!(resp.status(), 200);
-    assert_task_flags(&app.db, &app.task_id, false, true, false, false).await;
+    assert_task_flags(&app.db, app.task_id, false, true, false, false).await;
 }
 
 #[tokio::test]
@@ -160,7 +158,7 @@ async fn test_block_workflow() {
         .await
         .unwrap();
     assert_eq!(resp.status(), 200);
-    assert_task_flags(&app.db, &app.task_id, false, false, true, false).await;
+    assert_task_flags(&app.db, app.task_id, false, false, true, false).await;
 }
 
 #[tokio::test]
@@ -175,7 +173,7 @@ async fn test_complete_pr() {
         .await
         .unwrap();
     assert_eq!(resp.status(), 200);
-    assert_task_flags(&app.db, &app.task_id, false, false, false, true).await;
+    assert_task_flags(&app.db, app.task_id, false, false, false, true).await;
 }
 
 #[tokio::test]
@@ -199,13 +197,13 @@ async fn test_flags_are_independent() {
         .await
         .unwrap();
     // Verify only the two targeted flags changed
-    assert_task_flags(&app.db, &app.task_id, true, false, false, true).await;
+    assert_task_flags(&app.db, app.task_id, true, false, false, true).await;
 }
 
 #[tokio::test]
 async fn test_unknown_task_returns_404() {
     let app = setup_app().await;
-    let fake_id = Uuid::new_v4();
+    let fake_id: i64 = 99999;
     let resp = client()
         .post(format!("{}/api/tasks/{}/complete-plan", app.addr, fake_id))
         .send()
@@ -217,7 +215,7 @@ async fn test_unknown_task_returns_404() {
 #[tokio::test]
 async fn test_unknown_task_for_all_endpoints_return_404() {
     let app = setup_app().await;
-    let fake_id = Uuid::new_v4();
+    let fake_id: i64 = 99999;
     for endpoint in &[
         "complete-plan",
         "complete-workflow",
@@ -260,7 +258,7 @@ async fn test_cli_complete_plan_exits_zero_and_flips_flag() {
         "CLI exited with: {:?}",
         output.status
     );
-    assert_task_flags(&app.db, &app.task_id, true, false, false, false).await;
+    assert_task_flags(&app.db, app.task_id, true, false, false, false).await;
 }
 
 #[tokio::test]
@@ -291,6 +289,6 @@ async fn test_cli_all_commands_exit_zero() {
             action,
             output.status
         );
-        assert_task_flags(&app.db, &app.task_id, *plan, *workflow, *blocked, *pr).await;
+        assert_task_flags(&app.db, app.task_id, *plan, *workflow, *blocked, *pr).await;
     }
 }

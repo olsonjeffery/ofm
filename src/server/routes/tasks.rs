@@ -19,7 +19,7 @@ const MAX_ORIGINAL_REQUEST_LENGTH: usize = 10_240;
 
 #[derive(Debug, Deserialize)]
 struct CreateTaskRequest {
-    project_id: Uuid,
+    project_id: i64,
     title: String,
     status: Option<String>,
     original_request: String,
@@ -41,7 +41,7 @@ struct TaskDetailResponse {
 
 #[derive(Debug, Deserialize)]
 struct ListTasksQuery {
-    project_id: Uuid,
+    project_id: i64,
 }
 
 const VALID_STATUSES: &[&str] = &["pending", "in_progress", "in_review", "completed"];
@@ -73,7 +73,6 @@ async fn create_task(
         ));
     }
 
-    let task_id = Uuid::new_v4();
     let status = body
         .status
         .as_deref()
@@ -81,13 +80,12 @@ async fn create_task(
         .unwrap_or("pending")
         .to_string();
 
-    let project = services::projects::get_project(&state.db, &body.project_id)
+    let project = services::projects::get_project(&state.db, body.project_id)
         .await
         .map_err(|_| ServerError::NotFound("Project not found".into()))?;
     let task = services::tasks::create_task(
         &state.db,
-        &task_id,
-        &body.project_id,
+        body.project_id,
         &auth.user_id,
         body.title.trim(),
         &status,
@@ -95,13 +93,10 @@ async fn create_task(
     .await
     .map_err(|e| ServerError::Internal(e.to_string()))?;
 
-    let int_proj = worktree::uuid_to_u32(&project.id);
-    let int_task = worktree::uuid_to_u32(&task_id);
-
     let worktree_result = match worktree::create_worktree(
         &project.repo_folder_path,
-        int_proj,
-        int_task,
+        project.id,
+        task.id,
         &body.title,
         None,
     )
@@ -109,7 +104,7 @@ async fn create_task(
     {
         Ok(r) => r,
         Err(e) => {
-            let _ = services::tasks::delete_task(&state.db, &task_id).await;
+            let _ = services::tasks::delete_task(&state.db, task.id).await;
             return Err(ServerError::Internal(format!(
                 "worktree creation failed: {}",
                 e
@@ -121,10 +116,8 @@ async fn create_task(
     services::tasks::insert_worktree(
         &state.db,
         &worktree_uuid,
-        &project.id,
-        &task_id,
-        int_proj,
-        int_task,
+        project.id,
+        task.id,
         &worktree_result.worktree_path.to_string_lossy(),
         &project.repo_folder_path,
         &worktree_result.branch,
@@ -132,13 +125,13 @@ async fn create_task(
     .await
     .map_err(|e| ServerError::Internal(e.to_string()))?;
 
-    let int_proj_str = int_proj.to_string();
-    let int_task_str = int_task.to_string();
+    let proj_str = project.id.to_string();
+    let task_str = task.id.to_string();
     let archive = archive::ArchiveRoot::new(std::path::PathBuf::from(&state.archive_root));
     archive
-        .ensure_project_archive(&int_proj_str)
+        .ensure_project_archive(&proj_str)
         .map_err(|e| ServerError::Internal(e.to_string()))?;
-    let doc_path = archive.task_doc_path(&int_proj_str, &int_task_str);
+    let doc_path = archive.task_doc_path(&proj_str, &task_str);
     archive
         .write_task_doc(&doc_path, &body.original_request)
         .map_err(|e| ServerError::Internal(format!("failed to seed doc: {e}")))?;
@@ -151,13 +144,13 @@ async fn list_tasks(
     State(state): State<AppState>,
     Query(query): Query<ListTasksQuery>,
 ) -> Result<Json<Vec<Task>>, ServerError> {
-    let project = services::projects::get_project(&state.db, &query.project_id)
+    let project = services::projects::get_project(&state.db, query.project_id)
         .await
         .map_err(|_| ServerError::NotFound("Project not found".into()))?;
     if project.user_id != auth.user_id {
         return Err(ServerError::NotFound("Project not found".into()));
     }
-    let tasks = services::tasks::list_tasks(&state.db, &query.project_id)
+    let tasks = services::tasks::list_tasks(&state.db, query.project_id)
         .await
         .map_err(|e| ServerError::Internal(e.to_string()))?;
     Ok(Json(tasks))
@@ -166,16 +159,16 @@ async fn list_tasks(
 async fn get_task(
     auth: AuthUser,
     State(state): State<AppState>,
-    Path(id): Path<Uuid>,
+    Path(id): Path<i64>,
 ) -> Result<Json<TaskDetailResponse>, ServerError> {
-    let task = services::tasks::get_task(&state.db, &id)
+    let task = services::tasks::get_task(&state.db, id)
         .await
         .map_err(|_| ServerError::NotFound("Task not found".into()))?;
     if task.user_id != auth.user_id {
         return Err(ServerError::NotFound("Task not found".into()));
     }
 
-    let worktree = services::tasks::get_worktree_by_task(&state.db, &id)
+    let worktree = services::tasks::get_worktree_by_task(&state.db, id)
         .await
         .ok();
 
@@ -208,10 +201,10 @@ async fn get_task(
 async fn update_task(
     auth: AuthUser,
     State(state): State<AppState>,
-    Path(id): Path<Uuid>,
+    Path(id): Path<i64>,
     Json(body): Json<UpdateTaskRequest>,
 ) -> Result<Json<Task>, ServerError> {
-    let existing = services::tasks::get_task(&state.db, &id)
+    let existing = services::tasks::get_task(&state.db, id)
         .await
         .map_err(|_| ServerError::NotFound("Task not found".into()))?;
     if existing.user_id != auth.user_id {
@@ -242,7 +235,7 @@ async fn update_task(
 
     let task = services::tasks::update_task(
         &state.db,
-        &id,
+        id,
         body.title.as_deref(),
         body.status.as_deref(),
     )
@@ -260,21 +253,21 @@ async fn update_task(
 async fn delete_task(
     auth: AuthUser,
     State(state): State<AppState>,
-    Path(id): Path<Uuid>,
+    Path(id): Path<i64>,
 ) -> Result<axum::http::StatusCode, ServerError> {
-    let task = services::tasks::get_task(&state.db, &id)
+    let task = services::tasks::get_task(&state.db, id)
         .await
         .map_err(|_| ServerError::NotFound("Task not found".into()))?;
     if task.user_id != auth.user_id {
         return Err(ServerError::NotFound("Task not found".into()));
     }
-    let worktree = services::tasks::get_worktree_by_task(&state.db, &id)
+    let worktree = services::tasks::get_worktree_by_task(&state.db, id)
         .await
         .ok();
 
     if let Some(w) = worktree {
         let repo = if w.repo_path.is_empty() {
-            services::projects::get_project(&state.db, &task.project_id)
+            services::projects::get_project(&state.db, task.project_id)
                 .await
                 .ok()
                 .map(|p| p.repo_folder_path)
@@ -291,7 +284,7 @@ async fn delete_task(
             .map_err(|e| tracing::warn!("failed to delete archive: {e}"));
     }
 
-    services::tasks::delete_task(&state.db, &id)
+    services::tasks::delete_task(&state.db, id)
         .await
         .map_err(|e| ServerError::Internal(e.to_string()))?;
 

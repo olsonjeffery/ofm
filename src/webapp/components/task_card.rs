@@ -50,8 +50,8 @@ mod tests {
 
     fn make_task(status: &str) -> Task {
         Task {
-            id: Uuid::new_v4(),
-            project_id: Uuid::new_v4(),
+            id: 1,
+            project_id: 1,
             user_id: Uuid::new_v4(),
             title: "Test Task".into(),
             status: status.into(),

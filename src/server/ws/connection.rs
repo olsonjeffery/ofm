@@ -54,11 +54,11 @@ pub async fn handle_socket(
                         for topic in topics {
                             let authorized = match topic.kind {
                                 WsTopicKind::Project => {
-                                    services::projects::get_project(&db, &topic.id.0)
+                                    services::projects::get_project(&db, topic.id.0)
                                         .await
                                         .is_ok_and(|p| p.user_id == user_id)
                                 }
-                                WsTopicKind::Task => services::tasks::get_task(&db, &topic.id.0)
+                                WsTopicKind::Task => services::tasks::get_task(&db, topic.id.0)
                                     .await
                                     .is_ok_and(|t| t.user_id == user_id),
                             };

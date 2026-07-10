@@ -10,13 +10,12 @@ use std::collections::HashMap;
 use std::sync::Arc;
 use tempfile::TempDir;
 use tokio::sync::Mutex;
-use uuid::Uuid;
 
 struct TestApp {
     addr: String,
     _handle: tokio::task::JoinHandle<()>,
     db: Client,
-    project_id: Uuid,
+    project_id: i64,
     archive_root: String,
     _db_dir: TempDir,
     _git_dir: Option<TempDir>,
@@ -220,14 +219,14 @@ async fn test_create_task() {
     assert_eq!(body["title"], "test task");
     assert_eq!(body["status"], "pending");
     assert_eq!(
-        body["project_id"].as_str().unwrap(),
-        app.project_id.to_string()
+        body["project_id"].as_i64().unwrap(),
+        app.project_id
     );
-    assert!(body["id"].as_str().unwrap().len() > 0);
+    assert!(body["id"].as_i64().unwrap() > 0);
 
-    let task_uuid = Uuid::parse_str(body["id"].as_str().unwrap()).unwrap();
+    let task_id = body["id"].as_i64().unwrap();
 
-    let worktree = ofm::services::tasks::get_worktree_by_task(&app.db, &task_uuid)
+    let worktree = ofm::services::tasks::get_worktree_by_task(&app.db, task_id)
         .await
         .unwrap();
 
@@ -246,7 +245,7 @@ async fn test_create_task() {
 #[tokio::test]
 async fn test_create_task_missing_project() {
     let app = setup_app().await;
-    let fake_id = Uuid::new_v4();
+    let fake_id: i64 = 99999;
     let resp = client()
         .post(format!("{}/api/tasks", app.addr))
         .json(&serde_json::json!({
@@ -357,7 +356,7 @@ async fn test_get_task() {
 
     assert_eq!(resp.status(), 201);
     let created: serde_json::Value = resp.json().await.unwrap();
-    let task_id = created["id"].as_str().unwrap().to_string();
+    let task_id: i64 = created["id"].as_i64().unwrap();
 
     let resp = client()
         .get(format!("{}/api/tasks/{}", app.addr, task_id))
@@ -367,7 +366,7 @@ async fn test_get_task() {
 
     assert_eq!(resp.status(), 200);
     let body: serde_json::Value = resp.json().await.unwrap();
-    assert_eq!(body["id"], task_id);
+    assert_eq!(body["id"].as_i64().unwrap(), task_id);
     assert_eq!(body["title"], "get-me");
 
     let doc_content = body["doc_content"].as_str().unwrap();
@@ -382,10 +381,7 @@ async fn test_get_task() {
 async fn test_get_task_not_found() {
     let app = setup_app().await;
     let resp = client()
-        .get(format!(
-            "{}/api/tasks/00000000-0000-0000-0000-000000000000",
-            app.addr
-        ))
+        .get(format!("{}/api/tasks/{}", app.addr, 99999))
         .send()
         .await
         .unwrap();
@@ -409,7 +405,7 @@ async fn test_update_task() {
 
     assert_eq!(resp.status(), 201);
     let created: serde_json::Value = resp.json().await.unwrap();
-    let task_id = created["id"].as_str().unwrap().to_string();
+    let task_id: i64 = created["id"].as_i64().unwrap();
 
     let resp = client()
         .put(format!("{}/api/tasks/{}", app.addr, task_id))
@@ -454,7 +450,7 @@ async fn test_update_task_invalid_status() {
 
     assert_eq!(resp.status(), 201);
     let created: serde_json::Value = resp.json().await.unwrap();
-    let task_id = created["id"].as_str().unwrap().to_string();
+    let task_id: i64 = created["id"].as_i64().unwrap();
 
     let resp = client()
         .put(format!("{}/api/tasks/{}", app.addr, task_id))
@@ -472,10 +468,7 @@ async fn test_update_task_invalid_status() {
 async fn test_update_task_nonexistent() {
     let app = setup_app().await;
     let resp = client()
-        .put(format!(
-            "{}/api/tasks/00000000-0000-0000-0000-000000000000",
-            app.addr
-        ))
+        .put(format!("{}/api/tasks/{}", app.addr, 99999))
         .json(&serde_json::json!({
             "title": "nope",
         }))
@@ -502,14 +495,13 @@ async fn test_delete_task() {
 
     assert_eq!(resp.status(), 201);
     let created: serde_json::Value = resp.json().await.unwrap();
-    let task_id = created["id"].as_str().unwrap().to_string();
-    let task_uuid = Uuid::parse_str(&task_id).unwrap();
+    let task_id: i64 = created["id"].as_i64().unwrap();
 
     let worktree_path;
     let int_proj;
     let int_task;
     {
-        let w = ofm::services::tasks::get_worktree_by_task(&app.db, &task_uuid)
+        let w = ofm::services::tasks::get_worktree_by_task(&app.db, task_id)
             .await
             .unwrap();
         worktree_path = w.worktree_path.clone();
@@ -552,7 +544,7 @@ async fn test_delete_task() {
             .db
             .query_raw(
                 "SELECT COUNT(*) as cnt FROM tasks WHERE id = $1",
-                hiqlite::params!(&task_id),
+                hiqlite::params!(task_id),
             )
             .await
             .unwrap();
@@ -565,8 +557,8 @@ async fn test_delete_task() {
         let mut rows = app
             .db
             .query_raw(
-                "SELECT COUNT(*) as cnt FROM worktrees WHERE task_uuid = $1",
-                hiqlite::params!(&task_id),
+                "SELECT COUNT(*) as cnt FROM worktrees WHERE task_id = $1",
+                hiqlite::params!(task_id),
             )
             .await
             .unwrap();
@@ -580,10 +572,7 @@ async fn test_delete_task() {
 async fn test_delete_task_not_found() {
     let app = setup_app().await;
     let resp = client()
-        .delete(format!(
-            "{}/api/tasks/00000000-0000-0000-0000-000000000000",
-            app.addr
-        ))
+        .delete(format!("{}/api/tasks/{}", app.addr, 99999))
         .send()
         .await
         .unwrap();

@@ -99,7 +99,7 @@ impl std::str::FromStr for RunStatus {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Project {
-    pub id: Uuid,
+    pub id: i64,
     pub user_id: Uuid,
     pub name: String,
     pub repo_folder_path: String,
@@ -109,8 +109,8 @@ pub struct Project {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Task {
-    pub id: Uuid,
-    pub project_id: Uuid,
+    pub id: i64,
+    pub project_id: i64,
     pub user_id: Uuid,
     pub title: String,
     pub status: String,
@@ -127,7 +127,7 @@ pub struct Task {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Conversation {
     pub id: Uuid,
-    pub task_id: Uuid,
+    pub task_id: i64,
     pub omp_session_id: Option<String>,
     pub model: String,
     pub effort: String,
@@ -176,7 +176,7 @@ pub struct AgentHarnessConfig {
     pub provider_config_ref: String,
     pub scope_type: ScopeType,
     pub user_id: Option<Uuid>,
-    pub project_id: Option<Uuid>,
+    pub project_id: Option<i64>,
     pub model: Option<String>,
     pub effort: Option<String>,
     pub created_at: NaiveDateTime,
@@ -186,7 +186,7 @@ pub struct AgentHarnessConfig {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct TaskAgentRun {
     pub id: Uuid,
-    pub task_id: Uuid,
+    pub task_id: i64,
     pub agent_type: AgentType,
     pub status: RunStatus,
     pub conversation_id: Option<Uuid>,
@@ -196,7 +196,7 @@ pub struct TaskAgentRun {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Message {
-    pub project_key: String,
+    pub project_key: i64,
     pub session_id: String,
     pub seq: i32,
     pub entry_json: serde_json::Value,
@@ -205,10 +205,8 @@ pub struct Message {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Worktree {
     pub id: Uuid,
-    pub project_uuid: Uuid,
-    pub task_uuid: Uuid,
-    pub project_id: u32,
-    pub task_id: u32,
+    pub project_id: i64,
+    pub task_id: i64,
     pub worktree_path: String,
     pub repo_path: String,
     pub branch: String,
@@ -217,7 +215,7 @@ pub struct Worktree {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct SessionSummary {
-    pub project_key: String,
+    pub project_key: i64,
     pub session_id: String,
     pub mtime: NaiveDateTime,
     pub summary_json: serde_json::Value,
@@ -255,7 +253,7 @@ pub struct SessionDb {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ProjectMember {
     pub id: Uuid,
-    pub project_id: Uuid,
+    pub project_id: i64,
     pub user_id: Uuid,
 }
 
@@ -284,11 +282,6 @@ pub struct UserModelConfig {
 
 // hiqlite Row conversions
 
-fn uuid_from_row(row: &mut Row<'_>, col: &str) -> Uuid {
-    let s: String = row.get(col);
-    Uuid::parse_str(&s).expect("invalid UUID in database")
-}
-
 fn parse_naive_datetime(s: &str) -> NaiveDateTime {
     NaiveDateTime::parse_from_str(s, "%Y-%m-%d %H:%M:%S").unwrap_or_default()
 }
@@ -296,8 +289,8 @@ fn parse_naive_datetime(s: &str) -> NaiveDateTime {
 impl From<&mut Row<'_>> for Project {
     fn from(row: &mut Row<'_>) -> Self {
         Self {
-            id: uuid_from_row(row, "id"),
-            user_id: uuid_from_row(row, "user_id"),
+            id: row.get::<i64>("id"),
+            user_id: row.get::<String>("user_id").parse().expect("invalid UUID in database"),
             name: row.get("name"),
             repo_folder_path: row.get("repo_folder_path"),
             subproject_path: row.get("subproject_path"),
@@ -309,9 +302,9 @@ impl From<&mut Row<'_>> for Project {
 impl From<&mut Row<'_>> for Task {
     fn from(row: &mut Row<'_>) -> Self {
         Self {
-            id: uuid_from_row(row, "id"),
-            project_id: uuid_from_row(row, "project_id"),
-            user_id: uuid_from_row(row, "user_id"),
+            id: row.get::<i64>("id"),
+            project_id: row.get::<i64>("project_id"),
+            user_id: row.get::<String>("user_id").parse().expect("invalid UUID in database"),
             title: row.get("title"),
             status: row.get("status"),
             workflow_complete: row.get::<i64>("workflow_complete") != 0,
@@ -329,11 +322,9 @@ impl From<&mut Row<'_>> for Task {
 impl From<&mut Row<'_>> for Worktree {
     fn from(row: &mut Row<'_>) -> Self {
         Self {
-            id: uuid_from_row(row, "id"),
-            project_uuid: uuid_from_row(row, "project_uuid"),
-            task_uuid: uuid_from_row(row, "task_uuid"),
-            project_id: row.get::<i64>("project_id") as u32,
-            task_id: row.get::<i64>("task_id") as u32,
+            id: row.get::<String>("id").parse().expect("invalid UUID in database"),
+            project_id: row.get::<i64>("project_id"),
+            task_id: row.get::<i64>("task_id"),
             worktree_path: row.get("worktree_path"),
             repo_path: row.get("repo_path"),
             branch: row.get("branch"),
@@ -345,7 +336,7 @@ impl From<&mut Row<'_>> for Worktree {
 impl From<&mut Row<'_>> for Message {
     fn from(row: &mut Row<'_>) -> Self {
         Self {
-            project_key: row.get("project_key"),
+            project_key: row.get::<i64>("project_key"),
             session_id: row.get("session_id"),
             seq: row.get::<i64>("seq") as i32,
             entry_json: serde_json::from_str(&row.get::<String>("entry_json")).unwrap_or_default(),
@@ -356,7 +347,7 @@ impl From<&mut Row<'_>> for Message {
 impl From<&mut Row<'_>> for SessionSummary {
     fn from(row: &mut Row<'_>) -> Self {
         Self {
-            project_key: row.get("project_key"),
+            project_key: row.get::<i64>("project_key"),
             session_id: row.get("session_id"),
             mtime: parse_naive_datetime(&row.get::<String>("mtime")),
             summary_json: serde_json::from_str(&row.get::<String>("summary_json"))
@@ -368,8 +359,8 @@ impl From<&mut Row<'_>> for SessionSummary {
 impl From<&mut Row<'_>> for Conversation {
     fn from(row: &mut Row<'_>) -> Self {
         Self {
-            id: uuid_from_row(row, "id"),
-            task_id: uuid_from_row(row, "task_id"),
+            id: row.get::<String>("id").parse().expect("invalid UUID in database"),
+            task_id: row.get::<i64>("task_id"),
             omp_session_id: row.get("omp_session_id"),
             model: row.get("model"),
             effort: row.get("effort"),
@@ -386,7 +377,7 @@ impl From<&mut Row<'_>> for AgentHarnessConfig {
         let agent_type_str: String = row.get("agent_type");
         let agent_type = agent_type_str.parse().unwrap_or(AgentType::Implementation);
         Self {
-            id: uuid_from_row(row, "id"),
+            id: row.get::<String>("id").parse().expect("invalid UUID in database"),
             agent_type,
             harness: row.get("harness"),
             provider_config_ref: row.get("provider_config_ref"),
@@ -394,9 +385,7 @@ impl From<&mut Row<'_>> for AgentHarnessConfig {
             user_id: row
                 .get::<Option<String>>("user_id")
                 .map(|s| Uuid::parse_str(&s).expect("invalid UUID in database")),
-            project_id: row
-                .get::<Option<String>>("project_id")
-                .map(|s| Uuid::parse_str(&s).expect("invalid UUID in database")),
+            project_id: row.get::<Option<i64>>("project_id"),
             model: row.get("model"),
             effort: row.get("effort"),
             created_at: parse_naive_datetime(&row.get::<String>("created_at")),
@@ -412,8 +401,8 @@ impl From<&mut Row<'_>> for TaskAgentRun {
         let status_str: String = row.get("status");
         let status = status_str.parse().unwrap_or(RunStatus::Pending);
         Self {
-            id: uuid_from_row(row, "id"),
-            task_id: uuid_from_row(row, "task_id"),
+            id: row.get::<String>("id").parse().expect("invalid UUID in database"),
+            task_id: row.get::<i64>("task_id"),
             agent_type,
             status,
             conversation_id: row
@@ -430,8 +419,8 @@ impl From<&mut Row<'_>> for TaskAgentRun {
 impl From<&mut Row<'_>> for UserModelConfig {
     fn from(row: &mut Row<'_>) -> Self {
         Self {
-            id: uuid_from_row(row, "id"),
-            user_id: uuid_from_row(row, "user_id"),
+            id: row.get::<String>("id").parse().expect("invalid UUID in database"),
+            user_id: row.get::<String>("user_id").parse().expect("invalid UUID in database"),
             name: row.get("name"),
             config_body: row.get("config_body"),
             harness: row.get("harness"),
@@ -444,7 +433,7 @@ impl From<&mut Row<'_>> for UserModelConfig {
 impl From<&mut Row<'_>> for User {
     fn from(row: &mut Row<'_>) -> Self {
         Self {
-            id: uuid_from_row(row, "id"),
+            id: row.get::<String>("id").parse().expect("invalid UUID in database"),
             username: row.get("username"),
             oidc_subject: row.get("oidc_subject"),
             is_admin: row.get::<i64>("is_admin") != 0,
@@ -465,8 +454,8 @@ impl From<&mut Row<'_>> for User {
 impl From<&mut Row<'_>> for SessionDb {
     fn from(row: &mut Row<'_>) -> Self {
         Self {
-            id: uuid_from_row(row, "id"),
-            user_id: uuid_from_row(row, "user_id"),
+            id: row.get::<String>("id").parse().expect("invalid UUID in database"),
+            user_id: row.get::<String>("user_id").parse().expect("invalid UUID in database"),
             token_version: row.get::<i64>("token_version") as i32,
             refresh_token: row.get("refresh_token"),
             id_token: row.get("id_token"),
@@ -510,7 +499,7 @@ mod tests {
     #[test]
     fn test_project_serde_roundtrip() {
         let project = Project {
-            id: Uuid::new_v4(),
+            id: 42,
             user_id: Uuid::new_v4(),
             name: "test-project".into(),
             repo_folder_path: "/tmp/repo".into(),
@@ -527,7 +516,7 @@ mod tests {
     fn test_task_agent_run_serde_roundtrip() {
         let run = TaskAgentRun {
             id: Uuid::new_v4(),
-            task_id: Uuid::new_v4(),
+            task_id: 1,
             agent_type: AgentType::Implementation,
             status: RunStatus::Running,
             conversation_id: None,

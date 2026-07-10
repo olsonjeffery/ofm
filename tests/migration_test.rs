@@ -25,6 +25,12 @@ fn uuid_text() -> String {
     Uuid::new_v4().to_string()
 }
 
+fn int64_id() -> i64 {
+    use std::sync::atomic::{AtomicI64, Ordering};
+    static NEXT_ID: AtomicI64 = AtomicI64::new(1);
+    NEXT_ID.fetch_add(1, Ordering::Relaxed)
+}
+
 #[tokio::test]
 async fn test_all_migrations_apply() {
     let (client, _tmp) = setup_db().await;
@@ -87,11 +93,11 @@ async fn test_insert_and_query_project() {
         .await
         .unwrap();
 
-    let project_id = uuid_text();
+    let project_id = int64_id();
     client
         .execute(
             "INSERT INTO projects (id, user_id, name, repo_folder_path) VALUES ($1, $2, $3, $4)",
-            hiqlite::params!(&project_id, &user_id, "my-project", "/tmp/repo"),
+            hiqlite::params!(project_id, &user_id, "my-project", "/tmp/repo"),
         )
         .await
         .unwrap();
@@ -99,12 +105,12 @@ async fn test_insert_and_query_project() {
     let mut rows = client
         .query_raw(
             "SELECT id, name FROM projects WHERE id = $1",
-            hiqlite::params!(&project_id),
+            hiqlite::params!(project_id),
         )
         .await
         .unwrap();
     let row = rows.first_mut().unwrap();
-    let db_id: String = row.get("id");
+    let db_id: i64 = row.get("id");
     let db_name: String = row.get("name");
 
     assert_eq!(db_id, project_id);
@@ -125,20 +131,20 @@ async fn test_insert_and_query_task() {
         .await
         .unwrap();
 
-    let project_id = uuid_text();
+    let project_id = int64_id();
     client
         .execute(
             "INSERT INTO projects (id, user_id, name, repo_folder_path) VALUES ($1, $2, $3, $4)",
-            hiqlite::params!(&project_id, &user_id, "p", "/tmp/r"),
+            hiqlite::params!(project_id, &user_id, "p", "/tmp/r"),
         )
         .await
         .unwrap();
 
-    let task_id = uuid_text();
+    let task_id = int64_id();
     client
         .execute(
             "INSERT INTO tasks (id, project_id, user_id, title) VALUES ($1, $2, $3, $4)",
-            hiqlite::params!(&task_id, &project_id, &user_id, "Test task"),
+            hiqlite::params!(task_id, project_id, &user_id, "Test task"),
         )
         .await
         .unwrap();
@@ -146,12 +152,12 @@ async fn test_insert_and_query_task() {
     let mut rows = client
         .query_raw(
             "SELECT id, title, status, yolo_mode FROM tasks WHERE id = $1",
-            hiqlite::params!(&task_id),
+            hiqlite::params!(task_id),
         )
         .await
         .unwrap();
     let row = rows.first_mut().unwrap();
-    let db_id: String = row.get("id");
+    let db_id: i64 = row.get("id");
     let db_title: String = row.get("title");
     let db_status: String = row.get("status");
     let db_yolo: i64 = row.get("yolo_mode");
@@ -176,11 +182,11 @@ async fn test_insert_and_query_project_member() {
         .await
         .unwrap();
 
-    let project_id = uuid_text();
+    let project_id = int64_id();
     client
         .execute(
             "INSERT INTO projects (id, user_id, name, repo_folder_path) VALUES ($1, $2, $3, $4)",
-            hiqlite::params!(&project_id, &user_id, "p", "/tmp/r"),
+            hiqlite::params!(project_id, &user_id, "p", "/tmp/r"),
         )
         .await
         .unwrap();
@@ -189,7 +195,7 @@ async fn test_insert_and_query_project_member() {
     client
         .execute(
             "INSERT INTO project_members (id, project_id, user_id) VALUES ($1, $2, $3)",
-            hiqlite::params!(&pm_id, &project_id, &user_id),
+            hiqlite::params!(&pm_id, project_id, &user_id),
         )
         .await
         .unwrap();
@@ -197,7 +203,7 @@ async fn test_insert_and_query_project_member() {
     let mut rows = client
         .query_raw(
             "SELECT COUNT(*) as cnt FROM project_members WHERE project_id = $1 AND user_id = $2",
-            hiqlite::params!(&project_id, &user_id),
+            hiqlite::params!(project_id, &user_id),
         )
         .await
         .unwrap();
@@ -220,11 +226,11 @@ async fn test_unique_constraint_project_members() {
         .await
         .unwrap();
 
-    let project_id = uuid_text();
+    let project_id = int64_id();
     client
         .execute(
             "INSERT INTO projects (id, user_id, name, repo_folder_path) VALUES ($1, $2, $3, $4)",
-            hiqlite::params!(&project_id, &user_id, "p", "/tmp/r"),
+            hiqlite::params!(project_id, &user_id, "p", "/tmp/r"),
         )
         .await
         .unwrap();
@@ -233,7 +239,7 @@ async fn test_unique_constraint_project_members() {
     client
         .execute(
             "INSERT INTO project_members (id, project_id, user_id) VALUES ($1, $2, $3)",
-            hiqlite::params!(&pm_id, &project_id, &user_id),
+            hiqlite::params!(&pm_id, project_id, &user_id),
         )
         .await
         .unwrap();
@@ -242,7 +248,7 @@ async fn test_unique_constraint_project_members() {
     let result = client
         .execute(
             "INSERT INTO project_members (id, project_id, user_id) VALUES ($1, $2, $3)",
-            hiqlite::params!(&pm_id2, &project_id, &user_id),
+            hiqlite::params!(&pm_id2, project_id, &user_id),
         )
         .await;
 
@@ -297,11 +303,11 @@ async fn test_on_delete_cascade_project_members() {
         .await
         .unwrap();
 
-    let project_id = uuid_text();
+    let project_id = int64_id();
     client
         .execute(
             "INSERT INTO projects (id, user_id, name, repo_folder_path) VALUES ($1, $2, $3, $4)",
-            hiqlite::params!(&project_id, &user_id, "p", "/tmp/r"),
+            hiqlite::params!(project_id, &user_id, "p", "/tmp/r"),
         )
         .await
         .unwrap();
@@ -310,7 +316,7 @@ async fn test_on_delete_cascade_project_members() {
     client
         .execute(
             "INSERT INTO project_members (id, project_id, user_id) VALUES ($1, $2, $3)",
-            hiqlite::params!(&pm_id, &project_id, &user_id),
+            hiqlite::params!(&pm_id, project_id, &user_id),
         )
         .await
         .unwrap();
@@ -318,7 +324,7 @@ async fn test_on_delete_cascade_project_members() {
     client
         .execute(
             "DELETE FROM projects WHERE id = $1",
-            hiqlite::params!(&project_id),
+            hiqlite::params!(project_id),
         )
         .await
         .unwrap();
@@ -349,20 +355,20 @@ async fn test_conversation_foreign_key() {
         .await
         .unwrap();
 
-    let project_id = uuid_text();
+    let project_id = int64_id();
     client
         .execute(
             "INSERT INTO projects (id, user_id, name, repo_folder_path) VALUES ($1, $2, $3, $4)",
-            hiqlite::params!(&project_id, &user_id, "p", "/tmp/r"),
+            hiqlite::params!(project_id, &user_id, "p", "/tmp/r"),
         )
         .await
         .unwrap();
 
-    let task_id = uuid_text();
+    let task_id = int64_id();
     client
         .execute(
             "INSERT INTO tasks (id, project_id, user_id, title) VALUES ($1, $2, $3, $4)",
-            hiqlite::params!(&task_id, &project_id, &user_id, "conv task"),
+            hiqlite::params!(task_id, project_id, &user_id, "conv task"),
         )
         .await
         .unwrap();
@@ -371,7 +377,7 @@ async fn test_conversation_foreign_key() {
     client
         .execute(
             "INSERT INTO conversations (id, task_id, model) VALUES ($1, $2, $3)",
-            hiqlite::params!(&conv_id, &task_id, "gpt-4"),
+            hiqlite::params!(&conv_id, task_id, "gpt-4"),
         )
         .await
         .unwrap();

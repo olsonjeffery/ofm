@@ -7,7 +7,7 @@ pub async fn persist_event(
     client: &Client,
     event: &ProviderEvent,
     session_id: &str,
-    project_key: &str,
+    project_key: i64,
 ) -> Result<(), hiqlite::Error> {
     let seq: i32 = next_seq(client, session_id, project_key).await?;
     let entry_json = serde_json::to_value(event)
@@ -25,7 +25,7 @@ pub async fn persist_event(
 async fn next_seq(
     client: &Client,
     session_id: &str,
-    project_key: &str,
+    project_key: i64,
 ) -> Result<i32, hiqlite::Error> {
     let mut rows = client
         .query_raw(
@@ -40,7 +40,7 @@ async fn next_seq(
 pub async fn load_transcript(
     client: &Client,
     session_id: &str,
-    project_key: &str,
+    project_key: i64,
 ) -> Result<Vec<ProviderEvent>, hiqlite::Error> {
     let messages = client
         .query_map::<Message, _>(
@@ -109,7 +109,7 @@ mod tests {
     async fn test_persist_and_load_transcript() {
         let (client, _tmp) = make_client().await;
         let session_id = "sess-1";
-        let project_key = "proj-1";
+        let project_key = 1i64;
         let events = make_events();
 
         for event in &events {
@@ -132,7 +132,7 @@ mod tests {
     async fn test_seq_ordering() {
         let (client, _tmp) = make_client().await;
         let session_id = "sess-seq";
-        let project_key = "proj-seq";
+        let project_key = 2i64;
 
         persist_event(
             &client,
@@ -182,7 +182,7 @@ mod tests {
     #[tokio::test]
     async fn test_persist_multiple_sessions() {
         let (client, _tmp) = make_client().await;
-        let project_key = "proj-multi";
+        let project_key = 3i64;
 
         persist_event(
             &client,
@@ -227,7 +227,7 @@ mod tests {
     #[tokio::test]
     async fn test_load_empty_transcript() {
         let (client, _tmp) = make_client().await;
-        let loaded = load_transcript(&client, "nonexistent", "noproj")
+        let loaded = load_transcript(&client, "nonexistent", 9999)
             .await
             .unwrap();
         assert!(loaded.is_empty());
