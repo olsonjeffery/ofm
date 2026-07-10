@@ -106,7 +106,7 @@ impl LlmProvider for OhMyPiProvider {
     }
 
     async fn abort_turn(&self) -> Result<(), ProviderError> {
-        kill_session(&mut *self.session.lock().unwrap());
+        kill_session(&mut self.session.lock().unwrap());
         Ok(())
     }
 
@@ -160,6 +160,6 @@ impl LlmProvider for OhMyPiProvider {
     }
 
     async fn shutdown(&mut self) -> Result<bool, ProviderError> {
-        Ok(kill_session(&mut *self.session.lock().unwrap()))
+        Ok(kill_session(&mut self.session.lock().unwrap()))
     }
 }

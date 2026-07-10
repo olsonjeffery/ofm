@@ -212,46 +212,41 @@ pub async fn upsert_agent_models(
             .parse()
             .map_err(|e: String| format!("invalid agent type '{agent_type_str}': {e}"))?;
 
-        let (harness, provider_config_ref) =
-            if let Some(ref cfg_id) = setting.model_config_id {
-                match Uuid::parse_str(cfg_id) {
-                    Ok(uuid) => match get_model_config(client, user_id, uuid).await {
-                        Ok(model_cfg) => {
-                            let ext = if model_cfg.harness == "oh-my-pi" {
-                                "yaml"
-                            } else {
-                                "json"
-                            };
-                            let filename = format!("{}.{}", model_cfg.id, ext);
-                            let cfg_dir = ProviderConfigDir::new(config_root);
-                            if let Err(e) = cfg_dir.write_provider_config(
-                                &filename,
-                                &model_cfg.config_body,
-                            ) {
-                                tracing::warn!(
-                                    "Failed to write provider config '{}': {e}",
-                                    filename
-                                );
-                            }
-                            (model_cfg.harness, filename)
+        let (harness, provider_config_ref) = if let Some(ref cfg_id) = setting.model_config_id {
+            match Uuid::parse_str(cfg_id) {
+                Ok(uuid) => match get_model_config(client, user_id, uuid).await {
+                    Ok(model_cfg) => {
+                        let ext = if model_cfg.harness == "oh-my-pi" {
+                            "yaml"
+                        } else {
+                            "json"
+                        };
+                        let filename = format!("{}.{}", model_cfg.id, ext);
+                        let cfg_dir = ProviderConfigDir::new(config_root);
+                        if let Err(e) =
+                            cfg_dir.write_provider_config(&filename, &model_cfg.config_body)
+                        {
+                            tracing::warn!("Failed to write provider config '{}': {e}", filename);
                         }
-                        Err(_) => {
-                            tracing::warn!(
-                                "Model config {cfg_id} not found for agent type '{agent_type_str}'"
-                            );
-                            (String::new(), String::new())
-                        }
-                    },
+                        (model_cfg.harness, filename)
+                    }
                     Err(_) => {
                         tracing::warn!(
-                            "Invalid model_config_id '{cfg_id}' for agent type '{agent_type_str}'"
+                            "Model config {cfg_id} not found for agent type '{agent_type_str}'"
                         );
                         (String::new(), String::new())
                     }
+                },
+                Err(_) => {
+                    tracing::warn!(
+                        "Invalid model_config_id '{cfg_id}' for agent type '{agent_type_str}'"
+                    );
+                    (String::new(), String::new())
                 }
-            } else {
-                (String::new(), String::new())
-            };
+            }
+        } else {
+            (String::new(), String::new())
+        };
 
         agent_configs::create_or_update_agent_config(
             client,

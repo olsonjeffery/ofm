@@ -348,7 +348,14 @@ async fn test_settings_config_body_user_isolation() {
     let base_url = spawn_app(state, auth_layer).await;
 
     // User A creates config
-    let resp = create_config(&base_url, &user_a_key, "user-a-cfg", "key: value", "oh-my-pi").await;
+    let resp = create_config(
+        &base_url,
+        &user_a_key,
+        "user-a-cfg",
+        "key: value",
+        "oh-my-pi",
+    )
+    .await;
     assert_eq!(resp.status(), 201);
     let created: serde_json::Value = resp.json().await.unwrap();
     let config_id = created["id"].as_str().unwrap().to_string();

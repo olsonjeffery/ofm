@@ -154,7 +154,12 @@ async fn spawn_transient_server(
 ) -> Result<(OpenCodeServer, reqwest::Client), ProviderError> {
     let server = spawn_opencode_server(config_ref, snippet).await?;
     let client = reqwest::Client::new();
-    wait_for_health(&client, &format!("http://{}:{}", server.hostname, server.port), server.password.as_deref().unwrap_or("")).await?;
+    wait_for_health(
+        &client,
+        &format!("http://{}:{}", server.hostname, server.port),
+        server.password.as_deref().unwrap_or(""),
+    )
+    .await?;
     Ok((server, client))
 }
 
@@ -199,7 +204,9 @@ async fn one_shot_with_server(
         .send()
         .await?;
     if !session_resp.status().is_success() {
-        return Err(ProviderError::Protocol("failed to create one-shot session".into()));
+        return Err(ProviderError::Protocol(
+            "failed to create one-shot session".into(),
+        ));
     }
     let session_id: String = session_resp
         .json::<OpenCodeSession>()
@@ -217,7 +224,9 @@ async fn one_shot_with_server(
         .send()
         .await?;
     if !msg_resp.status().is_success() {
-        return Err(ProviderError::Protocol("failed to send one-shot message".into()));
+        return Err(ProviderError::Protocol(
+            "failed to send one-shot message".into(),
+        ));
     }
 
     let result = collect_response_via_sse(client, base_url, password, &session_id).await;
@@ -420,19 +429,20 @@ impl LlmProvider for OpenCodeProvider {
         } else {
             let config_ref = self.config.provider_config_ref.clone();
             let snippet = self.provider_snippet.clone();
-            Self::do_transient(&config_ref, &snippet, move |client, base_url, password| async move {
-                fetch_models(&client, &base_url, &password).await
-            })
+            Self::do_transient(
+                &config_ref,
+                &snippet,
+                move |client, base_url, password| async move {
+                    fetch_models(&client, &base_url, &password).await
+                },
+            )
             .await
         }
     }
 
     async fn start(&mut self, working_dir: &Path) -> Result<(), ProviderError> {
-        let server = spawn_opencode_server(
-            &self.config.provider_config_ref,
-            &self.provider_snippet,
-        )
-        .await?;
+        let server =
+            spawn_opencode_server(&self.config.provider_config_ref, &self.provider_snippet).await?;
         wait_for_health(
             &self.http_client,
             &format!("http://{}:{}", server.hostname, server.port),
@@ -527,9 +537,13 @@ impl LlmProvider for OpenCodeProvider {
             let snippet = self.provider_snippet.clone();
             let prompt = prompt.to_string();
             let model = model.to_string();
-            Self::do_transient(&config_ref, &snippet, move |client, base_url, password| async move {
-                one_shot_with_server(&client, &base_url, &password, &prompt, &model).await
-            })
+            Self::do_transient(
+                &config_ref,
+                &snippet,
+                move |client, base_url, password| async move {
+                    one_shot_with_server(&client, &base_url, &password, &prompt, &model).await
+                },
+            )
             .await
         }
     }

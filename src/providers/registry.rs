@@ -77,7 +77,11 @@ pub async fn resolve_agent_config_statuses(
     project_id: Uuid,
 ) -> Vec<AgentConfigStatus> {
     let agent_types = [
-        "planification", "implementation", "refinement", "review", "pr",
+        "planification",
+        "implementation",
+        "refinement",
+        "review",
+        "pr",
     ];
     let mut results = Vec::new();
     for at_str in &agent_types {
@@ -323,9 +327,10 @@ mod tests {
             .unwrap();
 
         // Call with both IDs — should find User-scoped config (higher precedence than Global)
-        let result = resolve_harness_config(&client, &agent_type, Some(&user_id), Some(&project_id))
-            .await
-            .unwrap();
+        let result =
+            resolve_harness_config(&client, &agent_type, Some(&user_id), Some(&project_id))
+                .await
+                .unwrap();
         assert_eq!(result.harness, "oh-my-pi");
         assert_eq!(result.model.as_deref(), Some("gpt-4"));
         assert_eq!(result.scope, ScopeType::User);
