@@ -59,7 +59,10 @@ mod tests {
                 )
                 .await
                 .unwrap();
-            let id = rows.first_mut().map(|r| r.get::<i64>("next_id")).unwrap_or(1);
+            let id = rows
+                .first_mut()
+                .map(|r| r.get::<i64>("next_id"))
+                .unwrap_or(1);
             client
                 .execute(
                     "INSERT INTO projects (id, user_id, name, repo_folder_path) VALUES ($1, $2, $3, $4)",
@@ -78,7 +81,10 @@ mod tests {
                 )
                 .await
                 .unwrap();
-            let id = rows.first_mut().map(|r| r.get::<i64>("next_id")).unwrap_or(1);
+            let id = rows
+                .first_mut()
+                .map(|r| r.get::<i64>("next_id"))
+                .unwrap_or(1);
             client
                 .execute(
                     "INSERT INTO tasks (id, project_id, user_id, title) VALUES ($1, $2, $3, $4)",

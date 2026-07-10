@@ -227,9 +227,7 @@ mod tests {
     #[tokio::test]
     async fn test_load_empty_transcript() {
         let (client, _tmp) = make_client().await;
-        let loaded = load_transcript(&client, "nonexistent", 9999)
-            .await
-            .unwrap();
+        let loaded = load_transcript(&client, "nonexistent", 9999).await.unwrap();
         assert!(loaded.is_empty());
     }
 }

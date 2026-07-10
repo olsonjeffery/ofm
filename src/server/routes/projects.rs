@@ -181,9 +181,7 @@ fn validate_no_path_traversal(path: &str, field: &str) -> Result<(), ServerError
         )));
     }
     if path.len() > 4096 {
-        return Err(ServerError::BadRequest(format!(
-            "{field} is too long"
-        )));
+        return Err(ServerError::BadRequest(format!("{field} is too long")));
     }
     Ok(())
 }

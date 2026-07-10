@@ -49,16 +49,11 @@ async fn setup_app() -> TestApp {
     .unwrap()
     .id;
 
-    let task_id = ofm::services::tasks::create_task(
-        &client,
-        project_id,
-        &user_id,
-        "test task",
-        "pending",
-    )
-    .await
-    .unwrap()
-    .id;
+    let task_id =
+        ofm::services::tasks::create_task(&client, project_id, &user_id, "test task", "pending")
+            .await
+            .unwrap()
+            .id;
 
     let auth_layer = AuthLayer::disabled(
         client.clone(),

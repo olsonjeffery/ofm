@@ -110,11 +110,7 @@ async fn create_task_seed(db: &hiqlite::Client, project_id: i64) -> i64 {
     task.id
 }
 
-async fn create_task_seed_with_count(
-    db: &hiqlite::Client,
-    project_id: i64,
-    run_count: i32,
-) -> i64 {
+async fn create_task_seed_with_count(db: &hiqlite::Client, project_id: i64, run_count: i32) -> i64 {
     let user_id = default_user_id(db).await;
     let task = ofm::services::tasks::create_task(db, project_id, &user_id, "test-task", "pending")
         .await

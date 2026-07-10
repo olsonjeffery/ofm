@@ -218,10 +218,7 @@ async fn test_create_task() {
     let body: serde_json::Value = resp.json().await.unwrap();
     assert_eq!(body["title"], "test task");
     assert_eq!(body["status"], "pending");
-    assert_eq!(
-        body["project_id"].as_i64().unwrap(),
-        app.project_id
-    );
+    assert_eq!(body["project_id"].as_i64().unwrap(), app.project_id);
     assert!(body["id"].as_i64().unwrap() > 0);
 
     let task_id = body["id"].as_i64().unwrap();

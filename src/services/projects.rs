@@ -16,7 +16,9 @@ pub async fn create_project(
                 hiqlite::params!(),
             )
             .await?;
-        rows.first_mut().map(|r| r.get::<i64>("next_id")).unwrap_or(1)
+        rows.first_mut()
+            .map(|r| r.get::<i64>("next_id"))
+            .unwrap_or(1)
     };
     client
         .execute(

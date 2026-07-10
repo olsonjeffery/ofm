@@ -279,9 +279,7 @@ fn env_u16(key: &str) -> Option<u16> {
 }
 
 fn env_bool(key: &str) -> Option<bool> {
-    std::env::var(key)
-        .ok()
-        .map(|s| s == "true" || s == "1")
+    std::env::var(key).ok().map(|s| s == "true" || s == "1")
 }
 
 fn warn_if_short_api_key(key: &Option<String>) {
@@ -311,7 +309,11 @@ fn generate_yaml_template(cfg: &OfmConfigFile) -> String {
     let mut s = String::new();
 
     writeln!(s, "# OFM configuration file").ok();
-    writeln!(s, "# Environment variables always take precedence over values in this file.").ok();
+    writeln!(
+        s,
+        "# Environment variables always take precedence over values in this file."
+    )
+    .ok();
     writeln!(
         s,
         "# This file was auto-generated. You can edit it; changes are preserved on restart."
@@ -350,86 +352,118 @@ fn generate_yaml_template(cfg: &OfmConfigFile) -> String {
 
     writeln!(s, "server:").ok();
     emit(
-        &mut s, "HOSTNAME",
+        &mut s,
+        "HOSTNAME",
         "IP address or hostname to bind the HTTP server on.",
-        "OFM_HOSTNAME", "127.0.0.1",
+        "OFM_HOSTNAME",
+        "127.0.0.1",
         cfg.server.as_ref().and_then(|g| g.hostname.clone()),
         false,
     );
     emit(
-        &mut s, "PORT",
+        &mut s,
+        "PORT",
         "TCP port to bind the HTTP server on.",
-        "OFM_PORT", "3183",
-        cfg.server.as_ref().and_then(|g| g.port.map(|v| v.to_string())),
+        "OFM_PORT",
+        "3183",
+        cfg.server
+            .as_ref()
+            .and_then(|g| g.port.map(|v| v.to_string())),
         false,
     );
     emit(
-        &mut s, "URL",
+        &mut s,
+        "URL",
         "Public-facing URL (used by the CLI agent subcommand).",
-        "OFM_URL", "http://127.0.0.1:3183",
+        "OFM_URL",
+        "http://127.0.0.1:3183",
         cfg.server.as_ref().and_then(|g| g.url.clone()),
         false,
     );
 
     writeln!(s, "auth:").ok();
     emit(
-        &mut s, "OIDC_ISSUER_URL",
+        &mut s,
+        "OIDC_ISSUER_URL",
         "OIDC issuer URL for external authentication.",
-        "OFM_OIDC_ISSUER_URL", "https://auth.example.com",
+        "OFM_OIDC_ISSUER_URL",
+        "https://auth.example.com",
         cfg.auth.as_ref().and_then(|g| g.oidc_issuer_url.clone()),
         true,
     );
     emit(
-        &mut s, "OIDC_CLIENT_ID",
+        &mut s,
+        "OIDC_CLIENT_ID",
         "OIDC client ID registered with the issuer.",
-        "OFM_OIDC_CLIENT_ID", "my-client",
+        "OFM_OIDC_CLIENT_ID",
+        "my-client",
         cfg.auth.as_ref().and_then(|g| g.oidc_client_id.clone()),
         true,
     );
     emit(
-        &mut s, "BASE_URL",
+        &mut s,
+        "BASE_URL",
         "Base URL for OAuth redirects.",
-        "OM_PRINT_BASE_URL", "http://localhost:3183",
+        "OM_PRINT_BASE_URL",
+        "http://localhost:3183",
         cfg.auth.as_ref().and_then(|g| g.base_url.clone()),
         true,
     );
     emit(
-        &mut s, "OIDC_REDIRECT_URI",
+        &mut s,
+        "OIDC_REDIRECT_URI",
         "Explicit OIDC redirect URI. Computed from BASE_URL if not set.",
-        "OIDC_REDIRECT_URI", "http://localhost:3183/api/auth/callback",
+        "OIDC_REDIRECT_URI",
+        "http://localhost:3183/api/auth/callback",
         cfg.auth.as_ref().and_then(|g| g.oidc_redirect_uri.clone()),
         true,
     );
 
     writeln!(s, "raft:").ok();
     emit(
-        &mut s, "HIQLITE_RAFT_PORT",
+        &mut s,
+        "HIQLITE_RAFT_PORT",
         "Raft port for hiqlite cluster communication.",
-        "OFM_HIQLITE_RAFT_PORT", "8100",
-        cfg.raft.as_ref().and_then(|g| g.hiqlite_raft_port.map(|v| v.to_string())),
+        "OFM_HIQLITE_RAFT_PORT",
+        "8100",
+        cfg.raft
+            .as_ref()
+            .and_then(|g| g.hiqlite_raft_port.map(|v| v.to_string())),
         false,
     );
     emit(
-        &mut s, "HIQLITE_API_PORT",
+        &mut s,
+        "HIQLITE_API_PORT",
         "API port for hiqlite client connections.",
-        "OFM_HIQLITE_API_PORT", "8200",
-        cfg.raft.as_ref().and_then(|g| g.hiqlite_api_port.map(|v| v.to_string())),
+        "OFM_HIQLITE_API_PORT",
+        "8200",
+        cfg.raft
+            .as_ref()
+            .and_then(|g| g.hiqlite_api_port.map(|v| v.to_string())),
         false,
     );
 
     writeln!(s, "rauthy:").ok();
     emit(
-        &mut s, "RAUTHY_ENABLED",
+        &mut s,
+        "RAUTHY_ENABLED",
         "Enable the embedded rauthy OIDC provider.",
-        "OFM_RAUTHY_ENABLED", "false",
-        cfg.rauthy.as_ref().and_then(|g| g.rauthy_enabled.map(|v| v.to_string())),
+        "OFM_RAUTHY_ENABLED",
+        "false",
+        cfg.rauthy
+            .as_ref()
+            .and_then(|g| g.rauthy_enabled.map(|v| v.to_string())),
         false,
     );
     emit(
-        &mut s, "RAUTHY_PORT",
+        &mut s,
+        "RAUTHY_PORT",
         "Port for the embedded rauthy instance (0 = random available port).",
-        "OFM_RAUTHY_PORT", "0",
-        cfg.rauthy.as_ref().and_then(|g| g.rauthy_port.map(|v| v.to_string())),
+        "OFM_RAUTHY_PORT",
+        "0",
+        cfg.rauthy
+            .as_ref()
+            .and_then(|g| g.rauthy_port.map(|v| v.to_string())),
         false,
     );
 

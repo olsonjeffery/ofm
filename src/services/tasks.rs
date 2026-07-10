@@ -20,7 +20,9 @@ pub async fn create_task(
                 hiqlite::params!(),
             )
             .await?;
-        rows.first_mut().map(|r| r.get::<i64>("next_id")).unwrap_or(1)
+        rows.first_mut()
+            .map(|r| r.get::<i64>("next_id"))
+            .unwrap_or(1)
     };
     client
         .execute(
@@ -69,10 +71,7 @@ pub async fn update_task(
 
 pub async fn delete_task(client: &Client, task_id: i64) -> Result<bool, hiqlite::Error> {
     let rows = client
-        .execute(
-            "DELETE FROM tasks WHERE id = $1",
-            hiqlite::params!(task_id),
-        )
+        .execute("DELETE FROM tasks WHERE id = $1", hiqlite::params!(task_id))
         .await?;
     Ok(rows > 0)
 }
@@ -260,11 +259,7 @@ const VALID_FLAG_COLUMNS: &[&str] = &[
     "pr_agent_complete",
 ];
 
-async fn set_task_flag(
-    client: &Client,
-    task_id: i64,
-    column: &str,
-) -> Result<(), hiqlite::Error> {
+async fn set_task_flag(client: &Client, task_id: i64, column: &str) -> Result<(), hiqlite::Error> {
     if !VALID_FLAG_COLUMNS.contains(&column) {
         return Err(hiqlite::Error::new(format!(
             "invalid flag column: {column}"
@@ -355,9 +350,7 @@ mod tests {
         let (client, _tmp) = make_client().await;
         let (_, task_id) = seed_task(&client).await;
 
-        mark_planification_complete(&client, task_id)
-            .await
-            .unwrap();
+        mark_planification_complete(&client, task_id).await.unwrap();
 
         assert_flags(&client, task_id, (true, false, false, false)).await;
     }
@@ -397,9 +390,7 @@ mod tests {
         let (client, _tmp) = make_client().await;
         let (_, task_id) = seed_task(&client).await;
 
-        mark_planification_complete(&client, task_id)
-            .await
-            .unwrap();
+        mark_planification_complete(&client, task_id).await.unwrap();
         mark_pr_agent_complete(&client, task_id).await.unwrap();
 
         assert_flags(&client, task_id, (true, false, false, true)).await;

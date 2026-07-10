@@ -233,20 +233,16 @@ async fn update_task(
         }
     }
 
-    let task = services::tasks::update_task(
-        &state.db,
-        id,
-        body.title.as_deref(),
-        body.status.as_deref(),
-    )
-    .await
-    .map_err(|e| {
-        if e.to_string().contains("no rows returned") {
-            ServerError::NotFound("Task not found".into())
-        } else {
-            ServerError::Internal(e.to_string())
-        }
-    })?;
+    let task =
+        services::tasks::update_task(&state.db, id, body.title.as_deref(), body.status.as_deref())
+            .await
+            .map_err(|e| {
+                if e.to_string().contains("no rows returned") {
+                    ServerError::NotFound("Task not found".into())
+                } else {
+                    ServerError::Internal(e.to_string())
+                }
+            })?;
     Ok(Json(task))
 }
 

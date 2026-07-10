@@ -325,10 +325,9 @@ mod tests {
             .unwrap();
 
         // Call with both IDs — should find User-scoped config (higher precedence than Global)
-        let result =
-            resolve_harness_config(&client, &agent_type, Some(&user_id), None)
-                .await
-                .unwrap();
+        let result = resolve_harness_config(&client, &agent_type, Some(&user_id), None)
+            .await
+            .unwrap();
         assert_eq!(result.harness, "oh-my-pi");
         assert_eq!(result.model.as_deref(), Some("gpt-4"));
         assert_eq!(result.scope, ScopeType::User);
