@@ -22,6 +22,7 @@ async fn test_omp_provider_new() {
         provider_config_ref: "test.yaml".into(),
         model: Some("default".into()),
         effort: Some("balanced".into()),
+        scope: ofm::db::schema::ScopeType::Project,
     };
     let provider = OhMyPiProvider::new(&config, Path::new("omp"), tmp.path())
         .await
@@ -47,6 +48,7 @@ async fn test_omp_provider_one_shot_prompt() {
         provider_config_ref: "test.yaml".into(),
         model: Some("default".into()),
         effort: Some("balanced".into()),
+        scope: ofm::db::schema::ScopeType::Project,
     };
     let provider = OhMyPiProvider::new(&config, Path::new("omp"), tmp.path())
         .await
@@ -89,6 +91,7 @@ async fn test_omp_provider_start_shutdown() {
         provider_config_ref: "test.yaml".into(),
         model: Some("default".into()),
         effort: Some("balanced".into()),
+        scope: ofm::db::schema::ScopeType::Project,
     };
     let mut provider = OhMyPiProvider::new(&config, Path::new("omp"), tmp.path())
         .await

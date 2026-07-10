@@ -33,6 +33,7 @@ async fn test_opencode_provider_new() {
         provider_config_ref: "test.json".into(),
         model: Some("claude-sonnet-4-20250514".into()),
         effort: Some("balanced".into()),
+        scope: ofm::db::schema::ScopeType::Project,
     };
     let _provider = OpenCodeProvider::new(&config, tmp.path()).await.unwrap();
 }
@@ -54,6 +55,7 @@ async fn test_opencode_provider_start_shutdown() {
         provider_config_ref: "test.json".into(),
         model: Some("test-model".into()),
         effort: Some("balanced".into()),
+        scope: ofm::db::schema::ScopeType::Project,
     };
     let mut provider = OpenCodeProvider::new(&config, tmp.path()).await.unwrap();
 
@@ -94,6 +96,7 @@ async fn test_opencode_provider_get_models_list_transient() {
         provider_config_ref: "test.json".into(),
         model: Some("test-model".into()),
         effort: Some("balanced".into()),
+        scope: ofm::db::schema::ScopeType::Project,
     };
     let provider = OpenCodeProvider::new(&config, tmp.path()).await.unwrap();
 
@@ -133,6 +136,7 @@ async fn test_opencode_provider_one_shot_transient() {
         provider_config_ref: "test.json".into(),
         model: Some("test-model".into()),
         effort: Some("balanced".into()),
+        scope: ofm::db::schema::ScopeType::Project,
     };
     let provider = OpenCodeProvider::new(&config, tmp.path()).await.unwrap();
 

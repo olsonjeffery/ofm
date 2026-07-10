@@ -1,15 +1,19 @@
 use std::collections::HashMap;
+use std::path::Path;
 
 use hiqlite::Client;
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
 use crate::db::schema::{AgentHarnessConfig, AgentType, ScopeType, UserModelConfig};
+use crate::providers;
+use crate::providers::config::ProviderConfigDir;
 use crate::services::agent_configs;
 use crate::services::config_format;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct AgentModelSetting {
+    pub model_config_id: Option<String>,
     pub model: Option<String>,
     pub effort: Option<String>,
 }
@@ -55,7 +59,7 @@ pub async fn create_model_config(
         .await
         .map_err(|e| e.to_string())?;
 
-    get_model_config(client, id)
+    get_model_config(client, user_id, id)
         .await
         .map_err(|e| e.to_string())
 }
@@ -63,6 +67,7 @@ pub async fn create_model_config(
 pub async fn update_model_config(
     client: &Client,
     user_id: Uuid,
+    config_root: &Path,
     id: Uuid,
     name: &str,
     config_body: &str,
@@ -84,13 +89,49 @@ pub async fn update_model_config(
         return Ok(None);
     }
 
-    get_model_config(client, id)
+    sync_provider_config_file(config_root, &id, config_body);
+
+    get_model_config(client, user_id, id)
         .await
         .map(Some)
         .map_err(|e| e.to_string())
 }
 
-pub async fn delete_model_config(client: &Client, user_id: Uuid, id: Uuid) -> Result<bool, String> {
+fn with_existing_config<F>(config_root: &Path, id: &Uuid, f: F)
+where
+    F: Fn(&str) -> Result<(), providers::ProviderError>,
+{
+    let id_str = id.to_string();
+    let cfg_dir = ProviderConfigDir::new(config_root);
+    for ext in &["yaml", "yml", "json"] {
+        let filename = format!("{}.{}", id_str, ext);
+        if cfg_dir.config_path(&filename).exists() {
+            if let Err(e) = f(&filename) {
+                tracing::warn!("Failed to update config file '{}': {e:?}", filename);
+            }
+            break;
+        }
+    }
+}
+
+fn sync_provider_config_file(config_root: &Path, id: &Uuid, config_body: &str) {
+    with_existing_config(config_root, id, |filename| {
+        ProviderConfigDir::new(config_root).write_provider_config(filename, config_body)
+    });
+}
+
+fn remove_provider_config_file(config_root: &Path, id: &Uuid) {
+    with_existing_config(config_root, id, |filename| {
+        ProviderConfigDir::new(config_root).delete_provider_config(filename)
+    });
+}
+
+pub async fn delete_model_config(
+    client: &Client,
+    user_id: Uuid,
+    config_root: &Path,
+    id: Uuid,
+) -> Result<bool, String> {
     let rows = client
         .execute(
             "DELETE FROM user_model_configs WHERE id = $1 AND user_id = $2",
@@ -98,15 +139,24 @@ pub async fn delete_model_config(client: &Client, user_id: Uuid, id: Uuid) -> Re
         )
         .await
         .map_err(|e| e.to_string())?;
+
+    if rows > 0 {
+        remove_provider_config_file(config_root, &id);
+    }
+
     Ok(rows > 0)
 }
 
-async fn get_model_config(client: &Client, id: Uuid) -> Result<UserModelConfig, hiqlite::Error> {
+async fn get_model_config(
+    client: &Client,
+    user_id: Uuid,
+    id: Uuid,
+) -> Result<UserModelConfig, hiqlite::Error> {
     client
         .query_map_one::<UserModelConfig, _>(
             "SELECT id, user_id, name, config_body, harness, created_at, updated_at \
-             FROM user_model_configs WHERE id = $1",
-            hiqlite::params!(id.to_string()),
+             FROM user_model_configs WHERE id = $1 AND user_id = $2",
+            hiqlite::params!(id.to_string(), user_id.to_string()),
         )
         .await
 }
@@ -126,9 +176,11 @@ pub async fn get_agent_models(
 
     let mut map = HashMap::new();
     for c in configs {
+        let model_config_id = parse_model_config_id(&c.provider_config_ref);
         map.insert(
             c.agent_type.to_string(),
             AgentModelSetting {
+                model_config_id,
                 model: c.model,
                 effort: c.effort,
             },
@@ -137,9 +189,22 @@ pub async fn get_agent_models(
     Ok(map)
 }
 
+fn parse_model_config_id(provider_config_ref: &str) -> Option<String> {
+    // provider_config_ref is stored as "{uuid}.{yaml|json}"
+    // Strip the extension to get the UUID back
+    let stripped = provider_config_ref
+        .strip_suffix(".yaml")
+        .or_else(|| provider_config_ref.strip_suffix(".yml"))
+        .or_else(|| provider_config_ref.strip_suffix(".json"))?;
+    // Validate it's a UUID
+    Uuid::parse_str(stripped).ok()?;
+    Some(stripped.to_string())
+}
+
 pub async fn upsert_agent_models(
     client: &Client,
     user_id: Uuid,
+    config_root: &Path,
     models: HashMap<String, AgentModelSetting>,
 ) -> Result<HashMap<String, AgentModelSetting>, String> {
     for (agent_type_str, setting) in &models {
@@ -147,11 +212,52 @@ pub async fn upsert_agent_models(
             .parse()
             .map_err(|e: String| format!("invalid agent type '{agent_type_str}': {e}"))?;
 
+        let (harness, provider_config_ref) =
+            if let Some(ref cfg_id) = setting.model_config_id {
+                match Uuid::parse_str(cfg_id) {
+                    Ok(uuid) => match get_model_config(client, user_id, uuid).await {
+                        Ok(model_cfg) => {
+                            let ext = if model_cfg.harness == "oh-my-pi" {
+                                "yaml"
+                            } else {
+                                "json"
+                            };
+                            let filename = format!("{}.{}", model_cfg.id, ext);
+                            let cfg_dir = ProviderConfigDir::new(config_root);
+                            if let Err(e) = cfg_dir.write_provider_config(
+                                &filename,
+                                &model_cfg.config_body,
+                            ) {
+                                tracing::warn!(
+                                    "Failed to write provider config '{}': {e}",
+                                    filename
+                                );
+                            }
+                            (model_cfg.harness, filename)
+                        }
+                        Err(_) => {
+                            tracing::warn!(
+                                "Model config {cfg_id} not found for agent type '{agent_type_str}'"
+                            );
+                            (String::new(), String::new())
+                        }
+                    },
+                    Err(_) => {
+                        tracing::warn!(
+                            "Invalid model_config_id '{cfg_id}' for agent type '{agent_type_str}'"
+                        );
+                        (String::new(), String::new())
+                    }
+                }
+            } else {
+                (String::new(), String::new())
+            };
+
         agent_configs::create_or_update_agent_config(
             client,
             &agent_type,
-            "openai",
-            "",
+            &harness,
+            &provider_config_ref,
             &ScopeType::User,
             Some(&user_id),
             None,

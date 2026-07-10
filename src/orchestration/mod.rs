@@ -22,7 +22,7 @@ pub enum NextAction {
     Terminal,
 }
 
-fn internal_err(e: impl std::fmt::Display) -> ServerError {
+pub fn internal_err(e: impl std::fmt::Display) -> ServerError {
     ServerError::Internal(e.to_string())
 }
 
