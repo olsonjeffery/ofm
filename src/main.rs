@@ -55,7 +55,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     logging::init();
 
-    let cfg = config::OfmConfig::from_env();
+    let cfg = config::OfmConfig::load();
 
     // DB setup
     std::fs::create_dir_all(&cfg.data_dir)?;
@@ -92,10 +92,14 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             addr_api: format!("127.0.0.1:{}", cfg.hiqlite_api_port),
         }],
         data_dir: cfg.data_dir.clone().into(),
-        secret_raft: std::env::var("OFM_RAFT_SECRET")
-            .unwrap_or_else(|_| "ofm-raft-secret-0123456".into()),
-        secret_api: std::env::var("OFM_API_SECRET")
-            .unwrap_or_else(|_| "ofm-api-secret-0123456".into()),
+        secret_raft: std::env::var("OFM_RAFT_SECRET").unwrap_or_else(|_| {
+            tracing::warn!("OFM_RAFT_SECRET not set — using insecure default");
+            "ofm-raft-secret-0123456".into()
+        }),
+        secret_api: std::env::var("OFM_API_SECRET").unwrap_or_else(|_| {
+            tracing::warn!("OFM_API_SECRET not set — using insecure default");
+            "omprint-api-secret-0123456".into()
+        }),
         ..Default::default()
     };
 
@@ -129,6 +133,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         combined[32..64].copy_from_slice(key.encryption());
         std::fs::write(&cookie_key_path, &combined)
             .map_err(|e| Box::new(std::io::Error::other(e.to_string())))?;
+        #[cfg(unix)]
+        std::fs::set_permissions(&cookie_key_path, std::fs::Permissions::from_mode(0o600))?;
         key
     };
 
@@ -145,6 +151,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             }
             std::fs::write(&api_key_pepper_path, &pepper)
                 .map_err(|e| Box::new(std::io::Error::other(e.to_string())))?;
+            #[cfg(unix)]
+            std::fs::set_permissions(&api_key_pepper_path, std::fs::Permissions::from_mode(0o600))?;
             pepper
         }
     };
