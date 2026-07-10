@@ -13,7 +13,6 @@ use crate::providers::{HarnessConfig, LlmProvider, ProviderError};
 
 pub struct OpenCodeProvider {
     config: HarnessConfig,
-    config_root: PathBuf,
     provider_snippet: String,
     server: Mutex<Option<OpenCodeServer>>,
     working_dir: Mutex<Option<PathBuf>>,
@@ -34,7 +33,6 @@ impl OpenCodeProvider {
         let provider_cfg = cfg_dir.load_provider_config(&config.provider_config_ref)?;
         Ok(Self {
             config: config.clone(),
-            config_root: config_root.to_path_buf(),
             provider_snippet: provider_cfg.raw_snippet,
             server: Mutex::new(None),
             working_dir: Mutex::new(None),
@@ -52,7 +50,6 @@ impl OpenCodeProvider {
     }
 
     async fn do_transient<F, Fut, T>(
-        config_root: &Path,
         config_ref: &str,
         snippet: &str,
         f: F,
@@ -61,7 +58,7 @@ impl OpenCodeProvider {
         F: FnOnce(reqwest::Client, String, String) -> Fut + Send,
         Fut: std::future::Future<Output = Result<T, ProviderError>> + Send,
     {
-        let (_server, client) = spawn_transient_server(config_root, config_ref, snippet).await?;
+        let (_server, client) = spawn_transient_server(config_ref, snippet).await?;
         let base_url = format!("http://{}:{}", _server.hostname, _server.port);
         let password = _server.password.unwrap_or_default();
         let result = f(client, base_url, password).await;
@@ -105,11 +102,10 @@ async fn wait_for_health(
     Err(ProviderError::Timeout)
 }
 
-async fn spawn_transient_server(
-    _config_root: &Path,
+async fn spawn_opencode_server(
     config_ref: &str,
     snippet: &str,
-) -> Result<(OpenCodeServer, reqwest::Client), ProviderError> {
+) -> Result<OpenCodeServer, ProviderError> {
     let base_config = r#"{"providers":{},"telemetry":{"enabled":false}}"#;
     let provider_cfg = PConfig {
         harness: "opencode".to_string(),
@@ -143,19 +139,105 @@ async fn spawn_transient_server(
             }
         })?;
 
-    let client = reqwest::Client::new();
-    wait_for_health(&client, &format!("http://{hostname}:{port}"), &password).await?;
+    Ok(OpenCodeServer {
+        child,
+        port,
+        hostname,
+        password: Some(password),
+        _temp_dir: temp_dir,
+    })
+}
 
-    Ok((
-        OpenCodeServer {
-            child,
-            port,
-            hostname,
-            password: Some(password),
-            _temp_dir: temp_dir,
-        },
-        client,
-    ))
+async fn spawn_transient_server(
+    config_ref: &str,
+    snippet: &str,
+) -> Result<(OpenCodeServer, reqwest::Client), ProviderError> {
+    let server = spawn_opencode_server(config_ref, snippet).await?;
+    let client = reqwest::Client::new();
+    wait_for_health(
+        &client,
+        &format!("http://{}:{}", server.hostname, server.port),
+        server.password.as_deref().unwrap_or(""),
+    )
+    .await?;
+    Ok((server, client))
+}
+
+async fn fetch_models(
+    client: &reqwest::Client,
+    base_url: &str,
+    password: &str,
+) -> Result<Vec<String>, ProviderError> {
+    let resp = client
+        .get(format!("{base_url}/config/providers"))
+        .header("Authorization", format!("Bearer {password}"))
+        .send()
+        .await?;
+    let providers: Vec<serde_json::Value> = resp.json().await.unwrap_or_default();
+    let models: Vec<String> = providers
+        .iter()
+        .filter_map(|p| {
+            p.get("defaultModel")
+                .or_else(|| p.get("model"))
+                .and_then(|m| m.as_str())
+                .map(|s| s.to_string())
+        })
+        .collect();
+    if models.is_empty() {
+        Ok(vec!["default".to_string()])
+    } else {
+        Ok(models)
+    }
+}
+
+async fn one_shot_with_server(
+    client: &reqwest::Client,
+    base_url: &str,
+    password: &str,
+    prompt: &str,
+    model: &str,
+) -> Result<String, ProviderError> {
+    let session_resp = client
+        .post(format!("{base_url}/session"))
+        .header("Authorization", format!("Bearer {password}"))
+        .json(&serde_json::json!({"title": "one-shot"}))
+        .send()
+        .await?;
+    if !session_resp.status().is_success() {
+        return Err(ProviderError::Protocol(
+            "failed to create one-shot session".into(),
+        ));
+    }
+    let session_id: String = session_resp
+        .json::<OpenCodeSession>()
+        .await
+        .map(|s| s.id)
+        .unwrap_or_else(|_| Uuid::new_v4().to_string());
+
+    let msg_resp = client
+        .post(format!("{base_url}/session/{session_id}/prompt_async"))
+        .header("Authorization", format!("Bearer {password}"))
+        .json(&serde_json::json!({
+            "model": model,
+            "parts": [{"type": "text", "text": prompt}]
+        }))
+        .send()
+        .await?;
+    if !msg_resp.status().is_success() {
+        return Err(ProviderError::Protocol(
+            "failed to send one-shot message".into(),
+        ));
+    }
+
+    let result = collect_response_via_sse(client, base_url, password, &session_id).await;
+
+    let _ = client
+        .delete(format!("{base_url}/session/{session_id}"))
+        .header("Authorization", format!("Bearer {password}"))
+        .send()
+        .await;
+
+    result
 }
 
 fn map_opencode_event_to_provider_event(line: &str) -> Option<ProviderEvent> {
@@ -343,56 +425,15 @@ struct OpenCodeSession {
 impl LlmProvider for OpenCodeProvider {
     async fn get_models_list(&self) -> Result<Vec<String>, ProviderError> {
         if let Some((base_url, password)) = self.server_details() {
-            let resp = self
-                .http_client
-                .get(format!("{base_url}/config/providers"))
-                .header("Authorization", format!("Bearer {password}"))
-                .send()
-                .await?;
-            let providers: Vec<serde_json::Value> = resp.json().await.unwrap_or_default();
-            let models: Vec<String> = providers
-                .iter()
-                .filter_map(|p| {
-                    p.get("defaultModel")
-                        .or_else(|| p.get("model"))
-                        .and_then(|m| m.as_str())
-                        .map(|s| s.to_string())
-                })
-                .collect();
-            if models.is_empty() {
-                Ok(vec!["default".to_string()])
-            } else {
-                Ok(models)
-            }
+            fetch_models(&self.http_client, &base_url, &password).await
         } else {
-            let config_root = self.config_root.clone();
             let config_ref = self.config.provider_config_ref.clone();
             let snippet = self.provider_snippet.clone();
             Self::do_transient(
-                &config_root,
                 &config_ref,
                 &snippet,
                 move |client, base_url, password| async move {
-                    let resp = client
-                        .get(format!("{base_url}/config/providers"))
-                        .header("Authorization", format!("Bearer {password}"))
-                        .send()
-                        .await?;
-                    let providers: Vec<serde_json::Value> = resp.json().await.unwrap_or_default();
-                    let models: Vec<String> = providers
-                        .iter()
-                        .filter_map(|p| {
-                            p.get("defaultModel")
-                                .or_else(|| p.get("model"))
-                                .and_then(|m| m.as_str())
-                                .map(|s| s.to_string())
-                        })
-                        .collect();
-                    if models.is_empty() {
-                        Ok(vec!["default".to_string()])
-                    } else {
-                        Ok(models)
-                    }
+                    fetch_models(&client, &base_url, &password).await
                 },
             )
             .await
@@ -400,55 +441,15 @@ impl LlmProvider for OpenCodeProvider {
     }
 
     async fn start(&mut self, working_dir: &Path) -> Result<(), ProviderError> {
-        let base_config = r#"{"providers":{},"telemetry":{"enabled":false}}"#;
-        let provider_cfg = PConfig {
-            harness: "opencode".to_string(),
-            config_ref: self.config.provider_config_ref.clone(),
-            raw_snippet: self.provider_snippet.clone(),
-        };
-        let merged = merge_configs(base_config, &provider_cfg)?;
-
-        let temp_dir = TempDir::new().map_err(ProviderError::Io)?;
-        std::fs::write(temp_dir.path().join("opencode.json"), &merged)
-            .map_err(ProviderError::Io)?;
-
-        let port = pick_free_port()?;
-        let hostname = "127.0.0.1".to_string();
-        let password = Uuid::new_v4().to_string();
-
-        let child = std::process::Command::new("opencode")
-            .arg("serve")
-            .arg("--port")
-            .arg(port.to_string())
-            .arg("--hostname")
-            .arg(&hostname)
-            .env("OPENCODE_CONFIG", temp_dir.path())
-            .env("OPENCODE_SERVER_PASSWORD", &password)
-            .stdout(std::process::Stdio::null())
-            .stderr(std::process::Stdio::null())
-            .spawn()
-            .map_err(|e| {
-                if e.kind() == std::io::ErrorKind::NotFound {
-                    ProviderError::Protocol("opencode binary not found in PATH".to_string())
-                } else {
-                    ProviderError::Io(e)
-                }
-            })?;
-
+        let server =
+            spawn_opencode_server(&self.config.provider_config_ref, &self.provider_snippet).await?;
         wait_for_health(
             &self.http_client,
-            &format!("http://{hostname}:{port}"),
-            &password,
+            &format!("http://{}:{}", server.hostname, server.port),
+            server.password.as_deref().unwrap_or(""),
         )
         .await?;
-
-        *self.server.lock().unwrap() = Some(OpenCodeServer {
-            child,
-            port,
-            hostname,
-            password: Some(password),
-            _temp_dir: temp_dir,
-        });
+        *self.server.lock().unwrap() = Some(server);
         *self.working_dir.lock().unwrap() = Some(working_dir.to_path_buf());
         Ok(())
     }
@@ -530,111 +531,17 @@ impl LlmProvider for OpenCodeProvider {
 
     async fn one_shot_prompt(&self, prompt: &str, model: &str) -> Result<String, ProviderError> {
         if let Some((base_url, password)) = self.server_details() {
-            let session_resp = self
-                .http_client
-                .post(format!("{base_url}/session"))
-                .header("Authorization", format!("Bearer {password}"))
-                .json(&serde_json::json!({"title": "one-shot"}))
-                .send()
-                .await?;
-            if !session_resp.status().is_success() {
-                return Err(ProviderError::Protocol(
-                    "failed to create one-shot session".into(),
-                ));
-            }
-            let session_id: String = session_resp
-                .json::<OpenCodeSession>()
-                .await
-                .map(|s| s.id)
-                .unwrap_or_else(|_| Uuid::new_v4().to_string());
-
-            let msg_resp = self
-                .http_client
-                .post(format!("{base_url}/session/{session_id}/prompt_async"))
-                .header("Authorization", format!("Bearer {password}"))
-                .json(&serde_json::json!({
-                    "model": model,
-                    "parts": [{"type": "text", "text": prompt}]
-                }))
-                .send()
-                .await?;
-            if !msg_resp.status().is_success() {
-                return Err(ProviderError::Protocol(
-                    "failed to send one-shot message".into(),
-                ));
-            }
-
-            let result =
-                collect_response_via_sse(&self.http_client, &base_url, &password, &session_id)
-                    .await;
-
-            let _ = self
-                .http_client
-                .delete(format!("{base_url}/session/{session_id}"))
-                .header("Authorization", format!("Bearer {password}"))
-                .send()
-                .await;
-
-            result
+            one_shot_with_server(&self.http_client, &base_url, &password, prompt, model).await
         } else {
-            let config_root = self.config_root.clone();
             let config_ref = self.config.provider_config_ref.clone();
             let snippet = self.provider_snippet.clone();
             let prompt = prompt.to_string();
             let model = model.to_string();
-
             Self::do_transient(
-                &config_root,
                 &config_ref,
                 &snippet,
-                move |client, base_url, password| {
-                    let prompt = prompt.clone();
-                    let model = model.clone();
-                    async move {
-                        let session_resp = client
-                            .post(format!("{base_url}/session"))
-                            .header("Authorization", format!("Bearer {password}"))
-                            .json(&serde_json::json!({"title": "one-shot"}))
-                            .send()
-                            .await?;
-                        if !session_resp.status().is_success() {
-                            return Err(ProviderError::Protocol(
-                                "failed to create one-shot session".into(),
-                            ));
-                        }
-                        let session_id: String = session_resp
-                            .json::<OpenCodeSession>()
-                            .await
-                            .map(|s| s.id)
-                            .unwrap_or_else(|_| Uuid::new_v4().to_string());
-
-                        let msg_resp = client
-                            .post(format!("{base_url}/session/{session_id}/prompt_async"))
-                            .header("Authorization", format!("Bearer {password}"))
-                            .json(&serde_json::json!({
-                                "model": model,
-                                "parts": [{"type": "text", "text": prompt}]
-                            }))
-                            .send()
-                            .await?;
-                        if !msg_resp.status().is_success() {
-                            return Err(ProviderError::Protocol(
-                                "failed to send one-shot message".into(),
-                            ));
-                        }
-
-                        let result =
-                            collect_response_via_sse(&client, &base_url, &password, &session_id)
-                                .await;
-
-                        let _ = client
-                            .delete(format!("{base_url}/session/{session_id}"))
-                            .header("Authorization", format!("Bearer {password}"))
-                            .send()
-                            .await;
-
-                        result
-                    }
+                move |client, base_url, password| async move {
+                    one_shot_with_server(&client, &base_url, &password, &prompt, &model).await
                 },
             )
             .await

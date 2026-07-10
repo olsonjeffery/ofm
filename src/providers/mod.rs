@@ -9,6 +9,7 @@ use std::path::Path;
 use tokio::sync::mpsc;
 use uuid::Uuid;
 
+use crate::db::schema::ScopeType;
 use crate::providers::types::{ProviderEvent, ResumeInput, TurnInput};
 
 #[async_trait]
@@ -57,6 +58,7 @@ pub struct HarnessConfig {
     pub provider_config_ref: String,
     pub model: Option<String>,
     pub effort: Option<String>,
+    pub scope: ScopeType,
 }
 
 pub async fn generate_conversation_title(

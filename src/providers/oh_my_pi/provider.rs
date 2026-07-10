@@ -41,6 +41,14 @@ impl OhMyPiProvider {
     }
 }
 
+fn kill_session(session: &mut Option<super::OhMyPiSession>) -> bool {
+    if let Some(s) = session.as_mut() {
+        let _ = s.child.kill();
+        let _ = s.child.wait();
+    }
+    session.take().is_some()
+}
+
 #[async_trait]
 impl LlmProvider for OhMyPiProvider {
     async fn get_models_list(&self) -> Result<Vec<String>, ProviderError> {
@@ -98,12 +106,7 @@ impl LlmProvider for OhMyPiProvider {
     }
 
     async fn abort_turn(&self) -> Result<(), ProviderError> {
-        let mut session = self.session.lock().unwrap();
-        if let Some(s) = session.as_mut() {
-            let _ = s.child.kill();
-            let _ = s.child.wait();
-        }
-        *session = None;
+        kill_session(&mut self.session.lock().unwrap());
         Ok(())
     }
 
@@ -157,12 +160,6 @@ impl LlmProvider for OhMyPiProvider {
     }
 
     async fn shutdown(&mut self) -> Result<bool, ProviderError> {
-        let mut session = self.session.lock().unwrap();
-        if let Some(s) = session.as_mut() {
-            let _ = s.child.kill();
-            let _ = s.child.wait();
-        }
-        let had_session = session.take().is_some();
-        Ok(had_session)
+        Ok(kill_session(&mut self.session.lock().unwrap()))
     }
 }

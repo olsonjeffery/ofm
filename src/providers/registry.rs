@@ -1,4 +1,5 @@
 use std::path::Path;
+use std::str::FromStr;
 
 use hiqlite::Client;
 use uuid::Uuid;
@@ -8,6 +9,14 @@ use crate::providers::config::ProviderConfigDir;
 use crate::providers::oh_my_pi::provider::OhMyPiProvider;
 use crate::providers::opencode_provider::OpenCodeProvider;
 use crate::providers::{HarnessConfig, LlmProvider, ProviderError};
+
+#[derive(Debug, Clone, serde::Serialize)]
+pub struct AgentConfigStatus {
+    pub agent_type: String,
+    pub configured: bool,
+    pub scope: Option<String>,
+    pub label: Option<String>,
+}
 
 pub async fn resolve_provider(
     config: &HarnessConfig,
@@ -31,14 +40,15 @@ pub async fn resolve_harness_config(
     user_id: Option<&Uuid>,
     project_id: Option<&Uuid>,
 ) -> Result<HarnessConfig, ProviderError> {
-    for scope in &[
-        ScopeType::UserProject,
-        ScopeType::Project,
-        ScopeType::User,
-        ScopeType::Global,
-    ] {
+    let scopes: [(ScopeType, Option<&Uuid>, Option<&Uuid>); 4] = [
+        (ScopeType::UserProject, user_id, project_id),
+        (ScopeType::Project, None, project_id),
+        (ScopeType::User, user_id, None),
+        (ScopeType::Global, None, None),
+    ];
+    for (scope, scope_user, scope_project) in &scopes {
         if let Some(config) =
-            lookup_config(db, agent_type, scope.clone(), user_id, project_id).await?
+            lookup_config(db, agent_type, scope.clone(), *scope_user, *scope_project).await?
         {
             if config.model.is_none() {
                 return Err(ProviderError::Config(format!(
@@ -52,12 +62,51 @@ pub async fn resolve_harness_config(
                 provider_config_ref: config.provider_config_ref,
                 model: config.model,
                 effort: config.effort,
+                scope: scope.clone(),
             });
         }
     }
     Err(ProviderError::Protocol(format!(
         "no provider config found for agent type '{agent_type}'"
     )))
+}
+
+pub async fn resolve_agent_config_statuses(
+    db: &Client,
+    user_id: Uuid,
+    project_id: Uuid,
+) -> Vec<AgentConfigStatus> {
+    let agent_types = [
+        "planification",
+        "implementation",
+        "refinement",
+        "review",
+        "pr",
+    ];
+    let mut results = Vec::new();
+    for at_str in &agent_types {
+        let agent_type = match AgentType::from_str(at_str) {
+            Ok(t) => t,
+            Err(_) => continue,
+        };
+        let result =
+            resolve_harness_config(db, &agent_type, Some(&user_id), Some(&project_id)).await;
+        match result {
+            Ok(cfg) => results.push(AgentConfigStatus {
+                agent_type: at_str.to_string(),
+                configured: true,
+                scope: Some(cfg.scope.to_string()),
+                label: cfg.model,
+            }),
+            Err(_) => results.push(AgentConfigStatus {
+                agent_type: at_str.to_string(),
+                configured: false,
+                scope: None,
+                label: None,
+            }),
+        }
+    }
+    results
 }
 
 async fn lookup_config(
@@ -96,6 +145,7 @@ pub async fn get_models_for_config(
         provider_config_ref: config_ref.to_string(),
         model: None,
         effort: None,
+        scope: ScopeType::Project,
     };
     let provider = resolve_provider(&config, Path::new("omp"), config_root).await?;
     provider.get_models_list().await
@@ -211,6 +261,86 @@ mod tests {
             .unwrap();
         assert_eq!(result.harness, "opencode");
         assert_eq!(result.model.as_deref(), Some("claude-3"));
+    }
+
+    #[tokio::test]
+    async fn test_scope_resolution_with_both_ids() {
+        let tmp = tempfile::TempDir::new().unwrap();
+        let cfg = hiqlite::NodeConfig {
+            node_id: 1,
+            nodes: vec![hiqlite::Node {
+                id: 1,
+                addr_raft: "127.0.0.1:0".into(),
+                addr_api: "127.0.0.1:0".into(),
+            }],
+            data_dir: tmp.path().to_str().unwrap().to_string().into(),
+            secret_raft: "test-raft-secret-12345".into(),
+            secret_api: "test-api-secret-12345".into(),
+            ..Default::default()
+        };
+        let client = hiqlite::start_node(cfg).await.unwrap();
+        client.wait_until_healthy_db().await;
+        db::run_migrations(&client).await.unwrap();
+
+        let agent_type = AgentType::Review;
+        let now = chrono::Utc::now().naive_utc().to_string();
+        let user_id = Uuid::new_v4();
+        let project_id = Uuid::new_v4();
+
+        // Insert a User-scoped config (user_id set, project_id NULL)
+        client
+            .execute(
+                "INSERT INTO agent_harness_configs (id, agent_type, harness, provider_config_ref, scope_type, user_id, model, effort, created_at, updated_at) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)",
+                hiqlite::params!(
+                    Uuid::new_v4().to_string(),
+                    agent_type.to_string(),
+                    "oh-my-pi",
+                    "user-config.yaml",
+                    ScopeType::User.to_string(),
+                    user_id.to_string(),
+                    "gpt-4",
+                    "medium",
+                    &now,
+                    &now
+                ),
+            )
+            .await
+            .unwrap();
+
+        // Also insert a Global-scoped config with different model
+        client
+            .execute(
+                "INSERT INTO agent_harness_configs (id, agent_type, harness, provider_config_ref, scope_type, model, effort, created_at, updated_at) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)",
+                hiqlite::params!(
+                    Uuid::new_v4().to_string(),
+                    agent_type.to_string(),
+                    "opencode",
+                    "global.json",
+                    ScopeType::Global.to_string(),
+                    "claude-3",
+                    "low",
+                    &now,
+                    &now
+                ),
+            )
+            .await
+            .unwrap();
+
+        // Call with both IDs — should find User-scoped config (higher precedence than Global)
+        let result =
+            resolve_harness_config(&client, &agent_type, Some(&user_id), Some(&project_id))
+                .await
+                .unwrap();
+        assert_eq!(result.harness, "oh-my-pi");
+        assert_eq!(result.model.as_deref(), Some("gpt-4"));
+        assert_eq!(result.scope, ScopeType::User);
+
+        // Call with only project_id — should find Global (no user scope matches, no project scope)
+        let result = resolve_harness_config(&client, &agent_type, None, Some(&project_id))
+            .await
+            .unwrap();
+        assert_eq!(result.harness, "opencode");
+        assert_eq!(result.scope, ScopeType::Global);
     }
 
     #[tokio::test]

@@ -78,12 +78,15 @@ document.addEventListener('DOMContentLoaded', function() {
     checkApiKey();
 });
 
+window.__CONFIGS__ = [];
+
 function loadConfigList() {
     var list = document.getElementById('config-list');
     if (!list) return;
     apiCall('/api/settings/config-body')
         .then(function(r) { return r.json(); })
         .then(function(data) {
+            window.__CONFIGS__ = data;
             if (data.length === 0) {
                 list.innerHTML = '<p>No configurations yet. Add one below.</p>';
                 return;
@@ -116,7 +119,7 @@ document.addEventListener('DOMContentLoaded', function() {
     if (btn) {
         btn.addEventListener('click', function() {
             var name = document.getElementById('new-config-name').value.trim();
-            var harness = document.getElementById('new-config-harness').value.trim();
+            var harness = document.getElementById('new-config-harness').value;
             var configBody = document.getElementById('new-config-body').value.trim();
             if (!name || !configBody) {
                 alert('Name and Config Body are required.');
@@ -133,7 +136,7 @@ document.addEventListener('DOMContentLoaded', function() {
             })
             .then(function() {
                 document.getElementById('new-config-name').value = '';
-                document.getElementById('new-config-harness').value = '';
+                document.getElementById('new-config-harness').value = 'oh-my-pi';
                 document.getElementById('new-config-body').value = '';
                 loadConfigList();
             })
@@ -157,51 +160,98 @@ window.deleteConfig = function(id) {
 };
 
 window.editConfig = function(id) {
-    var name = prompt('New name:');
-    if (!name) return;
-    var body = prompt('New config body (YAML or JSON):');
-    if (!body) return;
-    var harness = prompt('New harness:') || '';
-    apiCall('/api/settings/config-body/' + id, {
-        method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ name: name, config_body: body, harness: harness })
-    })
-    .then(function(r) {
-        if (!r.ok) throw new Error('Update failed');
-        loadConfigList();
-    })
-    .catch(function(err) {
-        alert('Error: ' + err.message);
-    });
+    var cfg = window.__CONFIGS__.find(function(c) { return c.id === id; });
+    if (!cfg) {
+        alert('Configuration not found');
+        return;
+    }
+    document.getElementById('edit-config-id').value = id;
+    document.getElementById('edit-config-name').value = cfg.name;
+    document.getElementById('edit-config-harness').value = cfg.harness;
+    document.getElementById('edit-config-body').value = cfg.config_body;
+    document.getElementById('edit-config-modal').classList.add('is-active');
 };
+
+document.addEventListener('DOMContentLoaded', function() {
+    var saveBtn = document.getElementById('btn-save-edit-config');
+    var cancelBtn = document.getElementById('btn-cancel-edit-config');
+    var closeBtn = document.getElementById('btn-close-edit-modal');
+    var modalBg = document.querySelector('#edit-config-modal .modal-background');
+
+    function closeEditModal() {
+        document.getElementById('edit-config-modal').classList.remove('is-active');
+    }
+
+    if (saveBtn) {
+        saveBtn.addEventListener('click', function() {
+            var id = document.getElementById('edit-config-id').value;
+            var name = document.getElementById('edit-config-name').value.trim();
+            var harness = document.getElementById('edit-config-harness').value;
+            var configBody = document.getElementById('edit-config-body').value.trim();
+            if (!name || !configBody) {
+                alert('Name and Config Body are required.');
+                return;
+            }
+            apiCall('/api/settings/config-body/' + id, {
+                method: 'PUT',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ name: name, config_body: configBody, harness: harness })
+            })
+            .then(function(r) {
+                if (!r.ok) throw new Error('Update failed');
+                closeEditModal();
+                loadConfigList();
+            })
+            .catch(function(err) {
+                alert('Error: ' + err.message);
+            });
+        });
+    }
+
+    if (cancelBtn) cancelBtn.addEventListener('click', closeEditModal);
+    if (closeBtn) closeBtn.addEventListener('click', closeEditModal);
+    if (modalBg) modalBg.addEventListener('click', closeEditModal);
+});
 
 function loadAgentModels() {
     var tbody = document.getElementById('agent-model-tbody');
     if (!tbody) return;
-    apiCall('/api/settings/agent-models')
-        .then(function(r) { return r.json(); })
-        .then(function(data) {
-            var agents = ['planification', 'implementation', 'refinement', 'review', 'pr', 'yolo'];
-            var html = '';
-            agents.forEach(function(agent) {
-                var setting = data[agent] || {};
-                html += '<tr>';
-                html += '<td>' + agent + '</td>';
-                html += '<td><input type="text" class="input" data-agent="' + agent + '" value="' + (setting.model || '') + '" placeholder="model name"/></td>';
-                html += '<td><select class="select" data-agent="' + agent + '">';
-                ['auto', 'low', 'medium', 'high'].forEach(function(eff) {
-                    var selected = (setting.effort === eff) ? ' selected' : '';
-                    html += '<option value="' + eff + '"' + selected + '>' + eff + '</option>';
-                });
-                html += '</select></td>';
-                html += '</tr>';
+    Promise.all([
+        apiCall('/api/settings/agent-models').then(function(r) { return r.json(); }),
+        apiCall('/api/settings/config-body').then(function(r) { return r.json(); })
+    ])
+    .then(function(results) {
+        var data = results[0];
+        var configs = results[1];
+        var agents = ['planification', 'implementation', 'refinement', 'review', 'pr', 'yolo'];
+        var html = '';
+        agents.forEach(function(agent) {
+            var setting = data[agent] || {};
+            html += '<tr>';
+            html += '<td>' + agent + '</td>';
+            html += '<td>';
+            html += '<select class="select" data-agent="' + agent + '" data-model-config="true">';
+            html += '<option value="">-- Select config --</option>';
+            configs.forEach(function(cfg) {
+                var selected = (cfg.id === setting.model_config_id) ? ' selected' : '';
+                html += '<option value="' + cfg.id + '"' + selected + '>' + escapeHtml(cfg.name) + '</option>';
             });
-            tbody.innerHTML = html;
-        })
-        .catch(function(err) {
-            tbody.innerHTML = '<tr><td colspan="3" class="has-text-danger">Failed to load: ' + err + '</td></tr>';
+            html += '</select>';
+            html += '<div style="margin-top:0.3rem"><input type="text" class="input" data-agent="' + agent + '" data-model-name="true" value="' + (setting.model || '') + '" placeholder="model name (e.g. gpt-4)"/></div>';
+            html += '</td>';
+            html += '<td><select class="select" data-agent="' + agent + '">';
+            ['auto', 'low', 'medium', 'high'].forEach(function(eff) {
+                var selected = (setting.effort === eff) ? ' selected' : '';
+                html += '<option value="' + eff + '"' + selected + '>' + eff + '</option>';
+            });
+            html += '</select></td>';
+            html += '</tr>';
         });
+        tbody.innerHTML = html;
+    })
+    .catch(function(err) {
+        tbody.innerHTML = '<tr><td colspan="3" class="has-text-danger">Failed to load: ' + err + '</td></tr>';
+    });
 }
 
 document.addEventListener('DOMContentLoaded', function() {
@@ -209,12 +259,17 @@ document.addEventListener('DOMContentLoaded', function() {
     if (btn) {
         btn.addEventListener('click', function() {
             var models = {};
-            document.querySelectorAll('td input[type="text"]').forEach(function(input) {
+            document.querySelectorAll('select[data-model-config="true"]').forEach(function(select) {
+                var agent = select.dataset.agent;
+                if (!models[agent]) models[agent] = {};
+                models[agent].model_config_id = select.value || null;
+            });
+            document.querySelectorAll('input[data-model-name="true"]').forEach(function(input) {
                 var agent = input.dataset.agent;
                 if (!models[agent]) models[agent] = {};
                 models[agent].model = input.value || null;
             });
-            document.querySelectorAll('td select').forEach(function(select) {
+            document.querySelectorAll('tbody#agent-model-tbody td select:not([data-model-config])').forEach(function(select) {
                 var agent = select.dataset.agent;
                 if (!models[agent]) models[agent] = {};
                 models[agent].effort = select.value;

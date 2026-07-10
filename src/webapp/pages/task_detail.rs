@@ -1,6 +1,7 @@
 use leptos::prelude::*;
 
 use crate::db::schema::{AgentType, RunStatus, Task, TaskAgentRun};
+use crate::providers::registry::AgentConfigStatus;
 use crate::webapp::components::markdown_viewer::MarkdownViewer;
 
 fn agent_button_state(
@@ -83,6 +84,7 @@ pub fn TaskDetailPage(
     task: Task,
     doc_content: Option<String>,
     agent_runs: Vec<TaskAgentRun>,
+    agent_config_statuses: Vec<AgentConfigStatus>,
 ) -> impl IntoView {
     let status_badge_class = status_class(&task.status);
     let status_label_str = status_label(&task.status);
@@ -141,16 +143,38 @@ pub fn TaskDetailPage(
                                 agent_button_state(agent_type, &task, &agent_runs);
                             let agent_val = agent_type_value(agent_type);
                             let agent_label = agent_type_label(agent_type);
+                            let agent_val_str = agent_val;
+                            let status = agent_config_statuses.iter().find(|s| s.agent_type == agent_val_str);
                             view! {
-                                <div class="field">
+                                <div class="box" style="padding:0.75rem">
+                                    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:0.5rem">
+                                        <strong>{agent_label}</strong>
+                                        {if let Some(s) = status {
+                                            if s.configured {
+                                                view! {
+                                                    <span class="tag is-success">
+                                                        {format!("{} ({})",
+                                                            s.label.as_deref().unwrap_or("config"),
+                                                            s.scope.as_deref().unwrap_or("?"))}
+                                                    </span>
+                                                }.into_any()
+                                            } else {
+                                                view! {
+                                                    <span class="tag is-danger">"No Agent Config"</span>
+                                                }.into_any()
+                                            }
+                                        } else {
+                                            view! {
+                                                <span class="tag is-danger">"No Agent Config"</span>
+                                            }.into_any()
+                                        }}
+                                    </div>
                                     <button
                                         class={format!("button is-fullwidth {}", btn_class)}
                                         data-task-id={task_id.clone()}
                                         data-agent-type={agent_val}
                                         disabled=btn_disabled
                                     >
-                                        {agent_label}
-                                        " : "
                                         {btn_label}
                                     </button>
                                 </div>
@@ -238,6 +262,10 @@ mod tests {
     use chrono::NaiveDateTime;
     use uuid::Uuid;
 
+    fn empty_statuses() -> Vec<AgentConfigStatus> {
+        vec![]
+    }
+
     fn make_task() -> Task {
         Task {
             id: Uuid::new_v4(),
@@ -275,7 +303,8 @@ mod tests {
         let task = make_task();
         let agent_runs = vec![];
         let doc_content = Some("Hello".into());
-        let html = leptos::view! { <TaskDetailPage task doc_content agent_runs /> }.to_html();
+        let statuses = empty_statuses();
+        let html = leptos::view! { <TaskDetailPage task doc_content agent_runs agent_config_statuses=statuses /> }.to_html();
         assert!(html.contains("Planification"));
         assert!(html.contains("Implementation"));
         assert!(html.contains("Refinement"));
@@ -289,7 +318,8 @@ mod tests {
         let task = make_task();
         let agent_runs = vec![];
         let doc_content = Some("# Hello World".into());
-        let html = leptos::view! { <TaskDetailPage task doc_content agent_runs /> }.to_html();
+        let statuses = empty_statuses();
+        let html = leptos::view! { <TaskDetailPage task doc_content agent_runs agent_config_statuses=statuses /> }.to_html();
         assert!(html.contains("Documentation"));
         assert!(html.contains("<h1>"));
         assert!(html.contains("Hello World"));
@@ -304,7 +334,8 @@ mod tests {
             make_run(AgentType::Implementation, RunStatus::Running),
         ];
         let doc_content = None;
-        let html = leptos::view! { <TaskDetailPage task doc_content agent_runs /> }.to_html();
+        let statuses = empty_statuses();
+        let html = leptos::view! { <TaskDetailPage task doc_content agent_runs agent_config_statuses=statuses /> }.to_html();
         assert!(html.contains("Run History"));
         assert!(html.contains("Planification"));
         assert!(html.contains("completed"));
@@ -316,7 +347,8 @@ mod tests {
         let task = make_task();
         let agent_runs = vec![];
         let doc_content = None;
-        let html = leptos::view! { <TaskDetailPage task doc_content agent_runs /> }.to_html();
+        let statuses = empty_statuses();
+        let html = leptos::view! { <TaskDetailPage task doc_content agent_runs agent_config_statuses=statuses /> }.to_html();
         assert!(html.contains("No document yet"));
     }
 
@@ -325,7 +357,34 @@ mod tests {
         let task = make_task();
         let agent_runs = vec![];
         let doc_content = None;
-        let html = leptos::view! { <TaskDetailPage task doc_content agent_runs /> }.to_html();
+        let statuses = empty_statuses();
+        let html = leptos::view! { <TaskDetailPage task doc_content agent_runs agent_config_statuses=statuses /> }.to_html();
         assert!(html.contains("No runs yet"));
+    }
+
+    #[test]
+    fn test_task_detail_shows_config_status() {
+        let task = make_task();
+        let agent_runs = vec![];
+        let doc_content = None;
+        let statuses = vec![
+            AgentConfigStatus {
+                agent_type: "planification".into(),
+                configured: true,
+                scope: Some("User".into()),
+                label: Some("gpt-4".into()),
+            },
+            AgentConfigStatus {
+                agent_type: "implementation".into(),
+                configured: false,
+                scope: None,
+                label: None,
+            },
+        ];
+        let html = leptos::view! { <TaskDetailPage task doc_content agent_runs agent_config_statuses=statuses /> }.to_html();
+        assert!(html.contains("gpt-4"));
+        assert!(html.contains("is-success"));
+        assert!(html.contains("is-danger"));
+        assert!(html.contains("No Agent Config"));
     }
 }

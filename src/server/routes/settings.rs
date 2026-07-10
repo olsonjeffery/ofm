@@ -87,9 +87,11 @@ async fn update_model_handler(
     Path(id): Path<Uuid>,
     Json(body): Json<ModelRequest>,
 ) -> Result<Json<UserModelConfig>, (StatusCode, Json<ErrorResponse>)> {
+    let config_root = std::path::Path::new(&state.config_root);
     match settings::update_model_config(
         &state.db,
         auth.user_id,
+        config_root,
         id,
         &body.name,
         &body.config_body,
@@ -111,7 +113,8 @@ async fn delete_model_handler(
     auth: AuthUser,
     Path(id): Path<Uuid>,
 ) -> Result<StatusCode, (StatusCode, Json<ErrorResponse>)> {
-    settings::delete_model_config(&state.db, auth.user_id, id)
+    let config_root = std::path::Path::new(&state.config_root);
+    settings::delete_model_config(&state.db, auth.user_id, config_root, id)
         .await
         .map_err(|e| {
             (
@@ -143,7 +146,8 @@ async fn upsert_agent_models_handler(
     auth: AuthUser,
     Json(models): Json<HashMap<String, AgentModelSetting>>,
 ) -> Result<Json<HashMap<String, AgentModelSetting>>, (StatusCode, Json<ErrorResponse>)> {
-    settings::upsert_agent_models(&state.db, auth.user_id, models)
+    let config_root = std::path::Path::new(&state.config_root);
+    settings::upsert_agent_models(&state.db, auth.user_id, config_root, models)
         .await
         .map(Json)
         .map_err(|e| (StatusCode::BAD_REQUEST, Json(ErrorResponse::new(e))))

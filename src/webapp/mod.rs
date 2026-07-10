@@ -18,6 +18,7 @@ use leptos::prelude::*;
 use uuid::Uuid;
 
 use crate::auth::AuthUser;
+use crate::providers::registry;
 use crate::server::error::ServerError;
 use crate::server::state::AppState;
 use crate::services;
@@ -202,9 +203,18 @@ async fn task_detail_handler(
         .await
         .map_err(|e| ServerError::Internal(e.to_string()))?;
 
-    let page_html =
-        leptos::view! { <pages::task_detail::TaskDetailPage task doc_content agent_runs /> }
-            .to_html();
+    let agent_config_statuses =
+        registry::resolve_agent_config_statuses(&state.db, auth.user_id, project_id).await;
+
+    let page_html = leptos::view! {
+        <pages::task_detail::TaskDetailPage
+            task
+            doc_content
+            agent_runs
+            agent_config_statuses=agent_config_statuses
+        />
+    }
+    .to_html();
     Ok(Html(render_shell(&page_html, Some(user_json))))
 }
 
