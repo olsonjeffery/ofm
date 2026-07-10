@@ -40,7 +40,6 @@ async fn make_state() -> (AppState, AuthLayer, TempDir) {
         default_user_id: user_id,
         archive_root: "storage/".into(),
         config_root: tmp.path().to_str().unwrap().to_string(),
-        omp_sessions: Arc::new(Mutex::new(HashMap::new())),
         active_sessions: Arc::new(Mutex::new(HashMap::<String, Box<dyn LlmProvider>>::new())),
         oidc_provider: None,
         pkce_store: Arc::new(Mutex::new(HashMap::new())),

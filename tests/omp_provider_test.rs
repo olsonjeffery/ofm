@@ -1,7 +1,7 @@
 use std::path::Path;
 use std::time::Duration;
 
-use ofm::providers::omp_provider::OmpProvider;
+use ofm::providers::oh_my_pi::provider::OhMyPiProvider;
 use ofm::providers::{HarnessConfig, LlmProvider};
 use tempfile::TempDir;
 
@@ -23,7 +23,7 @@ async fn test_omp_provider_new() {
         model: Some("default".into()),
         effort: Some("balanced".into()),
     };
-    let provider = OmpProvider::new(&config, Path::new("omp"), tmp.path())
+    let provider = OhMyPiProvider::new(&config, Path::new("omp"), tmp.path())
         .await
         .unwrap();
     let models = provider.get_models_list().await.unwrap();
@@ -36,7 +36,7 @@ async fn test_omp_provider_new() {
 #[tokio::test]
 async fn test_omp_provider_one_shot_prompt() {
     if !has_binary("omp") {
-        eprintln!("skipping OmpProvider one_shot test: 'omp' binary not in PATH");
+        eprintln!("skipping OhMyPiProvider one_shot test: 'omp' binary not in PATH");
         return;
     }
 
@@ -48,7 +48,7 @@ async fn test_omp_provider_one_shot_prompt() {
         model: Some("default".into()),
         effort: Some("balanced".into()),
     };
-    let provider = OmpProvider::new(&config, Path::new("omp"), tmp.path())
+    let provider = OhMyPiProvider::new(&config, Path::new("omp"), tmp.path())
         .await
         .unwrap();
 
@@ -64,13 +64,13 @@ async fn test_omp_provider_one_shot_prompt() {
                 !response.is_empty(),
                 "one_shot_prompt returned empty response"
             );
-            eprintln!("omp one_shot_prompt response: {response}");
+            eprintln!("oh-my-pi one_shot_prompt response: {response}");
         }
         Ok(Err(e)) => {
-            eprintln!("omp one_shot_prompt returned error (binary may need config): {e}");
+            eprintln!("oh-my-pi one_shot_prompt returned error (binary may need config): {e}");
         }
         Err(_) => {
-            eprintln!("omp one_shot_prompt timed out after 30s");
+            eprintln!("oh-my-pi one_shot_prompt timed out after 30s");
         }
     }
 }
@@ -78,7 +78,7 @@ async fn test_omp_provider_one_shot_prompt() {
 #[tokio::test]
 async fn test_omp_provider_start_shutdown() {
     if !has_binary("omp") {
-        eprintln!("skipping OmpProvider start/shutdown test: 'omp' binary not in PATH");
+        eprintln!("skipping OhMyPiProvider start/shutdown test: 'omp' binary not in PATH");
         return;
     }
 
@@ -90,7 +90,7 @@ async fn test_omp_provider_start_shutdown() {
         model: Some("default".into()),
         effort: Some("balanced".into()),
     };
-    let mut provider = OmpProvider::new(&config, Path::new("omp"), tmp.path())
+    let mut provider = OhMyPiProvider::new(&config, Path::new("omp"), tmp.path())
         .await
         .unwrap();
 

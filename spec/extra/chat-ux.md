@@ -28,9 +28,9 @@ runtime a human drives by hand:
 The [orchestration loop](../core/orchestration-loop.md) never sees any of this:
 agents run from prompts the orchestrator builds, not from a human typing into a
 box. These are conveniences for the manual-chat conversation runtime described
-in [`omp-integration.md`](../core/omp-integration.md). Skip them and core still
+in [`oh-my-pi.md`](./harnesses/oh-my-pi.md). Skip them and core still
 plans, implements, reviews, and ships. Several are also **capability-gated** — the
-capability constants in [`omp.md`](./harnesses/omp.md) decide which ones light up.
+capability constants in [`oh-my-pi.md`](./harnesses/oh-my-pi.md) decide which ones light up.
 
 ## Slash commands
 
@@ -153,7 +153,7 @@ logs and returns — the conversation is unaffected.
 
 > The reference titler shells out to the `claude` CLI directly rather than going
 > through the streaming runtime. For `ofm`, route title generation through
-> the `omp` RPC session instead. It is a cosmetic nicety either way.
+> the `oh-my-pi` RPC session instead. It is a cosmetic nicety either way.
 
 ## Context-usage meter
 
@@ -224,10 +224,10 @@ break.
 ## Boundaries (not in this spec)
 
 - The conversation runtime that these hook into — streaming, transcript
-  persistence, and the `omp` RPC protocol → [`../core/omp-integration.md`](../core/omp-integration.md).
+  persistence, and the RPC protocol → [`../extra/harnesses/oh-my-pi.md`](../extra/harnesses/oh-my-pi.md).
 - The autonomous agent pipeline (none of these features touch it) →
   [`../core/orchestration-loop.md`](../core/orchestration-loop.md).
 - The task doc and `input_files/` lifecycle and where the archive lives →
   [`../core/task-and-workspace.md`](../core/task-and-workspace.md).
-- `omp`'s capability values and how they are advertised →
-  [`./harnesses/omp.md`](./harnesses/omp.md).
+- Harness capability values and how they are advertised →
+  [`./harnesses/oh-my-pi.md`](./harnesses/oh-my-pi.md) and [`./harnesses/opencode.md`](./harnesses/opencode.md).

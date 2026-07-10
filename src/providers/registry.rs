@@ -5,7 +5,7 @@ use uuid::Uuid;
 
 use crate::db::schema::{AgentHarnessConfig, AgentType, ScopeType};
 use crate::providers::config::ProviderConfigDir;
-use crate::providers::omp_provider::OmpProvider;
+use crate::providers::oh_my_pi::provider::OhMyPiProvider;
 use crate::providers::opencode_provider::OpenCodeProvider;
 use crate::providers::{HarnessConfig, LlmProvider, ProviderError};
 
@@ -15,7 +15,7 @@ pub async fn resolve_provider(
     config_root: &Path,
 ) -> Result<Box<dyn LlmProvider>, ProviderError> {
     match config.harness.as_str() {
-        "oh-my-pi" => OmpProvider::new(config, omp_binary, config_root)
+        "oh-my-pi" => OhMyPiProvider::new(config, omp_binary, config_root)
             .await
             .map(|p| Box::new(p) as Box<dyn LlmProvider>),
         "opencode" => OpenCodeProvider::new(config, config_root)

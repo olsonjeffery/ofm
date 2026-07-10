@@ -1,11 +1,11 @@
 use hiqlite::Client;
 
 use crate::db::schema::Message;
-use crate::omp::OmpRpcEvent;
+use crate::providers::types::ProviderEvent;
 
 pub async fn persist_event(
     client: &Client,
-    event: &OmpRpcEvent,
+    event: &ProviderEvent,
     session_id: &str,
     project_key: &str,
 ) -> Result<(), hiqlite::Error> {
@@ -41,7 +41,7 @@ pub async fn load_transcript(
     client: &Client,
     session_id: &str,
     project_key: &str,
-) -> Result<Vec<OmpRpcEvent>, hiqlite::Error> {
+) -> Result<Vec<ProviderEvent>, hiqlite::Error> {
     let messages = client
         .query_map::<Message, _>(
             "SELECT project_key, session_id, seq, entry_json FROM messages WHERE project_key = $1 AND session_id = $2 ORDER BY seq ASC",
@@ -84,24 +84,24 @@ mod tests {
         (client, tmp)
     }
 
-    fn make_events() -> Vec<OmpRpcEvent> {
+    fn make_events() -> Vec<ProviderEvent> {
         vec![
-            OmpRpcEvent::Text {
+            ProviderEvent::Text {
                 text: "hello".into(),
             },
-            OmpRpcEvent::ToolUse {
+            ProviderEvent::ToolUse {
                 tool_name: "read".into(),
                 tool_use_id: Some("id1".into()),
                 input: serde_json::json!({"path": "/tmp"}),
             },
-            OmpRpcEvent::ToolResult {
+            ProviderEvent::ToolResult {
                 tool_use_id: Some("id1".into()),
                 result: "ok".into(),
             },
-            OmpRpcEvent::Thinking {
+            ProviderEvent::Thinking {
                 thinking: "hmm".into(),
             },
-            OmpRpcEvent::Done(serde_json::json!({"status": "ok"})),
+            ProviderEvent::Done(serde_json::json!({"status": "ok"})),
         ]
     }
 
@@ -136,7 +136,7 @@ mod tests {
 
         persist_event(
             &client,
-            &OmpRpcEvent::Text {
+            &ProviderEvent::Text {
                 text: "first".into(),
             },
             session_id,
@@ -146,7 +146,7 @@ mod tests {
         .unwrap();
         persist_event(
             &client,
-            &OmpRpcEvent::Text {
+            &ProviderEvent::Text {
                 text: "second".into(),
             },
             session_id,
@@ -156,7 +156,7 @@ mod tests {
         .unwrap();
         persist_event(
             &client,
-            &OmpRpcEvent::Text {
+            &ProviderEvent::Text {
                 text: "third".into(),
             },
             session_id,
@@ -186,7 +186,7 @@ mod tests {
 
         persist_event(
             &client,
-            &OmpRpcEvent::Text {
+            &ProviderEvent::Text {
                 text: "sess1-event".into(),
             },
             "sess-a",
@@ -196,7 +196,7 @@ mod tests {
         .unwrap();
         persist_event(
             &client,
-            &OmpRpcEvent::Text {
+            &ProviderEvent::Text {
                 text: "sess2-event".into(),
             },
             "sess-b",

@@ -6,7 +6,7 @@ pub mod auth;
 pub mod config;
 pub mod db;
 pub mod logging;
-pub mod omp;
+
 pub mod orchestration;
 pub mod providers;
 pub mod rauthy;

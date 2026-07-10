@@ -7,8 +7,8 @@ use tempfile::TempDir;
 use tokio::sync::mpsc;
 use uuid::Uuid;
 
-use crate::omp::{OmpRpcEvent, ResumeInput, TurnInput};
 use crate::providers::config::{merge_configs, ProviderConfig as PConfig, ProviderConfigDir};
+use crate::providers::types::{ProviderEvent, ResumeInput, TurnInput};
 use crate::providers::{HarnessConfig, LlmProvider, ProviderError};
 
 pub struct OpenCodeProvider {
@@ -158,7 +158,7 @@ async fn spawn_transient_server(
     ))
 }
 
-fn map_opencode_event_to_omp_event(line: &str) -> Option<OmpRpcEvent> {
+fn map_opencode_event_to_provider_event(line: &str) -> Option<ProviderEvent> {
     let v: serde_json::Value = serde_json::from_str(line).ok()?;
     match v.get("type").and_then(|t| t.as_str()) {
         Some("message.updated") => {
@@ -166,7 +166,7 @@ fn map_opencode_event_to_omp_event(line: &str) -> Option<OmpRpcEvent> {
             if role == "assistant" {
                 let content = v.get("content").and_then(|c| c.as_str()).unwrap_or("");
                 if !content.is_empty() {
-                    Some(OmpRpcEvent::TextChunk {
+                    Some(ProviderEvent::TextChunk {
                         delta: content.to_string(),
                     })
                 } else {
@@ -187,7 +187,7 @@ fn map_opencode_event_to_omp_event(line: &str) -> Option<OmpRpcEvent> {
                 .and_then(|t| t.as_str())
                 .map(|s| s.to_string());
             let input = v.get("input").cloned().unwrap_or(serde_json::Value::Null);
-            Some(OmpRpcEvent::ToolUse {
+            Some(ProviderEvent::ToolUse {
                 tool_name,
                 tool_use_id,
                 input,
@@ -203,7 +203,7 @@ fn map_opencode_event_to_omp_event(line: &str) -> Option<OmpRpcEvent> {
                 .and_then(|r| r.as_str())
                 .unwrap_or("")
                 .to_string();
-            Some(OmpRpcEvent::ToolResult {
+            Some(ProviderEvent::ToolResult {
                 tool_use_id,
                 result,
             })
@@ -214,7 +214,7 @@ fn map_opencode_event_to_omp_event(line: &str) -> Option<OmpRpcEvent> {
                 .and_then(|t| t.as_str())
                 .unwrap_or("")
                 .to_string();
-            Some(OmpRpcEvent::Thinking { thinking })
+            Some(ProviderEvent::Thinking { thinking })
         }
         Some("error") => {
             let error = v
@@ -222,64 +222,62 @@ fn map_opencode_event_to_omp_event(line: &str) -> Option<OmpRpcEvent> {
                 .and_then(|e| e.as_str())
                 .unwrap_or("unknown error")
                 .to_string();
-            Some(OmpRpcEvent::Error { error })
+            Some(ProviderEvent::Error { error })
         }
-        Some("done") | Some("completed") => Some(OmpRpcEvent::Done(serde_json::Value::Null)),
+        Some("done") | Some("completed") => Some(ProviderEvent::Done(serde_json::Value::Null)),
         _ => None,
     }
+}
+
+fn drain_sse_lines(buf: &mut Vec<u8>) -> Vec<String> {
+    let mut events = Vec::new();
+    while let Some(pos) = buf.iter().position(|&b| b == b'\n') {
+        let line_bytes: Vec<u8> = buf.drain(..=pos).collect();
+        let line = String::from_utf8_lossy(&line_bytes[..line_bytes.len().saturating_sub(1)]);
+        let trimmed = line.trim();
+        if !trimmed.is_empty() && !trimmed.starts_with(':') {
+            if let Some(data) = trimmed.strip_prefix("data: ") {
+                events.push(data.to_string());
+            }
+        }
+    }
+    events
 }
 
 async fn read_sse_to_completion(
     client: &reqwest::Client,
     url: &str,
     password: &str,
-    tx: mpsc::Sender<OmpRpcEvent>,
+    tx: mpsc::Sender<ProviderEvent>,
 ) {
-    match client
+    let Ok(resp) = client
         .get(url)
         .header("Authorization", format!("Bearer {password}"))
         .send()
         .await
-    {
-        Ok(resp) => {
-            let mut buf = Vec::new();
-            let mut stream = resp.bytes_stream();
-            use tokio_stream::StreamExt;
-            while let Some(chunk_result) = stream.next().await {
-                match chunk_result {
-                    Ok(chunk) => {
-                        buf.extend_from_slice(&chunk);
-                        while let Some(pos) = buf.iter().position(|&b| b == b'\n') {
-                            let line_bytes: Vec<u8> = buf.drain(..=pos).collect();
-                            let line = String::from_utf8_lossy(
-                                &line_bytes[..line_bytes.len().saturating_sub(1)],
-                            );
-                            let trimmed = line.trim();
-                            if trimmed.is_empty() || trimmed.starts_with(':') {
-                                continue;
-                            }
-                            if let Some(data) = trimmed.strip_prefix("data: ") {
-                                if let Some(event) = map_opencode_event_to_omp_event(data) {
-                                    let is_done = matches!(&event, OmpRpcEvent::Done(_));
-                                    if tx.blocking_send(event).is_err() {
-                                        return;
-                                    }
-                                    if is_done {
-                                        return;
-                                    }
-                                }
-                            }
-                        }
-                    }
-                    Err(e) => {
-                        tracing::warn!("SSE chunk error: {e}");
-                        return;
-                    }
+    else {
+        return;
+    };
+
+    let mut buf = Vec::new();
+    let mut stream = resp.bytes_stream();
+    use tokio_stream::StreamExt;
+    while let Some(chunk_result) = stream.next().await {
+        let Ok(chunk) = chunk_result else {
+            tracing::warn!("SSE chunk error: {:?}", chunk_result.err());
+            return;
+        };
+        buf.extend_from_slice(&chunk);
+        for data in drain_sse_lines(&mut buf) {
+            if let Some(event) = map_opencode_event_to_provider_event(&data) {
+                let is_done = matches!(&event, ProviderEvent::Done(_));
+                if tx.blocking_send(event).is_err() {
+                    return;
+                }
+                if is_done {
+                    return;
                 }
             }
-        }
-        Err(e) => {
-            tracing::warn!("SSE connection error: {e}");
         }
     }
 }
@@ -302,43 +300,30 @@ async fn collect_response_via_sse(
     let mut stream = resp.bytes_stream();
     use tokio_stream::StreamExt;
     while let Some(chunk_result) = stream.next().await {
-        match chunk_result {
-            Ok(chunk) => {
-                buf.extend_from_slice(&chunk);
-                while let Some(pos) = buf.iter().position(|&b| b == b'\n') {
-                    let line_bytes: Vec<u8> = buf.drain(..=pos).collect();
-                    let line =
-                        String::from_utf8_lossy(&line_bytes[..line_bytes.len().saturating_sub(1)]);
-                    let trimmed = line.trim();
-                    if trimmed.is_empty() || trimmed.starts_with(':') {
-                        continue;
+        let Ok(chunk) = chunk_result else {
+            tracing::warn!("SSE chunk error: {:?}", chunk_result.err());
+            break;
+        };
+        buf.extend_from_slice(&chunk);
+        for data in drain_sse_lines(&mut buf) {
+            if let Some(event) = map_opencode_event_to_provider_event(&data) {
+                match event {
+                    ProviderEvent::TextChunk { delta } => response.push_str(&delta),
+                    ProviderEvent::Text { text } => response.push_str(&text),
+                    ProviderEvent::Error { error } => {
+                        tracing::warn!("one_shot error: {error}");
+                        return Err(ProviderError::Protocol(error));
                     }
-                    if let Some(data) = trimmed.strip_prefix("data: ") {
-                        if let Some(event) = map_opencode_event_to_omp_event(data) {
-                            match event {
-                                OmpRpcEvent::TextChunk { delta } => response.push_str(&delta),
-                                OmpRpcEvent::Text { text } => response.push_str(&text),
-                                OmpRpcEvent::Error { error } => {
-                                    tracing::warn!("one_shot error: {error}");
-                                    return Err(ProviderError::Protocol(error));
-                                }
-                                OmpRpcEvent::Done(_) => {
-                                    if response.is_empty() {
-                                        return Err(ProviderError::Protocol(
-                                            "no response from opencode".into(),
-                                        ));
-                                    }
-                                    return Ok(response);
-                                }
-                                _ => {}
-                            }
+                    ProviderEvent::Done(_) => {
+                        if response.is_empty() {
+                            return Err(ProviderError::Protocol(
+                                "no response from opencode".into(),
+                            ));
                         }
+                        return Ok(response);
                     }
+                    _ => {}
                 }
-            }
-            Err(e) => {
-                tracing::warn!("SSE chunk error: {e}");
-                break;
             }
         }
     }
@@ -471,7 +456,7 @@ impl LlmProvider for OpenCodeProvider {
     async fn start_turn(
         &self,
         input: TurnInput,
-    ) -> Result<mpsc::Receiver<OmpRpcEvent>, ProviderError> {
+    ) -> Result<mpsc::Receiver<ProviderEvent>, ProviderError> {
         let (base_url, password) = self.server_details().ok_or(ProviderError::NotStarted)?;
 
         let session_resp = self
@@ -525,7 +510,7 @@ impl LlmProvider for OpenCodeProvider {
     async fn resume_turn(
         &self,
         _input: ResumeInput,
-    ) -> Result<mpsc::Receiver<OmpRpcEvent>, ProviderError> {
+    ) -> Result<mpsc::Receiver<ProviderEvent>, ProviderError> {
         Err(ProviderError::Protocol(
             "resume_turn not supported by OpenCodeProvider".into(),
         ))
@@ -679,70 +664,70 @@ mod tests {
     #[test]
     fn test_map_opencode_event_message_updated_assistant() {
         let line = r#"{"type":"message.updated","role":"assistant","content":"Hello"}"#;
-        let event = map_opencode_event_to_omp_event(line);
-        assert!(matches!(event, Some(OmpRpcEvent::TextChunk { delta }) if delta == "Hello"));
+        let event = map_opencode_event_to_provider_event(line);
+        assert!(matches!(event, Some(ProviderEvent::TextChunk { delta }) if delta == "Hello"));
     }
 
     #[test]
     fn test_map_opencode_event_tool_use() {
         let line =
             r#"{"type":"tool_use","tool_name":"read","tool_use_id":"id1","input":{"path":"/tmp"}}"#;
-        let event = map_opencode_event_to_omp_event(line);
+        let event = map_opencode_event_to_provider_event(line);
         assert!(
-            matches!(event, Some(OmpRpcEvent::ToolUse { tool_name, tool_use_id: Some(id), .. }) if tool_name == "read" && id == "id1")
+            matches!(event, Some(ProviderEvent::ToolUse { tool_name, tool_use_id: Some(id), .. }) if tool_name == "read" && id == "id1")
         );
     }
 
     #[test]
     fn test_map_opencode_event_tool_result() {
         let line = r#"{"type":"tool_result","tool_use_id":"id1","result":"ok"}"#;
-        let event = map_opencode_event_to_omp_event(line);
+        let event = map_opencode_event_to_provider_event(line);
         assert!(
-            matches!(event, Some(OmpRpcEvent::ToolResult { tool_use_id: Some(id), result }) if id == "id1" && result == "ok")
+            matches!(event, Some(ProviderEvent::ToolResult { tool_use_id: Some(id), result }) if id == "id1" && result == "ok")
         );
     }
 
     #[test]
     fn test_map_opencode_event_thinking() {
         let line = r#"{"type":"thinking","thinking":"hmm"}"#;
-        let event = map_opencode_event_to_omp_event(line);
-        assert!(matches!(event, Some(OmpRpcEvent::Thinking { thinking }) if thinking == "hmm"));
+        let event = map_opencode_event_to_provider_event(line);
+        assert!(matches!(event, Some(ProviderEvent::Thinking { thinking }) if thinking == "hmm"));
     }
 
     #[test]
     fn test_map_opencode_event_error() {
         let line = r#"{"type":"error","error":"something went wrong"}"#;
-        let event = map_opencode_event_to_omp_event(line);
+        let event = map_opencode_event_to_provider_event(line);
         assert!(
-            matches!(event, Some(OmpRpcEvent::Error { error }) if error == "something went wrong")
+            matches!(event, Some(ProviderEvent::Error { error }) if error == "something went wrong")
         );
     }
 
     #[test]
     fn test_map_opencode_event_done() {
         let line = r#"{"type":"done"}"#;
-        let event = map_opencode_event_to_omp_event(line);
-        assert!(matches!(event, Some(OmpRpcEvent::Done(_))));
+        let event = map_opencode_event_to_provider_event(line);
+        assert!(matches!(event, Some(ProviderEvent::Done(_))));
     }
 
     #[test]
     fn test_map_opencode_event_completed() {
         let line = r#"{"type":"completed"}"#;
-        let event = map_opencode_event_to_omp_event(line);
-        assert!(matches!(event, Some(OmpRpcEvent::Done(_))));
+        let event = map_opencode_event_to_provider_event(line);
+        assert!(matches!(event, Some(ProviderEvent::Done(_))));
     }
 
     #[test]
     fn test_map_opencode_event_unknown_type() {
         let line = r#"{"type":"unknown","data":"foo"}"#;
-        let event = map_opencode_event_to_omp_event(line);
+        let event = map_opencode_event_to_provider_event(line);
         assert!(event.is_none());
     }
 
     #[test]
     fn test_map_opencode_event_user_message_ignored() {
         let line = r#"{"type":"message.updated","role":"user","content":"hello"}"#;
-        let event = map_opencode_event_to_omp_event(line);
+        let event = map_opencode_event_to_provider_event(line);
         assert!(event.is_none());
     }
 }

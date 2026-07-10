@@ -75,7 +75,6 @@ async fn setup_app() -> TestApp {
         default_user_id: user_id,
         archive_root: "storage/".into(),
         config_root: db_dir.path().to_str().unwrap().to_string(),
-        omp_sessions: Arc::new(Mutex::new(HashMap::new())),
         active_sessions: Arc::new(Mutex::new(HashMap::<String, Box<dyn LlmProvider>>::new())),
         oidc_provider: None,
         pkce_store: Arc::new(Mutex::new(HashMap::new())),

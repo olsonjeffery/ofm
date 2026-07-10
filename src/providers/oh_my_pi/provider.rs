@@ -5,18 +5,18 @@ use std::sync::Mutex;
 use async_trait::async_trait;
 use tokio::sync::mpsc;
 
-use crate::omp::{self, OmpRpcEvent, ResumeInput, TurnInput};
+use crate::providers::types::{ProviderEvent, ResumeInput, TurnInput};
 use crate::providers::{HarnessConfig, LlmProvider, ProviderError};
 
-pub struct OmpProvider {
+pub struct OhMyPiProvider {
     config: HarnessConfig,
     omp_binary: PathBuf,
     config_root: PathBuf,
-    session: Mutex<Option<omp::OmpSession>>,
+    session: Mutex<Option<super::OhMyPiSession>>,
     working_dir: Mutex<Option<PathBuf>>,
 }
 
-impl OmpProvider {
+impl OhMyPiProvider {
     pub async fn new(
         config: &HarnessConfig,
         omp_binary: &Path,
@@ -42,7 +42,7 @@ impl OmpProvider {
 }
 
 #[async_trait]
-impl LlmProvider for OmpProvider {
+impl LlmProvider for OhMyPiProvider {
     async fn get_models_list(&self) -> Result<Vec<String>, ProviderError> {
         let models_config = self.get_models_config();
         if models_config.is_empty() {
@@ -64,7 +64,7 @@ impl LlmProvider for OmpProvider {
     async fn start(&mut self, working_dir: &Path) -> Result<(), ProviderError> {
         let cwd = working_dir.to_string_lossy().to_string();
         let env = HashMap::new();
-        let session = omp::spawn_omp(self.omp_binary.to_str().unwrap_or("omp"), &cwd, env)
+        let session = super::spawn_oh_my_pi(self.omp_binary.to_str().unwrap_or("omp"), &cwd, env)
             .map_err(|e| ProviderError::Protocol(e.to_string()))?;
         *self.session.lock().unwrap() = Some(session);
         *self.working_dir.lock().unwrap() = Some(working_dir.to_path_buf());
@@ -74,7 +74,7 @@ impl LlmProvider for OmpProvider {
     async fn start_turn(
         &self,
         input: TurnInput,
-    ) -> Result<mpsc::Receiver<OmpRpcEvent>, ProviderError> {
+    ) -> Result<mpsc::Receiver<ProviderEvent>, ProviderError> {
         let mut session = self.session.lock().unwrap();
         let session = session.as_mut().ok_or(ProviderError::NotStarted)?;
         let (tx, rx) = mpsc::channel(256);
@@ -87,7 +87,7 @@ impl LlmProvider for OmpProvider {
     async fn resume_turn(
         &self,
         input: ResumeInput,
-    ) -> Result<mpsc::Receiver<OmpRpcEvent>, ProviderError> {
+    ) -> Result<mpsc::Receiver<ProviderEvent>, ProviderError> {
         let mut session = self.session.lock().unwrap();
         let session = session.as_mut().ok_or(ProviderError::NotStarted)?;
         let (tx, rx) = mpsc::channel(256);
@@ -127,7 +127,7 @@ impl LlmProvider for OmpProvider {
             vec![],
             models_config,
         );
-        let mut session = omp::spawn_omp(
+        let mut session = super::spawn_oh_my_pi(
             self.omp_binary.to_str().unwrap_or("omp"),
             &wd.to_string_lossy(),
             HashMap::new(),
@@ -140,18 +140,18 @@ impl LlmProvider for OmpProvider {
         let mut response = String::new();
         while let Some(event) = rx.recv().await {
             match event {
-                OmpRpcEvent::Text { text } => response.push_str(&text),
-                OmpRpcEvent::TextChunk { delta } => response.push_str(&delta),
-                OmpRpcEvent::Error { error } => {
-                    tracing::warn!("omp one_shot_prompt error: {error}");
+                ProviderEvent::Text { text } => response.push_str(&text),
+                ProviderEvent::TextChunk { delta } => response.push_str(&delta),
+                ProviderEvent::Error { error } => {
+                    tracing::warn!("oh-my-pi one_shot_prompt error: {error}");
                     break;
                 }
-                OmpRpcEvent::Done(_) => break,
+                ProviderEvent::Done(_) => break,
                 _ => {}
             }
         }
         if response.is_empty() {
-            return Err(ProviderError::Protocol("no response from omp".into()));
+            return Err(ProviderError::Protocol("no response from oh-my-pi".into()));
         }
         Ok(response)
     }

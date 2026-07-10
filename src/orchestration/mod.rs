@@ -22,6 +22,10 @@ pub enum NextAction {
     Terminal,
 }
 
+fn internal_err(e: impl std::fmt::Display) -> ServerError {
+    ServerError::Internal(e.to_string())
+}
+
 pub async fn completion_handler(
     client: &Client,
     conversation_id: Uuid,
@@ -29,7 +33,7 @@ pub async fn completion_handler(
 ) -> Result<NextAction, ServerError> {
     let run = tasks::get_agent_run_by_conversation(client, &conversation_id)
         .await
-        .map_err(|e| ServerError::Internal(e.to_string()))?;
+        .map_err(internal_err)?;
 
     if run.status != RunStatus::Running {
         return Ok(NextAction::Terminal);
@@ -37,9 +41,8 @@ pub async fn completion_handler(
 
     tasks::mark_agent_run_completed(client, &run.id)
         .await
-        .map_err(|e| ServerError::Internal(e.to_string()))?;
+        .map_err(internal_err)?;
 
-    // Phase 8: Shut down the provider for this conversation
     if let Some(mut provider) = active_sessions
         .lock()
         .await
@@ -52,12 +55,12 @@ pub async fn completion_handler(
 
     let task = tasks::get_task(client, &run.task_id)
         .await
-        .map_err(|e| ServerError::Internal(e.to_string()))?;
+        .map_err(internal_err)?;
 
     if task.workflow_run_count >= MAX_WORKFLOW_RUNS {
         tasks::mark_task_blocked(client, &run.task_id)
             .await
-            .map_err(|e| ServerError::Internal(e.to_string()))?;
+            .map_err(internal_err)?;
         return Ok(NextAction::Stop);
     }
 
@@ -69,7 +72,7 @@ mod tests {
     use super::*;
     use crate::db;
     use crate::db::schema::AgentType;
-    use crate::omp::session;
+    use crate::services::session;
     use tempfile::TempDir;
 
     fn empty_sessions() -> Arc<Mutex<HashMap<String, Box<dyn LlmProvider>>>> {

@@ -1,14 +1,15 @@
 pub mod config;
-pub mod omp_provider;
+pub mod oh_my_pi;
 pub mod opencode_provider;
 pub mod registry;
+pub mod types;
 
 use async_trait::async_trait;
 use std::path::Path;
 use tokio::sync::mpsc;
 use uuid::Uuid;
 
-use crate::omp::{OmpRpcEvent, ResumeInput, TurnInput};
+use crate::providers::types::{ProviderEvent, ResumeInput, TurnInput};
 
 #[async_trait]
 pub trait LlmProvider: Send + Sync {
@@ -19,12 +20,12 @@ pub trait LlmProvider: Send + Sync {
     async fn start_turn(
         &self,
         input: TurnInput,
-    ) -> Result<mpsc::Receiver<OmpRpcEvent>, ProviderError>;
+    ) -> Result<mpsc::Receiver<ProviderEvent>, ProviderError>;
 
     async fn resume_turn(
         &self,
         input: ResumeInput,
-    ) -> Result<mpsc::Receiver<OmpRpcEvent>, ProviderError>;
+    ) -> Result<mpsc::Receiver<ProviderEvent>, ProviderError>;
 
     async fn abort_turn(&self) -> Result<(), ProviderError>;
 
@@ -70,8 +71,9 @@ pub async fn generate_conversation_title(
         "Generate a 1-3 word title summarizing this message. Output ONLY the title, nothing else: {truncated}"
     );
 
-    let omp_binary = std::path::Path::new("omp");
-    let provider = match registry::resolve_provider(harness_config, omp_binary, config_root).await {
+    let binary_path = std::path::Path::new("omp");
+    let provider = match registry::resolve_provider(harness_config, binary_path, config_root).await
+    {
         Ok(p) => p,
         Err(e) => {
             tracing::warn!("Failed to create provider for title generation: {e}");

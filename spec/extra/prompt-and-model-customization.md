@@ -1,8 +1,8 @@
 # Extra — Prompt and model customization
 
 Two independent customization layers sit on top of the provider abstraction.
-Neither is required; core ships fixed prompts and `omp` is the default harness
-(see [`../core/omp-integration.md`](../core/omp-integration.md)). This extra
+Neither is required; core ships fixed prompts and uses a coding harness
+(`oh-my-pi`, OpenCode). This extra
 makes both **configurable** — the *what an agent says* and the *what runs it*.
 
 > **Implementation status:** The harness-model config layer is **partially
@@ -130,11 +130,11 @@ actually hold credentials for.
 
 ### The model and effort namespaces
 
-`omp` models the available models through its `models.yml` configuration. Each
+`oh-my-pi` models the available models through its `models.yml` configuration. Each
 model entry specifies its provider, model id, and supported features. The
-settings UI reads available models from `omp`'s model catalog.
+settings UI reads available models from `oh-my-pi`'s model catalog.
 
-Capabilities are compile-time constants (see [`../extra/harnesses/omp.md`](../extra/harnesses/omp.md)).
+Capabilities are compile-time constants (see [`../extra/harnesses/oh-my-pi.md`](../extra/harnesses/oh-my-pi.md)).
 This spec only picks the `(model, effort)`; capability guards are core.
 
 ### Resolution at run start — `loadAgentModelSettings(userId)`
@@ -148,11 +148,11 @@ a silent default**. `startAgentRun` then:
 1. Resolves the acting user (fails if there is none — there's no user to resolve
    settings for).
 2. Pulls `loadAgentModelSettings(userId)[agentType]` → `(model, effort)`.
-3. **Validates credentials up front** via `omp`'s configuration mechanism
+3. **Validates credentials up front** via `oh-my-pi`'s configuration mechanism
    (`models.yml`), surfacing a typed error if the model's auth is not configured.
 4. **Stamps `(model, effort)` onto the new `task_agent_runs` and
    `conversations` rows** before starting the turn, then passes them into
-   `omp` as part of the turn input.
+   `oh-my-pi` as part of the turn input.
 
 See `agentRunner.ts` around the `loadAgentModelSettings` call and the
 `conversationsDb.create(taskId, provider, model, effort)` line. Stamping the
@@ -160,7 +160,7 @@ conversation row is what makes the model **deterministic on resume**.
 
 ### The deterministic-model rule
 
-This is the load-bearing invariant, and it mirrors the core `omp-integration.md`
+This is the load-bearing invariant, and it mirrors the core `oh-my-pi` integration
 contract: a turn **never runs on a defaulted or inferred model**. On start, the
 model comes from the user's setting; on resume, it comes from the stored
 conversation row, never re-derived. Any mismatch, an unseeded resuming user, a
@@ -173,7 +173,7 @@ Because resolution fails loud, every user must be seeded **before** they can run
 an agent. Two mechanisms:
 
 - **Seed on first configuration.** A user's first visit to the settings page
-  seeds default model selections for each agent type, sourced from `omp`'s
+  seeds default model selections for each agent type, sourced from `oh-my-pi`'s
   available models.
 - **Backfill.** Existing users without a settings row are seeded with sensible
   defaults on first access.
@@ -217,13 +217,13 @@ delete to revert) — see
       row per user) with strict load-time validation that **fails loud**, no
       silent default.
 - [ ] Run-start resolution: load the setting, validate model availability
-      through `omp`'s configuration, stamp `(model, effort)` on the
+      through `oh-my-pi`'s configuration, stamp `(model, effort)` on the
       run + conversation rows, pass them into the turn input.
 - [ ] Deterministic resume: read model off the stored row; never infer.
 - [ ] Seed-on-first-configuration: create default settings for a new user on
       first access so no unseeded user can trigger a run.
 - [ ] Settings UI: a Model/Effort picker per agent type, dropdowns scoped to
-      models available via `omp`, and a prompt-editor surface.
+      models available via `oh-my-pi`, and a prompt-editor surface.
 
 ## Reference map
 
@@ -241,14 +241,14 @@ delete to revert) — see
 
 ## Boundaries (not in this spec)
 
-- The direct `omp` integration, the per-turn input shape `(model, effort, prompt)`
-  feeds, and the capability constants that gate `omp`-specific features →
-  [`../core/omp-integration.md`](../core/omp-integration.md).
+- The direct `oh-my-pi` integration, the per-turn input shape `(model, effort, prompt)`
+  feeds, and the capability constants that gate `oh-my-pi`-specific features →
+  [`../extra/harnesses/oh-my-pi.md`](../extra/harnesses/oh-my-pi.md).
 - Where per-user credentials come from and how `env` is built for the SDK, and
   the tech/non-tech role logic behind the planning-prompt split →
   [`./auth-and-multi-user.md`](./auth-and-multi-user.md).
-- Concrete `omp` integration patterns (subprocess lifecycle, event mapping,
-  transcript mirroring, credential delegation) → [`./harnesses/omp.md`](./harnesses/omp.md).
+- Concrete `oh-my-pi` integration patterns (subprocess lifecycle, event mapping,
+  transcript mirroring, credential delegation) → [`./harnesses/oh-my-pi.md`](./harnesses/oh-my-pi.md).
 - The `startAgentRun` entry point itself, chaining, and the run/conversation row
   lifecycle → [`../core/orchestration-loop.md`](../core/orchestration-loop.md).
 - The prompt *content* and the agents' behavioral contracts →

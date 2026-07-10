@@ -2,7 +2,7 @@ use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(tag = "type", rename_all = "snake_case")]
-pub enum OmpRpcEvent {
+pub enum ProviderEvent {
     SessionStart {
         session_id: String,
     },
@@ -100,10 +100,10 @@ impl ResumeInput {
     }
 }
 
-impl OmpRpcEvent {
+impl ProviderEvent {
     pub fn session_id(&self) -> Option<&str> {
         match self {
-            OmpRpcEvent::SessionStart { session_id } => Some(session_id),
+            ProviderEvent::SessionStart { session_id } => Some(session_id),
             _ => None,
         }
     }

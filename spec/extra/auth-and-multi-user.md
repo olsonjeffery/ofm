@@ -33,9 +33,9 @@ scopes every task/project/agent-run to the people allowed to see it, an
 the manual plan-review gate).
 
 **Scope note up front — this is *app-level* auth: who is allowed to use
-`ofm`.** It is **not** the `omp` provider credentials an agent needs to
+`ofm`.** It is **not** the `oh-my-pi` provider credentials an agent needs to
 actually run a turn. Those are a different concern and live in the harness spec
-([`harnesses/omp.md`](./harnesses/omp.md)) and in
+([`harnesses/oh-my-pi.md`](./harnesses/oh-my-pi.md)) and in
 [`prompt-and-model-customization.md`](./prompt-and-model-customization.md).
 The seam: this spec resolves *which user* a request belongs to; those specs
 resolve *which model credentials* that user runs agents with.
@@ -593,8 +593,8 @@ become per-user / membership-gated:
 
 ## Boundaries (not in this spec)
 
-- **`omp` provider credentials** — how a resolved user's configured `models.yml`
-  authenticates an agent turn → [`harnesses/omp.md`](./harnesses/omp.md).
+- **`oh-my-pi` provider credentials** — how a resolved user's configured `models.yml`
+  authenticates an agent turn → [`harnesses/oh-my-pi.md`](./harnesses/oh-my-pi.md).
 - **Per-user provider/model selection**, the provider-connect flow, and the
   first-login provider modal that flips `has_completed_onboarding` →
   [`prompt-and-model-customization.md`](./prompt-and-model-customization.md).

@@ -10,7 +10,7 @@
 - When blocking I/O is unavoidable (e.g. reading from a PTY), use
   `tokio::task::spawn_blocking`. The blocking task reads from the I/O source
   and sends events through an `mpsc::Sender` via `blocking_send`. See
-  `spawn_reader` in `src/omp/mod.rs` for a concrete example.
+   `spawn_reader` in `src/providers/oh_my_pi/mod.rs` for a concrete example.
 
 ## UI Conventions
 

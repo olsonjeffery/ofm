@@ -125,7 +125,7 @@ keeps the loop dumb and reliable (see
 
 For `ofm`:
 
-> **`omp` can handle this through the `npm:pi-playwright` package
+> **`oh-my-pi` can handle this through the `npm:pi-playwright` package
 
 ## Reference map
 
