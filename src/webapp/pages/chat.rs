@@ -24,6 +24,11 @@ pub fn ChatPage(
         .map(|s| s.agent_type.clone())
         .collect();
 
+    let is_running = current_run
+        .as_ref()
+        .map(|r| r.status == crate::db::schema::RunStatus::Running)
+        .unwrap_or(false);
+
     let messages = Vec::new();
 
     view! {
@@ -59,10 +64,15 @@ pub fn ChatPage(
                             // handled by JS interop
                         })
                         agent_types=agent_types
-                        disabled=false
+                        disabled=is_running
                         _active_conversation_id=None
                         task_id=task_id
                     />
+                    <div id="agent-thinking-bar" class={if is_running { "is-active" } else { "" }} style="display:none;padding:0.5rem 1rem;background:#f5f5f5;border-top:1px solid #ddd">
+                        <span class="icon has-text-info" style="margin-right:0.5rem"><i class="mdi mdi-loading mdi-spin"></i></span>
+                        <span class="has-text-info">Agent is processing...</span>
+                        <button id="stop-agent-btn" class="button is-small is-danger is-light" style="margin-left:auto" onclick="abortCurrentTurn()">"Stop"</button>
+                    </div>
                 </div>
             </div>
         </section>
@@ -71,6 +81,28 @@ pub fn ChatPage(
 document.addEventListener('DOMContentLoaded', function() {
     var currentConversationId = null;
     var taskId = document.getElementById('chat-form')?.getAttribute('data-task-id');
+    var isProcessing = false;
+
+    function setProcessing(processing) {
+        isProcessing = processing;
+        var bar = document.getElementById('agent-thinking-bar');
+        var input = document.getElementById('chat-message-input');
+        var sendBtn = document.querySelector('#chat-form button');
+        if (bar) bar.style.display = processing ? 'flex' : 'none';
+        if (input) input.disabled = processing;
+        if (sendBtn) sendBtn.disabled = processing;
+    }
+
+    // Stop button
+    window.abortCurrentTurn = function() {
+        if (!currentConversationId || !taskId) return;
+        setProcessing(false);
+        apiCall('/api/tasks/' + taskId + '/conversations/' + currentConversationId + '/abort', {
+            method: 'POST'
+        }).then(function(r) {
+            if (!r.ok) showMessage('Failed to abort');
+        });
+    };
 
     window.handleConversationClick = function(e) {
         var card = e.target.closest('[data-conversation-id]');
@@ -166,15 +198,32 @@ document.addEventListener('DOMContentLoaded', function() {
 
     function renderServerEvent(msg) {
         switch (msg.event_type) {
+            case 'response':
+            case 'ready':
+            case 'start':
+            case 'extension_ui_request':
+            case 'available_commands_update': return '';
             case 'text': return '<div class="box message-text"><div class="content">' + escapeHtml(msg.payload.text || '') + '</div></div>';
-            case 'text_chunk': return '<span class="message-chunk">' + escapeHtml(msg.payload.delta || '') + '</span>';
+            case 'text_chunk':
+                if (msg.payload.delta) {
+                    setProcessing(true);
+                    return '<span class="message-chunk">' + escapeHtml(msg.payload.delta) + '</span>';
+                }
+                return '';
             case 'tool_use': return '<div class="card"><div class="card-content"><span class="tag is-info is-light">' + escapeHtml(msg.payload.tool_name || '') + '</span> <code>' + (msg.payload.tool_use_id || '') + '</code><pre>' + escapeHtml(JSON.stringify(msg.payload.input, null, 2)) + '</pre></div></div>';
             case 'tool_result': return '<div class="card"><div class="card-content"><span class="tag is-success is-light">result</span> <code>' + (msg.payload.tool_use_id || '') + '</code><pre>' + escapeHtml(msg.payload.result || '') + '</pre></div></div>';
             case 'thinking': return '<div class="box message-thinking"><em style="color:#888;">' + escapeHtml(msg.payload.thinking || '') + '</em></div>';
-            case 'thinking_chunk': return '<span style="color:#888;font-style:italic;">' + escapeHtml(msg.payload.delta || '') + '</span>';
+            case 'thinking_chunk':
+                if (msg.payload.delta) {
+                    setProcessing(true);
+                    return '<span style="color:#888;font-style:italic;">' + escapeHtml(msg.payload.delta) + '</span>';
+                }
+                return '';
             case 'context_usage': return '<div class="notification is-light is-small">' + escapeHtml(JSON.stringify(msg.payload.usage || {})) + '</div>';
             case 'error': return '<div class="notification is-danger is-light">' + escapeHtml(msg.payload.error || '') + '</div>';
-            case 'done': return '<div class="notification is-success is-light">Done</div>';
+            case 'done':
+                setProcessing(false);
+                return '<div class="notification is-success is-light">Done</div>';
             default: return '';
         }
     }

@@ -31,6 +31,7 @@ pub fn conversations_router() -> Router<AppState> {
         .route("/", get(list_conversations))
         .route("/{id}", get(get_conversation))
         .route("/{id}/messages", post(send_message))
+        .route("/{id}/abort", post(abort_turn))
 }
 
 async fn list_conversations(
@@ -261,4 +262,29 @@ async fn send_message(
             "No active provider session for this conversation".into(),
         )),
     }
+}
+
+async fn abort_turn(
+    auth: AuthUser,
+    State(state): State<AppState>,
+    Path((task_id, conv_id)): Path<(i64, Uuid)>,
+) -> Result<StatusCode, ServerError> {
+    let task = tasks::get_task(&state.db, task_id)
+        .await
+        .map_err(|_| ServerError::NotFound("Task not found".into()))?;
+    if task.user_id != auth.user_id {
+        return Err(ServerError::NotFound("Task not found".into()));
+    }
+
+    let sessions = state.active_sessions.lock().await;
+    let provider = sessions
+        .get(&conv_id.to_string())
+        .ok_or_else(|| ServerError::NotFound("No active session".into()))?;
+
+    provider
+        .abort_turn()
+        .await
+        .map_err(|e| ServerError::Internal(e.to_string()))?;
+
+    Ok(StatusCode::OK)
 }

@@ -56,7 +56,13 @@ impl OhMyPiSession {
         input: &TurnInput,
         tx: mpsc::Sender<ProviderEvent>,
     ) -> Result<(), BoxError> {
-        self.send_input_and_read(input, tx)
+        let cmd = serde_json::json!({
+            "id": "req_1",
+            "type": "prompt",
+            "message": input.prompt,
+            "streamingBehavior": "steer",
+        });
+        self.send_raw(&serde_json::to_string(&cmd)?, tx)
     }
 
     pub fn resume_turn(
@@ -64,19 +70,35 @@ impl OhMyPiSession {
         input: &ResumeInput,
         tx: mpsc::Sender<ProviderEvent>,
     ) -> Result<(), BoxError> {
-        self.send_input_and_read(input, tx)
+        let last_message = input
+            .messages
+            .as_array()
+            .and_then(|arr| arr.last())
+            .and_then(|m| m.get("text"))
+            .and_then(|t| t.as_str())
+            .unwrap_or("");
+        let cmd = serde_json::json!({
+            "id": "req_2",
+            "type": "prompt",
+            "message": last_message,
+            "streamingBehavior": "followUp",
+        });
+        self.send_raw(&serde_json::to_string(&cmd)?, tx)
     }
 
-    fn send_input_and_read<T: serde::Serialize>(
-        &mut self,
-        input: &T,
-        tx: mpsc::Sender<ProviderEvent>,
-    ) -> Result<(), BoxError> {
+    pub fn abort_turn(&mut self) -> Result<(), BoxError> {
+        if let Some(writer) = self.writer.as_mut() {
+            writeln!(writer, r#"{{"type":"abort"}}"#)?;
+            writer.flush()?;
+        }
+        Ok(())
+    }
+
+    fn send_raw(&mut self, json: &str, tx: mpsc::Sender<ProviderEvent>) -> Result<(), BoxError> {
         if self.writer.is_none() {
             self.writer = Some(self.pair.master.take_writer()?);
         }
         let writer = self.writer.as_mut().unwrap();
-        let json = serde_json::to_string(input)?;
         writeln!(writer, "{json}")?;
         writer.flush()?;
 
@@ -124,10 +146,17 @@ fn parse_provider_event(line: &str) -> Option<ProviderEvent> {
             }
             return None;
         }
+        "agent_end" => {
+            return Some(ProviderEvent::Done(val));
+        }
+        "message_end" => {
+            if let Some(text) = extract_assistant_text(&val) {
+                return Some(ProviderEvent::Text { text });
+            }
+            return None;
+        }
         "message_start"
-        | "message_end"
         | "agent_start"
-        | "agent_end"
         | "turn_start"
         | "turn_end"
         | "tool_execution_start"
@@ -192,6 +221,25 @@ fn parse_assistant_message_event(val: &serde_json::Value) -> Option<ProviderEven
             return None;
         }
     })
+}
+
+fn extract_assistant_text(val: &serde_json::Value) -> Option<String> {
+    let content = val.get("message")?.get("content")?.as_array()?;
+    let texts: Vec<String> = content
+        .iter()
+        .filter_map(|block| {
+            if block.get("type")?.as_str()? == "text" {
+                block.get("text")?.as_str().map(|s| s.to_string())
+            } else {
+                None
+            }
+        })
+        .collect();
+    if texts.is_empty() {
+        None
+    } else {
+        Some(texts.join(""))
+    }
 }
 
 fn spawn_reader(
