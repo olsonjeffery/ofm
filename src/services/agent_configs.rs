@@ -11,20 +11,19 @@ pub async fn create_or_update_agent_config(
     provider_config_ref: &str,
     scope_type: &ScopeType,
     user_id: Option<&Uuid>,
-    project_id: Option<&Uuid>,
+    project_id: Option<i64>,
     model: Option<&str>,
     effort: Option<&str>,
 ) -> Result<AgentHarnessConfig, hiqlite::Error> {
     let now = chrono::Utc::now().naive_utc().to_string();
     let user_id_str = user_id.map(|u| u.to_string());
-    let project_id_str = project_id.map(|p| p.to_string());
 
     let existing = client
         .query_map_one::<AgentHarnessConfig, _>(
             "SELECT id, agent_type, harness, provider_config_ref, scope_type, user_id, project_id, model, effort, created_at, updated_at \
              FROM agent_harness_configs \
-             WHERE agent_type = $1 AND scope_type = $2 AND COALESCE(user_id, '') = COALESCE($3, '') AND COALESCE(project_id, '') = COALESCE($4, '')",
-            hiqlite::params!(agent_type.to_string(), scope_type.to_string(), &user_id_str, &project_id_str),
+             WHERE agent_type = $1 AND scope_type = $2 AND COALESCE(user_id, '') = COALESCE($3, '') AND COALESCE(project_id, -1) = COALESCE($4, -1)",
+            hiqlite::params!(agent_type.to_string(), scope_type.to_string(), &user_id_str, project_id),
         )
         .await;
 
@@ -51,7 +50,7 @@ pub async fn create_or_update_agent_config(
                         provider_config_ref,
                         scope_type.to_string(),
                         user_id_str,
-                        project_id_str,
+                        project_id,
                         model,
                         effort,
                         &now,
@@ -78,13 +77,12 @@ pub async fn get_agent_config(
 
 pub async fn list_agent_configs(
     client: &Client,
-    project_id: Option<&Uuid>,
+    project_id: Option<i64>,
 ) -> Result<Vec<AgentHarnessConfig>, hiqlite::Error> {
-    let project_id_str = project_id.map(|p| p.to_string());
     client
         .query_map::<AgentHarnessConfig, _>(
             "SELECT id, agent_type, harness, provider_config_ref, scope_type, user_id, project_id, model, effort, created_at, updated_at FROM agent_harness_configs WHERE project_id = $1 OR project_id IS NULL ORDER BY scope_type, agent_type",
-            hiqlite::params!(project_id_str),
+            hiqlite::params!(project_id),
         )
         .await
 }

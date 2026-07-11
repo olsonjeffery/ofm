@@ -260,7 +260,6 @@ pub fn TaskDetailPage(
 mod tests {
     use super::*;
     use chrono::NaiveDateTime;
-    use uuid::Uuid;
 
     fn empty_statuses() -> Vec<AgentConfigStatus> {
         vec![]
@@ -268,9 +267,9 @@ mod tests {
 
     fn make_task() -> Task {
         Task {
-            id: Uuid::new_v4(),
-            project_id: Uuid::new_v4(),
-            user_id: Uuid::new_v4(),
+            id: 1,
+            project_id: 1,
+            user_id: uuid::Uuid::new_v4(),
             title: "Implement feature X".into(),
             status: "in_progress".into(),
             workflow_complete: false,
@@ -287,8 +286,8 @@ mod tests {
 
     fn make_run(agent_type: AgentType, status: RunStatus) -> TaskAgentRun {
         TaskAgentRun {
-            id: Uuid::new_v4(),
-            task_id: Uuid::new_v4(),
+            id: uuid::Uuid::new_v4(),
+            task_id: 1,
             agent_type,
             status,
             conversation_id: None,

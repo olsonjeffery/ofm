@@ -47,7 +47,7 @@ mod tests {
 
     fn make_project() -> Project {
         Project {
-            id: uuid::Uuid::parse_str("00000000-0000-0000-0000-000000000001").unwrap(),
+            id: 1,
             user_id: uuid::Uuid::new_v4(),
             name: "Test Project".into(),
             repo_folder_path: "/tmp/test-repo".into(),
@@ -74,7 +74,7 @@ mod tests {
         assert!(html.contains("1 in progress"));
         assert!(html.contains("2 in review"));
         assert!(html.contains("5 completed"));
-        assert!(html.contains("/webapp/projects/00000000-0000-0000-0000-000000000001"));
+        assert!(html.contains("/webapp/projects/1"));
     }
 
     #[test]

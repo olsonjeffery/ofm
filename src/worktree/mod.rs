@@ -1,7 +1,6 @@
 use std::path::{Path, PathBuf};
 
 use tokio::process::Command;
-use uuid::Uuid;
 
 pub struct CreateWorktreeResult {
     pub worktree_path: PathBuf,
@@ -20,12 +19,6 @@ pub fn sanitize_title(title: &str) -> String {
     }
     s.truncate(30);
     s
-}
-
-/// XOR-fold a UUID's 128 bits into a 32-bit integer for worktree path/branch naming.
-pub fn uuid_to_u32(uuid: &Uuid) -> u32 {
-    let v = uuid.as_u128();
-    (v as u32) ^ ((v >> 32) as u32) ^ ((v >> 64) as u32) ^ ((v >> 96) as u32)
 }
 
 pub fn valid_branch_name(name: &str) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
@@ -47,7 +40,7 @@ pub fn valid_branch_name(name: &str) -> Result<(), Box<dyn std::error::Error + S
     Ok(())
 }
 
-pub fn get_worktree_path(repo_path: &str, project_id: u32, task_id: u32) -> PathBuf {
+pub fn get_worktree_path(repo_path: &str, project_id: i64, task_id: i64) -> PathBuf {
     let worktrees_root = format!("{}-worktrees", repo_path.trim_end_matches('/'));
     PathBuf::from(worktrees_root).join(format!("project-{project_id}/task-{task_id}/"))
 }
@@ -90,8 +83,8 @@ pub async fn detect_default_branch(
 
 pub async fn create_worktree(
     repo_path: &str,
-    project_id: u32,
-    task_id: u32,
+    project_id: i64,
+    task_id: i64,
     title: &str,
     base_branch: Option<&str>,
 ) -> Result<CreateWorktreeResult, Box<dyn std::error::Error + Send + Sync>> {
@@ -209,8 +202,8 @@ async fn copy_dependencies_background(repo_path: &str, project_path: &Path) {
 
 pub async fn remove_worktree(
     repo_path: &str,
-    project_id: u32,
-    task_id: u32,
+    project_id: i64,
+    task_id: i64,
 ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     let worktree_path = get_worktree_path(repo_path, project_id, task_id);
 

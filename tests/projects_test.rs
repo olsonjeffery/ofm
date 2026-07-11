@@ -79,7 +79,7 @@ async fn test_create_project() {
     let body: serde_json::Value = resp.json().await.unwrap();
     assert_eq!(body["name"], "test-project");
     assert_eq!(body["repo_folder_path"], "/tmp/test-repo");
-    assert!(body["id"].as_str().unwrap().len() > 0);
+    assert!(body["id"].as_i64().unwrap() > 0);
 }
 
 #[tokio::test]
@@ -159,7 +159,7 @@ async fn test_get_project() {
         .unwrap();
 
     let created: serde_json::Value = create_resp.json().await.unwrap();
-    let project_id = created["id"].as_str().unwrap().to_string();
+    let project_id: i64 = created["id"].as_i64().unwrap();
 
     let resp = client()
         .get(format!("{}/api/projects/{}", addr, project_id))
@@ -169,7 +169,7 @@ async fn test_get_project() {
 
     assert_eq!(resp.status(), 200);
     let body: serde_json::Value = resp.json().await.unwrap();
-    assert_eq!(body["id"], project_id);
+    assert_eq!(body["id"].as_i64().unwrap(), project_id);
     assert_eq!(body["name"], "test-project");
 }
 
@@ -177,10 +177,7 @@ async fn test_get_project() {
 async fn test_get_project_not_found() {
     let (addr, _handle) = setup_app().await;
     let resp = client()
-        .get(format!(
-            "{}/api/projects/00000000-0000-0000-0000-000000000000",
-            addr
-        ))
+        .get(format!("{}/api/projects/{}", addr, 99999))
         .send()
         .await
         .unwrap();
@@ -205,7 +202,7 @@ async fn test_update_project() {
         .unwrap();
 
     let created: serde_json::Value = create_resp.json().await.unwrap();
-    let project_id = created["id"].as_str().unwrap().to_string();
+    let project_id: i64 = created["id"].as_i64().unwrap();
 
     let resp = client()
         .put(format!("{}/api/projects/{}", addr, project_id))
@@ -225,10 +222,7 @@ async fn test_update_project() {
 async fn test_update_project_not_found() {
     let (addr, _handle) = setup_app().await;
     let resp = client()
-        .put(format!(
-            "{}/api/projects/00000000-0000-0000-0000-000000000000",
-            addr
-        ))
+        .put(format!("{}/api/projects/{}", addr, 99999))
         .json(&serde_json::json!({
             "name": "updated-name",
         }))
@@ -254,7 +248,7 @@ async fn test_update_project_empty_name() {
         .unwrap();
 
     let created: serde_json::Value = create_resp.json().await.unwrap();
-    let project_id = created["id"].as_str().unwrap().to_string();
+    let project_id: i64 = created["id"].as_i64().unwrap();
 
     let resp = client()
         .put(format!("{}/api/projects/{}", addr, project_id))
@@ -283,7 +277,7 @@ async fn test_delete_project() {
         .unwrap();
 
     let created: serde_json::Value = create_resp.json().await.unwrap();
-    let project_id = created["id"].as_str().unwrap().to_string();
+    let project_id: i64 = created["id"].as_i64().unwrap();
 
     let resp = client()
         .delete(format!("{}/api/projects/{}", addr, project_id))
@@ -300,10 +294,7 @@ async fn test_delete_project() {
 async fn test_delete_project_not_found() {
     let (addr, _handle) = setup_app().await;
     let resp = client()
-        .delete(format!(
-            "{}/api/projects/00000000-0000-0000-0000-000000000000",
-            addr
-        ))
+        .delete(format!("{}/api/projects/{}", addr, 99999))
         .send()
         .await
         .unwrap();
@@ -326,7 +317,7 @@ async fn test_delete_then_get_returns_404() {
         .unwrap();
 
     let created: serde_json::Value = create_resp.json().await.unwrap();
-    let project_id = created["id"].as_str().unwrap().to_string();
+    let project_id: i64 = created["id"].as_i64().unwrap();
 
     client()
         .delete(format!("{}/api/projects/{}", addr, project_id))

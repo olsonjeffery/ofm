@@ -99,7 +99,7 @@ pub fn BoardPage(project: Project, tasks: Vec<Task>) -> impl IntoView {
                 var createForm=document.getElementById('create-task-form');
                 if(createForm)createForm.addEventListener('submit',function(ev){
                     ev.preventDefault();
-                    var projectId=window.location.pathname.split('/').pop();
+                    var projectId=parseInt(window.location.pathname.split('/').pop(),10);
                     var data={
                         project_id: projectId,
                         title: createForm.querySelector('[name=title]').value,
@@ -117,12 +117,11 @@ pub fn BoardPage(project: Project, tasks: Vec<Task>) -> impl IntoView {
 mod tests {
     use super::*;
     use chrono::NaiveDateTime;
-    use uuid::Uuid;
 
     fn make_project() -> Project {
         Project {
-            id: Uuid::new_v4(),
-            user_id: Uuid::new_v4(),
+            id: 1,
+            user_id: uuid::Uuid::new_v4(),
             name: "Test Project".into(),
             repo_folder_path: "/tmp/repo".into(),
             subproject_path: None,
@@ -133,9 +132,9 @@ mod tests {
 
     fn make_task(status: &str) -> Task {
         Task {
-            id: Uuid::new_v4(),
-            project_id: Uuid::new_v4(),
-            user_id: Uuid::new_v4(),
+            id: 1,
+            project_id: 1,
+            user_id: uuid::Uuid::new_v4(),
             title: format!("Task-{}", status),
             status: status.into(),
             workflow_complete: false,

@@ -152,16 +152,16 @@ async fn dashboard_handler(
 async fn board_handler(
     auth: AuthUser,
     State(state): State<AppState>,
-    Path(project_id): Path<Uuid>,
+    Path(project_id): Path<i64>,
 ) -> Result<Html<String>, ServerError> {
     let user_json = serde_json::to_string(&auth).unwrap_or_default();
-    let project = services::projects::get_project(&state.db, &project_id)
+    let project = services::projects::get_project(&state.db, project_id)
         .await
         .map_err(|_| ServerError::NotFound("Project not found".into()))?;
     if project.user_id != auth.user_id {
         return Err(ServerError::NotFound("Project not found".into()));
     }
-    let tasks = services::tasks::list_tasks(&state.db, &project_id)
+    let tasks = services::tasks::list_tasks(&state.db, project_id)
         .await
         .map_err(|e| ServerError::Internal(e.to_string()))?;
     let page_html = leptos::view! { <pages::board::BoardPage project tasks /> }.to_html();
@@ -171,22 +171,22 @@ async fn board_handler(
 async fn task_detail_handler(
     auth: AuthUser,
     State(state): State<AppState>,
-    Path((project_id, task_id)): Path<(Uuid, Uuid)>,
+    Path((project_id, task_id)): Path<(i64, i64)>,
 ) -> Result<Html<String>, ServerError> {
     let user_json = serde_json::to_string(&auth).unwrap_or_default();
 
-    let project = services::projects::get_project(&state.db, &project_id)
+    let project = services::projects::get_project(&state.db, project_id)
         .await
         .map_err(|_| ServerError::NotFound("Project not found".into()))?;
     if project.user_id != auth.user_id {
         return Err(ServerError::NotFound("Project not found".into()));
     }
 
-    let task = services::tasks::get_task(&state.db, &task_id)
+    let task = services::tasks::get_task(&state.db, task_id)
         .await
         .map_err(|_| ServerError::NotFound("Task not found".into()))?;
 
-    let worktree = services::tasks::get_worktree_by_task(&state.db, &task_id)
+    let worktree = services::tasks::get_worktree_by_task(&state.db, task_id)
         .await
         .ok();
 
@@ -199,7 +199,7 @@ async fn task_detail_handler(
         archive.read_task_doc(&doc_path).ok()
     });
 
-    let agent_runs = services::tasks::list_agent_runs_for_task(&state.db, &task_id)
+    let agent_runs = services::tasks::list_agent_runs_for_task(&state.db, task_id)
         .await
         .map_err(|e| ServerError::Internal(e.to_string()))?;
 
@@ -221,10 +221,10 @@ async fn task_detail_handler(
 async fn compute_task_counts(
     db: &hiqlite::Client,
     projects: &[crate::db::schema::Project],
-) -> std::collections::HashMap<Uuid, TaskCounts> {
-    let mut counts = std::collections::HashMap::new();
+) -> HashMap<i64, TaskCounts> {
+    let mut counts = HashMap::new();
     for project in projects {
-        let tasks = services::tasks::list_tasks(db, &project.id)
+        let tasks = services::tasks::list_tasks(db, project.id)
             .await
             .unwrap_or_default();
         let mut tc = TaskCounts::default();
