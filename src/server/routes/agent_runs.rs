@@ -39,6 +39,12 @@ async fn post_create_agent_run(
 ) -> Result<(StatusCode, Json<TaskAgentRun>), ServerError> {
     let agent_type = AgentType::from_str(&body.agent_type).map_err(ServerError::BadRequest)?;
 
+    tracing::info!(
+        task_id = %task_id,
+        agent_type = %body.agent_type,
+        "Starting agent run"
+    );
+
     let task = tasks::get_task(&state.db, task_id)
         .await
         .map_err(|_| ServerError::NotFound("Task not found".into()))?;
@@ -53,8 +59,23 @@ async fn post_create_agent_run(
     )
     .await
     {
-        Ok(cfg) => cfg,
-        Err(_) => {
+        Ok(cfg) => {
+            tracing::debug!(
+                task_id = %task_id,
+                agent_type = %body.agent_type,
+                model = ?cfg.model,
+                effort = ?cfg.effort,
+                "Resolved provider config"
+            );
+            cfg
+        }
+        Err(e) => {
+            tracing::warn!(
+                task_id = %task_id,
+                agent_type = %body.agent_type,
+                error = %e,
+                "No provider config found, creating blocked run"
+            );
             let run = tasks::create_agent_run_blocked(&state.db, task_id, &agent_type)
                 .await
                 .map_err(|e| ServerError::Internal(e.to_string()))?;
@@ -86,10 +107,19 @@ async fn post_create_agent_run(
             .await
             .map_err(|e| match &e {
                 hiqlite::Error::ConstraintViolation(_) => {
+                    tracing::warn!(task_id = %task_id, agent_type = %body.agent_type, "Agent already running for this task");
                     ServerError::Conflict("an agent is already running for this task".into())
                 }
                 _ => ServerError::Internal(e.to_string()),
             })?;
+
+    tracing::info!(
+        task_id = %task_id,
+        agent_type = %body.agent_type,
+        conversation_id = %session_result.conversation_id,
+        session_id = %session_result.session_id,
+        "Session created successfully"
+    );
 
     // Start and store provider, then begin turn
     match registry::resolve_provider(&harness_config, std::path::Path::new("omp"), &config_root)
@@ -356,23 +386,60 @@ async fn reset_agent_runs(
     State(state): State<AppState>,
     Path(task_id): Path<i64>,
 ) -> Result<StatusCode, ServerError> {
-    // Abort all active sessions and clear the map
-    let providers: Vec<_> = {
+    tracing::info!(task_id = %task_id, "Resetting agent runs for task");
+
+    // Get conversation IDs for this task's agent runs
+    let conv_ids: Vec<String> = state
+        .db
+        .query_raw(
+            "SELECT conversation_id FROM task_agent_runs WHERE task_id = $1 AND status = 'running' AND conversation_id IS NOT NULL",
+            hiqlite::params!(task_id),
+        )
+        .await
+        .map_err(|e| ServerError::Internal(e.to_string()))?
+        .into_iter()
+        .filter_map(|mut row| {
+            let conv_id: Option<String> = row.get("conversation_id");
+            conv_id
+        })
+        .collect();
+
+    tracing::info!(
+        task_id = %task_id,
+        conversation_count = conv_ids.len(),
+        "Found active sessions to reset"
+    );
+
+    // Only clear sessions for this task's conversations
+    let mut providers_to_shutdown = Vec::new();
+    {
         let mut sessions = state.active_sessions.lock().await;
-        sessions.drain().map(|(_, p)| p).collect()
-    };
-    for mut p in providers {
-        let _ = p.shutdown().await;
+        for conv_id in &conv_ids {
+            if let Some(provider) = sessions.remove(conv_id) {
+                providers_to_shutdown.push(provider);
+                tracing::debug!(task_id = %task_id, conversation_id = %conv_id, "Removed session from active_sessions");
+            }
+        }
+    }
+
+    // Shutdown the removed providers
+    for mut p in providers_to_shutdown {
+        if let Err(e) = p.shutdown().await {
+            tracing::warn!(task_id = %task_id, error = %e, "Error shutting down provider during reset");
+        }
     }
 
     // Mark all running runs for this task as failed
-    let _ = state
+    let affected = state
         .db
         .execute(
-            "UPDATE task_agent_runs SET status = 'failed' WHERE task_id = $1 AND status = 'running'",
-            hiqlite::params!(task_id),
+            "UPDATE task_agent_runs SET status = 'failed', completed_at = $2 WHERE task_id = $1 AND status = 'running'",
+            hiqlite::params!(task_id, chrono::Utc::now().naive_utc().to_string()),
         )
-        .await;
+        .await
+        .map_err(|e| ServerError::Internal(e.to_string()))?;
+
+    tracing::info!(task_id = %task_id, affected_runs = affected, "Marked running runs as failed");
 
     // Broadcast reset notification
     let topic = crate::server::ws::message::WsTopic {

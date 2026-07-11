@@ -74,6 +74,7 @@ pub struct OfmConfig {
     pub hiqlite_api_port: u16,
     pub rauthy_enabled: bool,
     pub rauthy_port: u16,
+    pub logging_config_path: Option<String>,
 }
 
 const OFM_OIDC_ISSUER_URL: &str = "OFM_OIDC_ISSUER_URL";
@@ -99,6 +100,7 @@ impl OfmConfig {
         });
         let url =
             std::env::var("OFM_URL").unwrap_or_else(|_| format!("http://{}:{}", hostname, port));
+        let logging_config_path = env_opt_or("OFM_LOGGING_CONFIG");
         Self {
             hostname,
             port,
@@ -117,6 +119,7 @@ impl OfmConfig {
             hiqlite_api_port: env_u16("OFM_HIQLITE_API_PORT").unwrap_or(8200),
             rauthy_enabled: env_bool("OFM_RAUTHY_ENABLED").unwrap_or(false),
             rauthy_port: env_u16("OFM_RAUTHY_PORT").unwrap_or(0),
+            logging_config_path,
         }
     }
 
@@ -221,6 +224,16 @@ impl OfmConfig {
         let archive_root = format!("{footprint}/archive");
         let data_dir = format!("{footprint}/hiqlite");
 
+        // Check for logging config file
+        let logging_config_path = env_opt_or("OFM_LOGGING_CONFIG").or_else(|| {
+            let log_config = format!("{config_root}/logging.json");
+            if std::path::Path::new(&log_config).exists() {
+                Some(log_config)
+            } else {
+                None
+            }
+        });
+
         if yaml_path.is_none() {
             let yaml_out = OfmConfigFile {
                 server: Some(GroupServer {
@@ -266,6 +279,7 @@ impl OfmConfig {
             hiqlite_api_port,
             rauthy_enabled,
             rauthy_port,
+            logging_config_path,
         }
     }
 }

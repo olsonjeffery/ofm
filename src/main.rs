@@ -70,9 +70,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         return Ok(());
     }
 
-    logging::init();
-
     let cfg = config::OfmConfig::load();
+
+    let logging_config = cfg.logging_config_path.as_ref().map(|p| std::path::PathBuf::from(p));
+    logging::init_with_config(logging_config.as_ref());
 
     // DB setup
     std::fs::create_dir_all(&cfg.data_dir)?;

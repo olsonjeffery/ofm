@@ -40,4 +40,18 @@ mod tests {
         assert!(html.contains("navbar"));
         assert!(html.contains("materialdesignicons"));
     }
+
+    #[test]
+    fn test_shell_page_main_tag_exact_match() {
+        let user_json: Option<String> = None;
+        let html = leptos::view! { <ShellPage user_json /> }.to_html();
+        let search = "<main></main>";
+        // Print the actual main tag for debugging
+        for line in html.lines() {
+            if line.contains("<main") {
+                eprintln!("ACTUAL MAIN TAG: [{}]", line);
+            }
+        }
+        assert!(html.contains(search), "Shell HTML does not contain exact main tag match. Search: {}", search);
+    }
 }

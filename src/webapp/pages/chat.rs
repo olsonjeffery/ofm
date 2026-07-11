@@ -14,6 +14,7 @@ pub fn ChatPage(
     conversations: Vec<ConversationWithRun>,
     agent_config_statuses: Vec<AgentConfigStatus>,
     current_run: Option<TaskAgentRun>,
+    agent_runs: Vec<TaskAgentRun>,
 ) -> impl IntoView {
     let _project_id_str = project_id.to_string();
     let _task_id_str = task_id.to_string();
@@ -48,7 +49,7 @@ pub fn ChatPage(
                 </div>
             </div>
 
-            <AgentRunBanner task=task agent_config_statuses=agent_config_statuses.clone() current_run=current_run />
+            <AgentRunBanner task=task agent_config_statuses=agent_config_statuses.clone() current_run=current_run agent_runs=agent_runs />
 
             <div class="columns" style="margin-top:0.5rem;min-height:60vh">
                 <div class="column is-one-quarter" style="border-right:1px solid #ddd">
@@ -167,18 +168,38 @@ document.addEventListener('DOMContentLoaded', function() {
 
     document.getElementById('start-agent-run-btn')?.addEventListener('click', function() {
         var btn = this;
+        var phase = btn.getAttribute('data-next-phase');
+        if (!phase) { showMessage('No phase to start'); return; }
         btn.disabled = true;
         btn.classList.add('is-loading');
         apiCall('/api/tasks/' + taskId + '/agent-runs', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ agent_type: 'implementation' })
+            body: JSON.stringify({ agent_type: phase })
         }).then(function(r) {
             if (r.ok) { window.location.reload(); }
             else { showMessage('Failed to start agent run'); }
         }).finally(function() {
             btn.disabled = false;
             btn.classList.remove('is-loading');
+        });
+    });
+
+    // Clickable phase tags - start that specific agent
+    document.querySelectorAll('.tags span[data-agent-type]').forEach(function(tag) {
+        tag.addEventListener('click', function() {
+            var agentType = this.getAttribute('data-agent-type');
+            var tagTaskId = this.getAttribute('data-task-id');
+            if (!agentType || !tagTaskId) return;
+            this.classList.add('is-loading');
+            apiCall('/api/tasks/' + tagTaskId + '/agent-runs', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ agent_type: agentType })
+            }).then(function(r) {
+                if (r.ok) { window.location.reload(); }
+                else { showMessage('Failed to start ' + agentType); }
+            });
         });
     });
 
@@ -340,12 +361,13 @@ mod tests {
                 conversations=Vec::new()
                 agent_config_statuses=Vec::new()
                 current_run=None
+                agent_runs=Vec::new()
             />
         }
         .to_html();
         assert!(html.contains("Chat Test Task"));
         assert!(html.contains("Chat"));
         assert!(html.contains("Conversations"));
-        assert!(html.contains("Start Agent Run"));
+        assert!(html.contains("Start Planification"));
     }
 }

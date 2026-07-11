@@ -92,6 +92,12 @@ async fn send_message(
     Path((task_id, conv_id)): Path<(i64, Uuid)>,
     Json(body): Json<SendMessageRequest>,
 ) -> Result<StatusCode, ServerError> {
+    tracing::info!(
+        task_id = %task_id,
+        conversation_id = %conv_id,
+        "Sending message to resume session"
+    );
+
     let task = tasks::get_task(&state.db, task_id)
         .await
         .map_err(|_| ServerError::NotFound("Task not found".into()))?;
@@ -138,9 +144,23 @@ async fn send_message(
 
     match provider {
         Some(p) => {
+            tracing::debug!(
+                task_id = %task_id,
+                conversation_id = %conv_id,
+                session_id = %omp_session_id,
+                "Found active provider, loading transcript"
+            );
+
             let messages = transcript::load_transcript(&state.db, &omp_session_id, task_id)
                 .await
                 .map_err(|e| ServerError::Internal(e.to_string()))?;
+
+            tracing::debug!(
+                task_id = %task_id,
+                conversation_id = %conv_id,
+                message_count = messages.len(),
+                "Loaded transcript"
+            );
 
             let messages_json = serde_json::to_value(&messages)
                 .map_err(|e| ServerError::Internal(e.to_string()))?;
@@ -149,6 +169,12 @@ async fn send_message(
 
             match p.resume_turn(resume_input).await {
                 Ok(mut rx) => {
+                    tracing::info!(
+                        task_id = %task_id,
+                        conversation_id = %conv_id,
+                        session_id = %omp_session_id,
+                        "Successfully resumed turn, spawning broadcast task"
+                    );
                     let db = state.db.clone();
                     let ws_bus = state.ws_bus.clone();
                     let active_sessions = state.active_sessions.clone();
@@ -270,15 +296,28 @@ async fn send_message(
                     });
                 }
                 Err(e) => {
-                    tracing::warn!("Failed to resume turn for conversation {conv_id}: {e}");
+                    tracing::warn!(
+                        task_id = %task_id,
+                        conversation_id = %conv_id,
+                        session_id = %omp_session_id,
+                        error = %e,
+                        "Failed to resume turn"
+                    );
                 }
             }
 
             Ok(StatusCode::OK)
         }
-        None => Err(ServerError::NotFound(
-            "No active provider session for this conversation".into(),
-        )),
+        None => {
+            tracing::warn!(
+                task_id = %task_id,
+                conversation_id = %conv_id,
+                "No active provider session found for conversation"
+            );
+            Err(ServerError::NotFound(
+                "No active provider session for this conversation".into(),
+            ))
+        }
     }
 }
 
@@ -287,6 +326,12 @@ async fn abort_turn(
     State(state): State<AppState>,
     Path((task_id, conv_id)): Path<(i64, Uuid)>,
 ) -> Result<StatusCode, ServerError> {
+    tracing::info!(
+        task_id = %task_id,
+        conversation_id = %conv_id,
+        "Aborting current turn"
+    );
+
     let task = tasks::get_task(&state.db, task_id)
         .await
         .map_err(|_| ServerError::NotFound("Task not found".into()))?;
@@ -297,12 +342,24 @@ async fn abort_turn(
     let sessions = state.active_sessions.lock().await;
     let provider = sessions
         .get(&conv_id.to_string())
-        .ok_or_else(|| ServerError::NotFound("No active session".into()))?;
+        .ok_or_else(|| {
+            tracing::warn!(task_id = %task_id, conversation_id = %conv_id, "No active session to abort");
+            ServerError::NotFound("No active session".into())
+        })?;
 
     provider
         .abort_turn()
         .await
-        .map_err(|e| ServerError::Internal(e.to_string()))?;
+        .map_err(|e| {
+            tracing::warn!(task_id = %task_id, conversation_id = %conv_id, error = %e, "Failed to abort turn");
+            ServerError::Internal(e.to_string())
+        })?;
+
+    tracing::info!(
+        task_id = %task_id,
+        conversation_id = %conv_id,
+        "Turn aborted successfully"
+    );
 
     Ok(StatusCode::OK)
 }
