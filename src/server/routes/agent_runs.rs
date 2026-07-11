@@ -205,11 +205,23 @@ async fn post_create_agent_run(
                                                 ProviderEvent::ContextUsage(usage) => {
                                                     ("context_usage".to_string(), serde_json::json!({"usage": usage}))
                                                 }
+                                                ProviderEvent::ExtensionUiRequest(data) => {
+                                                    ("extension_ui_request".to_string(), data.clone())
+                                                }
+                                                ProviderEvent::AvailableCommandsUpdate(data) => {
+                                                    ("available_commands_update".to_string(), data.clone())
+                                                }
+                                                ProviderEvent::Response(data) => {
+                                                    ("response".to_string(), data.clone())
+                                                }
                                                 ProviderEvent::Error { error } => {
                                                     ("error".to_string(), serde_json::json!({"error": error}))
                                                 }
                                                 ProviderEvent::Done(data) => {
                                                     ("done".to_string(), serde_json::json!({"data": data}))
+                                                }
+                                                ProviderEvent::Ready => {
+                                                    ("ready".to_string(), serde_json::json!({}))
                                                 }
                                             };
 

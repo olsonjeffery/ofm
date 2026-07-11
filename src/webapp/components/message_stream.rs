@@ -79,6 +79,20 @@ fn render_event(event: &ProviderEvent) -> String {
             )
         }
         ProviderEvent::SessionStart { .. } => String::new(),
+        ProviderEvent::Ready => String::new(),
+        ProviderEvent::ExtensionUiRequest(_) => String::new(),
+        ProviderEvent::AvailableCommandsUpdate(_) => String::new(),
+        ProviderEvent::Response(data) => {
+            let txt = data.as_str().unwrap_or("");
+            if txt.is_empty() {
+                String::new()
+            } else {
+                format!(
+                    r#"<div class="box message-text"><div class="content">{}</div></div>"#,
+                    txt
+                )
+            }
+        }
         ProviderEvent::Done(_) => {
             r#"<div class="notification is-success is-light">Done</div>"#.to_string()
         }

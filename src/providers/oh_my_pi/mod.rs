@@ -85,6 +85,106 @@ impl Drop for OhMyPiSession {
     }
 }
 
+fn parse_provider_event(line: &str) -> Option<ProviderEvent> {
+    if let Ok(event) = serde_json::from_str::<ProviderEvent>(line) {
+        return Some(event);
+    }
+
+    let val: serde_json::Value = serde_json::from_str(line).ok()?;
+    let type_name = val.get("type")?.as_str()?;
+
+    Some(match type_name {
+        "response" => ProviderEvent::Response(val),
+        "extension_ui_request" => ProviderEvent::ExtensionUiRequest(val),
+        "available_commands_update" => ProviderEvent::AvailableCommandsUpdate(val),
+        "extension_error" => ProviderEvent::Error {
+            error: val
+                .get("error")
+                .and_then(|e| e.as_str())
+                .unwrap_or("extension_error")
+                .to_string(),
+        },
+        "ready" => ProviderEvent::Ready,
+        "start" => return None,
+        "message_update" => {
+            if let Some(event) = val
+                .get("assistantMessageEvent")
+                .and_then(parse_assistant_message_event)
+            {
+                return Some(event);
+            }
+            return None;
+        }
+        "message_start"
+        | "message_end"
+        | "agent_start"
+        | "agent_end"
+        | "turn_start"
+        | "turn_end"
+        | "tool_execution_start"
+        | "tool_execution_end"
+        | "auto_compaction_start"
+        | "auto_compaction_end"
+        | "auto_retry_start"
+        | "auto_retry_end"
+        | "ttsr_triggered"
+        | "todo_reminder"
+        | "todo_auto_clear"
+        | "prompt_result"
+        | "command_output"
+        | "session_info_update"
+        | "config_update"
+        | "host_tool_call"
+        | "host_tool_cancel"
+        | "subagent_lifecycle"
+        | "subagent_progress"
+        | "subagent_event" => return None,
+        _ => {
+            tracing::debug!("oh-my-pi: unhandled event type: {type_name}");
+            return None;
+        }
+    })
+}
+
+fn parse_assistant_message_event(val: &serde_json::Value) -> Option<ProviderEvent> {
+    let event_type = val.get("type")?.as_str()?;
+    Some(match event_type {
+        "text_delta" => ProviderEvent::TextChunk {
+            delta: val.get("delta")?.as_str()?.to_string(),
+        },
+        "thinking_delta" => ProviderEvent::ThinkingChunk {
+            delta: val.get("delta")?.as_str()?.to_string(),
+        },
+        "tool_use_delta" => {
+            let name_str = val
+                .get("name")
+                .or_else(|| val.get("toolName"))
+                .and_then(|n| n.as_str())
+                .unwrap_or("unknown")
+                .to_string();
+            let id = val
+                .get("id")
+                .or_else(|| val.get("toolUseId"))
+                .and_then(|i| i.as_str())
+                .map(|s| s.to_string());
+            let input = val
+                .get("input")
+                .or_else(|| val.get("arguments"))
+                .cloned()
+                .unwrap_or(serde_json::Value::Null);
+            ProviderEvent::ToolUse {
+                tool_name: name_str,
+                tool_use_id: id,
+                input,
+            }
+        }
+        _ => {
+            tracing::debug!("oh-my-pi: unhandled assistant message event type: {event_type}");
+            return None;
+        }
+    })
+}
+
 fn spawn_reader(
     reader: Box<dyn std::io::Read + Send>,
     mut killer: Box<dyn portable_pty::ChildKiller + Send>,
@@ -120,22 +220,14 @@ fn spawn_reader(
                 continue;
             }
 
-            match serde_json::from_str::<ProviderEvent>(&line) {
-                Ok(event) => {
-                    let is_done = matches!(&event, ProviderEvent::Done(_));
-                    if tx.blocking_send(event).is_err() {
-                        let _ = killer.kill();
-                        return;
-                    }
-                    if is_done {
-                        return;
-                    }
+            if let Some(event) = parse_provider_event(&line) {
+                let is_done = matches!(&event, ProviderEvent::Done(_));
+                if tx.blocking_send(event).is_err() {
+                    let _ = killer.kill();
+                    return;
                 }
-                Err(e) => {
-                    tracing::warn!(
-                        "oh-my-pi: parse error on line of length {}: {e}",
-                        line.len()
-                    );
+                if is_done {
+                    return;
                 }
             }
         }
@@ -212,6 +304,17 @@ mod tests {
             ),
             (r#"{"type":"done"}"#, |e| {
                 matches!(e, ProviderEvent::Done(_))
+            }),
+            (r#"{"type":"ready"}"#, |e| matches!(e, ProviderEvent::Ready)),
+            (r#"{"type":"extension_ui_request","key":"val"}"#, |e| {
+                matches!(e, ProviderEvent::ExtensionUiRequest(_))
+            }),
+            (
+                r#"{"type":"available_commands_update","commands":[]}"#,
+                |e| matches!(e, ProviderEvent::AvailableCommandsUpdate(_)),
+            ),
+            (r#"{"type":"response","text":"hello"}"#, |e| {
+                matches!(e, ProviderEvent::Response(_))
             }),
         ];
 
