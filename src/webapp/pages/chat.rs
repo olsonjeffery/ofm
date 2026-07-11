@@ -73,6 +73,9 @@ pub fn ChatPage(
                         <span class="has-text-info">Agent is processing...</span>
                         <button id="stop-agent-btn" class="button is-small is-danger is-light" style="margin-left:auto" onclick="abortCurrentTurn()">"Stop"</button>
                     </div>
+                    <div style="padding:0.25rem 1rem;text-align:right">
+                        <button id="reset-agent-btn" class="button is-small is-warning is-light" onclick="resetAgentSession()">"Reset Session"</button>
+                    </div>
                 </div>
             </div>
         </section>
@@ -101,6 +104,21 @@ document.addEventListener('DOMContentLoaded', function() {
             method: 'POST'
         }).then(function(r) {
             if (!r.ok) showMessage('Failed to abort');
+        });
+    };
+
+    window.resetAgentSession = function() {
+        if (!taskId) return;
+        setProcessing(false);
+        apiCall('/api/tasks/' + taskId + '/agent-runs/reset', {
+            method: 'POST'
+        }).then(function(r) {
+            if (r.ok) {
+                showMessage('Session reset. You can now start a new agent run.');
+                setTimeout(function() { window.location.reload(); }, 2000);
+            } else {
+                showMessage('Failed to reset session');
+            }
         });
     };
 

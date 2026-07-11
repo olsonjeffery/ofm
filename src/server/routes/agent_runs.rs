@@ -27,7 +27,9 @@ struct StartAgentRunRequest {
 }
 
 pub fn agent_runs_router() -> Router<AppState> {
-    Router::new().route("/", post(post_create_agent_run).get(list_agent_runs))
+    Router::new()
+        .route("/", post(post_create_agent_run).get(list_agent_runs))
+        .route("/reset", post(reset_agent_runs))
 }
 
 async fn post_create_agent_run(
@@ -345,6 +347,44 @@ async fn post_create_agent_run(
         .map_err(orchestration::internal_err)?;
 
     Ok((StatusCode::CREATED, Json(run)))
+}
+
+async fn reset_agent_runs(
+    State(state): State<AppState>,
+    Path(task_id): Path<i64>,
+) -> Result<StatusCode, ServerError> {
+    // Abort all active sessions and clear the map
+    let providers: Vec<_> = {
+        let mut sessions = state.active_sessions.lock().await;
+        sessions.drain().map(|(_, p)| p).collect()
+    };
+    for mut p in providers {
+        let _ = p.shutdown().await;
+    }
+
+    // Mark all running runs for this task as failed
+    let _ = state
+        .db
+        .execute(
+            "UPDATE task_agent_runs SET status = 'failed' WHERE task_id = $1 AND status = 'running'",
+            hiqlite::params!(task_id),
+        )
+        .await;
+
+    // Broadcast reset notification
+    let topic = crate::server::ws::message::WsTopic {
+        kind: crate::server::ws::message::WsTopicKind::Task,
+        id: crate::server::ws::message::TopicId(task_id),
+    };
+    let msg = crate::server::ws::message::ServerMessage::Event {
+        topic: topic.clone(),
+        event_type: "error".to_string(),
+        timestamp: chrono::Utc::now(),
+        payload: serde_json::json!({"error": "Session reset — you can now start a new agent run."}),
+    };
+    state.ws_bus.broadcast(&topic, msg).await;
+
+    Ok(StatusCode::OK)
 }
 
 async fn list_agent_runs(
