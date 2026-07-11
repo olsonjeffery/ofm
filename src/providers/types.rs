@@ -6,6 +6,7 @@ pub enum ProviderEvent {
     SessionStart {
         session_id: String,
     },
+    Ready,
     Text {
         text: String,
     },
@@ -30,6 +31,9 @@ pub enum ProviderEvent {
         delta: String,
     },
     ContextUsage(serde_json::Value),
+    ExtensionUiRequest(serde_json::Value),
+    AvailableCommandsUpdate(serde_json::Value),
+    Response(serde_json::Value),
     Error {
         error: String,
     },
