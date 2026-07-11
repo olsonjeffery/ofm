@@ -20,7 +20,7 @@ pub fn ShellPage(user_json: Option<String>) -> impl IntoView {
         </head>
         <body>
             <Navbar user_json />
-            <main style="width: 95%; margin: 0 auto; min-height: calc(100vh - 3.25rem);"></main>
+            <main></main>
         </body>
         </html>
     }
