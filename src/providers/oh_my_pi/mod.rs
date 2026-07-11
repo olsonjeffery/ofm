@@ -99,6 +99,7 @@ impl OhMyPiSession {
             self.writer = Some(self.pair.master.take_writer()?);
         }
         let writer = self.writer.as_mut().unwrap();
+        tracing::info!("omp >> {}", json);
         writeln!(writer, "{json}")?;
         writer.flush()?;
 
@@ -277,8 +278,10 @@ fn spawn_reader(
                 continue;
             }
 
+            tracing::info!("omp << {}", &line);
             if let Some(event) = parse_provider_event(&line) {
                 let is_done = matches!(&event, ProviderEvent::Done(_));
+                tracing::info!("omp parsed -> {:?}", std::mem::discriminant(&event));
                 if tx.blocking_send(event).is_err() {
                     let _ = killer.kill();
                     return;

@@ -7,6 +7,9 @@ pub enum ProviderEvent {
         session_id: String,
     },
     Ready,
+    UserText {
+        text: String,
+    },
     Text {
         text: String,
     },

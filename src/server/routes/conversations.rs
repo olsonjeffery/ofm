@@ -110,8 +110,8 @@ async fn send_message(
         return Err(ServerError::BadRequest("message text is required".into()));
     }
 
-    // Persist the user's message as a Text event
-    let user_event = ProviderEvent::Text {
+    // Persist the user's message
+    let user_event = ProviderEvent::UserText {
         text: body.text.clone(),
     };
     let omp_session_id = conv.omp_session_id.clone().unwrap_or_default();
@@ -181,6 +181,9 @@ async fn send_message(
                                     let (event_type, payload) = match &event {
                                         ProviderEvent::SessionStart { session_id } => {
                                             ("session_start".to_string(), serde_json::json!({"session_id": session_id}))
+                                        }
+                                        ProviderEvent::UserText { text } => {
+                                            ("user_text".to_string(), serde_json::json!({"text": text}))
                                         }
                                         ProviderEvent::Text { text } => {
                                             ("text".to_string(), serde_json::json!({"text": text}))

@@ -153,7 +153,7 @@ async fn post_create_agent_run(
                     .session_id(session_result.session_id.clone());
 
                     // Broadcast initial prompt as user message before start_turn
-                    let prompt_event = ProviderEvent::Text {
+                    let prompt_event = ProviderEvent::UserText {
                         text: prompt_text.clone(),
                     };
                     if let Err(e) = crate::services::transcript::persist_event(
@@ -221,6 +221,9 @@ async fn post_create_agent_run(
                                             let (event_type, payload) = match &event {
                                                 ProviderEvent::SessionStart { session_id } => {
                                                     ("session_start".to_string(), serde_json::json!({"session_id": session_id}))
+                                                }
+                                                ProviderEvent::UserText { text } => {
+                                                    ("user_text".to_string(), serde_json::json!({"text": text}))
                                                 }
                                                 ProviderEvent::Text { text } => {
                                                     ("text".to_string(), serde_json::json!({"text": text}))
