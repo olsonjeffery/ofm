@@ -81,7 +81,7 @@ impl OhMyPiSession {
             "id": "req_resume",
             "type": "prompt",
             "message": last_message,
-            "streamingBehavior": "followUp",
+            "streamingBehavior": "steer",
         });
         self.send_raw(&serde_json::to_string(&cmd)?, tx)
     }
