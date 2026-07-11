@@ -185,8 +185,8 @@ document.addEventListener('DOMContentLoaded', function() {
         switch (evt.type) {
             case 'text': return '<div class="box message-text"><div class="content">' + escapeHtml(evt.text) + '</div></div>';
             case 'text_chunk': return '<span class="message-chunk">' + escapeHtml(evt.delta) + '</span>';
-            case 'tool_use': return '<div class="card"><div class="card-content"><span class="tag is-info is-light">' + escapeHtml(evt.tool_name) + '</span> <code>' + (evt.tool_use_id || '') + '</code><pre>' + escapeHtml(JSON.stringify(evt.input, null, 2)) + '</pre></div></div>';
-            case 'tool_result': return '<div class="card"><div class="card-content"><span class="tag is-success is-light">result</span> <code>' + (evt.tool_use_id || '') + '</code><pre>' + escapeHtml(evt.result) + '</pre></div></div>';
+            case 'tool_use': return renderToolUse({ tool_name: evt.tool_name, tool_use_id: evt.tool_use_id, input: evt.input });
+            case 'tool_result': return renderToolResult({ tool_use_id: evt.tool_use_id, result: evt.result });
             case 'thinking': return '<div class="box message-thinking"><em style="color:#888;">' + escapeHtml(evt.thinking) + '</em></div>';
             case 'thinking_chunk': return '<span style="color:#888;font-style:italic;">' + escapeHtml(evt.delta) + '</span>';
             case 'context_usage': return '<div class="notification is-light is-small">' + escapeHtml(JSON.stringify(evt.usage)) + '</div>';
@@ -210,8 +210,8 @@ document.addEventListener('DOMContentLoaded', function() {
                     return '<span class="message-chunk">' + escapeHtml(msg.payload.delta) + '</span>';
                 }
                 return '';
-            case 'tool_use': return '<div class="card"><div class="card-content"><span class="tag is-info is-light">' + escapeHtml(msg.payload.tool_name || '') + '</span> <code>' + (msg.payload.tool_use_id || '') + '</code><pre>' + escapeHtml(JSON.stringify(msg.payload.input, null, 2)) + '</pre></div></div>';
-            case 'tool_result': return '<div class="card"><div class="card-content"><span class="tag is-success is-light">result</span> <code>' + (msg.payload.tool_use_id || '') + '</code><pre>' + escapeHtml(msg.payload.result || '') + '</pre></div></div>';
+            case 'tool_use': return renderToolUse(msg.payload);
+            case 'tool_result': return renderToolResult(msg.payload);
             case 'thinking': return '<div class="box message-thinking"><em style="color:#888;">' + escapeHtml(msg.payload.thinking || '') + '</em></div>';
             case 'thinking_chunk':
                 if (msg.payload.delta) {
@@ -227,6 +227,35 @@ document.addEventListener('DOMContentLoaded', function() {
             default: return '';
         }
     }
+
+    function renderToolUse(payload) {
+        var toolName = escapeHtml(payload.tool_name || 'unknown');
+        var toolId = escapeHtml(payload.tool_use_id || '');
+        var inputStr = escapeHtml(JSON.stringify(payload.input, null, 2));
+        return '<div class="card"><div class="card-content"><span class="tag is-info is-light">' + toolName + '</span><code>' + toolId + '</code><div id="tool-input-' + toolId + '" class="tool-input-box" style="margin-top:0.25rem"><pre>' + inputStr + '</pre></div></div></div>';
+    }
+
+    function renderToolResult(payload) {
+        var toolId = escapeHtml(payload.tool_use_id || '');
+        var result = payload.result || '';
+        var truncated = result.length > 100;
+        var displayText = truncated ? escapeHtml(result.substring(0, 100)) + '...' : escapeHtml(result);
+        var extra = truncated ? '<a href="#" class="toggle-result" data-tool-id="' + toolId + '" onclick="toggleResult(this);return false">show more</a>' : '';
+        var fullContent = truncated ? '<div class="tool-result-full" id="result-full-' + toolId + '" style="display:none"><pre>' + escapeHtml(result) + '</pre></div>' : '';
+        return '<div class="card"><div class="card-content"><span class="tag is-success is-light">result</span><code>' + toolId + '</code><pre class="tool-result-preview" id="result-preview-' + toolId + '">' + displayText + '</pre>' + extra + fullContent + '</div></div>';
+    }
+
+    window.toggleResult = function(el) {
+        var toolId = el.getAttribute('data-tool-id');
+        var preview = document.getElementById('result-preview-' + toolId);
+        var full = document.getElementById('result-full-' + toolId);
+        if (preview && full) {
+            var isHidden = full.style.display === 'none';
+            full.style.display = isHidden ? 'block' : 'none';
+            preview.style.display = isHidden ? 'none' : 'block';
+            el.textContent = isHidden ? 'show less' : 'show more';
+        }
+    };
 
     function escapeHtml(str) {
         if (!str) return '';
