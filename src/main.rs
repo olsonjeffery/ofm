@@ -30,7 +30,10 @@ fn box_io_err(e: std::io::Error) -> Box<dyn std::error::Error> {
     Box::new(std::io::Error::other(e.to_string()))
 }
 
-fn ensure_secret_file(path: &std::path::Path, data: &[u8]) -> Result<(), Box<dyn std::error::Error>> {
+fn ensure_secret_file(
+    path: &std::path::Path,
+    data: &[u8],
+) -> Result<(), Box<dyn std::error::Error>> {
     if let Some(parent) = path.parent() {
         std::fs::create_dir_all(parent).map_err(box_io_err)?;
     }

@@ -1,4 +1,6 @@
-use crate::db::schema::{AgentType, Conversation, ConversationWithRun, RunStatus, Task, TaskAgentRun, Worktree};
+use crate::db::schema::{
+    AgentType, Conversation, ConversationWithRun, RunStatus, Task, TaskAgentRun, Worktree,
+};
 use hiqlite::Client;
 use uuid::Uuid;
 

@@ -69,7 +69,8 @@ mod tests {
                 _active_conversation_id=None
                 task_id=42
             />
-        }.to_html();
+        }
+        .to_html();
         assert!(html.contains("Send"));
         assert!(html.contains("chat-form"));
         assert!(html.contains("data-task-id=\"42\""));
@@ -85,7 +86,8 @@ mod tests {
                 _active_conversation_id=None
                 task_id=1
             />
-        }.to_html();
+        }
+        .to_html();
         assert!(html.contains("disabled"));
     }
 
@@ -99,7 +101,8 @@ mod tests {
                 _active_conversation_id=None
                 task_id=1
             />
-        }.to_html();
+        }
+        .to_html();
         assert!(html.contains("implementation"));
         assert!(html.contains("review"));
     }

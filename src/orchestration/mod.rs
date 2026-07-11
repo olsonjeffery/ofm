@@ -67,7 +67,11 @@ pub async fn completion_handler(
 
     let config_statuses =
         registry::resolve_agent_config_statuses(client, task.user_id, task.project_id).await;
-    Ok(state_machine::next_agent(&task, &run.agent_type, &config_statuses))
+    Ok(state_machine::next_agent(
+        &task,
+        &run.agent_type,
+        &config_statuses,
+    ))
 }
 
 #[cfg(test)]

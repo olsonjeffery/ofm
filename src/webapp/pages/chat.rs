@@ -1,10 +1,10 @@
-use leptos::prelude::*;
 use crate::db::schema::{ConversationWithRun, Task, TaskAgentRun};
 use crate::providers::registry::AgentConfigStatus;
 use crate::webapp::components::agent_run_banner::AgentRunBanner;
 use crate::webapp::components::chat_input::ChatInput;
 use crate::webapp::components::conversation_list::ConversationList;
 use crate::webapp::components::message_stream::MessageStream;
+use leptos::prelude::*;
 
 #[component]
 pub fn ChatPage(
@@ -222,7 +222,8 @@ mod tests {
             pr_agent_complete: false,
             refinement_complete: false,
             yolo_mode: false,
-            created_at: NaiveDateTime::parse_from_str("2024-06-01 12:00:00", "%Y-%m-%d %H:%M:%S").unwrap(),
+            created_at: NaiveDateTime::parse_from_str("2024-06-01 12:00:00", "%Y-%m-%d %H:%M:%S")
+                .unwrap(),
         }
     }
 
@@ -238,7 +239,8 @@ mod tests {
                 agent_config_statuses=Vec::new()
                 current_run=None
             />
-        }.to_html();
+        }
+        .to_html();
         assert!(html.contains("Chat Test Task"));
         assert!(html.contains("Chat"));
         assert!(html.contains("Conversations"));

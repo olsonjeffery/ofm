@@ -100,9 +100,7 @@ async fn post_create_agent_run(
                     // Build TurnInput from task doc + context prompt
                     let archive =
                         crate::archive::ArchiveRoot::new(PathBuf::from(&state.archive_root));
-                    let worktree = tasks::get_worktree_by_task(&state.db, task_id)
-                        .await
-                        .ok();
+                    let worktree = tasks::get_worktree_by_task(&state.db, task_id).await.ok();
                     let cwd = worktree
                         .as_ref()
                         .map(|w| w.worktree_path.clone())
@@ -111,8 +109,7 @@ async fn post_create_agent_run(
                     let proj_str = task.project_id.to_string();
                     let task_str = task_id.to_string();
                     let doc_path = archive.task_doc_path(&proj_str, &task_str);
-                    let doc_content =
-                        archive.read_task_doc(&doc_path).ok().unwrap_or_default();
+                    let doc_content = archive.read_task_doc(&doc_path).ok().unwrap_or_default();
                     let context_prompt = archive
                         .build_context_prompt(&proj_str, &task_str)
                         .ok()

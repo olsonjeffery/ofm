@@ -1,5 +1,3 @@
-
-
 use axum::{
     extract::{Path, State},
     http::StatusCode,
@@ -10,9 +8,7 @@ use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
 use crate::auth::AuthUser;
-use crate::db::schema::{
-    Conversation, ConversationWithRun, TaskAgentRun,
-};
+use crate::db::schema::{Conversation, ConversationWithRun, TaskAgentRun};
 use crate::providers::types::{ProviderEvent, ResumeInput};
 use crate::server::ws::message::{ServerMessage, TopicId, WsTopic, WsTopicKind};
 use crate::server::{error::ServerError, state::AppState};
@@ -141,13 +137,9 @@ async fn send_message(
 
     match provider {
         Some(p) => {
-            let messages = transcript::load_transcript(
-                &state.db,
-                &omp_session_id,
-                task_id,
-            )
-            .await
-            .map_err(|e| ServerError::Internal(e.to_string()))?;
+            let messages = transcript::load_transcript(&state.db, &omp_session_id, task_id)
+                .await
+                .map_err(|e| ServerError::Internal(e.to_string()))?;
 
             let messages_json = serde_json::to_value(&messages)
                 .map_err(|e| ServerError::Internal(e.to_string()))?;
