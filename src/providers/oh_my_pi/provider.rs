@@ -106,7 +106,11 @@ impl LlmProvider for OhMyPiProvider {
     }
 
     async fn abort_turn(&self) -> Result<(), ProviderError> {
-        kill_session(&mut self.session.lock().unwrap());
+        if let Some(session) = self.session.lock().unwrap().as_mut() {
+            session
+                .abort_turn()
+                .map_err(|e| ProviderError::Protocol(e.to_string()))?;
+        }
         Ok(())
     }
 
