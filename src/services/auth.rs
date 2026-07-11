@@ -177,7 +177,7 @@ pub async fn handle_callback(
         let id = Uuid::new_v4();
         let username = username.unwrap_or_else(|| sub.clone());
         db.execute(
-            "INSERT INTO users (id, username, oidc_subject, is_active, created_at) VALUES ($1, $2, $3, 1, $4)",
+            "INSERT INTO users (id, username, oidc_subject, is_active, created_at, is_technical) VALUES ($1, $2, $3, 1, $4, 1)",
             hiqlite::params!(id.to_string(), username, sub, now.clone()),
         )
         .await

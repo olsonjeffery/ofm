@@ -38,6 +38,20 @@ pub fn find_available_port() -> std::io::Result<u16> {
     Ok(addr.port())
 }
 
+#[cfg(unix)]
+fn host_uid_gid() -> (u32, u32) {
+    let parse_id = |arg: &str| -> u32 {
+        std::process::Command::new("id")
+            .arg(arg)
+            .output()
+            .ok()
+            .and_then(|o| String::from_utf8(o.stdout).ok())
+            .and_then(|s| s.trim().parse().ok())
+            .unwrap_or(10001)
+    };
+    (parse_id("-u"), parse_id("-g"))
+}
+
 fn spawn_reader(reader: impl tokio::io::AsyncRead + Unpin + Send + 'static, label: &'static str) {
     tokio::spawn(async move {
         let mut lines = tokio::io::BufReader::new(reader).lines();
@@ -62,8 +76,10 @@ pub async fn start_rauthy(
 
     let data_dir = format!("{}/rauthy/data", footprint);
     std::fs::create_dir_all(&data_dir)?;
-    // Rauthy runs as UID 10001:10001 inside the container. Ensure the mounted
-    // data volume is writable by that user without requiring root on the host.
+    // Rauthy runs as the host user's UID via docker --user flag on Unix (so
+    // files written to the mounted volume are owned by the host user). On
+    // Windows the --user flag is omitted. Ensure the mounted data volume is
+    // writable regardless of UID.
     #[cfg(unix)]
     std::fs::set_permissions(&data_dir, std::fs::Permissions::from_mode(0o777))?;
 
@@ -103,6 +119,12 @@ pub async fn start_rauthy(
     cmd.arg(format!("{}:/app/bootstrap", bootstrap_dir));
     cmd.arg("-p");
     cmd.arg(format!("{}:8080", port));
+    #[cfg(unix)]
+    {
+        let (uid, gid) = host_uid_gid();
+        cmd.arg("--user");
+        cmd.arg(format!("{}:{}", uid, gid));
+    }
     cmd.arg("-e");
     cmd.arg(format!("PUB_URL=localhost:{}", port));
     cmd.arg("-e");
@@ -164,5 +186,34 @@ pub async fn wait_until_healthy(port: u16) -> Result<(), BoxError> {
             Ok(resp) if resp.status().is_success() => return Ok(()),
             _ => tokio::time::sleep(HEALTH_POLL_INTERVAL).await,
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    #[cfg(unix)]
+    #[test]
+    fn test_host_uid_gid_matches_current_user() {
+        let (uid, gid) = super::host_uid_gid();
+
+        let actual_uid: u32 = std::process::Command::new("id")
+            .arg("-u")
+            .output()
+            .ok()
+            .and_then(|o| String::from_utf8(o.stdout).ok())
+            .and_then(|s| s.trim().parse().ok())
+            .expect("failed to get actual UID");
+
+        let actual_gid: u32 = std::process::Command::new("id")
+            .arg("-g")
+            .output()
+            .ok()
+            .and_then(|o| String::from_utf8(o.stdout).ok())
+            .and_then(|s| s.trim().parse().ok())
+            .expect("failed to get actual GID");
+
+        assert_eq!(uid, actual_uid, "UID should match current user");
+        assert_eq!(gid, actual_gid, "GID should match current user");
+        assert_ne!(uid, 0, "should not run tests as root");
     }
 }
