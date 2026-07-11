@@ -211,7 +211,7 @@ pub async fn remove_worktree(
     let branch_output = Command::new("git")
         .args(["branch", "--show-current"])
         .env("GIT_DISABLE_HOOKS", "1")
-        .current_dir(&worktree_path)
+        .current_dir(worktree_path)
         .output()
         .await?;
 
