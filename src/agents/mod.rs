@@ -14,7 +14,7 @@ pub(crate) fn build_prompt(template: &str, task_doc_content: &str) -> String {
         )
         .replace("{{taskId}}", "{task_id}");
 
-    if !task_doc_content.is_empty() {
+    if !task_doc_content.is_empty() && task_doc_content.len() <= 2000 {
         prompt.push_str("\n\n## Task Documentation\n\n");
         prompt.push_str("<task_documentation>\n");
         prompt.push_str(task_doc_content);

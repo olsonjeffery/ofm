@@ -199,9 +199,14 @@ document.addEventListener('DOMContentLoaded', function() {
         });
     }
 
+    function userMsgHtml(text) {
+        return '<div class="box message-user" style="background:#e3f2fd;border-left:4px solid #1976d2"><div class="content">' + escapeHtml(text) + '</div></div>';
+    }
+
     function renderEvent(evt) {
         switch (evt.type) {
             case 'text': return '<div class="box message-text"><div class="content">' + escapeHtml(evt.text) + '</div></div>';
+            case 'user_text': return userMsgHtml(evt.text);
             case 'text_chunk': return '<span class="message-chunk">' + escapeHtml(evt.delta) + '</span>';
             case 'tool_use': return renderToolUse({ tool_name: evt.tool_name, tool_use_id: evt.tool_use_id, input: evt.input });
             case 'tool_result': return renderToolResult({ tool_use_id: evt.tool_use_id, result: evt.result });
@@ -221,6 +226,7 @@ document.addEventListener('DOMContentLoaded', function() {
             case 'start':
             case 'extension_ui_request':
             case 'available_commands_update': return '';
+            case 'user_text': return userMsgHtml(msg.payload.text || '');
             case 'text': return '<div class="box message-text"><div class="content">' + escapeHtml(msg.payload.text || '') + '</div></div>';
             case 'text_chunk':
                 if (msg.payload.delta) {

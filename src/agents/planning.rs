@@ -11,7 +11,7 @@ pub fn build_planning_prompt(
         .replace("{{taskId}}", task_id)
         .replace("{{planTemplatePath}}", plan_template_path);
 
-    if !task_doc_content.is_empty() {
+    if !task_doc_content.is_empty() && task_doc_content.len() <= 4000 {
         prompt.push_str("\n\n## Original Task Document Content\n\n");
         prompt.push_str(task_doc_content);
     }

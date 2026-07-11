@@ -126,7 +126,7 @@ async fn send_message(
     };
     let msg = ServerMessage::Event {
         topic: topic.clone(),
-        event_type: "text".to_string(),
+        event_type: "user_text".to_string(),
         timestamp: chrono::Utc::now(),
         payload: serde_json::json!({"text": body.text}),
     };
