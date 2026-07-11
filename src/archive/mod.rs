@@ -166,6 +166,20 @@ The following input files are available in `{}`:
             sections.push(input_section);
         }
 
+        // AGENTS.md section
+        let agents_md = "\
+## AGENTS.md Guidance
+
+When you open or explore a directory, check if it contains an `AGENTS.md` file.
+If it does, read it in full before proceeding. These files contain project-specific
+instructions, conventions, preferences, and setup notes that the project maintainer
+has curated for AI agents working in this codebase. They take precedence over
+generic instructions where they overlap.
+
+This is especially important in the worktree root directory, where an `AGENTS.md`
+may define agent-level instructions for this specific task or project.";
+        sections.push(agents_md.to_string());
+
         // Testing Configuration section
         let testing = format!(
             "\

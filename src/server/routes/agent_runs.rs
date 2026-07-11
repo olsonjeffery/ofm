@@ -9,6 +9,7 @@ use axum::{
 };
 use serde::Deserialize;
 
+use crate::agents;
 use crate::db::schema::{AgentType, TaskAgentRun};
 use crate::orchestration;
 use crate::orchestration::guards;
@@ -78,14 +79,15 @@ async fn post_create_agent_run(
         .unwrap_or("balanced")
         .to_string();
 
-    let session_result = session::start_session(&state.db, task_id, &model, &effort, agent_type)
-        .await
-        .map_err(|e| match &e {
-            hiqlite::Error::ConstraintViolation(_) => {
-                ServerError::Conflict("an agent is already running for this task".into())
-            }
-            _ => ServerError::Internal(e.to_string()),
-        })?;
+    let session_result =
+        session::start_session(&state.db, task_id, &model, &effort, agent_type.clone())
+            .await
+            .map_err(|e| match &e {
+                hiqlite::Error::ConstraintViolation(_) => {
+                    ServerError::Conflict("an agent is already running for this task".into())
+                }
+                _ => ServerError::Internal(e.to_string()),
+            })?;
 
     // Start and store provider, then begin turn
     match registry::resolve_provider(&harness_config, std::path::Path::new("omp"), &config_root)
@@ -115,12 +117,26 @@ async fn post_create_agent_run(
                         .ok()
                         .unwrap_or_default();
 
-                    let prompt_text = if doc_content.is_empty() && context_prompt.is_empty() {
-                        task.title.clone()
-                    } else if context_prompt.is_empty() {
-                        doc_content
-                    } else {
-                        format!("{}\n\n{}", doc_content, context_prompt)
+                    let prompt_text = match agent_type {
+                        AgentType::Planification => agents::planning::build_planning_prompt(
+                            &doc_content,
+                            &doc_path.to_string_lossy(),
+                            &task_str,
+                            "",
+                        ),
+                        AgentType::Implementation => {
+                            agents::implementation::build_implementation_prompt(&doc_content)
+                        }
+                        AgentType::Review => agents::review::build_review_prompt(&doc_content),
+                        _ => {
+                            if doc_content.is_empty() && context_prompt.is_empty() {
+                                task.title.clone()
+                            } else if context_prompt.is_empty() {
+                                doc_content
+                            } else {
+                                format!("{}\n\n{}", doc_content, context_prompt)
+                            }
+                        }
                     };
 
                     let turn_input = TurnInput::new(
