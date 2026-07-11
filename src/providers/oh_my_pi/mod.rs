@@ -253,40 +253,48 @@ fn spawn_reader(
     tokio::task::spawn_blocking(move || {
         let start = std::time::Instant::now();
         let reader = BufReader::new(reader);
-        for line in reader.lines() {
-            if start.elapsed() > READ_TIMEOUT {
-                tracing::warn!("oh-my-pi: read timeout exceeded, killing subprocess");
-                let _ = killer.kill();
-                return;
-            }
-
-            let line = match line {
-                Ok(l) => l,
-                Err(e) => {
-                    tracing::warn!("oh-my-pi: read error: {e}");
-                    break;
-                }
-            };
-
-            if line.trim().is_empty() {
-                continue;
-            }
-
-            if line.len() > MAX_LINE_LEN {
-                tracing::warn!("oh-my-pi: line too long ({} bytes), skipping", line.len());
-                continue;
-            }
-
-            if let Some(event) = parse_provider_event(&line) {
-                let is_done = matches!(&event, ProviderEvent::Done(_));
-                if tx.blocking_send(event).is_err() {
+        let result: Result<(), ()> = (|| {
+            for line in reader.lines() {
+                if start.elapsed() > READ_TIMEOUT {
+                    tracing::warn!("oh-my-pi: read timeout exceeded, killing subprocess");
                     let _ = killer.kill();
-                    return;
+                    return Err(());
                 }
-                if is_done {
-                    return;
+
+                let line = match line {
+                    Ok(l) => l,
+                    Err(e) => {
+                        tracing::warn!("oh-my-pi: read error: {e}");
+                        return Err(());
+                    }
+                };
+
+                if line.trim().is_empty() {
+                    continue;
+                }
+
+                if line.len() > MAX_LINE_LEN {
+                    tracing::warn!("oh-my-pi: line too long ({} bytes), skipping", line.len());
+                    continue;
+                }
+
+                if let Some(event) = parse_provider_event(&line) {
+                    let is_done = matches!(&event, ProviderEvent::Done(_));
+                    if tx.blocking_send(event).is_err() {
+                        let _ = killer.kill();
+                        return Ok(());
+                    }
+                    if is_done {
+                        return Ok(());
+                    }
                 }
             }
+            Err(())
+        })();
+        if result.is_err() {
+            let _ = tx.blocking_send(ProviderEvent::Error {
+                error: "Agent process ended unexpectedly".into(),
+            });
         }
     });
 }
