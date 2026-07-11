@@ -60,7 +60,7 @@ impl OhMyPiSession {
             "id": "req_1",
             "type": "prompt",
             "message": input.prompt,
-            "streamingBehavior": "steer",
+            "images": [],
         });
         self.send_raw(&serde_json::to_string(&cmd)?, tx)
     }
