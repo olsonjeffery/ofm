@@ -195,6 +195,7 @@ async fn post_create_agent_run(
                             let project_key = task_id;
 
                             tokio::spawn(async move {
+                                let mut completed_normally = false;
                                 loop {
                                     tokio::select! {
                                         event = rx.recv() => {
@@ -260,6 +261,7 @@ async fn post_create_agent_run(
                                                     ("error".to_string(), serde_json::json!({"error": error}))
                                                 }
                                                 ProviderEvent::Done(data) => {
+                                                    completed_normally = true;
                                                     ("done".to_string(), serde_json::json!({"data": data}))
                                                 }
                                                 ProviderEvent::Ready => {
@@ -286,6 +288,24 @@ async fn post_create_agent_run(
                                             }
                                         }
                                     }
+                                }
+                                if !completed_normally {
+                                    // Mark run as failed and notify UI
+                                    let _ = db.execute(
+                                        "UPDATE task_agent_runs SET status = 'failed' WHERE conversation_id = $1",
+                                        hiqlite::params!(conversation_id.to_string()),
+                                    ).await;
+                                    let topic = WsTopic {
+                                        kind: WsTopicKind::Task,
+                                        id: TopicId(t_id),
+                                    };
+                                    let msg = ServerMessage::Event {
+                                        topic: topic.clone(),
+                                        event_type: "error".to_string(),
+                                        timestamp: chrono::Utc::now(),
+                                        payload: serde_json::json!({"error": "Agent session ended unexpectedly. Send a message to resume."}),
+                                    };
+                                    ws_bus.broadcast(&topic, msg).await;
                                 }
                             });
                         }

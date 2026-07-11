@@ -158,6 +158,7 @@ async fn send_message(
                     let c_id = conv_id;
 
                     tokio::spawn(async move {
+                        let mut completed_normally = false;
                         loop {
                             tokio::select! {
                                 event = rx.recv() => {
@@ -222,6 +223,7 @@ async fn send_message(
                                             ("error".to_string(), serde_json::json!({"error": error}))
                                         }
                                         ProviderEvent::Done(data) => {
+                                            completed_normally = true;
                                             ("done".to_string(), serde_json::json!({"data": data}))
                                         }
                                         ProviderEvent::Ready => {
@@ -248,6 +250,19 @@ async fn send_message(
                                     }
                                 }
                             }
+                        }
+                        if !completed_normally {
+                            let topic = WsTopic {
+                                kind: WsTopicKind::Task,
+                                id: TopicId(t_id),
+                            };
+                            let msg = ServerMessage::Event {
+                                topic: topic.clone(),
+                                event_type: "error".to_string(),
+                                timestamp: chrono::Utc::now(),
+                                payload: serde_json::json!({"error": "Agent session ended unexpectedly. Send a message to resume."}),
+                            };
+                            ws_bus.broadcast(&topic, msg).await;
                         }
                     });
                 }
