@@ -12,7 +12,7 @@ pub fn init() {
 }
 
 /// Initialize logging with optional config file for STDOUT logging of chat activity.
-/// 
+///
 /// Config file format (JSON):
 /// ```json
 /// {

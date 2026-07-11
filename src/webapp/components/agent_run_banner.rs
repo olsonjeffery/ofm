@@ -254,7 +254,10 @@ mod tests {
     #[test]
     fn test_banner_button_shows_implementation_after_planification() {
         let task = make_task();
-        let runs = vec![make_run_with_type(AgentType::Planification, RunStatus::Completed)];
+        let runs = vec![make_run_with_type(
+            AgentType::Planification,
+            RunStatus::Completed,
+        )];
         let html =
             leptos::view! { <AgentRunBanner task agent_config_statuses=vec![] current_run=None agent_runs=runs /> }
                 .to_html();

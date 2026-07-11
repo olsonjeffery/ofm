@@ -21,15 +21,15 @@ pub fn determine_next_phase(task: &Task, runs: &[TaskAgentRun]) -> Option<AgentT
     }
 
     // Check if planification has been completed
-    let has_successful_planification = runs.iter().any(|r| {
-        r.agent_type == AgentType::Planification && r.status == RunStatus::Completed
-    });
+    let has_successful_planification = runs
+        .iter()
+        .any(|r| r.agent_type == AgentType::Planification && r.status == RunStatus::Completed);
 
     if !has_successful_planification {
         // Check if planification is currently running
-        let planification_running = runs.iter().any(|r| {
-            r.agent_type == AgentType::Planification && r.status == RunStatus::Running
-        });
+        let planification_running = runs
+            .iter()
+            .any(|r| r.agent_type == AgentType::Planification && r.status == RunStatus::Running);
         if planification_running {
             return None; // Wait for it to finish
         }
@@ -434,7 +434,10 @@ mod tests {
     #[test]
     fn test_agent_type_label() {
         assert_eq!(agent_type_label(&AgentType::Planification), "Planification");
-        assert_eq!(agent_type_label(&AgentType::Implementation), "Implementation");
+        assert_eq!(
+            agent_type_label(&AgentType::Implementation),
+            "Implementation"
+        );
         assert_eq!(agent_type_label(&AgentType::Review), "Review");
         assert_eq!(agent_type_label(&AgentType::Pr), "PR");
     }

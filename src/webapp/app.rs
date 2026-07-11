@@ -52,6 +52,10 @@ mod tests {
                 eprintln!("ACTUAL MAIN TAG: [{}]", line);
             }
         }
-        assert!(html.contains(search), "Shell HTML does not contain exact main tag match. Search: {}", search);
+        assert!(
+            html.contains(search),
+            "Shell HTML does not contain exact main tag match. Search: {}",
+            search
+        );
     }
 }
