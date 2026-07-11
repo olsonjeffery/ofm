@@ -15,6 +15,7 @@ pub struct OhMyPiSession {
     pub pid: u32,
     pub child: Box<dyn portable_pty::Child + Send + Sync>,
     pub pair: portable_pty::PtyPair,
+    writer: Option<Box<dyn Write + Send>>,
 }
 
 pub fn spawn_oh_my_pi(
@@ -41,7 +42,12 @@ pub fn spawn_oh_my_pi(
     let child = pair.slave.spawn_command(cmd)?;
     let pid = child.process_id().unwrap_or(0);
 
-    Ok(OhMyPiSession { pid, child, pair })
+    Ok(OhMyPiSession {
+        pid,
+        child,
+        pair,
+        writer: None,
+    })
 }
 
 impl OhMyPiSession {
@@ -66,7 +72,10 @@ impl OhMyPiSession {
         input: &T,
         tx: mpsc::Sender<ProviderEvent>,
     ) -> Result<(), BoxError> {
-        let mut writer = self.pair.master.take_writer()?;
+        if self.writer.is_none() {
+            self.writer = Some(self.pair.master.take_writer()?);
+        }
+        let writer = self.writer.as_mut().unwrap();
         let json = serde_json::to_string(input)?;
         writeln!(writer, "{json}")?;
         writer.flush()?;

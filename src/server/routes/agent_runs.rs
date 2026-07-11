@@ -115,7 +115,7 @@ async fn post_create_agent_run(
                         .ok()
                         .unwrap_or_default();
 
-                    let prompt = if doc_content.is_empty() && context_prompt.is_empty() {
+                    let prompt_text = if doc_content.is_empty() && context_prompt.is_empty() {
                         task.title.clone()
                     } else if context_prompt.is_empty() {
                         doc_content
@@ -124,7 +124,7 @@ async fn post_create_agent_run(
                     };
 
                     let turn_input = TurnInput::new(
-                        prompt,
+                        prompt_text.clone(),
                         cwd,
                         model,
                         effort,
@@ -133,6 +133,32 @@ async fn post_create_agent_run(
                         String::new(),
                     )
                     .session_id(session_result.session_id.clone());
+
+                    // Broadcast initial prompt as user message before start_turn
+                    let prompt_event = ProviderEvent::Text {
+                        text: prompt_text.clone(),
+                    };
+                    if let Err(e) = crate::services::transcript::persist_event(
+                        &state.db,
+                        &prompt_event,
+                        &session_result.session_id,
+                        task_id,
+                    )
+                    .await
+                    {
+                        tracing::warn!("Failed to persist prompt event: {e}");
+                    }
+                    let topic = WsTopic {
+                        kind: WsTopicKind::Task,
+                        id: TopicId(task_id),
+                    };
+                    let msg = ServerMessage::Event {
+                        topic: topic.clone(),
+                        event_type: "text".to_string(),
+                        timestamp: chrono::Utc::now(),
+                        payload: serde_json::json!({"text": prompt_text}),
+                    };
+                    state.ws_bus.broadcast(&topic, msg).await;
 
                     match provider.start_turn(turn_input).await {
                         Ok(mut rx) => {
