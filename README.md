@@ -8,7 +8,7 @@ This is the repository for `ofm`: An orchestration harness, for agentic code del
 
 (Pronouce it as an acronym: oh-eff-em)
 
-## Core Values
+## Core Qualities
 
 ### Capability 💪
 
@@ -43,6 +43,7 @@ closed source _by anyone_ (including the founding author); It can be productized
 yet all changes must be contributed back into the public repository for the benefit
 of all
 
+## Additional values
 
 ### The `bottega` method
 
@@ -116,6 +117,42 @@ implementation of the spec.
 
 Setting that aside, all `ofm` enhancements (besides outright bugfixes unrelated
 to the specification) happen through refining & extending the [`ofm` spec][11].
+
+### Vouching scheme
+
+`ofm` uses a [vouching system][19] to manage access to the repo. It's purpose
+is to prevent "drive-by"/spam Pull Requests. Especially those from automated
+processes. Simply:
+
+- A 'vouch' is applied at the github user level, given to the target user by
+another user with github contributor status, usually in an issue/PR comment
+- The 'vouch list' is tracked as VOUCHED.md in the root of this repository
+- An issue opened by a user without a vouch is immediately flagged `Unvouched`;
+contributors review the queue of unvouched issues daily
+- A PR opened by an unvouched user will be closed immediately
+- A PR opened by a vouched user will be allowed to remain and get reviewed,
+and (hopefully!) merged
+- Unvouched users who repeatedly open PRs will receive a ban from interacting
+with the repository
+- Vouches can be removed by any contributor; The `VOUCHED.md` file also maintains
+a "shitlist" of users who're either known, by the community, untrustworthy individuals
+OR those who have lost their vouch for other reasons
+- Contributors themselves do not have direct commit permissions; they must also
+go through the PR process for all changes
+- A github action monitoring comments in issues and PRs is responsible for
+modifying the VOUCHED.md file as-needed with direct commits to `main`
+
+The recommended workflow is that:
+
+1. an unvouched User should open an issue discussing what they want, and if they
+want to open a PR for it
+2. After discussion with contributors acting as mentors, the unvouched user may
+receive a `vouch @username` comment from a contributor. This makes them eligible
+to open a PR now and going forward
+3. They open a PR, adhering to community and contributor guidelines; provided they
+abide by the norms of the community and its code of conduct, they can retain their
+vouched status indefinitely, and even earn contributor status themselves
+
 
 ## License
 
