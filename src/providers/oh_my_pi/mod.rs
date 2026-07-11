@@ -191,8 +191,14 @@ fn parse_assistant_message_event(val: &serde_json::Value) -> Option<ProviderEven
         "text_delta" => ProviderEvent::TextChunk {
             delta: val.get("delta")?.as_str()?.to_string(),
         },
+        "text_end" => ProviderEvent::TextChunk {
+            delta: val.get("content")?.as_str()?.to_string(),
+        },
         "thinking_delta" => ProviderEvent::ThinkingChunk {
             delta: val.get("delta")?.as_str()?.to_string(),
+        },
+        "thinking_end" => ProviderEvent::ThinkingChunk {
+            delta: val.get("content")?.as_str()?.to_string(),
         },
         "tool_use_delta" => {
             let name_str = val
