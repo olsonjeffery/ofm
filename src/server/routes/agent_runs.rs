@@ -113,31 +113,31 @@ async fn post_create_agent_run(
                     let proj_str = task.project_id.to_string();
                     let task_str = task_id.to_string();
                     let doc_path = archive.task_doc_path(&proj_str, &task_str);
-                    let doc_content = archive.read_task_doc(&doc_path).ok().unwrap_or_default();
                     let context_prompt = archive
                         .build_context_prompt(&proj_str, &task_str)
                         .ok()
                         .unwrap_or_default();
 
-                    let prompt_text = match agent_type {
-                        AgentType::Planification => agents::planning::build_planning_prompt(
-                            &doc_content,
-                            &doc_path.to_string_lossy(),
-                            &task_str,
-                            "",
-                        ),
-                        AgentType::Implementation => {
-                            agents::implementation::build_implementation_prompt(&doc_content)
-                        }
-                        AgentType::Review => agents::review::build_review_prompt(&doc_content),
-                        _ => {
-                            if doc_content.is_empty() && context_prompt.is_empty() {
-                                task.title.clone()
-                            } else if context_prompt.is_empty() {
-                                doc_content
-                            } else {
-                                format!("{}\n\n{}", doc_content, context_prompt)
+                    let prompt_text = {
+                        let phase_prompt = match agent_type {
+                            AgentType::Planification => agents::planning::build_planning_prompt(
+                                "",
+                                &doc_path.to_string_lossy(),
+                                &task_str,
+                                "",
+                            ),
+                            AgentType::Implementation => {
+                                agents::implementation::build_implementation_prompt("")
                             }
+                            AgentType::Review => agents::review::build_review_prompt(""),
+                            _ => String::new(),
+                        };
+                        if context_prompt.is_empty() {
+                            phase_prompt
+                        } else if phase_prompt.is_empty() {
+                            context_prompt
+                        } else {
+                            format!("{}\n\n{}", phase_prompt, context_prompt)
                         }
                     };
 

@@ -1,22 +1,15 @@
 const PLANIFICATION_TEMPLATE: &str = include_str!("../../templates/planification.md");
 
 pub fn build_planning_prompt(
-    task_doc_content: &str,
+    _task_doc_content: &str,
     task_doc_path: &str,
     task_id: &str,
     plan_template_path: &str,
 ) -> String {
-    let mut prompt = PLANIFICATION_TEMPLATE
+    PLANIFICATION_TEMPLATE
         .replace("{{taskDocPath}}", task_doc_path)
         .replace("{{taskId}}", task_id)
-        .replace("{{planTemplatePath}}", plan_template_path);
-
-    if !task_doc_content.is_empty() && task_doc_content.len() <= 4000 {
-        prompt.push_str("\n\n## Original Task Document Content\n\n");
-        prompt.push_str(task_doc_content);
-    }
-
-    prompt
+        .replace("{{planTemplatePath}}", plan_template_path)
 }
 
 #[cfg(test)]
@@ -35,11 +28,14 @@ mod tests {
     }
 
     #[test]
-    fn test_original_request_preserved() {
+    fn test_original_request_not_inlined() {
         let content = "Implement user authentication";
         let prompt = build_planning_prompt(content, "path/to/doc.md", "42", "path/to/template.md");
-        assert!(prompt.contains(content));
-        assert!(prompt.contains("## Original Task Document Content"));
+        assert!(
+            !prompt.contains(content),
+            "doc content should NOT be inlined"
+        );
+        assert!(!prompt.contains("## Original Task Document Content"));
     }
 
     #[test]

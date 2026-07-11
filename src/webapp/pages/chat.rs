@@ -200,7 +200,7 @@ document.addEventListener('DOMContentLoaded', function() {
     }
 
     function userMsgHtml(text) {
-        return '<div class="box message-user" style="background:#e3f2fd;border-left:4px solid #1976d2"><div class="content">' + escapeHtml(text) + '</div></div>';
+        return '<div class="box message-user" style="background:#1565c0;color:#fff;border-left:4px solid #0d47a1"><content style="white-space:pre-wrap">' + escapeHtml(text) + '</content></div>';
     }
 
     function renderEvent(evt) {

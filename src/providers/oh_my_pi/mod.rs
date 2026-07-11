@@ -50,64 +50,19 @@ pub fn spawn_oh_my_pi(
     })
 }
 
-const PROMPT_CHUNK_SIZE: usize = 5000;
-
-fn chunk_prompt(text: &str) -> Vec<String> {
-    if text.len() <= PROMPT_CHUNK_SIZE {
-        return vec![text.to_string()];
-    }
-    let mut chunks = Vec::new();
-    let mut start = 0;
-    while start < text.len() {
-        let end = (start + PROMPT_CHUNK_SIZE).min(text.len());
-        // Try to break at a newline if close to the boundary
-        let break_at = if end < text.len() {
-            if let Some(nl) = text[start..end].rfind('\n') {
-                if end - start - nl < 500 {
-                    start + nl + 1
-                } else {
-                    end
-                }
-            } else {
-                end
-            }
-        } else {
-            end
-        };
-        chunks.push(text[start..break_at].to_string());
-        start = break_at;
-    }
-    chunks
-}
-
 impl OhMyPiSession {
     pub fn start_turn(
         &mut self,
         input: &TurnInput,
         tx: mpsc::Sender<ProviderEvent>,
     ) -> Result<(), BoxError> {
-        let chunks = chunk_prompt(&input.prompt);
-        if self.writer.is_none() {
-            self.writer = Some(self.pair.master.take_writer()?);
-        }
-        let writer = self.writer.as_mut().unwrap();
-        for (i, chunk) in chunks.iter().enumerate() {
-            let behavior = if i == 0 { "steer" } else { "followUp" };
-            let cmd = serde_json::json!({
-                "id": format!("req_{}", i + 1),
-                "type": "prompt",
-                "message": chunk,
-                "streamingBehavior": behavior,
-                "images": [],
-            });
-            let json = serde_json::to_string(&cmd)?;
-            writeln!(writer, "{json}")?;
-        }
-        writer.flush()?;
-        let reader = self.pair.master.try_clone_reader()?;
-        let killer = self.child.clone_killer();
-        spawn_reader(reader, killer, tx);
-        Ok(())
+        let cmd = serde_json::json!({
+            "id": "req_1",
+            "type": "prompt",
+            "message": input.prompt,
+            "images": [],
+        });
+        self.send_raw(&serde_json::to_string(&cmd)?, tx)
     }
 
     pub fn resume_turn(
@@ -122,26 +77,13 @@ impl OhMyPiSession {
             .and_then(|m| m.get("text"))
             .and_then(|t| t.as_str())
             .unwrap_or("");
-        let chunks = chunk_prompt(last_message);
-        if self.writer.is_none() {
-            self.writer = Some(self.pair.master.take_writer()?);
-        }
-        let writer = self.writer.as_mut().unwrap();
-        for (i, chunk) in chunks.iter().enumerate() {
-            let cmd = serde_json::json!({
-                "id": format!("req_resume_{}", i + 1),
-                "type": "prompt",
-                "message": chunk,
-                "streamingBehavior": "followUp",
-            });
-            let json = serde_json::to_string(&cmd)?;
-            writeln!(writer, "{json}")?;
-        }
-        writer.flush()?;
-        let reader = self.pair.master.try_clone_reader()?;
-        let killer = self.child.clone_killer();
-        spawn_reader(reader, killer, tx);
-        Ok(())
+        let cmd = serde_json::json!({
+            "id": "req_resume",
+            "type": "prompt",
+            "message": last_message,
+            "streamingBehavior": "followUp",
+        });
+        self.send_raw(&serde_json::to_string(&cmd)?, tx)
     }
 
     pub fn abort_turn(&mut self) -> Result<(), BoxError> {
