@@ -56,11 +56,20 @@ async fn test_detect_default_branch() {
 #[tokio::test]
 async fn test_create_and_remove_worktree() {
     let tmp = TempDir::new().unwrap();
+    let footprint = tmp.path().join("ofm-footprint");
     init_test_repo(tmp.path()).await;
 
-    let result = create_worktree(&repo_path(&tmp), 1, 42, "test-feature", None)
-        .await
-        .expect("create_worktree failed");
+    let footprint_str = footprint.to_string_lossy().to_string();
+    let result = create_worktree(
+        &repo_path(&tmp),
+        &footprint_str,
+        1,
+        42,
+        "test-feature",
+        None,
+    )
+    .await
+    .expect("create_worktree failed");
 
     assert!(
         result.worktree_path.exists(),
@@ -85,7 +94,7 @@ async fn test_create_and_remove_worktree() {
         assert!(path.exists(), "{dir} directory should exist in worktree");
     }
 
-    remove_worktree(&repo_path(&tmp), 1, 42)
+    remove_worktree(&repo_path(&tmp), &result.worktree_path)
         .await
         .expect("remove_worktree failed");
 
@@ -110,6 +119,7 @@ async fn test_create_and_remove_worktree() {
 #[tokio::test]
 async fn test_create_worktree_with_base_branch() {
     let tmp = TempDir::new().unwrap();
+    let footprint = tmp.path().join("ofm-footprint");
     init_test_repo(tmp.path()).await;
 
     tokio::process::Command::new("git")
@@ -126,9 +136,17 @@ async fn test_create_worktree_with_base_branch() {
         .await
         .expect("git commit on develop failed");
 
-    let result = create_worktree(&repo_path(&tmp), 1, 99, "from-develop", Some("develop"))
-        .await
-        .expect("create_worktree with base_branch failed");
+    let footprint_str = footprint.to_string_lossy().to_string();
+    let result = create_worktree(
+        &repo_path(&tmp),
+        &footprint_str,
+        1,
+        99,
+        "from-develop",
+        Some("develop"),
+    )
+    .await
+    .expect("create_worktree with base_branch failed");
 
     assert_eq!(result.branch, "task/99-from-develop");
 
@@ -141,7 +159,7 @@ async fn test_create_worktree_with_base_branch() {
     let stdout = String::from_utf8_lossy(&rev_parse.stdout);
     assert_eq!(stdout.trim(), "task/99-from-develop");
 
-    remove_worktree(&repo_path(&tmp), 1, 99)
+    remove_worktree(&repo_path(&tmp), &result.worktree_path)
         .await
         .expect("remove_worktree failed");
 }
@@ -149,6 +167,7 @@ async fn test_create_worktree_with_base_branch() {
 #[tokio::test]
 async fn test_symlink_env_files() {
     let tmp = TempDir::new().unwrap();
+    let footprint = tmp.path().join("ofm-footprint");
     init_test_repo(tmp.path()).await;
 
     let env_path = tmp.path().join(".env");
@@ -156,7 +175,8 @@ async fn test_symlink_env_files() {
         .await
         .expect("write .env failed");
 
-    let result = create_worktree(&repo_path(&tmp), 1, 7, "env-test", None)
+    let footprint_str = footprint.to_string_lossy().to_string();
+    let result = create_worktree(&repo_path(&tmp), &footprint_str, 1, 7, "env-test", None)
         .await
         .expect("create_worktree failed");
 
@@ -179,7 +199,7 @@ async fn test_symlink_env_files() {
         .expect("read .env symlink failed");
     assert_eq!(content, "DATABASE_URL=test");
 
-    remove_worktree(&repo_path(&tmp), 1, 7)
+    remove_worktree(&repo_path(&tmp), &result.worktree_path)
         .await
         .expect("remove_worktree failed");
 }
@@ -189,7 +209,8 @@ async fn test_remove_nonexistent_worktree() {
     let tmp = TempDir::new().unwrap();
     init_test_repo(tmp.path()).await;
 
-    let result = remove_worktree(&repo_path(&tmp), 999, 999).await;
+    let nonexistent = tmp.path().join("nonexistent-worktree");
+    let result = remove_worktree(&repo_path(&tmp), &nonexistent).await;
     assert!(
         result.is_ok(),
         "removing nonexistent worktree should succeed"
@@ -199,11 +220,20 @@ async fn test_remove_nonexistent_worktree() {
 #[tokio::test]
 async fn test_sanitize_title_and_branch_naming() {
     let tmp = TempDir::new().unwrap();
+    let footprint = tmp.path().join("ofm-footprint");
     init_test_repo(tmp.path()).await;
 
-    let result = create_worktree(&repo_path(&tmp), 1, 1, "My Feature Branch!", None)
-        .await
-        .expect("create_worktree with special title failed");
+    let footprint_str = footprint.to_string_lossy().to_string();
+    let result = create_worktree(
+        &repo_path(&tmp),
+        &footprint_str,
+        1,
+        1,
+        "My Feature Branch!",
+        None,
+    )
+    .await
+    .expect("create_worktree with special title failed");
 
     assert_eq!(result.branch, "task/1-my-feature-branch");
 
@@ -219,7 +249,7 @@ async fn test_sanitize_title_and_branch_naming() {
         "sanitized branch should exist, got: {stdout}"
     );
 
-    remove_worktree(&repo_path(&tmp), 1, 1)
+    remove_worktree(&repo_path(&tmp), &result.worktree_path)
         .await
         .expect("remove_worktree failed");
 }

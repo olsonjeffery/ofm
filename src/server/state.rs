@@ -17,6 +17,7 @@ type SharedJwksCache = Option<Arc<RwLock<Option<JwksCache>>>>;
 pub struct AppState {
     pub db: hiqlite::Client,
     pub default_user_id: Uuid,
+    pub footprint: String,
     pub archive_root: String,
     pub config_root: String,
     pub active_sessions: Arc<Mutex<HashMap<String, Box<dyn LlmProvider>>>>,

@@ -38,6 +38,7 @@ async fn make_state() -> (AppState, AuthLayer, TempDir) {
 
         db: client,
         default_user_id: user_id,
+        footprint: tmp.path().to_str().unwrap().to_string(),
         archive_root: "storage/".into(),
         config_root: tmp.path().to_str().unwrap().to_string(),
         active_sessions: Arc::new(Mutex::new(HashMap::<String, Box<dyn LlmProvider>>::new())),

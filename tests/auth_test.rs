@@ -109,6 +109,7 @@ fn make_app_state(client: hiqlite::Client, user_id: Uuid, oidc: Option<OidcEndpo
         cfg_port: 0,
         db: client,
         default_user_id: user_id,
+        footprint: "/tmp".into(),
         archive_root: "storage/".into(),
         config_root: "/tmp".into(),
         active_sessions: Arc::new(Mutex::new(HashMap::<String, Box<dyn LlmProvider>>::new())),
@@ -953,6 +954,7 @@ async fn test_refresh_with_session_cookie() {
 
         db: client.clone(),
         default_user_id,
+        footprint: "/tmp".into(),
         archive_root: "storage/".into(),
         config_root: "/tmp".into(),
         active_sessions: Arc::new(Mutex::new(HashMap::<String, Box<dyn LlmProvider>>::new())),
