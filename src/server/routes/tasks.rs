@@ -99,6 +99,7 @@ async fn create_task(
 
     let worktree_result = match worktree::create_worktree(
         &project.repo_folder_path,
+        &state.footprint,
         project.id,
         task.id,
         &body.title,
@@ -275,7 +276,8 @@ async fn delete_task(
             Some(w.repo_path)
         };
         if let Some(ref rp) = repo {
-            let _ = worktree::remove_worktree(rp, w.project_id, w.task_id)
+            let wt_path = std::path::Path::new(&w.worktree_path);
+            let _ = worktree::remove_worktree(rp, wt_path)
                 .await
                 .map_err(|e| tracing::warn!("failed to remove worktree: {e}"));
         }

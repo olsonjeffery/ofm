@@ -80,6 +80,7 @@ async fn setup_app() -> TestApp {
 
         db: client.clone(),
         default_user_id: user_id,
+        footprint: db_dir.path().to_str().unwrap().to_string(),
         archive_root: "storage/".into(),
         config_root: db_dir.path().to_str().unwrap().to_string(),
         active_sessions: Arc::new(Mutex::new(HashMap::<String, Box<dyn LlmProvider>>::new())),

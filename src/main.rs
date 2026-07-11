@@ -278,6 +278,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let state = server::state::AppState {
         db: client.clone(),
         default_user_id,
+        footprint: cfg.footprint.clone(),
         archive_root: cfg.archive_root.clone(),
         config_root: cfg.config_root.clone(),
 

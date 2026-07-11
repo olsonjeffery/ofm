@@ -40,9 +40,8 @@ pub fn valid_branch_name(name: &str) -> Result<(), Box<dyn std::error::Error + S
     Ok(())
 }
 
-pub fn get_worktree_path(repo_path: &str, project_id: i64, task_id: i64) -> PathBuf {
-    let worktrees_root = format!("{}-worktrees", repo_path.trim_end_matches('/'));
-    PathBuf::from(worktrees_root).join(format!("project-{project_id}/task-{task_id}/"))
+pub fn get_worktree_path(footprint: &str, project_id: i64, task_id: i64) -> PathBuf {
+    PathBuf::from(footprint).join(format!("worktrees/project-{project_id}/task-{task_id}/"))
 }
 
 pub async fn detect_default_branch(
@@ -83,12 +82,13 @@ pub async fn detect_default_branch(
 
 pub async fn create_worktree(
     repo_path: &str,
+    footprint: &str,
     project_id: i64,
     task_id: i64,
     title: &str,
     base_branch: Option<&str>,
 ) -> Result<CreateWorktreeResult, Box<dyn std::error::Error + Send + Sync>> {
-    let worktree_path = get_worktree_path(repo_path, project_id, task_id);
+    let worktree_path = get_worktree_path(footprint, project_id, task_id);
     if let Some(parent) = worktree_path.parent() {
         tokio::fs::create_dir_all(parent).await?;
     }
@@ -202,11 +202,8 @@ async fn copy_dependencies_background(repo_path: &str, project_path: &Path) {
 
 pub async fn remove_worktree(
     repo_path: &str,
-    project_id: i64,
-    task_id: i64,
+    worktree_path: &Path,
 ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
-    let worktree_path = get_worktree_path(repo_path, project_id, task_id);
-
     if !worktree_path.exists() {
         return Ok(());
     }
@@ -331,22 +328,19 @@ mod tests {
 
     #[test]
     fn test_get_worktree_path() {
-        let path = get_worktree_path("/repo", 1, 42);
-        assert_eq!(path, PathBuf::from("/repo-worktrees/project-1/task-42/"));
+        let path = get_worktree_path("/footprint", 1, 42);
+        assert_eq!(
+            path,
+            PathBuf::from("/footprint/worktrees/project-1/task-42/")
+        );
     }
 
     #[test]
     fn test_get_worktree_path_trailing_slash() {
-        let path = get_worktree_path("/repo/", 2, 99);
-        assert_eq!(path, PathBuf::from("/repo-worktrees/project-2/task-99/"));
-    }
-
-    #[test]
-    fn test_get_worktree_path_large_ids() {
-        let path = get_worktree_path("/home/projects/my-app", 9999, 888888);
+        let path = get_worktree_path("/footprint/", 2, 99);
         assert_eq!(
             path,
-            PathBuf::from("/home/projects/my-app-worktrees/project-9999/task-888888/")
+            PathBuf::from("/footprint//worktrees/project-2/task-99/")
         );
     }
 

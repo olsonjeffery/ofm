@@ -60,6 +60,7 @@ async fn make_state_with_auth() -> (AppState, AuthLayer, String, tempfile::TempD
 
         db: client,
         default_user_id: user_id,
+        footprint: tmp.path().to_str().unwrap().to_string(),
         archive_root: "storage/".into(),
         config_root: tmp.path().to_str().unwrap().to_string(),
         active_sessions: Arc::new(Mutex::new(HashMap::<String, Box<dyn LlmProvider>>::new())),
@@ -102,6 +103,7 @@ async fn make_state_no_auth() -> (AppState, AuthLayer, tempfile::TempDir) {
 
         db: client,
         default_user_id: user_id,
+        footprint: tmp.path().to_str().unwrap().to_string(),
         archive_root: "storage/".into(),
         config_root: tmp.path().to_str().unwrap().to_string(),
         active_sessions: Arc::new(Mutex::new(HashMap::<String, Box<dyn LlmProvider>>::new())),
@@ -335,6 +337,7 @@ async fn test_settings_config_body_user_isolation() {
 
         db: client,
         default_user_id: user_a_id,
+        footprint: tmp.path().to_str().unwrap().to_string(),
         archive_root: "storage/".into(),
         config_root: tmp.path().to_str().unwrap().to_string(),
         active_sessions: Arc::new(Mutex::new(HashMap::<String, Box<dyn LlmProvider>>::new())),
