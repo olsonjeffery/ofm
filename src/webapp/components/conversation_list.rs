@@ -1,5 +1,5 @@
-use leptos::prelude::*;
 use crate::db::schema::{ConversationWithRun, RunStatus};
+use leptos::prelude::*;
 
 fn run_status_class(status: &RunStatus) -> &'static str {
     match status {
@@ -73,8 +73,8 @@ pub fn ConversationList(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use chrono::NaiveDateTime;
     use crate::db::schema::{AgentType, Conversation, RunStatus, TaskAgentRun};
+    use chrono::NaiveDateTime;
 
     fn make_conversation(id: uuid::Uuid, name: &str) -> Conversation {
         Conversation {
@@ -84,7 +84,8 @@ mod tests {
             model: "gpt-4".into(),
             effort: "balanced".into(),
             name: Some(name.into()),
-            created_at: NaiveDateTime::parse_from_str("2024-06-01 12:00:00", "%Y-%m-%d %H:%M:%S").unwrap(),
+            created_at: NaiveDateTime::parse_from_str("2024-06-01 12:00:00", "%Y-%m-%d %H:%M:%S")
+                .unwrap(),
         }
     }
 
@@ -95,14 +96,16 @@ mod tests {
             agent_type: AgentType::Implementation,
             status: RunStatus::Completed,
             conversation_id: Some(conv_id),
-            created_at: NaiveDateTime::parse_from_str("2024-06-01 12:00:00", "%Y-%m-%d %H:%M:%S").unwrap(),
+            created_at: NaiveDateTime::parse_from_str("2024-06-01 12:00:00", "%Y-%m-%d %H:%M:%S")
+                .unwrap(),
             completed_at: None,
         }
     }
 
     #[test]
     fn test_conversation_list_empty() {
-        let html = leptos::view! { <ConversationList conversations=Vec::new() active_id=None /> }.to_html();
+        let html = leptos::view! { <ConversationList conversations=Vec::new() active_id=None /> }
+            .to_html();
         assert!(html.contains("No conversations yet"));
     }
 
@@ -113,7 +116,8 @@ mod tests {
             conversation: make_conversation(conv_id, "Test Chat"),
             run: Some(make_run(conv_id)),
         }];
-        let html = leptos::view! { <ConversationList conversations=convs active_id=None /> }.to_html();
+        let html =
+            leptos::view! { <ConversationList conversations=convs active_id=None /> }.to_html();
         assert!(html.contains("Test Chat"));
         assert!(html.contains("Completed"));
     }

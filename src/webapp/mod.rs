@@ -251,11 +251,7 @@ async fn chat_handler(
         .await
         .ok()
         .flatten()
-        .or_else(|| {
-            conversations
-                .first()
-                .and_then(|cwr| cwr.run.clone())
-        });
+        .or_else(|| conversations.first().and_then(|cwr| cwr.run.clone()));
 
     let page_html = leptos::view! {
         <pages::chat::ChatPage

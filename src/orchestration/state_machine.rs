@@ -178,14 +178,12 @@ mod tests {
     #[test]
     fn test_implementation_skips_when_review_unconfigured() {
         let task = make_task();
-        let configs = vec![
-            AgentConfigStatus {
-                agent_type: "review".into(),
-                configured: false,
-                scope: None,
-                label: None,
-            },
-        ];
+        let configs = vec![AgentConfigStatus {
+            agent_type: "review".into(),
+            configured: false,
+            scope: None,
+            label: None,
+        }];
         let action = next_agent(&task, &AgentType::Implementation, &configs);
         assert!(matches!(action, NextAction::Stop));
     }
@@ -203,14 +201,12 @@ mod tests {
     #[test]
     fn test_review_skips_when_implementation_unconfigured() {
         let task = make_task();
-        let configs = vec![
-            AgentConfigStatus {
-                agent_type: "implementation".into(),
-                configured: false,
-                scope: None,
-                label: None,
-            },
-        ];
+        let configs = vec![AgentConfigStatus {
+            agent_type: "implementation".into(),
+            configured: false,
+            scope: None,
+            label: None,
+        }];
         let action = next_agent(&task, &AgentType::Review, &configs);
         assert!(matches!(action, NextAction::Stop));
     }

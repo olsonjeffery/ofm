@@ -51,7 +51,10 @@ pub fn tasks_router() -> Router<AppState> {
         .route("/", get(list_tasks).post(create_task))
         .route("/{id}", get(get_task).put(update_task).delete(delete_task))
         .nest("/{id}/agent-runs", super::agent_runs::agent_runs_router())
-        .nest("/{id}/conversations", super::conversations::conversations_router())
+        .nest(
+            "/{id}/conversations",
+            super::conversations::conversations_router(),
+        )
         .nest("/{id}", super::agent_flags::agent_flags_router())
 }
 

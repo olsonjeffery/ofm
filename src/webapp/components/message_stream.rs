@@ -1,5 +1,5 @@
-use leptos::prelude::*;
 use crate::providers::types::ProviderEvent;
+use leptos::prelude::*;
 
 fn sanitize_html(html: &str) -> String {
     let allowed_tags: std::collections::HashSet<&str> =
@@ -11,7 +11,8 @@ fn sanitize_html(html: &str) -> String {
         ("em", ["class", "style", "id"].into()),
         ("code", ["class", "style", "id"].into()),
         ("br", [].into()),
-    ].into();
+    ]
+    .into();
     ammonia::Builder::default()
         .tags(allowed_tags)
         .tag_attributes(allowed_attrs)
@@ -28,12 +29,13 @@ fn render_event(event: &ProviderEvent) -> String {
             )
         }
         ProviderEvent::TextChunk { delta } => {
-            format!(
-                r#"<span class="message-chunk">{}</span>"#,
-                delta
-            )
+            format!(r#"<span class="message-chunk">{}</span>"#, delta)
         }
-        ProviderEvent::ToolUse { tool_name, tool_use_id, input } => {
+        ProviderEvent::ToolUse {
+            tool_name,
+            tool_use_id,
+            input,
+        } => {
             let input_str = serde_json::to_string_pretty(input).unwrap_or_default();
             let id_str = tool_use_id.as_deref().unwrap_or("");
             format!(
@@ -41,7 +43,10 @@ fn render_event(event: &ProviderEvent) -> String {
                 tool_name, id_str, input_str
             )
         }
-        ProviderEvent::ToolResult { tool_use_id, result } => {
+        ProviderEvent::ToolResult {
+            tool_use_id,
+            result,
+        } => {
             let id_str = tool_use_id.as_deref().unwrap_or("");
             format!(
                 r#"<div class="card"><div class="card-content"><span class="tag is-success is-light">result</span> <code>{}</code><pre>{}</pre></div></div>"#,
@@ -93,7 +98,9 @@ mod tests {
 
     #[test]
     fn test_message_stream_renders_text() {
-        let messages = vec![ProviderEvent::Text { text: "Hello World".into() }];
+        let messages = vec![ProviderEvent::Text {
+            text: "Hello World".into(),
+        }];
         let html = leptos::view! { <MessageStream messages=messages /> }.to_html();
         assert!(html.contains("Hello World"));
         assert!(html.contains("message-text"));
@@ -125,7 +132,9 @@ mod tests {
 
     #[test]
     fn test_message_stream_renders_thinking() {
-        let messages = vec![ProviderEvent::Thinking { thinking: "hmm".into() }];
+        let messages = vec![ProviderEvent::Thinking {
+            thinking: "hmm".into(),
+        }];
         let html = leptos::view! { <MessageStream messages=messages /> }.to_html();
         assert!(html.contains("hmm"));
         assert!(html.contains("message-thinking"));
@@ -133,7 +142,9 @@ mod tests {
 
     #[test]
     fn test_message_stream_renders_error() {
-        let messages = vec![ProviderEvent::Error { error: "something broke".into() }];
+        let messages = vec![ProviderEvent::Error {
+            error: "something broke".into(),
+        }];
         let html = leptos::view! { <MessageStream messages=messages /> }.to_html();
         assert!(html.contains("something broke"));
         assert!(html.contains("is-danger"));
@@ -148,9 +159,7 @@ mod tests {
 }
 
 #[component]
-pub fn MessageStream(
-    messages: Vec<ProviderEvent>,
-) -> impl IntoView {
+pub fn MessageStream(messages: Vec<ProviderEvent>) -> impl IntoView {
     let rendered: String = messages
         .iter()
         .map(render_event)

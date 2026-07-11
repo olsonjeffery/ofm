@@ -1,6 +1,6 @@
-use leptos::prelude::*;
 use crate::db::schema::{RunStatus, Task, TaskAgentRun};
 use crate::providers::registry::AgentConfigStatus;
+use leptos::prelude::*;
 
 fn run_status_class(status: &RunStatus) -> &'static str {
     match status {
@@ -44,7 +44,10 @@ pub fn AgentRunBanner(
     let (banner_class, banner_text) = if let Some(ref run) = current_run {
         match run.status {
             RunStatus::Blocked => {
-                let reason = format!("Skipped — no model configured for {}", agent_type_label(&run.agent_type.to_string()));
+                let reason = format!(
+                    "Skipped — no model configured for {}",
+                    agent_type_label(&run.agent_type.to_string())
+                );
                 ("is-warning", reason)
             }
             RunStatus::Failed => ("is-danger", "Agent run failed".to_string()),
@@ -56,7 +59,10 @@ pub fn AgentRunBanner(
         ("is-light", "No active agent run".to_string())
     };
 
-    let start_disabled = current_run.as_ref().map(|r| r.status == RunStatus::Running).unwrap_or(false);
+    let start_disabled = current_run
+        .as_ref()
+        .map(|r| r.status == RunStatus::Running)
+        .unwrap_or(false);
 
     let statuses = agent_config_statuses.clone();
 
@@ -114,7 +120,8 @@ mod tests {
             pr_agent_complete: false,
             refinement_complete: false,
             yolo_mode: false,
-            created_at: NaiveDateTime::parse_from_str("2024-06-01 12:00:00", "%Y-%m-%d %H:%M:%S").unwrap(),
+            created_at: NaiveDateTime::parse_from_str("2024-06-01 12:00:00", "%Y-%m-%d %H:%M:%S")
+                .unwrap(),
         }
     }
 
@@ -125,7 +132,8 @@ mod tests {
             agent_type: crate::db::schema::AgentType::Implementation,
             status,
             conversation_id: Some(uuid::Uuid::new_v4()),
-            created_at: NaiveDateTime::parse_from_str("2024-06-01 12:00:00", "%Y-%m-%d %H:%M:%S").unwrap(),
+            created_at: NaiveDateTime::parse_from_str("2024-06-01 12:00:00", "%Y-%m-%d %H:%M:%S")
+                .unwrap(),
             completed_at: None,
         }
     }
@@ -133,7 +141,9 @@ mod tests {
     #[test]
     fn test_banner_shows_no_active_run() {
         let task = make_task();
-        let html = leptos::view! { <AgentRunBanner task agent_config_statuses=vec![] current_run=None /> }.to_html();
+        let html =
+            leptos::view! { <AgentRunBanner task agent_config_statuses=vec![] current_run=None /> }
+                .to_html();
         assert!(html.contains("No active agent run"));
         assert!(html.contains("Start Agent Run"));
     }
@@ -142,7 +152,9 @@ mod tests {
     fn test_banner_shows_running() {
         let task = make_task();
         let run = Some(make_run(RunStatus::Running));
-        let html = leptos::view! { <AgentRunBanner task agent_config_statuses=vec![] current_run=run /> }.to_html();
+        let html =
+            leptos::view! { <AgentRunBanner task agent_config_statuses=vec![] current_run=run /> }
+                .to_html();
         assert!(html.contains("in progress"));
     }
 
@@ -150,7 +162,9 @@ mod tests {
     fn test_banner_shows_blocked_with_reason() {
         let task = make_task();
         let run = Some(make_run(RunStatus::Blocked));
-        let html = leptos::view! { <AgentRunBanner task agent_config_statuses=vec![] current_run=run /> }.to_html();
+        let html =
+            leptos::view! { <AgentRunBanner task agent_config_statuses=vec![] current_run=run /> }
+                .to_html();
         assert!(html.contains("Skipped"));
         assert!(html.contains("no model configured"));
     }
@@ -159,8 +173,18 @@ mod tests {
     fn test_banner_shows_configured_tags() {
         let task = make_task();
         let statuses = vec![
-            AgentConfigStatus { agent_type: "implementation".into(), configured: true, scope: Some("user".into()), label: Some("gpt-4".into()) },
-            AgentConfigStatus { agent_type: "review".into(), configured: false, scope: None, label: None },
+            AgentConfigStatus {
+                agent_type: "implementation".into(),
+                configured: true,
+                scope: Some("user".into()),
+                label: Some("gpt-4".into()),
+            },
+            AgentConfigStatus {
+                agent_type: "review".into(),
+                configured: false,
+                scope: None,
+                label: None,
+            },
         ];
         let html = leptos::view! { <AgentRunBanner task agent_config_statuses=statuses current_run=None /> }.to_html();
         assert!(html.contains("Implementation"));
