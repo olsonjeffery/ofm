@@ -5,6 +5,7 @@ use async_trait::async_trait;
 use serde::Deserialize;
 use tempfile::TempDir;
 use tokio::sync::mpsc;
+use tokio_stream::StreamExt;
 use uuid::Uuid;
 
 use crate::providers::config::{merge_configs, ProviderConfig as PConfig, ProviderConfigDir};
@@ -343,7 +344,6 @@ async fn read_sse_to_completion(
 
     let mut buf = Vec::new();
     let mut stream = resp.bytes_stream();
-    use tokio_stream::StreamExt;
     while let Some(chunk_result) = stream.next().await {
         let Ok(chunk) = chunk_result else {
             tracing::warn!("SSE chunk error: {:?}", chunk_result.err());
@@ -380,7 +380,6 @@ async fn collect_response_via_sse(
     let mut response = String::new();
     let mut buf = Vec::new();
     let mut stream = resp.bytes_stream();
-    use tokio_stream::StreamExt;
     while let Some(chunk_result) = stream.next().await {
         let Ok(chunk) = chunk_result else {
             tracing::warn!("SSE chunk error: {:?}", chunk_result.err());

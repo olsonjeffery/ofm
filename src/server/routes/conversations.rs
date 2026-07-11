@@ -1,0 +1,260 @@
+
+
+use axum::{
+    extract::{Path, State},
+    http::StatusCode,
+    routing::{get, post},
+    Json, Router,
+};
+use serde::{Deserialize, Serialize};
+use uuid::Uuid;
+
+use crate::auth::AuthUser;
+use crate::db::schema::{
+    Conversation, ConversationWithRun, TaskAgentRun,
+};
+use crate::providers::types::{ProviderEvent, ResumeInput};
+use crate::server::ws::message::{ServerMessage, TopicId, WsTopic, WsTopicKind};
+use crate::server::{error::ServerError, state::AppState};
+use crate::services::{session, tasks, transcript};
+
+#[derive(Debug, Serialize)]
+pub struct ConversationDetail {
+    pub conversation: Conversation,
+    pub run: Option<TaskAgentRun>,
+    pub messages: Vec<ProviderEvent>,
+}
+
+#[derive(Debug, Deserialize)]
+struct SendMessageRequest {
+    text: String,
+}
+
+pub fn conversations_router() -> Router<AppState> {
+    Router::new()
+        .route("/", get(list_conversations))
+        .route("/{id}", get(get_conversation))
+        .route("/{id}/messages", post(send_message))
+}
+
+async fn list_conversations(
+    auth: AuthUser,
+    State(state): State<AppState>,
+    Path(task_id): Path<i64>,
+) -> Result<Json<Vec<ConversationWithRun>>, ServerError> {
+    let task = tasks::get_task(&state.db, task_id)
+        .await
+        .map_err(|_| ServerError::NotFound("Task not found".into()))?;
+    if task.user_id != auth.user_id {
+        return Err(ServerError::NotFound("Task not found".into()));
+    }
+    let convs = tasks::list_conversations_for_task(&state.db, task_id)
+        .await
+        .map_err(|e| ServerError::Internal(e.to_string()))?;
+    Ok(Json(convs))
+}
+
+async fn get_conversation(
+    auth: AuthUser,
+    State(state): State<AppState>,
+    Path((task_id, conv_id)): Path<(i64, Uuid)>,
+) -> Result<Json<ConversationDetail>, ServerError> {
+    let task = tasks::get_task(&state.db, task_id)
+        .await
+        .map_err(|_| ServerError::NotFound("Task not found".into()))?;
+    if task.user_id != auth.user_id {
+        return Err(ServerError::NotFound("Task not found".into()));
+    }
+    let conv = session::resume_session(&state.db, conv_id)
+        .await
+        .map_err(|_| ServerError::NotFound("Conversation not found".into()))?;
+
+    if conv.task_id != task_id {
+        return Err(ServerError::NotFound("Conversation not found".into()));
+    }
+
+    let run = tasks::get_agent_run_by_conversation(&state.db, &conv_id)
+        .await
+        .ok();
+
+    let omp_session_id = conv.omp_session_id.clone().unwrap_or_default();
+    let messages = transcript::load_transcript(&state.db, &omp_session_id, conv.task_id)
+        .await
+        .unwrap_or_default();
+
+    Ok(Json(ConversationDetail {
+        conversation: conv,
+        run,
+        messages,
+    }))
+}
+
+async fn send_message(
+    auth: AuthUser,
+    State(state): State<AppState>,
+    Path((task_id, conv_id)): Path<(i64, Uuid)>,
+    Json(body): Json<SendMessageRequest>,
+) -> Result<StatusCode, ServerError> {
+    let task = tasks::get_task(&state.db, task_id)
+        .await
+        .map_err(|_| ServerError::NotFound("Task not found".into()))?;
+    if task.user_id != auth.user_id {
+        return Err(ServerError::NotFound("Task not found".into()));
+    }
+    let conv = session::resume_session(&state.db, conv_id)
+        .await
+        .map_err(|_| ServerError::NotFound("Conversation not found".into()))?;
+
+    if conv.task_id != task_id {
+        return Err(ServerError::NotFound("Conversation not found".into()));
+    }
+
+    if body.text.trim().is_empty() {
+        return Err(ServerError::BadRequest("message text is required".into()));
+    }
+
+    // Persist the user's message as a Text event
+    let user_event = ProviderEvent::Text {
+        text: body.text.clone(),
+    };
+    let omp_session_id = conv.omp_session_id.clone().unwrap_or_default();
+    transcript::persist_event(&state.db, &user_event, &omp_session_id, task_id)
+        .await
+        .map_err(|e| ServerError::Internal(e.to_string()))?;
+
+    // Broadcast user message via WS
+    let topic = WsTopic {
+        kind: WsTopicKind::Task,
+        id: TopicId(task_id),
+    };
+    let msg = ServerMessage::Event {
+        topic: topic.clone(),
+        event_type: "text".to_string(),
+        timestamp: chrono::Utc::now(),
+        payload: serde_json::json!({"text": body.text}),
+    };
+    state.ws_bus.broadcast(&topic, msg).await;
+
+    // Load transcript and resume the provider
+    let sessions = state.active_sessions.lock().await;
+    let provider = sessions.get(&conv_id.to_string());
+
+    match provider {
+        Some(p) => {
+            let messages = transcript::load_transcript(
+                &state.db,
+                &omp_session_id,
+                task_id,
+            )
+            .await
+            .map_err(|e| ServerError::Internal(e.to_string()))?;
+
+            let messages_json = serde_json::to_value(&messages)
+                .map_err(|e| ServerError::Internal(e.to_string()))?;
+
+            let resume_input = ResumeInput::new(omp_session_id.clone(), messages_json);
+
+            match p.resume_turn(resume_input).await {
+                Ok(mut rx) => {
+                    let db = state.db.clone();
+                    let ws_bus = state.ws_bus.clone();
+                    let active_sessions = state.active_sessions.clone();
+                    let t_id = task_id;
+                    let s_id = omp_session_id;
+                    let project_key = task_id;
+                    let c_id = conv_id;
+
+                    tokio::spawn(async move {
+                        loop {
+                            tokio::select! {
+                                event = rx.recv() => {
+                                    let event = match event {
+                                        Some(e) => e,
+                                        None => break,
+                                    };
+
+                                    if let Err(e) = transcript::persist_event(
+                                        &db, &event, &s_id, project_key
+                                    ).await {
+                                        tracing::warn!("Failed to persist event: {e}");
+                                    }
+
+                                    let topic = WsTopic {
+                                        kind: WsTopicKind::Task,
+                                        id: TopicId(t_id),
+                                    };
+
+                                    let (event_type, payload) = match &event {
+                                        ProviderEvent::SessionStart { session_id } => {
+                                            ("session_start".to_string(), serde_json::json!({"session_id": session_id}))
+                                        }
+                                        ProviderEvent::Text { text } => {
+                                            ("text".to_string(), serde_json::json!({"text": text}))
+                                        }
+                                        ProviderEvent::TextChunk { delta } => {
+                                            ("text_chunk".to_string(), serde_json::json!({"delta": delta}))
+                                        }
+                                        ProviderEvent::ToolUse { tool_name, tool_use_id, input } => {
+                                            ("tool_use".to_string(), serde_json::json!({
+                                                "tool_name": tool_name,
+                                                "tool_use_id": tool_use_id,
+                                                "input": input,
+                                            }))
+                                        }
+                                        ProviderEvent::ToolResult { tool_use_id, result } => {
+                                            ("tool_result".to_string(), serde_json::json!({
+                                                "tool_use_id": tool_use_id,
+                                                "result": result,
+                                            }))
+                                        }
+                                        ProviderEvent::Thinking { thinking } => {
+                                            ("thinking".to_string(), serde_json::json!({"thinking": thinking}))
+                                        }
+                                        ProviderEvent::ThinkingChunk { delta } => {
+                                            ("thinking_chunk".to_string(), serde_json::json!({"delta": delta}))
+                                        }
+                                        ProviderEvent::ContextUsage(usage) => {
+                                            ("context_usage".to_string(), serde_json::json!({"usage": usage}))
+                                        }
+                                        ProviderEvent::Error { error } => {
+                                            ("error".to_string(), serde_json::json!({"error": error}))
+                                        }
+                                        ProviderEvent::Done(data) => {
+                                            ("done".to_string(), serde_json::json!({"data": data}))
+                                        }
+                                    };
+
+                                    let msg = ServerMessage::Event {
+                                        topic: topic.clone(),
+                                        event_type,
+                                        timestamp: chrono::Utc::now(),
+                                        payload,
+                                    };
+
+                                    ws_bus.broadcast(&topic, msg).await;
+
+                                    if matches!(event, ProviderEvent::Done(_)) {
+                                        if let Err(e) = crate::orchestration::completion_handler(
+                                            &db, c_id, &active_sessions
+                                        ).await {
+                                            tracing::warn!("Error in completion handler: {e:?}");
+                                        }
+                                        break;
+                                    }
+                                }
+                            }
+                        }
+                    });
+                }
+                Err(e) => {
+                    tracing::warn!("Failed to resume turn for conversation {conv_id}: {e}");
+                }
+            }
+
+            Ok(StatusCode::OK)
+        }
+        None => Err(ServerError::NotFound(
+            "No active provider session for this conversation".into(),
+        )),
+    }
+}

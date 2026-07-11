@@ -1,4 +1,4 @@
-use crate::db::schema::{AgentType, RunStatus, Task, TaskAgentRun, Worktree};
+use crate::db::schema::{AgentType, Conversation, ConversationWithRun, RunStatus, Task, TaskAgentRun, Worktree};
 use hiqlite::Client;
 use uuid::Uuid;
 
@@ -122,6 +122,49 @@ pub async fn delete_worktree(client: &Client, task_id: i64) -> Result<bool, hiql
         )
         .await?;
     Ok(rows > 0)
+}
+
+pub async fn create_agent_run_blocked(
+    client: &Client,
+    task_id: i64,
+    agent_type: &AgentType,
+) -> Result<TaskAgentRun, hiqlite::Error> {
+    let id = Uuid::new_v4();
+    let now = utc_now();
+    client
+        .execute(
+            "INSERT INTO task_agent_runs (id, task_id, agent_type, status, created_at) VALUES ($1, $2, $3, $4, $5)",
+            hiqlite::params!(id.to_string(), task_id, agent_type.to_string(), RunStatus::Blocked.to_string(), &now),
+        )
+        .await?;
+    get_agent_run(client, &id).await
+}
+
+pub async fn list_conversations_for_task(
+    client: &Client,
+    task_id: i64,
+) -> Result<Vec<ConversationWithRun>, hiqlite::Error> {
+    let conversations = client
+        .query_map::<Conversation, _>(
+            "SELECT id, task_id, omp_session_id, model, effort, name, created_at FROM conversations WHERE task_id = $1 ORDER BY created_at DESC",
+            hiqlite::params!(task_id),
+        )
+        .await?;
+    let mut results = Vec::with_capacity(conversations.len());
+    for conv in conversations {
+        let run = client
+            .query_map_one::<TaskAgentRun, _>(
+                "SELECT id, task_id, agent_type, status, conversation_id, created_at, completed_at FROM task_agent_runs WHERE conversation_id = $1",
+                hiqlite::params!(conv.id.to_string()),
+            )
+            .await
+            .ok();
+        results.push(ConversationWithRun {
+            conversation: conv,
+            run,
+        });
+    }
+    Ok(results)
 }
 
 pub async fn create_agent_run(

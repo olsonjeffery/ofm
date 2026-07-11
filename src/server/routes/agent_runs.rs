@@ -14,6 +14,8 @@ use crate::orchestration;
 use crate::orchestration::guards;
 use crate::providers;
 use crate::providers::registry;
+use crate::providers::types::{ProviderEvent, TurnInput};
+use crate::server::ws::message::{ServerMessage, TopicId, WsTopic, WsTopicKind};
 use crate::server::{error::ServerError, state::AppState};
 use crate::services::session;
 use crate::services::tasks;
@@ -38,6 +40,25 @@ async fn post_create_agent_run(
         .await
         .map_err(|_| ServerError::NotFound("Task not found".into()))?;
 
+    // Phase 3: Config check guard — if no config, create blocked run and skip
+    let config_root = PathBuf::from(&state.config_root);
+    let harness_config = match registry::resolve_harness_config(
+        &state.db,
+        &agent_type,
+        Some(&task.user_id),
+        Some(task.project_id),
+    )
+    .await
+    {
+        Ok(cfg) => cfg,
+        Err(_) => {
+            let run = tasks::create_agent_run_blocked(&state.db, task_id, &agent_type)
+                .await
+                .map_err(|e| ServerError::Internal(e.to_string()))?;
+            return Ok((StatusCode::CREATED, Json(run)));
+        }
+    };
+
     guards::one_running_per_task(&state.db, task_id).await?;
 
     guards::iteration_cap(&task)?;
@@ -46,26 +67,16 @@ async fn post_create_agent_run(
         .await
         .map_err(orchestration::internal_err)?;
 
-    // Phase 8: Resolve provider config (graceful fallback if no config exists)
-    let config_root = PathBuf::from(&state.config_root);
-    let harness_config = registry::resolve_harness_config(
-        &state.db,
-        &agent_type,
-        Some(&task.user_id),
-        Some(task.project_id),
-    )
-    .await;
-
-    let (model, effort) = match &harness_config {
-        Ok(cfg) => (
-            cfg.model.as_deref().unwrap_or("default").to_string(),
-            cfg.effort.as_deref().unwrap_or("balanced").to_string(),
-        ),
-        Err(_) => {
-            tracing::warn!("No provider config found for {agent_type}, using defaults");
-            ("default".to_string(), "balanced".to_string())
-        }
-    };
+    let model = harness_config
+        .model
+        .as_deref()
+        .unwrap_or("default")
+        .to_string();
+    let effort = harness_config
+        .effort
+        .as_deref()
+        .unwrap_or("balanced")
+        .to_string();
 
     let session_result = session::start_session(&state.db, task_id, &model, &effort, agent_type)
         .await
@@ -76,46 +87,187 @@ async fn post_create_agent_run(
             _ => ServerError::Internal(e.to_string()),
         })?;
 
-    if let Ok(cfg) = &harness_config {
-        // Start and store provider
-        match registry::resolve_provider(cfg, std::path::Path::new("omp"), &config_root).await {
-            Ok(mut provider) => {
-                let working_dir = std::path::Path::new("/tmp");
-                match provider.start(working_dir).await {
-                    Ok(()) => {
-                        state
-                            .active_sessions
-                            .lock()
-                            .await
-                            .insert(session_result.conversation_id.to_string(), provider);
-                    }
-                    Err(e) => {
-                        tracing::warn!("Failed to start provider: {e}");
+    // Start and store provider, then begin turn
+    match registry::resolve_provider(&harness_config, std::path::Path::new("omp"), &config_root)
+        .await
+    {
+        Ok(mut provider) => {
+            let working_dir = std::path::Path::new("/tmp");
+            match provider.start(working_dir).await {
+                Ok(()) => {
+                    let conv_id_str = session_result.conversation_id.to_string();
+
+                    // Build TurnInput from task doc + context prompt
+                    let archive =
+                        crate::archive::ArchiveRoot::new(PathBuf::from(&state.archive_root));
+                    let worktree = tasks::get_worktree_by_task(&state.db, task_id)
+                        .await
+                        .ok();
+                    let cwd = worktree
+                        .as_ref()
+                        .map(|w| w.worktree_path.clone())
+                        .unwrap_or_else(|| "/tmp".to_string());
+
+                    let proj_str = task.project_id.to_string();
+                    let task_str = task_id.to_string();
+                    let doc_path = archive.task_doc_path(&proj_str, &task_str);
+                    let doc_content =
+                        archive.read_task_doc(&doc_path).ok().unwrap_or_default();
+                    let context_prompt = archive
+                        .build_context_prompt(&proj_str, &task_str)
+                        .ok()
+                        .unwrap_or_default();
+
+                    let prompt = if doc_content.is_empty() && context_prompt.is_empty() {
+                        task.title.clone()
+                    } else if context_prompt.is_empty() {
+                        doc_content
+                    } else {
+                        format!("{}\n\n{}", doc_content, context_prompt)
+                    };
+
+                    let turn_input = TurnInput::new(
+                        prompt,
+                        cwd,
+                        model,
+                        effort,
+                        "auto".to_string(),
+                        vec![],
+                        String::new(),
+                    )
+                    .session_id(session_result.session_id.clone());
+
+                    match provider.start_turn(turn_input).await {
+                        Ok(mut rx) => {
+                            // Store provider before spawning task (rx is independent)
+                            state
+                                .active_sessions
+                                .lock()
+                                .await
+                                .insert(conv_id_str, provider);
+
+                            // Spawn broadcast task
+                            let db = state.db.clone();
+                            let ws_bus = state.ws_bus.clone();
+                            let active_sessions = state.active_sessions.clone();
+                            let conversation_id = session_result.conversation_id;
+                            let t_id = task_id;
+                            let s_id = session_result.session_id;
+                            let project_key = task_id;
+
+                            tokio::spawn(async move {
+                                loop {
+                                    tokio::select! {
+                                        event = rx.recv() => {
+                                            let event = match event {
+                                                Some(e) => e,
+                                                None => break,
+                                            };
+
+                                            // Persist event
+                                            if let Err(e) = crate::services::transcript::persist_event(
+                                                &db, &event, &s_id, project_key
+                                            ).await {
+                                                tracing::warn!("Failed to persist event: {e}");
+                                            }
+
+                                            let topic = WsTopic {
+                                                kind: WsTopicKind::Task,
+                                                id: TopicId(t_id),
+                                            };
+
+                                            let (event_type, payload) = match &event {
+                                                ProviderEvent::SessionStart { session_id } => {
+                                                    ("session_start".to_string(), serde_json::json!({"session_id": session_id}))
+                                                }
+                                                ProviderEvent::Text { text } => {
+                                                    ("text".to_string(), serde_json::json!({"text": text}))
+                                                }
+                                                ProviderEvent::TextChunk { delta } => {
+                                                    ("text_chunk".to_string(), serde_json::json!({"delta": delta}))
+                                                }
+                                                ProviderEvent::ToolUse { tool_name, tool_use_id, input } => {
+                                                    ("tool_use".to_string(), serde_json::json!({
+                                                        "tool_name": tool_name,
+                                                        "tool_use_id": tool_use_id,
+                                                        "input": input,
+                                                    }))
+                                                }
+                                                ProviderEvent::ToolResult { tool_use_id, result } => {
+                                                    ("tool_result".to_string(), serde_json::json!({
+                                                        "tool_use_id": tool_use_id,
+                                                        "result": result,
+                                                    }))
+                                                }
+                                                ProviderEvent::Thinking { thinking } => {
+                                                    ("thinking".to_string(), serde_json::json!({"thinking": thinking}))
+                                                }
+                                                ProviderEvent::ThinkingChunk { delta } => {
+                                                    ("thinking_chunk".to_string(), serde_json::json!({"delta": delta}))
+                                                }
+                                                ProviderEvent::ContextUsage(usage) => {
+                                                    ("context_usage".to_string(), serde_json::json!({"usage": usage}))
+                                                }
+                                                ProviderEvent::Error { error } => {
+                                                    ("error".to_string(), serde_json::json!({"error": error}))
+                                                }
+                                                ProviderEvent::Done(data) => {
+                                                    ("done".to_string(), serde_json::json!({"data": data}))
+                                                }
+                                            };
+
+                                            let msg = ServerMessage::Event {
+                                                topic: topic.clone(),
+                                                event_type,
+                                                timestamp: chrono::Utc::now(),
+                                                payload,
+                                            };
+
+                                            ws_bus.broadcast(&topic, msg).await;
+
+                                            if matches!(event, ProviderEvent::Done(_)) {
+                                                if let Err(e) = crate::orchestration::completion_handler(
+                                                    &db, conversation_id, &active_sessions
+                                                ).await {
+                                                    tracing::warn!("Error in completion handler: {e:?}");
+                                                }
+                                                break;
+                                            }
+                                        }
+                                    }
+                                }
+                            });
+                        }
+                        Err(e) => {
+                            tracing::warn!("Failed to start turn: {e}");
+                            state
+                                .active_sessions
+                                .lock()
+                                .await
+                                .insert(conv_id_str, provider);
+                        }
                     }
                 }
-            }
-            Err(e) => {
-                tracing::warn!("Failed to resolve provider: {e}");
+                Err(e) => {
+                    tracing::warn!("Failed to start provider: {e}");
+                }
             }
         }
-
-        // Fire-and-forget title generation
-        let db = state.db.clone();
-        let cfg_root = PathBuf::from(&state.config_root);
-        let title_config = cfg.clone();
-        let conv_id = session_result.conversation_id;
-        let task_title = task.title.clone();
-        tokio::spawn(async move {
-            providers::generate_conversation_title(
-                &db,
-                &cfg_root,
-                &title_config,
-                conv_id,
-                &task_title,
-            )
-            .await;
-        });
+        Err(e) => {
+            tracing::warn!("Failed to resolve provider: {e}");
+        }
     }
+
+    // Fire-and-forget title generation
+    let db = state.db.clone();
+    let cfg_root = PathBuf::from(&state.config_root);
+    let title_config = harness_config.clone();
+    let conv_id = session_result.conversation_id;
+    let task_title = task.title.clone();
+    tokio::spawn(async move {
+        providers::generate_conversation_title(&db, &cfg_root, &title_config, conv_id, &task_title)
+            .await;
+    });
 
     let run = tasks::get_agent_run_by_conversation(&state.db, &session_result.conversation_id)
         .await

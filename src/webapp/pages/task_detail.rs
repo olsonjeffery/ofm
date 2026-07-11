@@ -177,6 +177,16 @@ pub fn TaskDetailPage(
                     </div>
 
                     <div class="box">
+                        <h2 class="title is-4">"Actions"</h2>
+                        <a
+                            class="button is-fullwidth is-info mb-2"
+                            href={format!("/webapp/projects/{}/tasks/{}/chat", task.project_id, task.id)}
+                        >
+                            "Chat"
+                        </a>
+                    </div>
+
+                    <div class="box">
                         <h2 class="title is-4">"Run History"</h2>
                         {if agent_runs.is_empty() {
                             view! { <p class="has-text-grey is-size-7">"No runs yet."</p> }.into_any()
