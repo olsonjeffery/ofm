@@ -90,7 +90,12 @@ pub async fn create_worktree(
 ) -> Result<CreateWorktreeResult, Box<dyn std::error::Error + Send + Sync>> {
     let worktree_path = get_worktree_path(footprint, project_id, task_id);
     if let Some(parent) = worktree_path.parent() {
-        tokio::fs::create_dir_all(parent).await?;
+        tokio::fs::create_dir_all(parent).await.map_err(|e| {
+            format!(
+                "failed to create worktree parent dir {}: {e}",
+                parent.display()
+            )
+        })?;
     }
     let sanitized = sanitize_title(title);
     let branch = format!("task/{task_id}-{sanitized}");
@@ -98,7 +103,9 @@ pub async fn create_worktree(
 
     let base = match base_branch {
         Some(b) => b.to_string(),
-        None => detect_default_branch(repo_path).await?,
+        None => detect_default_branch(repo_path)
+            .await
+            .map_err(|e| format!("failed to detect default branch in repo {repo_path}: {e}"))?,
     };
     valid_branch_name(&base)?;
 
@@ -114,7 +121,8 @@ pub async fn create_worktree(
         .env("GIT_DISABLE_HOOKS", "1")
         .current_dir(repo_path)
         .output()
-        .await?;
+        .await
+        .map_err(|e| format!("failed to spawn git worktree add in repo {repo_path}: {e}"))?;
 
     if !output.status.success() {
         let stderr = String::from_utf8_lossy(&output.stderr);
