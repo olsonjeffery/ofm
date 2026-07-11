@@ -29,7 +29,12 @@ mod tests {
         let cmd = portable_pty::CommandBuilder::new("true");
         let child = pair.slave.spawn_command(cmd).unwrap();
         let pid = child.process_id().unwrap_or(0);
-        let mock_session = OhMyPiSession { pid, child, pair };
+        let mock_session = OhMyPiSession {
+            pid,
+            child,
+            pair,
+            writer: None,
+        };
 
         register_session(&sessions, "sess-1", mock_session).await;
 
