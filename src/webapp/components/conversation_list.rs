@@ -21,6 +21,40 @@ fn run_status_label(status: &RunStatus) -> &'static str {
     }
 }
 
+fn is_valid_name(name: &str) -> bool {
+    if name.len() < 3 {
+        return false;
+    }
+    if name.starts_with("Generate a 1-3 word title") {
+        return false;
+    }
+    if name.starts_with("generate a 1-3 word title") {
+        return false;
+    }
+    true
+}
+
+fn format_conversation_date(created_at: &chrono::NaiveDateTime) -> String {
+    let epoch = chrono::NaiveDateTime::parse_from_str("1970-01-01 00:00:00", "%Y-%m-%d %H:%M:%S")
+        .unwrap_or_default();
+    if *created_at <= epoch {
+        return String::new();
+    }
+    let now = chrono::Utc::now().naive_utc();
+    let diff = now - *created_at;
+    if diff.num_minutes() < 1 {
+        "Just now".to_string()
+    } else if diff.num_hours() < 1 {
+        format!("{}m ago", diff.num_minutes())
+    } else if diff.num_days() < 1 {
+        format!("{}h ago", diff.num_hours())
+    } else if diff.num_days() < 7 {
+        format!("{}d ago", diff.num_days())
+    } else {
+        created_at.format("%b %d").to_string()
+    }
+}
+
 #[component]
 pub fn ConversationList(
     conversations: Vec<ConversationWithRun>,
@@ -38,8 +72,13 @@ pub fn ConversationList(
                         let card_class = if is_active { "card is-active" } else { "card" };
                         let agent_type_str = cwr.run.as_ref().map(|r| r.agent_type.to_string()).unwrap_or_default();
                         let status = cwr.run.as_ref().map(|r| &r.status);
-                        let name = cwr.conversation.name.clone().unwrap_or_else(|| cwr.conversation.model.clone());
-                        let created = cwr.conversation.created_at.format("%Y-%m-%d %H:%M").to_string();
+                        let raw_name = cwr.conversation.name.clone().unwrap_or_default();
+                        let name = if is_valid_name(&raw_name) {
+                            raw_name
+                        } else {
+                            cwr.conversation.model.clone()
+                        };
+                        let date_str = format_conversation_date(&cwr.conversation.created_at);
 
                         view! {
                             <div class={card_class} style="margin-bottom:0.5rem;cursor:pointer"
@@ -47,11 +86,9 @@ pub fn ConversationList(
                                 onclick="window.handleConversationClick(event)"
                             >
                                 <div class="card-content" style="padding:0.5rem">
-                                    <div class="level is-mobile" style="margin-bottom:0">
-                                        <div class="level-left">
-                                            <small><strong>{name.clone()}</strong></small>
-                                        </div>
-                                        <div class="level-right">
+                                    <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:0.5rem">
+                                        <small style="flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap"><strong>{name}</strong></small>
+                                        <div style="flex-shrink:0">
                                             {if let Some(s) = status {
                                                 view! { <span class={format!("tag is-small {}", run_status_class(s))}>{run_status_label(s)}</span> }.into_any()
                                             } else {
@@ -59,7 +96,14 @@ pub fn ConversationList(
                                             }}
                                         </div>
                                     </div>
-                                    <small class="has-text-grey">{agent_type_str} &middot; {created}</small>
+                                    <small class="has-text-grey">
+                                        {agent_type_str}
+                                        {if !date_str.is_empty() {
+                                            view! { <span>{format!(" \u{00B7} {}", date_str)}</span> }.into_any()
+                                        } else {
+                                            view! {}.into_any()
+                                        }}
+                                    </small>
                                 </div>
                             </div>
                         }

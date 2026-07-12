@@ -145,8 +145,7 @@ pub fn TaskDetailPage(
                                 <h2 class="title is-4">"Documentation"</h2>
                             </div>
                             <div class="level-right">
-                                <button class="button is-small is-light">"Show"</button>
-                                <button class="button is-small is-light ml-2">"Edit"</button>
+                                <button class="button is-small is-light">"Edit"</button>
                             </div>
                         </div>
                         {if let Some(ref doc) = doc_content {
