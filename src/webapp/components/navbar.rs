@@ -112,6 +112,6 @@ mod tests {
         let user_json: Option<String> = None;
         let html = leptos::view! { <Navbar user_json /> }.to_html();
         assert!(html.contains("/webapp"));
-        assert!(html.contains("ofm-logo.svg"));
+        assert!(html.contains("ofm-logo-white-no-bg.png"));
     }
 }
