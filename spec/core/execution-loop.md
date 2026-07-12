@@ -109,14 +109,17 @@ keeps the loop dumb and reliable (see
 
 ## What to build
 
-- [ ] The implementation prompt: address findings → implement unchecked items →
+- [x] The implementation prompt: address findings → implement unchecked items →
       check them off → never ask questions.
+      → `templates/implementation.md`, `src/agents/implementation.rs`
 - [ ] Disallow sub-agent delegation for the implementation agent.
-- [ ] The review prompt: early-return guard → strict per-item verification →
+- [x] The review prompt: early-return guard → strict per-item verification →
       unit + manual tests → READY / NEEDS_WORK / BLOCKED → replace findings,
       uncheck failed items, never fix code.
-- [ ] Completion scripts for `workflow_complete` (READY) and `workflow_blocked`
+      → `templates/review.md`, `src/agents/review.rs`
+- [x] Completion scripts for `workflow_complete` (READY) and `workflow_blocked`
       (BLOCKED).
+      → `src/server/routes/agent_flags.rs` (complete_workflow, block_workflow)
 
 > The reference also records a Playwright video of the review's manual testing
 > for the user to watch (the `videoConfig` wired up in `agentRunner.ts`). That's
@@ -129,12 +132,12 @@ For `ofm`:
 
 ## Reference map
 
-| Concern | File |
-|---|---|
-| Implementation prompt | `reference/server/constants/prompts/implementation.md` |
-| Review prompt | `reference/server/constants/prompts/review.md` |
-| Prompt assembly + tool/video setup | `reference/server/constants/agentPrompts.ts`, `reference/server/services/agentRunner.ts` |
-| Completion signals | `reference/scripts/complete-workflow.ts`, `reference/scripts/block-workflow.ts` |
+| Concern | Rust (implemented) | Legacy reference |
+|---|---|---|
+| Implementation prompt | `templates/implementation.md`, `src/agents/implementation.rs` | `reference/server/constants/prompts/implementation.md` |
+| Review prompt | `templates/review.md`, `src/agents/review.rs` | `reference/server/constants/prompts/review.md` |
+| Completion signals | `src/server/routes/agent_flags.rs` | `reference/scripts/complete-workflow.ts`, `reference/scripts/block-workflow.ts` |
+| Prompt assembly + tool/video setup | — | `reference/server/constants/agentPrompts.ts`, `reference/server/services/agentRunner.ts` |
 
 ## Boundaries (not in this spec)
 

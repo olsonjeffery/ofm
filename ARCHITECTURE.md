@@ -70,32 +70,40 @@ The workspace has a single member crate (`ofm` binary) defined inline.
 | tokio | 1 (full) | Async runtime |
 | axum | 0.8 | Web framework with WS support |
 | hiqlite | 0.13 | Async embedded SQLite (Raft-capable, WAL + auto-heal) |
-| leptos | 0.7 | Webapp SSR framework (islands pattern) |
-| pulldown-cmark | 0.11 | Markdown-to-HTML rendering |
-| ammonia | 0.22 | HTML sanitization |
-| portable-pty | 0.8 | Cross-platform PTY spawn for omp subprocess |
+| leptos | 0.8 | Webapp SSR framework (islands pattern) |
+| leptos_styling | 0.3 | Style sheet macro for Leptos |
+| pulldown-cmark | 0.13 | Markdown-to-HTML rendering |
+| ammonia | 4 | HTML sanitization |
+| portable-pty | 0.9 | Cross-platform PTY spawn for omp subprocess |
 | clap | 4 | CLI argument parsing |
 | serde | 1 (derive) | Serialization/deserialization |
 | serde_json | 1 | JSON support |
+| serde_yaml | 0.9 | YAML config deserialization |
 | uuid | 1 (v4) | UUID generation |
 | chrono | 0.4 (serde) | Timestamp types |
 | reqwest | 0.12 | HTTP client (OIDC discovery, model listing) |
 | jsonwebtoken | 9 | JWT verification for OIDC tokens |
 | sha2 | 0.10 | SHA-256 hashing (API keys) |
 | tower | 0.5 | Middleware infrastructure |
-| tower-http | 0.6 | Axum middleware (cors, auth, etc.) |
+| tower-http | 0.7 | Axum middleware (cors, fs, etc.) |
 | cookie | 0.18 | Session cookie management |
 | rand | 0.8 | Random number generation |
 | tracing | 0.1 | Structured logging |
-| toml | 0.8 | YAML config deserialization |
+| tracing-subscriber | 0.3 | Logging subscriber with env-filter |
 | tokio-stream | 0.1 | Async stream utilities |
+| async-trait | 0.1 | Async trait support for LlmProvider |
+| thiserror | 2 | Derive macro for error types |
+| axum-extra | 0.10 | Cookie extraction/extensions |
+| base64 | 0.22 | Base64 encoding for PKCE |
+| url | 2 | URL parsing |
+| hex | 0.4 | Hex encoding |
 
 ## Application Lifecycle
 
 1. **Config**: Load `OfmConfig` from YAML file + env var overlay (`OFM_*`).
 2. **Logging**: Initialize tracing/logging based on config.
 3. **Database**: Start hiqlite node with `data_dir`, run pending migrations.
-4. **Rauthy**: If `OFM_RAUTHY_ENABLED`, spawn rauthy via PTY, wait for health, configure reverse proxy at `/auth`. The container runs with the host user's UID via Docker's `--user` flag so files in the rauthy data directory are owned by the host user and cleanup does not require root.
+4. **Rauthy**: If `OFM_RAUTHY_ENABLED`, spawn rauthy as a Docker container via `tokio::process::Command`, wait for health, configure reverse proxy at `/auth`. The container runs with the host user's UID via Docker's `--user` flag so files in the rauthy data directory are owned by the host user and cleanup does not require root.
 5. **Server**: Start axum HTTP server with WebSocket support on configured `OFM_HOSTNAME:OFM_PORT`.
 6. **WebSocket**: Accept connections, manage task subscriptions, stream agent events.
 7. **oh-my-pi sessions**: Spawn `omp --mode rpc` subprocesses per turn, manage PTY lifecycle, stream events.
