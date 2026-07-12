@@ -12,8 +12,11 @@
 
 <p align="center">
   <a href="https://github.com/olsonjeffery/ofm/blob/main/LICENSE"><img src="https://img.shields.io/github/license/olsonjeffery/ofm?style=flat&colorA=222222&colorB=58A6FF" alt="License"></a>
+  <a href="https://github.com/olsonjeffery/ofm/actions"><img src="https://img.shields.io/github/actions/workflow/status/olsonjeffery/ofm/ci.yml" alt="build status"></a>
   <a href="https://www.rust-lang.org"><img src="https://img.shields.io/badge/Rust-DEA584?style=flat&colorA=222222&logo=rust&logoColor=white" alt="Rust"></a>
 </p>
+
+
 
 <p align="center">
   Specification-level fork of <a href="https://github.com/vdaubry/bottega">bottega</a> by <a href="https://github.com/vdaubry">@vdaubry</a> 
