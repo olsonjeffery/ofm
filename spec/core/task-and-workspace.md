@@ -71,8 +71,8 @@ decision. Do not revert to UUIDs.
 ## The markdown document — the source of truth for "what to build"
 
 - **Location:** a central, per-user archive **outside the repo** —
-  `~/.ofm/projects/{projectId}/tasks/task-{taskId}.md` (root overridable via
-  `ofm_ARCHIVE_ROOT`).
+`{footprint}/archive/projects/{project_id}/tasks/task-{task_id}.md` (root derived
+   from `OFM_FOOTPRINT`, default `~/.ofm`).
 - **Why outside the repo (the load-bearing decision):** the doc must survive the
   worktree being torn down when the task's PR merges. If it lived inside the
   worktree it would vanish with it. Keeping it in a separate archive means the
@@ -150,7 +150,7 @@ path in the prompt is authoritative — agents are told not to look elsewhere.
 - [x] Task delete with worktree/archive cleanup → `src/server/routes/tasks.rs`
 - [x] `buildContextPrompt` → `build_context_prompt` in `src/archive/mod.rs`
 - [x] Dev-server port assignment via `get_dev_server_port` → `src/archive/mod.rs`
-- [ ] Effective-cwd resolution (not yet wired into agent runs)
+- [x] Effective-cwd resolution → `src/server/routes/agent_runs.rs` (post_create_agent_run resolves worktree path as cwd)
 
 ## Reference map
 

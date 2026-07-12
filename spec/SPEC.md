@@ -110,11 +110,12 @@ dependency (**NOTE:** this does not apply to `oh-my-pi` itself)
 which responds to user requests, oversees filesystem actions,
 spawns `pty`s, maintains database state, and so on
 - If configured to host a `rauthy` instance for OAuth, `ofm` will:
-  - Use a `pty` to start an instance of `rauthy`, at a random port
-  that differs from the configured `ofm` `OFM_PORT`
-  - Expose an [axum-based reverse proxy][12] that forwards requests
-  and responses to/from `rauthy`; this reverse proxy is exposed
-  at `/auth`
+   - Start a Docker container (`ghcr.io/sebadob/rauthy:latest`) at a random port
+   that differs from the configured `ofm` `OFM_PORT`, managed via
+   `tokio::process::Command` (see `src/rauthy/mod.rs`)
+   - Expose an [axum-based reverse proxy][12] that forwards requests
+   and responses to/from `rauthy`; this reverse proxy is exposed
+   at `/auth`
 
 ## How to build from this spec
 
@@ -201,7 +202,7 @@ Opinionated features. Each is independent; implement what you want.
 | **🚫 No** | [`extra/yolo-mode.md`](./extra/yolo-mode.md) | A single-agent alternative to the multi-step pipeline. |
 | **🚫 No** | [`extra/pr-comment-retrigger.md`](./extra/pr-comment-retrigger.md) | Re-run the PR agent automatically when a PR receives review comments (periodic PR polling). |
 | **⚠️ Partial** | [`extra/prompt-and-model-customization.md`](./extra/prompt-and-model-customization.md) | Harness-model config via `agent_harness_configs` and scope-precedence resolution is implemented (`src/providers/`); prompt overrides and template engine are not yet implemented. |
-| **✅ Yes** | [`extra/auth-and-multi-user.md`](./extra/auth-and-multi-user.md) | OAuth-integration, Accounts, API keys, project membership, admin, and role-driven behavior. Note: only `ensure_default_user` is implemented in the Rust codebase. |
+| **✅ Yes** | [`extra/auth-and-multi-user.md`](./extra/auth-and-multi-user.md) | OAuth-integration, Accounts, API keys, project membership, admin, and role-driven behavior. Auth infrastructure (AuthLayer, JWKS, PKCE flow, OAuth callback, API keys, rauthy Docker lifecycle) is implemented at `src/auth/`, `src/services/auth.rs`, `src/server/routes/auth.rs`, `src/webapp/auth.rs`, `src/rauthy/`. Project-membership authorization, admin panel, and `is_technical` auto-advance remain from the reference. |
 | **✅ Yes** | [`extra/chat-ux.md`](./extra/chat-ux.md) | Real-time chat view (`src/webapp/pages/chat.rs`), conversation sidebar (`src/webapp/components/conversation_list.rs`), streaming message display (`src/webapp/components/message_stream.rs`), manual chat input (`src/webapp/components/chat_input.rs`), agent run banner (`src/webapp/components/agent_run_banner.rs`), chat API endpoints (`src/server/routes/conversations.rs`), broadcast task in `post_create_agent_run` (`src/server/routes/agent_runs.rs`), orchestrator phase-skip (`src/orchestration/state_machine.rs`). Manual conveniences (slash commands, file attachments, voice input, context-usage meter) are not yet implemented. |
 
 ## The reference implementation
