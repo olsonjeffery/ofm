@@ -571,4 +571,3 @@ mod tests {
         assert!(html.contains("mdi-delete"));
     }
 }
-
