@@ -15,7 +15,7 @@ pub fn ShellPage(user_json: Option<String>) -> impl IntoView {
             <title>"ofm"</title>
             <link rel="stylesheet" href="/webapp/assets/bulma.css" />
             <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@mdi/font@7.4.47/css/materialdesignicons.min.css" />
-            <style>{super::styles::app::STYLE_SHEET}</style>
+            <style>{include_str!("styles/app.css")}</style>
             <script>{global_runtime_script()}</script>
         </head>
         <body>

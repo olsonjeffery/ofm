@@ -6,56 +6,49 @@
     padding: 0;
 }
 
-/* Main content area — accounts for fixed-top navbar */
+/* Warm off-white body background using the custom $white color */
+body {
+    background-color: var(--bulma-white);
+}
+
+/* Main content area accounts for fixed-top navbar */
 main {
     width: 95%;
     margin: 0 auto;
     min-height: 100vh;
-    padding-top: calc(3.25rem + 0.5rem); /* navbar height + small buffer */
+    padding-top: calc(3.25rem + 0.5rem);
 }
 
 /* ===== Navbar theming ===== */
 
 /* Light theme: black navbar, white text */
-:root .navbar,
-[data-theme="light"] .navbar,
-.theme-light .navbar {
+nav.navbar {
     background-color: #000000 !important;
 }
-
-:root .navbar .navbar-item,
-[data-theme="light"] .navbar .navbar-item,
-.theme-light .navbar .navbar-item,
-:root .navbar .navbar-link,
-[data-theme="light"] .navbar .navbar-link,
-.theme-light .navbar .navbar-link,
-:root .navbar .navbar-brand strong,
-[data-theme="light"] .navbar .navbar-brand strong,
-.theme-light .navbar .navbar-brand strong {
+nav.navbar .navbar-item,
+nav.navbar .navbar-link,
+nav.navbar .navbar-brand strong {
     color: var(--bulma-white) !important;
 }
 
-/* Dark theme: light-blue navbar, white text */
-[data-theme="dark"] .navbar,
-.theme-dark .navbar {
+/* Dark theme: blue navbar, white text */
+[data-theme="dark"] nav.navbar,
+.theme-dark nav.navbar {
     background-color: rgb(50, 152, 220) !important;
 }
-
-[data-theme="dark"] .navbar .navbar-item,
-.theme-dark .navbar .navbar-item,
-[data-theme="dark"] .navbar .navbar-link,
-.theme-dark .navbar .navbar-link,
-[data-theme="dark"] .navbar .navbar-brand strong,
-.theme-dark .navbar .navbar-brand strong {
+[data-theme="dark"] nav.navbar .navbar-item,
+.theme-dark nav.navbar .navbar-item,
+[data-theme="dark"] nav.navbar .navbar-link,
+.theme-dark nav.navbar .navbar-link,
+[data-theme="dark"] nav.navbar .navbar-brand strong {
     color: var(--bulma-white) !important;
 }
 
 /* ===== Logo ===== */
-
 .header-logo {
     width: 50px;
     height: 50px;
-    filter: brightness(0) invert(1); /* white in both themes */
+    filter: brightness(0) invert(1);
 }
 
 /* ===== Box/card visibility ===== */
@@ -66,15 +59,14 @@ main {
     box-shadow: none !important;
 }
 
-.box:hover,
-.box:focus,
-.box:active {
+a.box:hover,
+a.box:focus,
+a.box:active {
     border-color: var(--bulma-primary);
     box-shadow: none !important;
 }
 
 /* ===== Remove all drop shadows ===== */
-
 :root .navbar,
 .navbar.has-shadow,
 .navbar.is-fixed-top.has-shadow,
@@ -96,11 +88,9 @@ main {
 }
 
 /* ===== Islands ===== */
-
 .island-container {
     margin-bottom: 1.5rem;
 }
-
 .island {
     transition: opacity 0.2s;
 }
@@ -119,7 +109,6 @@ main {
 }
 
 /* ===== Uptime component ===== */
-
 .uptime-value {
     font-family: "SF Mono", "Fira Code", Menlo, Consolas, monospace;
     font-size: 1.1rem;
