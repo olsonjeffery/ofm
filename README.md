@@ -6,6 +6,7 @@
   <strong>Orchestration Force Multiplier (ofm)</strong>
   <strong><a href="https://github.com/olsonjeffery/ofm">GitHub repository</a></strong>
 </p>
+
 <p align="center">
     (Pronounce it as an acronym: oh-eff-em)
 </p>
@@ -16,15 +17,14 @@
   <a href="https://www.rust-lang.org"><img src="https://img.shields.io/badge/Rust-DEA584?style=flat&colorA=222222&logo=rust&logoColor=white" alt="Rust"></a>
 </p>
 
-
-
 <p align="center">
-  Specification-level fork of <a href="https://github.com/vdaubry/bottega">bottega</a> by <a href="https://github.com/vdaubry">@vdaubry</a> 
+  A specification-level fork of <a href="https://github.com/vdaubry/bottega">bottega</a> by <a href="https://github.com/vdaubry">@vdaubry</a> 
 </p>
+
 <p align="center">
-    An orchestration harness, for agentic code
-    delivery. Think of it as a meta-system that sits atop your coding agent to make
-    you more productive in the time and quality domains.
+  TL;DR An orchestration harness, for agentic code delivery. Think of it as a
+  meta-system that sits atop your coding agent to make you more productive in the
+  time and quality domains.
 </p>
 
 ## Core attributes
@@ -32,35 +32,119 @@
 ### Capability 💪
 
 - The system provides a more rigid structure around the [_Ralph Wiggum Loop_][1]
-(hereafter referred to as _the loop_), helping users to spend more time
-producing high-quality software, instead of fighting with the agent harness
-- Simultaneously, we don't want _too much structure_; that only stifles productivity
-and burns countless tokens on redundency checks (looking at you, [opencode-swarm][18])
-- An intuitive, web-based user interface creates an environment that allows
-users focus on defining requirements and providing needed feedback to LLM agents,
+(hereafter referred to as _orchestration_ or simply _the loop_), helping users
+to spend more time producing high-quality software, instead of fighting with the
+agent harness
+- Simultaneously, we don't want _too much structure_; that only stifles agility
+and burns countless tokens on redundancy checks (looking at you, [opencode-swarm][18])
+- An intuitive, web-based user interface creates an environment that enables
+users to focus on defining requirements and providing needed feedback to LLM agents,
 instead of thrashing with tooling or environment setup
-- `playwright-cli` comes out of the box as an agent enhancement
+- `playwright-cli` comes out of the box as an agent capability
 
 ### Visibility 👁️
-- `ofm` preserves logs of agent activity it drives
+
+- `ofm` preserves logs of agent activity it drives; Full JSON export and import is
+supported
 - All prompts are surfaced and auditable; no secret sauce or dumbing-down for users
 - The web-based user interface and kanban style task board provides at-a-glance
-snapshots of current progress, highlighting points of interactivity or needed user
-intervention to get a coding agent back on-track
+snapshots of current progress; the task-level view highlights points of interactivity
+or needed user intervention to get a coding agent back on-track
 
 ### Flexibility ♾️
 
 - All prompts can be changed on a global, per-project and/or per-user
 basis
-- A choice between [`oh-my-pi`][0] and [`opencode`][17] (two open-source,
-multi-provider capable coding agent harnesses) allows the user to use different
-approaches where warranted
-- Multiple points of extensibility to build out capabilities within coding agents,
-providing a positive feedback loop into the Capability core value
-- `ofm` is [Free Software][12] in the purest sense of the term: It cannot be taken
+- A choice between [`oh-my-pi`][0] and [`opencode`][17] (two open-source, multi-provider
+capable coding agent harnesses) allows the user to use different approaches where
+warranted
+- The user _owns_ the local installations of the coding agents, so they can customize
+then with whatever skills, safeguards, etc are appropriate for the user case or
+organizational requirements; This avenue of customization provides a positive feedback
+loop into the Capability attribute
+
+## Why AGPL 3.0 for the license?
+
+> ℹ️`ofm` has plans to develop an out-of-process extension mechanism, so
+> organizations that need proprietary integration can place such code
+> within a unit that sits outside of the AGPL 3.0 boundary, but integrates
+> seamlessly with `ofm`
+
+`ofm` is [Free Software][12] in the purest sense of the term: It cannot be taken
 closed source _by anyone_ (including the founding author); It can be productized,
 yet all changes must be contributed back into the public repository for the benefit
-of all
+of all.
+
+Any organization who adopts the system internally has nothing to fear from the
+license terms. They are meant to discourage productization without contributing
+back to the upstream.
+
+Opening issues and contributing is encouraged for those wishing to extend the
+core/optional capabilities of `ofm`.
+
+## Installation
+
+At this time, `ofm` is started/ran by cloning this repository, then executing:
+
+```bash
+cargo build --release && <NEEDED-OAUTH-ENV-VARS> ./target/release/ofm
+```
+
+> ℹ️In the future there will likely be a docker image distro, along with possibly
+> a [crates.io][19] bin release.
+
+Note the placement of `<NEEDED-OAUTH-ENV-VARS>` in the above snippet; on first
+run, the installing individual will want to indicate which OAuth provider
+should be used: Either an external OAuth provider, or the integrated [rauthy][5]
+provider.
+
+**Rauthy users can simply provide:**
+
+```bash
+# This value drives ofm using docker to run the latest rauthy
+# img released on ghcr.io
+OFM_RAUTHY_ENABLED=true
+```
+
+...as a prefix to the `./target/release/ofm` command.
+
+> ℹ️**NOTE FOR RAUTHY USERS**: On first run, the console output will include
+> an admin password generated by rauthy for the initial user (username
+> `admin@localhost`); This password must be captured and used to do an initial
+> login; After that, the user can change their password by going to the "User
+> Settings" page linked from the `ofm` top navbar)
+
+**Installations using an OAuth provider will want to provide:**
+
+```bash
+# This is the OAuth "base" (i.e. .well-known/openid-configuration)
+# should be *beneath* this URL
+OFM_OIDC_ISSUER_URL=https://path.to/oauth/issuer-base
+# This is the client used in the web application for OIDC; it should
+# be configured for Code Authorization flow and PKCE
+OFM_OIDC_CLIENT_ID=ofm.client
+```
+
+Either of these approaches will initialize the `ofm` footprint at `$HOME/.ofm`
+by default (provide `OFM_FOOTPRINT={path}` to customize this).
+
+In either case: after the first run of `ofm`, this OAuth preference will be
+persisted in `$OFM_FOOTPRINT/config/ofm.yml`, so future runs of `ofm` will
+not need to provide this (unless the user has a custom `OFM_FOOTPRINT` location;
+then that env var should be set on every run of `ofm`).
+
+At this point, you should have a server bounding to `0.0.0.0` and reachable at
+`localhost:3183` running on your machine (`3183` is the default port; Set the `OFM_PORT`
+environment variable if you wish for it to run on another port).
+
+> ℹ️`ofm` itself _does not_ consider running with a certificate/TLS+SSL as in-scope.
+> It is also recommend, if planning to expose `ofm` on the public internet, to
+> place `ofm` behind a reverse proxy such as `nginx`/`haproxy` etc and doing SSL
+> termination there.
+>
+> If encrypted traffic is mandatory within your organization, then `ofm` should
+> have the enclosing reverse proxy as an on-machine sidecar, with the `ofm` ports
+> blocked by a software firewall for non-localhost users.
 
 ## History & evolution
 
@@ -114,8 +198,8 @@ it is running-as will be the user/environment that `ofm` works within
 
 It strays from the [bottega reference][13] in several ways:
 
-- `ofm` is a single-binary release, easily installable on any
-system with _just_ `rustup` installed (and things it needs to build);
+- `ofm` is a single-binary release; It has a list of needed dependencies
+in order to be _useful_, but the system itself is self-contained
 - Reified as a [Rust][7]-based webapp, using the [leptos][3] framework;
 `ofm` itself is an [axum][4]+[leptos][3] web-server that can run from
 the CLI or be set up via a superviser system (e.g. [systemd][8])
@@ -126,9 +210,9 @@ the CLI or be set up via a superviser system (e.g. [systemd][8])
   - `ofm` can be configured to either point at a well-known OAuth2/OIDC
   endpoint (where it will fetch the pub-cert for authenticating client requests
   on the server), or to install/run a self-hosted OAuth server (an audited tool
-  named [`rauthy`][5])
+  named [rauthy][5])
 - Several subtle tweaks on _vanilla_ `bottega` that reflect the tastes
-of `ofm`'s maintainership
+of `ofm`'s founding author
 
 ## Contributing
 
@@ -148,12 +232,8 @@ to the specification) happen through refining & extending the [`ofm` spec][11].
 
 ### Vouching
 
-`ofm` uses the same **vouching** scheme as `oh-my-pi`. See [CONTRIBUTING.md][./CONTRIBUTING.md]
+`ofm` uses the same **vouching** scheme as `oh-my-pi`. See [CONTRIBUTING.md](./CONTRIBUTING.md)
 for details.
-
-## License
-
-This repository is licensed & distributed under the terms of the [GNU AGPL][12].
 
 [0]: https://omp.sh
 [1]: https://ghuntley.com/loop/
@@ -174,3 +254,4 @@ This repository is licensed & distributed under the terms of the [GNU AGPL][12].
 [16]: https://github.com/rtk-ai/rtk
 [17]: https://opencode.ai
 [18]: https://github.com/ZaxbyHub/opencode-swarm/
+[19]: https://crates.io
