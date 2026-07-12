@@ -33,7 +33,7 @@ $red: rgb(235, 104, 100) !default;
 
 // Typography
 
-$family-sans-serif: "News Cycle", "Arial Narrow Bold", sans-serif !default;
+$family-sans-serif: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif !default;
 $family-monospace: "Inconsolata", "Hack", "SF Mono", "Roboto Mono",
   "Source Code Pro", "Ubuntu Mono", monospace !default;
 $render-mode: optimizeLegibility !default;

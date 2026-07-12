@@ -324,9 +324,16 @@ async fn post_create_agent_run(
     let title_config = harness_config.clone();
     let conv_id = session_result.conversation_id;
     let task_title = task.title.clone();
+    let first_message = format!("{} phase, task title: {}", agent_type, task_title);
     tokio::spawn(async move {
-        providers::generate_conversation_title(&db, &cfg_root, &title_config, conv_id, &task_title)
-            .await;
+        providers::generate_conversation_title(
+            &db,
+            &cfg_root,
+            &title_config,
+            conv_id,
+            &first_message,
+        )
+        .await;
     });
 
     let run = tasks::get_agent_run_by_conversation(&state.db, &session_result.conversation_id)

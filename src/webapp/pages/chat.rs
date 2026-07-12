@@ -40,12 +40,6 @@ pub fn ChatPage(
                 </ul>
             </nav>
 
-            <div class="level">
-                <div class="level-left">
-                    <h1 class="title is-4">{task.title.clone()}</h1>
-                </div>
-            </div>
-
             <AgentRunBanner task=task agent_config_statuses=agent_config_statuses.clone() current_run=current_run agent_runs=agent_runs />
 
             <div class="columns" style="margin-top:0.5rem;min-height:60vh">
