@@ -2,13 +2,35 @@
   <img style="width:25%;height:25%;" src="assets/ofm-logo.svg" />
 </p>
 
-# Orchestration Force Multiplier (`ofm`)
+<p align="center">
+  <strong>Orchestration Force Multiplier (`ofm`)</strong>
+  <strong><a href="https://github.com/olsonjeffery/ofm">GitHub repository</a></strong>
+</p>
+<p align="center">
+    (Pronouce it as an acronym: oh-eff-em)
+</p>
 
-This is the repository for `ofm`: An orchestration harness, for agentic code delivery. Think of it as a meta-system that sits atop your coding agent to make you even more productive.
+<p align="center">
+  <a href="https://www.npmjs.com/package/@oh-my-pi/pi-coding-agent"><img src="https://img.shields.io/npm/v/@oh-my-pi/pi-coding-agent?style=flat&colorA=222222&colorB=CB3837" alt="npm version"></a>
+  <a href="https://github.com/can1357/oh-my-pi/blob/main/packages/coding-agent/CHANGELOG.md"><img src="https://img.shields.io/badge/changelog-keep-E05735?style=flat&colorA=222222" alt="Changelog"></a>
+  <a href="https://github.com/can1357/oh-my-pi/actions"><img src="https://img.shields.io/github/actions/workflow/status/can1357/oh-my-pi/ci.yml?style=flat&colorA=222222&colorB=3FB950" alt="CI"></a>
+  <a href="https://github.com/can1357/oh-my-pi/blob/main/LICENSE"><img src="https://img.shields.io/github/license/can1357/oh-my-pi?style=flat&colorA=222222&colorB=58A6FF" alt="License"></a>
+  <a href="https://www.typescriptlang.org"><img src="https://img.shields.io/badge/TypeScript-3178C6?style=flat&colorA=222222&logo=typescript&logoColor=white" alt="TypeScript"></a>
+  <a href="https://www.rust-lang.org"><img src="https://img.shields.io/badge/Rust-DEA584?style=flat&colorA=222222&logo=rust&logoColor=white" alt="Rust"></a>
+  <a href="https://bun.sh"><img src="https://img.shields.io/badge/runtime-Bun-f472b6?style=flat&colorA=222222" alt="Bun"></a>
+  <a href="https://discord.gg/4NMW9cdXZa"><img src="https://img.shields.io/badge/Discord-5865F2?style=flat&colorA=222222&logo=discord&logoColor=white" alt="Discord"></a>
+</p>
 
-(Pronouce it as an acronym: oh-eff-em)
+<p align="center">
+  Specification-level fork of <a href="https://github.com/vdaubry/bottega">bottega</a> by <a href="https://github.com/vdaubry">@vdaubry</a> 
+</p>
+<p align="center">
+    An orchestration harness, for agentic code
+    delivery. Think of it as a meta-system that sits atop your coding agent to make
+    you more productive in the time and quality domains.
+</p>
 
-## Core Qualities
+## Core attributes
 
 ### Capability 💪
 
@@ -43,7 +65,7 @@ closed source _by anyone_ (including the founding author); It can be productized
 yet all changes must be contributed back into the public repository for the benefit
 of all
 
-## Additional values
+## History & evolution
 
 ### The `bottega` method
 
@@ -57,7 +79,9 @@ _task-driven_. What does this mean? From the [bottega announcement][14]:
 > transient inputs to a single session.
 
 This philosphy colors how `bottega` & `ofm` organize, present and execute
-work on behalf of its users.
+work on behalf of its users. Note that these tasks, and their artifacts,
+exist separately from any specification living within the codebase (this
+applies to `ofm`).
 
 Additionally:
 
@@ -70,7 +94,8 @@ what is in-scope
 agent tools only
 - It is _multi-user_ and _persistent_ by design; It is meant for teams
 that cooperate to ship software (it is also a pleasant system to run as a
-solo programmer; It provides safety, durability, auditability, and more)
+solo programmer (the [Core attributes](#core-attributes) described above
+articulate this more fully)
   - Provider configuration can be global and/or per-user
 - It can run locally on a single developer's machine, within docker
 automation, live on a shared VPS, etc; sky's the limit!
@@ -110,49 +135,24 @@ of `ofm`'s maintainership
 
 ## Contributing
 
+### The `ofm` specification
+
+**TL;DR:** All changes must include updates within the content of the `spec/`
+directory in the root of this repository. It is often preferred for PRs/issues
+to be articulated in terms of updates to the specification.
+
 Like `bottega`, `ofm` is Specification First.
 
-We maintain the `ofm` rust codebase as the de facto reference-
-implementation of the spec.
+We maintain the `ofm` rust codebase as the de facto reference-implementation of
+the spec.
 
 Setting that aside, all `ofm` enhancements (besides outright bugfixes unrelated
 to the specification) happen through refining & extending the [`ofm` spec][11].
 
-### Vouching scheme
+### Vouching
 
-`ofm` uses a [vouching system][19] to manage access to the repo. It's purpose
-is to prevent "drive-by"/spam Pull Requests. Especially those from automated
-processes. Simply:
-
-- A 'vouch' is applied at the github user level, given to the target user by
-another user with github contributor status, usually in an issue/PR comment
-- The 'vouch list' is tracked as VOUCHED.md in the root of this repository
-- An issue opened by a user without a vouch is immediately flagged `Unvouched`;
-contributors review the queue of unvouched issues daily
-- A PR opened by an unvouched user will be closed immediately
-- A PR opened by a vouched user will be allowed to remain and get reviewed,
-and (hopefully!) merged
-- Unvouched users who repeatedly open PRs will receive a ban from interacting
-with the repository
-- Vouches can be removed by any contributor; The `VOUCHED.md` file also maintains
-a "shitlist" of users who're either known, by the community, untrustworthy individuals
-OR those who have lost their vouch for other reasons
-- Contributors themselves do not have direct commit permissions; they must also
-go through the PR process for all changes
-- A github action monitoring comments in issues and PRs is responsible for
-modifying the VOUCHED.md file as-needed with direct commits to `main`
-
-The recommended workflow is that:
-
-1. an unvouched User should open an issue discussing what they want, and if they
-want to open a PR for it
-2. After discussion with contributors acting as mentors, the unvouched user may
-receive a `vouch @username` comment from a contributor. This makes them eligible
-to open a PR now and going forward
-3. They open a PR, adhering to community and contributor guidelines; provided they
-abide by the norms of the community and its code of conduct, they can retain their
-vouched status indefinitely, and even earn contributor status themselves
-
+`ofm` uses the same **vouching** scheme as `oh-my-pi`. See [CONTRIBUTING.md][./CONTRIBUTING.md]
+for details.
 
 ## License
 

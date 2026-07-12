@@ -14,6 +14,7 @@ pub fn ChatPage(
     conversations: Vec<ConversationWithRun>,
     agent_config_statuses: Vec<AgentConfigStatus>,
     current_run: Option<TaskAgentRun>,
+    agent_runs: Vec<TaskAgentRun>,
 ) -> impl IntoView {
     let _project_id_str = project_id.to_string();
     let _task_id_str = task_id.to_string();
@@ -48,7 +49,7 @@ pub fn ChatPage(
                 </div>
             </div>
 
-            <AgentRunBanner task=task agent_config_statuses=agent_config_statuses.clone() current_run=current_run />
+            <AgentRunBanner task=task agent_config_statuses=agent_config_statuses.clone() current_run=current_run agent_runs=agent_runs />
 
             <div class="columns" style="margin-top:0.5rem;min-height:60vh">
                 <div class="column is-one-quarter" style="border-right:1px solid #ddd">
@@ -167,18 +168,38 @@ document.addEventListener('DOMContentLoaded', function() {
 
     document.getElementById('start-agent-run-btn')?.addEventListener('click', function() {
         var btn = this;
+        var phase = btn.getAttribute('data-next-phase');
+        if (!phase) { showMessage('No phase to start'); return; }
         btn.disabled = true;
         btn.classList.add('is-loading');
         apiCall('/api/tasks/' + taskId + '/agent-runs', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ agent_type: 'implementation' })
+            body: JSON.stringify({ agent_type: phase })
         }).then(function(r) {
             if (r.ok) { window.location.reload(); }
             else { showMessage('Failed to start agent run'); }
         }).finally(function() {
             btn.disabled = false;
             btn.classList.remove('is-loading');
+        });
+    });
+
+    // Clickable phase tags - start that specific agent
+    document.querySelectorAll('.tags span[data-agent-type]').forEach(function(tag) {
+        tag.addEventListener('click', function() {
+            var agentType = this.getAttribute('data-agent-type');
+            var tagTaskId = this.getAttribute('data-task-id');
+            if (!agentType || !tagTaskId) return;
+            this.classList.add('is-loading');
+            apiCall('/api/tasks/' + tagTaskId + '/agent-runs', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ agent_type: agentType })
+            }).then(function(r) {
+                if (r.ok) { window.location.reload(); }
+                else { showMessage('Failed to start ' + agentType); }
+            });
         });
     });
 
@@ -199,9 +220,14 @@ document.addEventListener('DOMContentLoaded', function() {
         });
     }
 
+    function userMsgHtml(text) {
+        return '<content class="content message-user" style="display:block;background:#1565c0;color:#fff;padding:0.75rem;border-radius:6px;white-space:pre-wrap;max-width:33%;margin-left:auto">' + escapeHtml(text) + '</content>';
+    }
+
     function renderEvent(evt) {
         switch (evt.type) {
             case 'text': return '<div class="box message-text"><div class="content">' + escapeHtml(evt.text) + '</div></div>';
+            case 'user_text': return userMsgHtml(evt.text);
             case 'text_chunk': return '<span class="message-chunk">' + escapeHtml(evt.delta) + '</span>';
             case 'tool_use': return renderToolUse({ tool_name: evt.tool_name, tool_use_id: evt.tool_use_id, input: evt.input });
             case 'tool_result': return renderToolResult({ tool_use_id: evt.tool_use_id, result: evt.result });
@@ -221,6 +247,7 @@ document.addEventListener('DOMContentLoaded', function() {
             case 'start':
             case 'extension_ui_request':
             case 'available_commands_update': return '';
+            case 'user_text': return userMsgHtml(msg.payload.text || '');
             case 'text': return '<div class="box message-text"><div class="content">' + escapeHtml(msg.payload.text || '') + '</div></div>';
             case 'text_chunk':
                 if (msg.payload.delta) {
@@ -334,12 +361,13 @@ mod tests {
                 conversations=Vec::new()
                 agent_config_statuses=Vec::new()
                 current_run=None
+                agent_runs=Vec::new()
             />
         }
         .to_html();
         assert!(html.contains("Chat Test Task"));
         assert!(html.contains("Chat"));
         assert!(html.contains("Conversations"));
-        assert!(html.contains("Start Agent Run"));
+        assert!(html.contains("Start Planification"));
     }
 }

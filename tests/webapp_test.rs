@@ -570,7 +570,7 @@ async fn test_webapp_chat_page() {
     assert!(body.contains("Chat Task"));
     assert!(body.contains("Chat"));
     assert!(body.contains("Conversations"));
-    assert!(body.contains("Start Agent Run"));
+    assert!(body.contains(r#"id="start-agent-run-btn""#));
 }
 
 #[tokio::test]

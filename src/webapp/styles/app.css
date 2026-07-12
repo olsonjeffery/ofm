@@ -17,6 +17,86 @@ body {
         sans-serif;
 }
 
+/* Main content area — accounts for fixed-top navbar */
+main {
+    width: 95%;
+    margin: 0 auto;
+    min-height: 100vh;
+    padding-top: calc(3.25rem + 0.5rem); /* navbar height + small buffer */
+}
+
+/* ===== Navbar theming ===== */
+
+/* Light theme: black navbar, white text */
+:root .navbar,
+[data-bulma-theme="light"] .navbar,
+.bulma-theme-light .navbar {
+    background-color: #000000 !important;
+}
+
+:root .navbar .navbar-item,
+[data-bulma-theme="light"] .navbar .navbar-item,
+.bulma-theme-light .navbar .navbar-item,
+:root .navbar .navbar-link,
+[data-bulma-theme="light"] .navbar .navbar-link,
+.bulma-theme-light .navbar .navbar-link,
+:root .navbar .navbar-brand strong,
+[data-bulma-theme="light"] .navbar .navbar-brand strong,
+.bulma-theme-light .navbar .navbar-brand strong {
+    color: #ffffff !important;
+}
+
+/* Dark theme: light-blue navbar, white text */
+[data-bulma-theme="dark"] .navbar,
+.bulma-theme-dark .navbar {
+    background-color: rgb(50, 152, 220) !important;
+}
+
+[data-bulma-theme="dark"] .navbar .navbar-item,
+.bulma-theme-dark .navbar .navbar-item,
+[data-bulma-theme="dark"] .navbar .navbar-link,
+.bulma-theme-dark .navbar .navbar-link,
+[data-bulma-theme="dark"] .navbar .navbar-brand strong,
+.bulma-theme-dark .navbar .navbar-brand strong {
+    color: #ffffff !important;
+}
+
+/* ===== Logo ===== */
+
+.header-logo {
+    width: 50px;
+    height: 50px;
+    filter: brightness(0) invert(1); /* white in both themes */
+}
+
+/* ===== Remove all drop shadows ===== */
+
+:root .navbar,
+.navbar.has-shadow,
+.navbar.is-fixed-top.has-shadow,
+.navbar.is-fixed-bottom.has-shadow,
+.card,
+.card-header,
+.box,
+.box:hover,
+.box:focus,
+.box:active,
+.button,
+.pagination-link,
+.pagination-previous,
+.pagination-next,
+.panel,
+.dropdown-content,
+.input,
+.textarea,
+.select select,
+.message,
+.modal-card-head {
+    box-shadow: none !important;
+}
+
+/* ===== Islands ===== */
+
 .island-container {
     margin-bottom: 1.5rem;
 }
@@ -38,20 +118,11 @@ body {
     padding: 0.5rem 0;
 }
 
+/* ===== Uptime component ===== */
+
 .uptime-value {
     font-family: "SF Mono", "Fira Code", Menlo, Consolas, monospace;
     font-size: 1.1rem;
     color: #0f3460;
     padding: 0.5rem 0;
-}
-
-#ofm-navbar.navbar {
-    background-color: #fff;
-    min-height: 50px;
-    box-shadow: #090a0c1a 0 0 16px;
-}
-
-.header-logo {
-    width: 20em;
-    height: 20em;
 }
