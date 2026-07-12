@@ -1,6 +1,84 @@
-use crate::db::schema::{AgentType, Task};
+use crate::db::schema::{AgentType, RunStatus, Task, TaskAgentRun};
 use crate::orchestration::{NextAction, MAX_WORKFLOW_RUNS};
 use crate::providers::registry::AgentConfigStatus;
+
+/// Determine which phase should run next based on task state and existing runs.
+/// Returns the AgentType that should be started next, or None if the workflow is complete.
+pub fn determine_next_phase(task: &Task, runs: &[TaskAgentRun]) -> Option<AgentType> {
+    // If workflow is complete and PR not done, start PR
+    if task.workflow_complete && !task.pr_agent_complete {
+        return Some(AgentType::Pr);
+    }
+
+    // If PR is complete, we're done
+    if task.pr_agent_complete {
+        return None;
+    }
+
+    // If blocked or at iteration cap, stop
+    if task.workflow_blocked || task.workflow_run_count >= MAX_WORKFLOW_RUNS {
+        return None;
+    }
+
+    // Check if planification has been completed
+    let has_successful_planification = runs
+        .iter()
+        .any(|r| r.agent_type == AgentType::Planification && r.status == RunStatus::Completed);
+
+    if !has_successful_planification {
+        // Check if planification is currently running
+        let planification_running = runs
+            .iter()
+            .any(|r| r.agent_type == AgentType::Planification && r.status == RunStatus::Running);
+        if planification_running {
+            return None; // Wait for it to finish
+        }
+        return Some(AgentType::Planification);
+    }
+
+    // Planification is done, now we need implementation/review cycle
+    // Find the most recent run
+    let most_recent = runs.iter().max_by_key(|r| r.created_at);
+
+    match most_recent {
+        Some(run) if run.status == RunStatus::Running => {
+            // Something is running, wait
+            None
+        }
+        Some(run) => {
+            // Check what ran last and determine next
+            match run.agent_type {
+                AgentType::Planification => Some(AgentType::Implementation),
+                AgentType::Implementation => Some(AgentType::Review),
+                AgentType::Review => Some(AgentType::Implementation),
+                AgentType::Pr => {
+                    if run.status == RunStatus::Completed {
+                        None // Done
+                    } else {
+                        Some(AgentType::Pr) // Retry PR
+                    }
+                }
+                _ => Some(AgentType::Implementation),
+            }
+        }
+        None => {
+            // No runs yet but planification is complete (shouldn't happen, but be safe)
+            Some(AgentType::Implementation)
+        }
+    }
+}
+
+/// Get the label for an agent type for display in the UI.
+pub fn agent_type_label(agent_type: &AgentType) -> &'static str {
+    match agent_type {
+        AgentType::Planification => "Planification",
+        AgentType::Implementation => "Implementation",
+        AgentType::Refinement => "Refinement",
+        AgentType::Review => "Review",
+        AgentType::Pr => "PR",
+        AgentType::Yolo => "Yolo",
+    }
+}
 
 pub fn next_agent(
     task: &Task,
@@ -48,6 +126,8 @@ pub fn next_agent(
 mod tests {
     use super::*;
     use crate::db::schema::Task;
+    use chrono::NaiveDateTime;
+    use uuid::Uuid;
 
     fn make_task() -> Task {
         Task {
@@ -225,5 +305,140 @@ mod tests {
         task.workflow_run_count = 25;
         let action = next_agent(&task, &AgentType::Implementation, &all_configured());
         assert!(matches!(action, NextAction::Stop));
+    }
+
+    // Tests for determine_next_phase
+
+    fn make_run(agent_type: AgentType, status: RunStatus) -> TaskAgentRun {
+        TaskAgentRun {
+            id: Uuid::new_v4(),
+            task_id: 1,
+            agent_type,
+            status,
+            conversation_id: Some(Uuid::new_v4()),
+            created_at: NaiveDateTime::parse_from_str("2024-06-01 12:00:00", "%Y-%m-%d %H:%M:%S")
+                .unwrap(),
+            completed_at: None,
+        }
+    }
+
+    #[test]
+    fn test_determine_next_phase_no_runs_starts_planification() {
+        let task = make_task();
+        let runs = vec![];
+        let next = determine_next_phase(&task, &runs);
+        assert_eq!(next, Some(AgentType::Planification));
+    }
+
+    #[test]
+    fn test_determine_next_phase_planification_running_waits() {
+        let task = make_task();
+        let runs = vec![make_run(AgentType::Planification, RunStatus::Running)];
+        let next = determine_next_phase(&task, &runs);
+        assert_eq!(next, None);
+    }
+
+    #[test]
+    fn test_determine_next_phase_planification_done_starts_implementation() {
+        let task = make_task();
+        let runs = vec![make_run(AgentType::Planification, RunStatus::Completed)];
+        let next = determine_next_phase(&task, &runs);
+        assert_eq!(next, Some(AgentType::Implementation));
+    }
+
+    #[test]
+    fn test_determine_next_phase_implementation_done_starts_review() {
+        let task = make_task();
+        let runs = vec![
+            make_run(AgentType::Planification, RunStatus::Completed),
+            make_run(AgentType::Implementation, RunStatus::Completed),
+        ];
+        let next = determine_next_phase(&task, &runs);
+        assert_eq!(next, Some(AgentType::Review));
+    }
+
+    #[test]
+    fn test_determine_next_phase_review_done_starts_implementation() {
+        let task = make_task();
+        let runs = vec![
+            make_run(AgentType::Planification, RunStatus::Completed),
+            make_run(AgentType::Implementation, RunStatus::Completed),
+            make_run(AgentType::Review, RunStatus::Completed),
+        ];
+        let next = determine_next_phase(&task, &runs);
+        assert_eq!(next, Some(AgentType::Implementation));
+    }
+
+    #[test]
+    fn test_determine_next_phase_workflow_complete_starts_pr() {
+        let mut task = make_task();
+        task.workflow_complete = true;
+        let runs = vec![
+            make_run(AgentType::Planification, RunStatus::Completed),
+            make_run(AgentType::Implementation, RunStatus::Completed),
+        ];
+        let next = determine_next_phase(&task, &runs);
+        assert_eq!(next, Some(AgentType::Pr));
+    }
+
+    #[test]
+    fn test_determine_next_phase_pr_complete_returns_none() {
+        let mut task = make_task();
+        task.workflow_complete = true;
+        task.pr_agent_complete = true;
+        let runs = vec![
+            make_run(AgentType::Planification, RunStatus::Completed),
+            make_run(AgentType::Pr, RunStatus::Completed),
+        ];
+        let next = determine_next_phase(&task, &runs);
+        assert_eq!(next, None);
+    }
+
+    #[test]
+    fn test_determine_next_phase_blocked_returns_none() {
+        let mut task = make_task();
+        task.workflow_blocked = true;
+        let runs = vec![make_run(AgentType::Planification, RunStatus::Completed)];
+        let next = determine_next_phase(&task, &runs);
+        assert_eq!(next, None);
+    }
+
+    #[test]
+    fn test_determine_next_phase_at_cap_returns_none() {
+        let mut task = make_task();
+        task.workflow_run_count = 25;
+        let runs = vec![make_run(AgentType::Planification, RunStatus::Completed)];
+        let next = determine_next_phase(&task, &runs);
+        assert_eq!(next, None);
+    }
+
+    #[test]
+    fn test_determine_next_phase_implementation_running_waits() {
+        let task = make_task();
+        let runs = vec![
+            make_run(AgentType::Planification, RunStatus::Completed),
+            make_run(AgentType::Implementation, RunStatus::Running),
+        ];
+        let next = determine_next_phase(&task, &runs);
+        assert_eq!(next, None);
+    }
+
+    #[test]
+    fn test_determine_next_phase_failed_planification_restarts() {
+        let task = make_task();
+        let runs = vec![make_run(AgentType::Planification, RunStatus::Failed)];
+        let next = determine_next_phase(&task, &runs);
+        assert_eq!(next, Some(AgentType::Planification));
+    }
+
+    #[test]
+    fn test_agent_type_label() {
+        assert_eq!(agent_type_label(&AgentType::Planification), "Planification");
+        assert_eq!(
+            agent_type_label(&AgentType::Implementation),
+            "Implementation"
+        );
+        assert_eq!(agent_type_label(&AgentType::Review), "Review");
+        assert_eq!(agent_type_label(&AgentType::Pr), "PR");
     }
 }

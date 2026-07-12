@@ -49,11 +49,17 @@ mod tests {
     }
 
     #[test]
-    fn test_task_doc_content_appended() {
+    fn test_task_doc_content_not_appended() {
         let content = "Some task content here";
         let prompt = build_implementation_prompt(content);
-        assert!(prompt.contains("## Task Documentation"));
-        assert!(prompt.contains(content));
+        assert!(
+            !prompt.contains("## Task Documentation"),
+            "doc content should NOT be inlined"
+        );
+        assert!(
+            !prompt.contains(content),
+            "doc content should NOT be inlined"
+        );
     }
 
     #[test]

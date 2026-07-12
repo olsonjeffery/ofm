@@ -50,7 +50,12 @@ pub fn webapp_protected_routes() -> Router<AppState> {
 
 fn render_shell(page_html: &str, user_json: Option<String>) -> String {
     let shell = leptos::view! { <app::ShellPage user_json /> }.to_html();
-    shell.replace("<main style=\"width: 95%; margin: 0 auto; min-height: calc(100vh - 3.25rem);\"></main>", &format!("<main style=\"width: 95%; margin: 0 auto; min-height: calc(100vh - 3.25rem);\">{page_html}</main>"))
+    if shell.contains("<main></main>") {
+        shell.replace("<main></main>", &format!("<main>{}</main>", page_html))
+    } else {
+        tracing::error!("render_shell: <main></main> marker not found in shell HTML");
+        shell
+    }
 }
 
 async fn login_handler() -> Html<String> {
@@ -253,6 +258,10 @@ async fn chat_handler(
         .flatten()
         .or_else(|| conversations.first().and_then(|cwr| cwr.run.clone()));
 
+    let agent_runs = services::tasks::list_agent_runs_for_task(&state.db, task_id)
+        .await
+        .unwrap_or_default();
+
     let page_html = leptos::view! {
         <pages::chat::ChatPage
             project_id
@@ -261,6 +270,7 @@ async fn chat_handler(
             conversations
             agent_config_statuses
             current_run
+            agent_runs
         />
     }
     .to_html();

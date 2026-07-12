@@ -3,7 +3,7 @@ use leptos::prelude::*;
 
 fn sanitize_html(html: &str) -> String {
     let allowed_tags: std::collections::HashSet<&str> =
-        ["div", "span", "pre", "em", "code", "br"].into();
+        ["div", "span", "pre", "em", "code", "br", "content"].into();
     let allowed_attrs: std::collections::HashMap<&str, std::collections::HashSet<&str>> = [
         ("div", ["class", "style", "id"].into()),
         ("span", ["class", "style", "id"].into()),
@@ -11,6 +11,7 @@ fn sanitize_html(html: &str) -> String {
         ("em", ["class", "style", "id"].into()),
         ("code", ["class", "style", "id"].into()),
         ("br", [].into()),
+        ("content", ["class", "style", "id"].into()),
     ]
     .into();
     ammonia::Builder::default()
@@ -79,6 +80,12 @@ fn render_event(event: &ProviderEvent) -> String {
             )
         }
         ProviderEvent::SessionStart { .. } => String::new(),
+        ProviderEvent::UserText { text } => {
+            format!(
+                r#"<content class="content message-user" style="display:block;background:#1565c0;color:#fff;padding:0.75rem;border-radius:6px;white-space:pre-wrap;max-width:33%;margin-left:auto">{}</content>"#,
+                text
+            )
+        }
         ProviderEvent::Ready => String::new(),
         ProviderEvent::ExtensionUiRequest(_) => String::new(),
         ProviderEvent::AvailableCommandsUpdate(_) => String::new(),
