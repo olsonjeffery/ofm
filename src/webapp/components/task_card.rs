@@ -28,8 +28,23 @@ pub fn TaskCard(task: Task) -> impl IntoView {
     let created = task.created_at.format("%Y-%m-%d").to_string();
 
     view! {
-        <a href={format!("/webapp/projects/{}/tasks/{}", task.project_id, task.id)} class="box">
-            <p class="title is-6">{task.title.clone()}</p>
+        <a href={format!("/webapp/projects/{}/tasks/{}", task.project_id, task.id)} class="box" style="display:block">
+            <div class="level is-mobile">
+                <div class="level-left">
+                    <p class="title is-6">{task.title.clone()}</p>
+                </div>
+                <div class="level-right">
+                    <button
+                        class="button is-small is-danger is-outlined"
+                        data-task-delete=""
+                        data-task-id={task.id.to_string()}
+                        data-project-id={task.project_id.to_string()}
+                        title="Delete task"
+                    >
+                        <span class="icon is-small"><i class="mdi mdi-trash-can"></i></span>
+                    </button>
+                </div>
+            </div>
             <div class="level">
                 <div class="level-left">
                     <span class={format!("tag {}", badge_class)}>{label}</span>
@@ -91,5 +106,15 @@ mod tests {
             assert!(html.contains(expected_label), "label mismatch for {status}");
             assert!(html.contains(expected_class), "class mismatch for {status}");
         }
+    }
+
+    #[test]
+    fn test_task_card_has_delete_button() {
+        let task = make_task("pending");
+        let html = leptos::view! { <TaskCard task /> }.to_html();
+        assert!(html.contains("data-task-delete"));
+        assert!(html.contains("mdi-trash-can"));
+        assert!(html.contains("data-task-id=\"1\""));
+        assert!(html.contains("data-project-id=\"1\""));
     }
 }

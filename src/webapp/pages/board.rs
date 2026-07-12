@@ -90,12 +90,25 @@ pub fn BoardPage(project: Project, tasks: Vec<Task>) -> impl IntoView {
         </section>
         <script>
             {r#"document.addEventListener('DOMContentLoaded',function(){
+                // Delete task from card
+                document.addEventListener('click',function(e){
+                    var delBtn=e.target.closest('[data-task-delete]');
+                    if(!delBtn)return;
+                    e.preventDefault();
+                    e.stopPropagation();
+                    var taskId=delBtn.getAttribute('data-task-id');
+                    if(!confirm('Are you sure you want to delete this task?'))return;
+                    apiCall('/api/tasks/'+taskId,{method:'DELETE'})
+                        .then(function(r){if(r.ok)window.location.reload();});
+                });
+                // New task form
                 var newBtn=document.getElementById('new-task-btn');
                 var form=document.getElementById('new-task-form');
                 var cancelBtn=document.getElementById('cancel-task-btn');
-                if(!newBtn||!form)return;
-                newBtn.addEventListener('click',function(){form.classList.toggle('is-hidden');});
-                if(cancelBtn)cancelBtn.addEventListener('click',function(){form.classList.add('is-hidden');});
+                if(newBtn&&form){
+                    newBtn.addEventListener('click',function(){form.classList.toggle('is-hidden');});
+                    if(cancelBtn)cancelBtn.addEventListener('click',function(){form.classList.add('is-hidden');});
+                }
                 var createForm=document.getElementById('create-task-form');
                 if(createForm)createForm.addEventListener('submit',function(ev){
                     ev.preventDefault();
