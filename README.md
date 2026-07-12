@@ -1,5 +1,5 @@
 <p align="center">
-  <img style="width:25%;height:25%;" src="assets/ofm-logo.svg" />
+  <img style="background-color:white;width:25%;height:25%;" src="assets/ofm-logo.svg" />
 </p>
 
 <p align="center">
