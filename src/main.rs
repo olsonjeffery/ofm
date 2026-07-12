@@ -75,7 +75,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let logging_config = cfg
         .logging_config_path
         .as_ref()
-        .map(|p| std::path::PathBuf::from(p));
+        .map(std::path::PathBuf::from);
     logging::init_with_config(logging_config.as_ref());
 
     // DB setup
