@@ -239,6 +239,7 @@ pub fn TaskDetailPage(
         </section>
         <script>
             {r#"document.addEventListener('DOMContentLoaded',function(){
+                var taskId=document.querySelector('[data-task-id]')?.getAttribute('data-task-id');
                 var buttons=document.querySelectorAll('[data-task-id][data-agent-type]');
                 buttons.forEach(function(btn){
                     btn.addEventListener('click',function(){
@@ -261,6 +262,20 @@ pub fn TaskDetailPage(
                         });
                     });
                 });
+                window.handleConversationClick=function(e){
+                    var card=e.target.closest('[data-conversation-id]');
+                    if(!card)return;
+                    var convId=card.getAttribute('data-conversation-id');
+                    var projectLink=document.querySelector('.breadcrumb a[href*="/projects/"]');
+                    if(projectLink){
+                        var href=projectLink.getAttribute('href');
+                        var match=href.match(/\/projects\/(\d+)/);
+                        if(match){
+                            var projectId=match[1];
+                            window.location.href='/webapp/projects/'+projectId+'/tasks/'+taskId+'/chat';
+                        }
+                    }
+                };
                 function showMessage(msg){
                     var existing=document.getElementById('agent-message');
                     if(existing)existing.remove();
