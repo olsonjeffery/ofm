@@ -6,17 +6,6 @@
     padding: 0;
 }
 
-body {
-    font-family:
-        system-ui,
-        -apple-system,
-        "Segoe UI",
-        Roboto,
-        Helvetica,
-        Arial,
-        sans-serif;
-}
-
 /* Main content area — accounts for fixed-top navbar */
 main {
     width: 95%;
@@ -29,36 +18,36 @@ main {
 
 /* Light theme: black navbar, white text */
 :root .navbar,
-[data-bulma-theme="light"] .navbar,
-.bulma-theme-light .navbar {
+[data-theme="light"] .navbar,
+.theme-light .navbar {
     background-color: #000000 !important;
 }
 
 :root .navbar .navbar-item,
-[data-bulma-theme="light"] .navbar .navbar-item,
-.bulma-theme-light .navbar .navbar-item,
+[data-theme="light"] .navbar .navbar-item,
+.theme-light .navbar .navbar-item,
 :root .navbar .navbar-link,
-[data-bulma-theme="light"] .navbar .navbar-link,
-.bulma-theme-light .navbar .navbar-link,
+[data-theme="light"] .navbar .navbar-link,
+.theme-light .navbar .navbar-link,
 :root .navbar .navbar-brand strong,
-[data-bulma-theme="light"] .navbar .navbar-brand strong,
-.bulma-theme-light .navbar .navbar-brand strong {
-    color: #ffffff !important;
+[data-theme="light"] .navbar .navbar-brand strong,
+.theme-light .navbar .navbar-brand strong {
+    color: var(--bulma-white) !important;
 }
 
 /* Dark theme: light-blue navbar, white text */
-[data-bulma-theme="dark"] .navbar,
-.bulma-theme-dark .navbar {
+[data-theme="dark"] .navbar,
+.theme-dark .navbar {
     background-color: rgb(50, 152, 220) !important;
 }
 
-[data-bulma-theme="dark"] .navbar .navbar-item,
-.bulma-theme-dark .navbar .navbar-item,
-[data-bulma-theme="dark"] .navbar .navbar-link,
-.bulma-theme-dark .navbar .navbar-link,
-[data-bulma-theme="dark"] .navbar .navbar-brand strong,
-.bulma-theme-dark .navbar .navbar-brand strong {
-    color: #ffffff !important;
+[data-theme="dark"] .navbar .navbar-item,
+.theme-dark .navbar .navbar-item,
+[data-theme="dark"] .navbar .navbar-link,
+.theme-dark .navbar .navbar-link,
+[data-theme="dark"] .navbar .navbar-brand strong,
+.theme-dark .navbar .navbar-brand strong {
+    color: var(--bulma-white) !important;
 }
 
 /* ===== Logo ===== */
@@ -69,6 +58,21 @@ main {
     filter: brightness(0) invert(1); /* white in both themes */
 }
 
+/* ===== Box/card visibility ===== */
+.box {
+    --bulma-box-link-hover-shadow: none;
+    --bulma-box-link-active-shadow: none;
+    border: 1px solid var(--bulma-border);
+    box-shadow: none !important;
+}
+
+.box:hover,
+.box:focus,
+.box:active {
+    border-color: var(--bulma-primary);
+    box-shadow: none !important;
+}
+
 /* ===== Remove all drop shadows ===== */
 
 :root .navbar,
@@ -77,10 +81,6 @@ main {
 .navbar.is-fixed-bottom.has-shadow,
 .card,
 .card-header,
-.box,
-.box:hover,
-.box:focus,
-.box:active,
 .button,
 .pagination-link,
 .pagination-previous,

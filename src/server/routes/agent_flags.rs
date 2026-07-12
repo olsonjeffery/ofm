@@ -5,6 +5,7 @@ use axum::{
     Router,
 };
 
+use crate::auth::AuthUser;
 use crate::server::{error::ServerError, state::AppState};
 use crate::services::tasks;
 
@@ -16,20 +17,24 @@ pub fn agent_flags_router() -> Router<AppState> {
         .route("/complete-pr", post(complete_pr))
 }
 
-async fn require_task(state: &AppState, task_id: i64) -> Result<(), ServerError> {
-    tasks::get_task(&state.db, task_id)
+async fn require_task_ownership(state: &AppState, auth: &AuthUser, task_id: i64) -> Result<(), ServerError> {
+    let task = tasks::get_task(&state.db, task_id)
         .await
         .map_err(|_| ServerError::NotFound("Task not found".into()))?;
+    if task.user_id != auth.user_id {
+        return Err(ServerError::NotFound("Task not found".into()));
+    }
     Ok(())
 }
 
 macro_rules! flag_handler {
     ($name:ident, $mark_fn:expr) => {
         async fn $name(
+            auth: AuthUser,
             State(state): State<AppState>,
             Path(task_id): Path<i64>,
         ) -> Result<StatusCode, ServerError> {
-            require_task(&state, task_id).await?;
+            require_task_ownership(&state, &auth, task_id).await?;
             $mark_fn(&state.db, task_id)
                 .await
                 .map_err(|e| ServerError::Internal(e.to_string()))?;
