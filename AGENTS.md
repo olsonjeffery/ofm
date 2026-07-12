@@ -31,7 +31,6 @@ All env vars use the `OFM_` prefix. Key ones:
 | `OFM_OIDC_ISSUER_URL` | unset | OIDC issuer URL for external auth |
 | `OFM_OIDC_CLIENT_ID` | unset | OIDC client ID |
 | `OFM_API_KEY` | unset | API key for machine access |
-| `OFM_FOOTPRINT` | `~/.ofm` | Per-user data directory |
 
 ## Playwright CLI Setup (one-time, per user)
 

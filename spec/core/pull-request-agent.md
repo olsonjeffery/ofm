@@ -101,21 +101,23 @@ not.
 
 ## What to build
 
-- [ ] The PR prompt: a create-or-verify opening, the CI poll loop, the fix loop,
+- [x] The PR prompt: a create-or-verify opening, the CI poll loop, the fix loop,
       conflict resolution, and the completion call — all bounded.
+      → `templates/pr.md`, `src/agents/pull_request.rs`
 - [ ] Server helpers: detect existing PR + URL, create PR, commit/push, wrapping
       git + `gh` (`bottega`) OR `oh-my-pi`'s `github` tool (`ofm`).
-- [ ] A completion script that sets `pr_agent_complete`.
+- [x] A completion script that sets `pr_agent_complete`.
+      → `src/server/routes/agent_flags.rs` (complete_pr handler)
 - [ ] Compute the PR status at run start and pass it into the prompt.
 
 ## Reference map
 
-| Concern | File |
-|---|---|
-| PR prompt | `reference/server/constants/prompts/pr.md` |
-| Prompt assembly + create/verify block | `reference/server/constants/agentPrompts.ts` |
-| Completion signal | `reference/scripts/complete-pr.ts` (sets `pr_agent_complete`) |
-| PR + git helpers | `reference/server/services/worktree.ts` (`getPullRequestStatus`, `createPullRequest`, `commitAllChanges`, `pushChanges`, `mergeAndCleanup`) |
+| Concern | Rust (implemented) | Legacy reference |
+|---|---|---|
+| PR prompt | `templates/pr.md`, `src/agents/pull_request.rs` | `reference/server/constants/prompts/pr.md` |
+| Completion signal | `src/server/routes/agent_flags.rs` (complete_pr handler) | `reference/scripts/complete-pr.ts` |
+| Prompt assembly + create/verify block | — | `reference/server/constants/agentPrompts.ts` |
+| PR + git helpers | — | `reference/server/services/worktree.ts` |
 
 ## Boundaries (not in this spec)
 

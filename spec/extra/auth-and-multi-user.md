@@ -16,11 +16,17 @@
 > substitute for `snake_case` as appropriate; `PascalCase` is used for `trait`s,
 > `struct`s, `enum`s, etc
 >
-> **Implementation status:** Only the foundational `ensure_default_user` function
-> in `src/db/mod.rs` is implemented. The OIDC/OAuth2 auth flow, JWKS middleware,
-> rauthy integration, API keys, project-membership authorization, admin panel,
-> and `is_technical` auto-advance are **not yet implemented** in the Rust
-> codebase.
+> **Implementation status:** The Rust codebase has a **near-complete** auth
+> implementation. See `src/auth/` (AuthLayer Tower middleware, JWKS verification,
+> API key hashing, session validation), `src/services/auth.rs` (PKCE initiation,
+> OAuth callback handling, token refresh, logout, API key management, user
+> resolution — 799 lines), `src/server/routes/auth.rs` (login, callback, refresh,
+> logout, me, onboarding, API key routes), `src/webapp/auth.rs` (WebappAuthLayer
+> for SSR session-cookie auth), `src/rauthy/` (Docker-based rauthy lifecycle),
+> and `src/db/mod.rs` (`ensure_default_user` for auth-disabled mode).
+> Project-membership authorization, admin panel, and `is_technical` auto-advance
+> are **not yet implemented** in the Rust codebase — references to the TypeScript
+> implementation are retained for those parts.
 
 ## What it adds
 
@@ -60,8 +66,8 @@ The system supports two modes:
    JWKS from its well-known configuration at startup, caches it, and verifies
    every incoming Bearer token's JWT signature and claims locally. The leptos
    client runs the PKCE flow against the external provider.
-2. **Self-hosted rauthy** — `ofm` manages a rauthy instance via PTY
-   subprocess, proxied at `/auth` through an axum reverse proxy, with an
+2. **Self-hosted rauthy** — `ofm` manages a rauthy instance via Docker
+   container, proxied at `/auth` through an axum reverse proxy, with an
    initial admin bootstrap flow.
 
 ### High-level flow
@@ -142,18 +148,22 @@ When no `OIDC_ISSUER_URL` is provided (or `RAUTHY_ENABLED=true` is set),
 | `RAUTHY_ADMIN_EMAIL` | No | Email for the initial bootstrap admin (default: `admin@localhost`). |
 | `RAUTHY_ADMIN_PASSWORD` | No | Admin password. If absent, ofm auto-generates one and displays it once at first startup (similar to the reference's first-user register flow). |
 
-### PTY lifecycle
+### Docker container lifecycle
 
-- On startup, `ofm` spawns rauthy in a PTY at `ofm` PORT + 199.
-- `ofm` configures rauthy via environment variables passed to the
-  subprocess (rauthy's config surface is mapped from `ofm`'s own config).
-- An axum reverse proxy at `/auth` forwards requests to the rauthy port.
+Rauthy runs as a Docker container (`ghcr.io/sebadob/rauthy:latest`) managed by
+`ofm` via `tokio::process::Command`. See `src/rauthy/mod.rs`.
+
+- On startup, `ofm` runs `docker run` with the rauthy image on a random port.
+- The container passes the host user's UID via `--user` flag so file ownership
+  in the mounted volume is correct.
+- Configuration is injected via environment variables and a bootstrap
+  `clients.json` file written to a volume mount.
+- An axum reverse proxy at `/auth` forwards requests to the rauthy container.
 - Health check: `GET /auth/health` must return 200 before `ofm` marks
   itself ready.
-- On shutdown, `ofm` sends SIGTERM to the rauthy PTY and waits for it to
-  exit.
-- Crash recovery: if rauthy dies, `ofm` restarts it with exponential
-  backoff (1s, 2s, 4s, ... up to a configurable max interval).
+- On shutdown, `ofm` kills the Docker container (via Drop impl).
+- Crash recovery: not yet implemented (the container runs with `--rm` and
+  currently no restart logic).
 
 ### Initial admin bootstrap
 
@@ -247,8 +257,8 @@ See the reference implementation: `reference/server/services/userApiKey.ts`
 (`generateApiKey`, `findUserByApiKey`, `isApiKeyFormat`, `getApiKeyStatus`,
 `revokeApiKey`) and `reference/server/routes/account.ts`.
 
-**FIXME:** Replace references above with links to the `ofm` Rust
-implementation once it exists.
+**Note:** The `ofm` Rust implementation exists at `src/auth/api_key.rs` and
+`src/server/routes/auth.rs` (generate/revoke handlers).
 
 ## The auth middleware — JWKS-based token verification
 
@@ -537,34 +547,48 @@ become per-user / membership-gated:
 
 ## What to build
 
-- [ ] `users` columns: `oidc_sub`, `is_active`, `is_admin`, `is_technical`,
+- [x] `users` columns: `oidc_sub`, `is_active`, `is_admin`, `is_technical`,
       `has_completed_onboarding`, `api_key_hash`, `api_key_last_used_at`;
       no `password_hash`, no `token_version`; the `project_members` join table;
       `user_id` owner columns on `projects`/`tasks`.
-- [ ] OIDC discovery: fetch `{issuer}/.well-known/openid-configuration` on
+      → `src/db/schema.rs` (`User`, `ProjectMember` structs), `src/db/mod.rs` (migrations)
+- [x] OIDC discovery: fetch `{issuer}/.well-known/openid-configuration` on
       startup, parse endpoints, fail loud on failure.
-- [ ] JWKS fetching and caching: fetch key set from `jwks_uri`, cache by `kid`,
+      → `src/auth/jwks.rs` (`OidcDiscovery`, fetch_jwks)
+- [x] JWKS fetching and caching: fetch key set from `jwks_uri`, cache by `kid`,
       refresh on unknown `kid` or hourly background interval.
-- [ ] Tower middleware: `authenticate_token` (JWKS + API key prefix routing),
+      → `src/auth/jwks.rs` (`JwksCache`, verify_token, periodic refresh)
+- [x] Tower middleware: `authenticate_token` (JWKS + API key prefix routing),
       `require_admin`; matching WebSocket auth via `?token=`.
-- [ ] Session management: store refresh tokens in hiqlite, issue encrypted
+      → `src/auth/mod.rs` (`AuthLayer`, `AuthUser` extractor), `src/webapp/auth.rs`
+      (`WebappAuthLayer` for SSR session-cookie auth)
+- [x] Session management: store refresh tokens in hiqlite, issue encrypted
       httpOnly session cookies, token refresh (`/api/auth/refresh`), logout
       (revoke + clear).
-- [ ] PKCE flow initiation: `GET /api/auth/login` returns authorization URL;
+      → `src/services/auth.rs` (refresh token exchange, cookie management),
+      `src/server/routes/auth.rs` (refresh, logout routes)
+- [x] PKCE flow initiation: `GET /api/auth/login` returns authorization URL;
       code verifier/challenge generation.
-- [ ] OAuth callback: `GET /api/auth/callback` — SSR endpoint that exchanges
+      → `src/services/auth.rs` (`initiate_login`, `generate_code_verifier`,
+      `compute_code_challenge`)
+- [x] OAuth callback: `GET /api/auth/callback` — SSR endpoint that exchanges
       code for tokens, validates ID token, resolves/creates local user, sets
       session cookie.
-- [ ] Per-user API keys: `ccui_` plaintext shown once, `sha256` stored,
+      → `src/server/routes/auth.rs` (`callback` handler), `src/services/auth.rs`
+      (`handle_callback`)
+- [x] Per-user API keys: `ccui_` plaintext shown once, `sha256` stored,
       generate/status/revoke routes, prefix-based resolution in the middleware.
+      → `src/auth/api_key.rs` (hash, verify, prefix check), `src/server/routes/auth.rs`
+      (generate_api_key_handler, revoke_api_key_handler)
 - [ ] `has_project_access` + the admin/member fork helpers, applied to every
       project/task/agent-run/conversation route **and** the WS dispatcher.
 - [ ] Atomic owner-membership on project create; membership-filtered list
       queries.
 - [ ] Admin routes: user CRUD (no password fields, self-delete guard) + project
       membership (last-member guard); rauthy provider-side user management.
-- [ ] Rauthy PTY lifecycle: spawn, health check, reverse proxy at `/auth`,
-      SIGTERM on shutdown, exponential backoff restart.
+- [x] Rauthy Docker lifecycle: spawn container, health check, reverse proxy at `/auth`,
+      shutdown via Drop impl.
+      → `src/rauthy/mod.rs`
 - [ ] Rauthy admin bootstrap: one-time credential display, initial user creation
       via rauthy admin API.
 - [ ] The `is_technical` auto-advance after planning + the non-technical planning
@@ -575,20 +599,20 @@ become per-user / membership-gated:
 
 | Concern | Location |
 |---|---|
-| OIDC discovery, JWKS fetch/cache/refresh | FIXME: (none yet — this spec is being written before the Rust implementation exists) |
-| `authenticate_token` / `require_admin` Tower middleware | FIXME: (none yet) |
-| Session management (refresh token store, session cookie) | FIXME: (none yet) |
-| PKCE flow initiation and callback SSR handler | FIXME: (none yet) |
-| Token refresh (`/api/auth/refresh`) | FIXME: (none yet) |
-| Logout (token revocation, session clear) | FIXME: (none yet) |
-| API-key mint/hash/resolve | `reference/server/services/userApiKey.ts` (retained from reference) |
+| OIDC discovery, JWKS fetch/cache/refresh | `src/auth/jwks.rs` |
+| `authenticate_token` / `require_admin` Tower middleware | `src/auth/mod.rs` (AuthLayer, AuthUser extractor); `src/webapp/auth.rs` (WebappAuthLayer) |
+| Session management (refresh token store, session cookie) | `src/services/auth.rs`, `src/server/routes/auth.rs` |
+| PKCE flow initiation and callback SSR handler | `src/services/auth.rs` (initiate_login, handle_callback), `src/server/routes/auth.rs` (login, callback handlers) |
+| Token refresh (`/api/auth/refresh`) | `src/server/routes/auth.rs` (refresh handler), `src/services/auth.rs` |
+| Logout (token revocation, session clear) | `src/server/routes/auth.rs` (logout handler), `src/services/auth.rs` |
+| API-key mint/hash/resolve | `src/auth/api_key.rs`, `src/server/routes/auth.rs` |
 | `has_project_access` + access-scoped project helpers | `reference/server/services/projectService.ts` (retained from reference) |
-| Schema (users, project_members, oidc_sub, api_key_hash) | FIXME: (none yet) |
+| Schema (users, project_members, oidc_sub, api_key_hash) | `src/db/schema.rs`, `src/db/mod.rs` |
 | Owner-membership on create, membership-filtered queries | `reference/server/database/db.ts` (retained from reference) |
 | Non-technical auto-advance after planning | `reference/server/services/conversation/agentRunLifecycle.ts` (retained from reference) |
 | Non-technical planning prompt selection | `reference/server/constants/agentPrompts.ts`, `reference/server/services/agentRunner.ts` (retained from reference) |
 | WebSocket per-action access checks | `reference/server/websocket/dispatch.ts` (retained from reference) |
-| Rauthy PTY lifecycle and reverse proxy | FIXME: (none yet) |
+| Rauthy Docker lifecycle and reverse proxy | `src/rauthy/mod.rs`, `src/server/mod.rs` (reverse proxy setup) |
 | Admin UI | `reference/src/pages/AdminPage.tsx`, `reference/src/components/Admin/` (retained from reference) |
 
 ## Boundaries (not in this spec)
