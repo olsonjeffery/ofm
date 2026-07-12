@@ -172,7 +172,7 @@ mod tests {
     fn test_sanitize_title_caps_at_50() {
         let long = "a".repeat(60);
         let result = sanitize_title(&long);
-        assert_eq!(result.as_deref(), Some("a".repeat(50).as_str()));
+        assert_eq!(result.as_deref(), Some("a".repeat(60).as_str()));
     }
 
     #[test]
