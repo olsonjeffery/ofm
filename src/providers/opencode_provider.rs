@@ -549,12 +549,10 @@ impl LlmProvider for OpenCodeProvider {
 
     async fn shutdown(&mut self) -> Result<bool, ProviderError> {
         let mut guard = self.server.lock().unwrap();
-        if guard.is_some() {
-            let _ = guard.as_mut().map(|s| {
-                let _ = s.child.stdin.take();
-                let _ = s.child.kill();
-                let _ = s.child.wait();
-            });
+        if let Some(s) = guard.as_mut() {
+            let _ = s.child.stdin.take();
+            let _ = s.child.kill();
+            let _ = s.child.wait();
             *guard = None;
             Ok(true)
         } else {

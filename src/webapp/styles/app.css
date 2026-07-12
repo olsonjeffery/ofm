@@ -6,81 +6,74 @@
     padding: 0;
 }
 
+/* Warm off-white body background using the custom $white color */
 body {
-    font-family:
-        system-ui,
-        -apple-system,
-        "Segoe UI",
-        Roboto,
-        Helvetica,
-        Arial,
-        sans-serif;
+    background-color: var(--bulma-white);
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
 }
 
-/* Main content area — accounts for fixed-top navbar */
+/* Main content area accounts for fixed-top navbar */
 main {
     width: 95%;
     margin: 0 auto;
     min-height: 100vh;
-    padding-top: calc(3.25rem + 0.5rem); /* navbar height + small buffer */
+    padding-top: calc(3.25rem + 0.5rem);
 }
 
 /* ===== Navbar theming ===== */
 
 /* Light theme: black navbar, white text */
-:root .navbar,
-[data-bulma-theme="light"] .navbar,
-.bulma-theme-light .navbar {
+nav.navbar {
     background-color: #000000 !important;
 }
-
-:root .navbar .navbar-item,
-[data-bulma-theme="light"] .navbar .navbar-item,
-.bulma-theme-light .navbar .navbar-item,
-:root .navbar .navbar-link,
-[data-bulma-theme="light"] .navbar .navbar-link,
-.bulma-theme-light .navbar .navbar-link,
-:root .navbar .navbar-brand strong,
-[data-bulma-theme="light"] .navbar .navbar-brand strong,
-.bulma-theme-light .navbar .navbar-brand strong {
-    color: #ffffff !important;
+nav.navbar .navbar-item,
+nav.navbar .navbar-link,
+nav.navbar .navbar-brand strong {
+    color: var(--bulma-white) !important;
 }
 
-/* Dark theme: light-blue navbar, white text */
-[data-bulma-theme="dark"] .navbar,
-.bulma-theme-dark .navbar {
+/* Dark theme: blue navbar, white text */
+[data-theme="dark"] nav.navbar,
+.theme-dark nav.navbar {
     background-color: rgb(50, 152, 220) !important;
 }
-
-[data-bulma-theme="dark"] .navbar .navbar-item,
-.bulma-theme-dark .navbar .navbar-item,
-[data-bulma-theme="dark"] .navbar .navbar-link,
-.bulma-theme-dark .navbar .navbar-link,
-[data-bulma-theme="dark"] .navbar .navbar-brand strong,
-.bulma-theme-dark .navbar .navbar-brand strong {
-    color: #ffffff !important;
+[data-theme="dark"] nav.navbar .navbar-item,
+.theme-dark nav.navbar .navbar-item,
+[data-theme="dark"] nav.navbar .navbar-link,
+.theme-dark nav.navbar .navbar-link,
+[data-theme="dark"] nav.navbar .navbar-brand strong {
+    color: var(--bulma-white) !important;
 }
 
 /* ===== Logo ===== */
-
 .header-logo {
     width: 50px;
     height: 50px;
-    filter: brightness(0) invert(1); /* white in both themes */
+    filter: brightness(0) invert(1);
+}
+
+/* ===== Box/card visibility ===== */
+.box {
+    --bulma-box-link-hover-shadow: none;
+    --bulma-box-link-active-shadow: none;
+    border: 1px solid var(--bulma-border);
+    box-shadow: none !important;
+}
+
+a.box:hover,
+a.box:focus,
+a.box:active {
+    border-color: var(--bulma-primary);
+    box-shadow: none !important;
 }
 
 /* ===== Remove all drop shadows ===== */
-
 :root .navbar,
 .navbar.has-shadow,
 .navbar.is-fixed-top.has-shadow,
 .navbar.is-fixed-bottom.has-shadow,
 .card,
 .card-header,
-.box,
-.box:hover,
-.box:focus,
-.box:active,
 .button,
 .pagination-link,
 .pagination-previous,
@@ -96,11 +89,9 @@ main {
 }
 
 /* ===== Islands ===== */
-
 .island-container {
     margin-bottom: 1.5rem;
 }
-
 .island {
     transition: opacity 0.2s;
 }
@@ -119,7 +110,6 @@ main {
 }
 
 /* ===== Uptime component ===== */
-
 .uptime-value {
     font-family: "SF Mono", "Fira Code", Menlo, Consolas, monospace;
     font-size: 1.1rem;

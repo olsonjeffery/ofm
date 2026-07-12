@@ -215,12 +215,24 @@ async fn task_detail_handler(
     let agent_config_statuses =
         registry::resolve_agent_config_statuses(&state.db, auth.user_id, project_id).await;
 
+    let conversations = services::tasks::list_conversations_for_task(&state.db, task_id)
+        .await
+        .unwrap_or_default();
+
+    let current_run = services::tasks::get_running_agent_for_task(&state.db, task_id)
+        .await
+        .ok()
+        .flatten()
+        .or_else(|| conversations.first().and_then(|cwr| cwr.run.clone()));
+
     let page_html = leptos::view! {
         <pages::task_detail::TaskDetailPage
             task
             doc_content
             agent_runs
             agent_config_statuses=agent_config_statuses
+            conversations=conversations
+            _current_run=current_run
         />
     }
     .to_html();

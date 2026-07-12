@@ -16,11 +16,11 @@ pub fn ProjectCard(project: Project, task_counts: TaskCounts) -> impl IntoView {
         + task_counts.in_review
         + task_counts.completed;
     view! {
-        <a href={format!("/webapp/projects/{}", project.id)} class="card">
-            <div class="card-content">
-                <p class="title is-4">{project.name.clone()}</p>
-                <p class="subtitle is-6">{project.repo_folder_path.clone()}</p>
-                <div class="tags">
+        <a href={format!("/webapp/projects/{}", project.id)} class="box">
+            <p class="title is-6">{project.name.clone()}</p>
+            <p class="subtitle is-7">{project.repo_folder_path.clone()}</p>
+            <div class="level">
+                <div class="level-left">
                     <span class="tag">{format!("{} tasks", total)}</span>
                     {if task_counts.pending > 0 {
                         view! { <span class="tag is-light">{format!("{} pending", task_counts.pending)}</span> }.into_any()
