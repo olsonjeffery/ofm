@@ -3,11 +3,11 @@
 </p>
 
 <p align="center">
-  <strong>Orchestration Force Multiplier (`ofm`)</strong>
+  <strong>Orchestration Force Multiplier (ofm)</strong>
   <strong><a href="https://github.com/olsonjeffery/ofm">GitHub repository</a></strong>
 </p>
 <p align="center">
-    (Pronouce it as an acronym: oh-eff-em)
+    (Pronounce it as an acronym: oh-eff-em)
 </p>
 
 <p align="center">
@@ -32,20 +32,20 @@
 ### Capability 💪
 
 - The system provides a more rigid structure around the [_Ralph Wiggum Loop_][1]
-(hereafter referred to as _the loop_), helping agentic coders to spend more time
+(hereafter referred to as _the loop_), helping users to spend more time
 producing high-quality software, instead of fighting with the agent harness
 - Simultaneously, we don't want _too much structure_; that only stifles productivity
 and burns countless tokens on redundency checks (looking at you, [opencode-swarm][18])
-- An intuitive, web-based user interface creates an environment that let's
-Users focus on defining requirements and providing needed feedback to LLM agents,
+- An intuitive, web-based user interface creates an environment that allows
+users focus on defining requirements and providing needed feedback to LLM agents,
 instead of thrashing with tooling or environment setup
 - `playwright-cli` comes out of the box as an agent enhancement
 
 ### Visibility 👁️
 - `ofm` preserves logs of agent activity it drives
-- All prompts are surfaced and auditable; no secret sauce or dumbing-down for Users
+- All prompts are surfaced and auditable; no secret sauce or dumbing-down for users
 - The web-based user interface and kanban style task board provides at-a-glance
-snapshots of current progress, highlighting points of interactivity or needed User
+snapshots of current progress, highlighting points of interactivity or needed user
 intervention to get a coding agent back on-track
 
 ### Flexibility ♾️
@@ -102,7 +102,7 @@ automation, live on a shared VPS, etc; sky's the limit!
     - supported agents has their own claims around memory-usage and can stand
     on their own
 - In terms of the host Operating System: wherever it is running and whoever
-it is running as will be the user/environment that `ofm` works within
+it is running-as will be the user/environment that `ofm` works within
   - `ofm` has a _data footprint_ as well as its _system dependencies_
   (installed tools that `ofm` expects to be installed and available to the
   user)
