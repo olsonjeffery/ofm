@@ -16,9 +16,6 @@ pub fn ChatPage(
     current_run: Option<TaskAgentRun>,
     agent_runs: Vec<TaskAgentRun>,
 ) -> impl IntoView {
-    let _project_id_str = project_id.to_string();
-    let _task_id_str = task_id.to_string();
-
     let agent_types: Vec<String> = agent_config_statuses
         .iter()
         .filter(|s| s.configured)

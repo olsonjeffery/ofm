@@ -10,6 +10,7 @@ use axum::{
 use serde::Deserialize;
 
 use crate::agents;
+use crate::auth::AuthUser;
 use crate::db::schema::{AgentType, TaskAgentRun};
 use crate::orchestration;
 use crate::orchestration::guards;
@@ -33,6 +34,7 @@ pub fn agent_runs_router() -> Router<AppState> {
 }
 
 async fn post_create_agent_run(
+    auth: AuthUser,
     State(state): State<AppState>,
     Path(task_id): Path<i64>,
     Json(body): Json<StartAgentRunRequest>,
@@ -48,6 +50,9 @@ async fn post_create_agent_run(
     let task = tasks::get_task(&state.db, task_id)
         .await
         .map_err(|_| ServerError::NotFound("Task not found".into()))?;
+    if task.user_id != auth.user_id {
+        return Err(ServerError::NotFound("Task not found".into()));
+    }
 
     // Phase 3: Config check guard — if no config, create blocked run and skip
     let config_root = PathBuf::from(&state.config_root);
@@ -248,61 +253,10 @@ async fn post_create_agent_run(
                                                 id: TopicId(t_id),
                                             };
 
-                                            let (event_type, payload) = match &event {
-                                                ProviderEvent::SessionStart { session_id } => {
-                                                    ("session_start".to_string(), serde_json::json!({"session_id": session_id}))
-                                                }
-                                                ProviderEvent::UserText { text } => {
-                                                    ("user_text".to_string(), serde_json::json!({"text": text}))
-                                                }
-                                                ProviderEvent::Text { text } => {
-                                                    ("text".to_string(), serde_json::json!({"text": text}))
-                                                }
-                                                ProviderEvent::TextChunk { delta } => {
-                                                    ("text_chunk".to_string(), serde_json::json!({"delta": delta}))
-                                                }
-                                                ProviderEvent::ToolUse { tool_name, tool_use_id, input } => {
-                                                    ("tool_use".to_string(), serde_json::json!({
-                                                        "tool_name": tool_name,
-                                                        "tool_use_id": tool_use_id,
-                                                        "input": input,
-                                                    }))
-                                                }
-                                                ProviderEvent::ToolResult { tool_use_id, result } => {
-                                                    ("tool_result".to_string(), serde_json::json!({
-                                                        "tool_use_id": tool_use_id,
-                                                        "result": result,
-                                                    }))
-                                                }
-                                                ProviderEvent::Thinking { thinking } => {
-                                                    ("thinking".to_string(), serde_json::json!({"thinking": thinking}))
-                                                }
-                                                ProviderEvent::ThinkingChunk { delta } => {
-                                                    ("thinking_chunk".to_string(), serde_json::json!({"delta": delta}))
-                                                }
-                                                ProviderEvent::ContextUsage(usage) => {
-                                                    ("context_usage".to_string(), serde_json::json!({"usage": usage}))
-                                                }
-                                                ProviderEvent::ExtensionUiRequest(data) => {
-                                                    ("extension_ui_request".to_string(), data.clone())
-                                                }
-                                                ProviderEvent::AvailableCommandsUpdate(data) => {
-                                                    ("available_commands_update".to_string(), data.clone())
-                                                }
-                                                ProviderEvent::Response(data) => {
-                                                    ("response".to_string(), data.clone())
-                                                }
-                                                ProviderEvent::Error { error } => {
-                                                    ("error".to_string(), serde_json::json!({"error": error}))
-                                                }
-                                                ProviderEvent::Done(data) => {
-                                                    completed_normally = true;
-                                                    ("done".to_string(), serde_json::json!({"data": data}))
-                                                }
-                                                ProviderEvent::Ready => {
-                                                    ("ready".to_string(), serde_json::json!({}))
-                                                }
-                                            };
+                                            let (event_type, payload) = event.to_ws_event();
+                                            if matches!(event, ProviderEvent::Done(_)) {
+                                                completed_normally = true;
+                                            }
 
                                             let msg = ServerMessage::Event {
                                                 topic: topic.clone(),
@@ -383,9 +337,17 @@ async fn post_create_agent_run(
 }
 
 async fn reset_agent_runs(
+    auth: AuthUser,
     State(state): State<AppState>,
     Path(task_id): Path<i64>,
 ) -> Result<StatusCode, ServerError> {
+    let task = tasks::get_task(&state.db, task_id)
+        .await
+        .map_err(|_| ServerError::NotFound("Task not found".into()))?;
+    if task.user_id != auth.user_id {
+        return Err(ServerError::NotFound("Task not found".into()));
+    }
+
     tracing::info!(task_id = %task_id, "Resetting agent runs for task");
 
     // Get conversation IDs for this task's agent runs
@@ -458,12 +420,16 @@ async fn reset_agent_runs(
 }
 
 async fn list_agent_runs(
+    auth: AuthUser,
     State(state): State<AppState>,
     Path(task_id): Path<i64>,
 ) -> Result<Json<Vec<TaskAgentRun>>, ServerError> {
-    tasks::get_task(&state.db, task_id)
+    let task = tasks::get_task(&state.db, task_id)
         .await
         .map_err(|_| ServerError::NotFound("Task not found".into()))?;
+    if task.user_id != auth.user_id {
+        return Err(ServerError::NotFound("Task not found".into()));
+    }
 
     let runs = tasks::list_agent_runs_for_task(&state.db, task_id)
         .await
