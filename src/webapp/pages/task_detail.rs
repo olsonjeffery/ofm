@@ -111,12 +111,47 @@ pub fn TaskDetailPage(
                     <li class="is-active"><a href="#">{task.title.clone()}</a></li>
                 </ul>
             </nav>
-
-            <div class="level">
+            <div class="level" data-task-id={task.id.to_string()} data-project-id={task.project_id.to_string()}>
                 <div class="level-left">
                     <h1 class="title">{task.title.clone()}</h1>
                     <span class={format!("tag {} ml-2", status_badge_class)}>{status_label_str}</span>
                 </div>
+                <div class="level-right">
+                    <button id="edit-task-btn" class="button is-small is-light" title="Edit task">
+                        <span class="icon is-small"><i class="mdi mdi-pencil"></i></span>
+                        <span>"Edit"</span>
+                    </button>
+                </div>
+            </div>
+
+            <div id="edit-task-form" class="box is-hidden" style="margin-top:0.5rem">
+                <form id="edit-task-form-inner">
+                    <div class="field">
+                        <label class="label" for="edit-task-title">"Task Title"</label>
+                        <div class="control">
+                            <input id="edit-task-title" name="title" class="input" type="text" value={task.title.clone()} required />
+                        </div>
+                    </div>
+                    <div class="field">
+                        <label class="label" for="edit-task-status">"Status"</label>
+                        <div class="control">
+                            <div class="select">
+                                <select id="edit-task-status" name="status">
+                                    <option value="pending" selected={task.status == "pending"}>"Pending"</option>
+                                    <option value="in_progress" selected={task.status == "in_progress"}>"In Progress"</option>
+                                    <option value="in_review" selected={task.status == "in_review"}>"In Review"</option>
+                                    <option value="completed" selected={task.status == "completed"}>"Completed"</option>
+                                </select>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="field">
+                        <div class="control">
+                            <button type="submit" class="button is-success">"Save"</button>
+                            <button type="button" id="cancel-edit-task-btn" class="button is-light">"Cancel"</button>
+                        </div>
+                    </div>
+                </form>
             </div>
 
             <div class="columns">
@@ -234,12 +269,30 @@ pub fn TaskDetailPage(
                             }.into_any()
                         }}
                     </div>
+
+                    <div class="box" style="margin-top:1rem">
+                        <div class="level">
+                            <div class="level-left">
+                                <h2 class="title is-4 has-text-danger">"Danger Zone"</h2>
+                            </div>
+                            <div class="level-right">
+                                <button id="delete-task-btn" class="button is-danger">
+                                    <span class="icon is-small"><i class="mdi mdi-delete"></i></span>
+                                    <span>"Delete Task"</span>
+                                </button>
+                            </div>
+                        </div>
+                    </div>
                 </div>
             </div>
         </section>
         <script>
             {r#"document.addEventListener('DOMContentLoaded',function(){
-                var taskId=document.querySelector('[data-task-id]')?.getAttribute('data-task-id');
+                var taskIdEl=document.querySelector('[data-task-id]');
+                var taskId=taskIdEl?.getAttribute('data-task-id');
+                var projectId=taskIdEl?.getAttribute('data-project-id');
+
+                // Agent run buttons
                 var buttons=document.querySelectorAll('[data-task-id][data-agent-type]');
                 buttons.forEach(function(btn){
                     btn.addEventListener('click',function(){
@@ -262,6 +315,46 @@ pub fn TaskDetailPage(
                         });
                     });
                 });
+
+                // Edit task form
+                var editBtn=document.getElementById('edit-task-btn');
+                var editForm=document.getElementById('edit-task-form');
+                var cancelEditBtn=document.getElementById('cancel-edit-task-btn');
+                if(editBtn&&editForm){
+                    editBtn.addEventListener('click',function(){editForm.classList.toggle('is-hidden');});
+                    if(cancelEditBtn)cancelEditBtn.addEventListener('click',function(){editForm.classList.add('is-hidden');});
+                }
+                var editFormInner=document.getElementById('edit-task-form-inner');
+                if(editFormInner){
+                    editFormInner.addEventListener('submit',function(ev){
+                        ev.preventDefault();
+                        var title=document.getElementById('edit-task-title').value;
+                        var status=document.getElementById('edit-task-status').value;
+                        apiCall('/api/tasks/'+taskId,{
+                            method:'PUT',
+                            headers:{'Content-Type':'application/json'},
+                            body:JSON.stringify({title:title,status:status})
+                        }).then(function(r){
+                            if(r.ok){window.location.reload();}
+                            else{showMessage('Error saving task');}
+                        });
+                    });
+                }
+
+                // Delete task
+                var deleteBtn=document.getElementById('delete-task-btn');
+                if(deleteBtn){
+                    deleteBtn.addEventListener('click',function(){
+                        if(!confirm('Are you sure you want to delete this task?'))return;
+                        apiCall('/api/tasks/'+taskId,{
+                            method:'DELETE'
+                        }).then(function(r){
+                            if(r.ok){window.location.href='/webapp/projects/'+projectId;}
+                            else{showMessage('Error deleting task');}
+                        });
+                    });
+                }
+
                 window.handleConversationClick=function(e){
                     var card=e.target.closest('[data-conversation-id]');
                     if(!card)return;
@@ -432,5 +525,49 @@ mod tests {
         let html = leptos::view! { <TaskDetailPage task doc_content agent_runs agent_config_statuses=statuses conversations=vec![] _current_run=None /> }.to_html();
         assert!(html.contains("Conversations"));
         assert!(html.contains("New Chat"));
+    }
+
+    #[test]
+    fn test_task_detail_has_edit_button() {
+        let task = make_task();
+        let html = leptos::view! { <TaskDetailPage task doc_content=None agent_runs=vec![] agent_config_statuses=empty_statuses() conversations=vec![] _current_run=None /> }.to_html();
+        assert!(html.contains("id=\"edit-task-btn\""));
+        assert!(html.contains("mdi-pencil"));
+    }
+
+    #[test]
+    fn test_task_detail_edit_form_preserves_task_title() {
+        let task = make_task();
+        let html = leptos::view! { <TaskDetailPage task doc_content=None agent_runs=vec![] agent_config_statuses=empty_statuses() conversations=vec![] _current_run=None /> }.to_html();
+        assert!(html.contains("value=\"Implement feature X\""));
+    }
+
+    #[test]
+    fn test_task_detail_edit_form_has_status_select() {
+        let task = make_task();
+        let html = leptos::view! { <TaskDetailPage task doc_content=None agent_runs=vec![] agent_config_statuses=empty_statuses() conversations=vec![] _current_run=None /> }.to_html();
+        assert!(html.contains("id=\"edit-task-status\""));
+        assert!(html.contains("Pending"));
+        assert!(html.contains("In Progress"));
+        assert!(html.contains("In Review"));
+        assert!(html.contains("Completed"));
+    }
+
+    #[test]
+    fn test_task_detail_edit_form_pre_selects_current_status() {
+        let task = make_task();
+        let html = leptos::view! { <TaskDetailPage task doc_content=None agent_runs=vec![] agent_config_statuses=empty_statuses() conversations=vec![] _current_run=None /> }.to_html();
+        // task status is "in_progress"
+        assert!(html.contains("value=\"in_progress\" selected"));
+    }
+
+    #[test]
+    fn test_task_detail_has_delete_button() {
+        let task = make_task();
+        let html = leptos::view! { <TaskDetailPage task doc_content=None agent_runs=vec![] agent_config_statuses=empty_statuses() conversations=vec![] _current_run=None /> }.to_html();
+        assert!(html.contains("id=\"delete-task-btn\""));
+        assert!(html.contains("Danger Zone"));
+        assert!(html.contains("Delete Task"));
+        assert!(html.contains("mdi-delete"));
     }
 }
