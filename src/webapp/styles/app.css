@@ -46,10 +46,11 @@ nav.navbar .navbar-brand strong {
 }
 
 /* ===== Logo ===== */
-.header-logo {
+img.header-logo {
     width: 50px;
     height: 50px;
-    filter: brightness(0) invert(1);
+    max-width: 50px;
+    max-height: 50px;
 }
 
 /* ===== Box/card visibility ===== */
@@ -106,13 +107,5 @@ a.box:active {
 .island .error {
     color: #e53e3e;
     margin: 0;
-    padding: 0.5rem 0;
-}
-
-/* ===== Uptime component ===== */
-.uptime-value {
-    font-family: "SF Mono", "Fira Code", Menlo, Consolas, monospace;
-    font-size: 1.1rem;
-    color: #0f3460;
     padding: 0.5rem 0;
 }

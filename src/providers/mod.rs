@@ -61,6 +61,8 @@ pub struct HarnessConfig {
     pub scope: ScopeType,
 }
 
+const RESPONSE_FOLLOWS_TOKEN: &str = "<<RESPONSE FOLLOWS>>";
+
 pub async fn generate_conversation_title(
     db: &hiqlite::Client,
     config_root: &std::path::Path,
@@ -70,7 +72,7 @@ pub async fn generate_conversation_title(
 ) {
     let truncated: String = first_message.chars().take(500).collect();
     let title_prompt = format!(
-        "Generate a 1-3 word title summarizing this message. Output ONLY the title, nothing else: {truncated}"
+        "Generate a 1-3 word title summarizing this message. Output ONLY the title, nothing else. What follows is context for creating the title: {truncated} {RESPONSE_FOLLOWS_TOKEN}"
     );
 
     let binary_path = std::path::Path::new("omp");
@@ -86,8 +88,11 @@ pub async fn generate_conversation_title(
     let model = harness_config.model.as_deref().unwrap_or("default");
     match provider.one_shot_prompt(&title_prompt, model).await {
         Ok(response) => {
-            if let Some(title) = sanitize_title(&response) {
+            let split_resp = response.split(RESPONSE_FOLLOWS_TOKEN);
+            let resp_chunk = split_resp.last().unwrap_or("None");
+            if let Some(title) = sanitize_title(resp_chunk) {
                 tracing::info!("Generated conversation title: {title}");
+                tracing::info!("full response: {response}");
                 let _ = db
                     .execute(
                         "UPDATE conversations SET name = $1 WHERE id = $2",
@@ -115,8 +120,7 @@ pub fn sanitize_title(raw: &str) -> Option<String> {
     if stripped.len() < 2 {
         return None;
     }
-    let capped: String = stripped.chars().take(50).collect();
-    Some(capped.to_string())
+    Some(stripped.to_owned())
 }
 
 #[cfg(test)]
