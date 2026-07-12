@@ -16,7 +16,7 @@ pub fn Navbar(user_json: Option<String>) -> impl IntoView {
         <nav class="navbar is-fixed-top" role="navigation" aria-label="main navigation">
             <div class="navbar-brand">
                 <a class="navbar-item" href="/webapp">
-                    <img src="/webapp/assets/ofm-logo.svg" class="header-logo" />
+                    <img src="/webapp/assets/ofm-logo-white-no-bg.png" class="header-logo" />
                     <strong>" ofm"</strong>
                 </a>
             </div>
