@@ -287,7 +287,6 @@ fn spawn_reader(
             tracing::debug!("omp << {}", &line);
             if let Some(event) = parse_provider_event(&line) {
                 let is_done = matches!(&event, ProviderEvent::Done(_));
-                tracing::info!("omp parsed -> {:?}", std::mem::discriminant(&event));
                 if tx.blocking_send(event).is_err() {
                     let _ = killer.kill();
                     return;

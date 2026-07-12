@@ -17,7 +17,7 @@ pub fn Navbar(user_json: Option<String>) -> impl IntoView {
             <div class="navbar-brand">
                 <a class="navbar-item" href="/webapp">
                     <img src="/webapp/assets/ofm-logo-white-no-bg.png" class="header-logo" />
-                    <strong>" ofm"</strong>
+                    <strong style="color: var(--bulma-white);writing-mode: tb-rl; margin:none; padding:2px; border-right: solid 1px var(--bulma-white)">"ofm"</strong>
                 </a>
             </div>
             <div class="navbar-menu">
@@ -31,19 +31,21 @@ pub fn Navbar(user_json: Option<String>) -> impl IntoView {
                                 <span class="icon is-small"><i class="mdi mdi-account"></i></span>
                                 <span>{username}</span>
                             </span>
-                            <a class="navbar-item" href="/webapp/onboarding">
-                                <span class="icon is-small"><i class="mdi mdi-account-cog"></i></span>
-                                <span>"User Onboarding Config"</span>
-                            </a>
                             <div class="navbar-item">
-                                <a href="/webapp/settings" class="button is-info">
+                                <a href="/webapp/onboarding" class="button is-white">
+                                    <span class="icon is-small"><i class="mdi mdi-account-cog"></i></span>
+                                    <span>"User Config"</span>
+                                </a>
+                            </div>
+                            <div class="navbar-item">
+                                <a href="/webapp/settings" class="button is-white">
                                     <span class="icon is-small"><i class="mdi mdi-cog"></i></span>
                                     <span>"Settings"</span>
                                 </a>
                             </div>
                             <div class="navbar-item">
                                 <form action="/api/auth/logout" method="post" id="logout-form">
-                                    <button type="submit" class="button is-primary">
+                                    <button type="submit" class="button is-white">
                                         <span class="icon is-small"><i class="mdi mdi-logout"></i></span>
                                         <span>"Logout"</span>
                                     </button>
