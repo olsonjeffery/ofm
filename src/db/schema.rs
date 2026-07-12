@@ -394,9 +394,9 @@ impl From<&mut Row<'_>> for AgentHarnessConfig {
             harness: row.get("harness"),
             provider_config_ref: row.get("provider_config_ref"),
             scope_type,
-            user_id: row.get::<Option<String>>("user_id").map(|s| {
-                Uuid::parse_str(&s).expect("invalid UUID in database")
-            }),
+            user_id: row
+                .get::<Option<String>>("user_id")
+                .map(|s| Uuid::parse_str(&s).expect("invalid UUID in database")),
             project_id: row.get::<Option<i64>>("project_id"),
             model: row.get("model"),
             effort: row.get("effort"),
@@ -417,9 +417,9 @@ impl From<&mut Row<'_>> for TaskAgentRun {
             task_id: row.get::<i64>("task_id"),
             agent_type,
             status,
-            conversation_id: row.get::<Option<String>>("conversation_id").map(|s| {
-                Uuid::parse_str(&s).expect("invalid UUID in database")
-            }),
+            conversation_id: row
+                .get::<Option<String>>("conversation_id")
+                .map(|s| Uuid::parse_str(&s).expect("invalid UUID in database")),
             created_at: parse_naive_datetime(&row.get::<String>("created_at")),
             completed_at: row
                 .get::<Option<String>>("completed_at")

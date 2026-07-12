@@ -176,7 +176,9 @@ async fn post_create_agent_run(
                                 "",
                                 &agents::pull_request::PullRequestStatus::NoPr,
                             ),
-                            AgentType::Refinement => agents::refinement::build_refinement_prompt(""),
+                            AgentType::Refinement => {
+                                agents::refinement::build_refinement_prompt("")
+                            }
                             _ => String::new(),
                         };
                         if context_prompt.is_empty() {
@@ -245,45 +247,45 @@ async fn post_create_agent_run(
                                 let mut completed_normally = false;
                                 loop {
                                     tokio::select! {
-                                        event = rx.recv() => {
-                                            let event = match event {
-                                                Some(e) => e,
-                                                None => break,
-                                            };
+                                                        event = rx.recv() => {
+                                                            let event = match event {
+                                                                Some(e) => e,
+                                                                None => break,
+                                                            };
 
-                                            // Persist event
-                                            if let Err(e) = crate::services::transcript::persist_event(
-                                                &db, &event, &s_id, project_key
-                                            ).await {
-                                                tracing::warn!("Failed to persist event: {e}");
-                                            }
+                                                            // Persist event
+                                                            if let Err(e) = crate::services::transcript::persist_event(
+                                                                &db, &event, &s_id, project_key
+                                                            ).await {
+                                                                tracing::warn!("Failed to persist event: {e}");
+                                                            }
 
-                    let topic = WsTopic::task(t_id);
+                                    let topic = WsTopic::task(t_id);
 
-                                            let (event_type, payload) = event.to_ws_event();
-                                            if matches!(event, ProviderEvent::Done(_)) {
-                                                completed_normally = true;
-                                            }
+                                                            let (event_type, payload) = event.to_ws_event();
+                                                            if matches!(event, ProviderEvent::Done(_)) {
+                                                                completed_normally = true;
+                                                            }
 
-                                            let msg = ServerMessage::Event {
-                                                topic: topic.clone(),
-                                                event_type,
-                                                timestamp: chrono::Utc::now(),
-                                                payload,
-                                            };
+                                                            let msg = ServerMessage::Event {
+                                                                topic: topic.clone(),
+                                                                event_type,
+                                                                timestamp: chrono::Utc::now(),
+                                                                payload,
+                                                            };
 
-                                            ws_bus.broadcast(&topic, msg).await;
+                                                            ws_bus.broadcast(&topic, msg).await;
 
-                                            if matches!(event, ProviderEvent::Done(_)) {
-                                                if let Err(e) = crate::orchestration::completion_handler(
-                                                    &db, conversation_id, &active_sessions
-                                                ).await {
-                                                    tracing::warn!("Error in completion handler: {e:?}");
-                                                }
-                                                break;
-                                            }
-                                        }
-                                    }
+                                                            if matches!(event, ProviderEvent::Done(_)) {
+                                                                if let Err(e) = crate::orchestration::completion_handler(
+                                                                    &db, conversation_id, &active_sessions
+                                                                ).await {
+                                                                    tracing::warn!("Error in completion handler: {e:?}");
+                                                                }
+                                                                break;
+                                                            }
+                                                        }
+                                                    }
                                 }
                                 if !completed_normally {
                                     // Mark run as failed and notify UI
