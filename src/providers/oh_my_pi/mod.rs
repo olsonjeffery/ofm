@@ -50,19 +50,74 @@ pub fn spawn_oh_my_pi(
     })
 }
 
+/// Maximum size of a prompt chunk sent in a single `prompt` message to omp.
+/// Prompts larger than this are split into multiple steering messages.
+const PROMPT_CHUNK_SIZE: usize = 800;
+
 impl OhMyPiSession {
     pub fn start_turn(
         &mut self,
         input: &TurnInput,
         tx: mpsc::Sender<ProviderEvent>,
     ) -> Result<(), BoxError> {
-        let cmd = serde_json::json!({
-            "id": "req_1",
-            "type": "prompt",
-            "message": input.prompt,
-            "images": [],
-        });
-        self.send_raw(&serde_json::to_string(&cmd)?, tx)
+        let prompt = &input.prompt;
+
+        if prompt.len() <= PROMPT_CHUNK_SIZE {
+            let cmd = serde_json::json!({
+                "id": "req_1",
+                "type": "prompt",
+                "message": prompt,
+                "images": [],
+            });
+            return self.send_raw(&serde_json::to_string(&cmd)?, tx);
+        }
+
+        // Large prompt: split into chunks, send sequentially, spawn one reader.
+        if self.writer.is_none() {
+            self.writer = Some(self.pair.master.take_writer()?);
+        }
+        let writer = self.writer.as_mut().unwrap();
+
+        let total = prompt.len();
+        let mut offset = 0;
+        let mut chunk_idx = 0;
+
+        while offset < total {
+            let end = (offset + PROMPT_CHUNK_SIZE).min(total);
+            let chunk = &prompt[offset..end];
+            let is_first = chunk_idx == 0;
+
+            let mut cmd = serde_json::json!({
+                "id": if is_first { "req_1".to_string() } else { format!("req_chunk_{}", chunk_idx + 1) },
+                "type": "prompt",
+                "message": chunk,
+                "images": [],
+            });
+            if !is_first {
+                cmd["streamingBehavior"] = serde_json::json!("steer");
+            }
+            let json = serde_json::to_string(&cmd)?;
+            tracing::info!(
+                "omp >> chunk={}/{} offset={} size={} total={}",
+                chunk_idx + 1,
+                (total + PROMPT_CHUNK_SIZE - 1) / PROMPT_CHUNK_SIZE,
+                offset,
+                end - offset,
+                total,
+            );
+            tracing::info!("omp >> {}", json);
+            writeln!(writer, "{json}")?;
+            writer.flush()?;
+
+            offset = end;
+            chunk_idx += 1;
+        }
+
+        // Spawn reader once after all chunks are written.
+        let reader = self.pair.master.try_clone_reader()?;
+        let killer = self.child.clone_killer();
+        spawn_reader(reader, killer, tx);
+        Ok(())
     }
 
     pub fn resume_turn(
