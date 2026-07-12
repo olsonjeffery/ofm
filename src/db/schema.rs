@@ -288,6 +288,12 @@ pub struct UserModelConfig {
 
 // hiqlite Row conversions
 
+fn uuid_from_row(row: &mut Row<'_>, col: &str) -> Uuid {
+    row.get::<String>(col)
+        .parse()
+        .expect("invalid UUID in database")
+}
+
 fn parse_naive_datetime(s: &str) -> NaiveDateTime {
     NaiveDateTime::parse_from_str(s, "%Y-%m-%d %H:%M:%S").unwrap_or_default()
 }
@@ -296,10 +302,7 @@ impl From<&mut Row<'_>> for Project {
     fn from(row: &mut Row<'_>) -> Self {
         Self {
             id: row.get::<i64>("id"),
-            user_id: row
-                .get::<String>("user_id")
-                .parse()
-                .expect("invalid UUID in database"),
+            user_id: uuid_from_row(row, "user_id"),
             name: row.get("name"),
             repo_folder_path: row.get("repo_folder_path"),
             subproject_path: row.get("subproject_path"),
@@ -313,10 +316,7 @@ impl From<&mut Row<'_>> for Task {
         Self {
             id: row.get::<i64>("id"),
             project_id: row.get::<i64>("project_id"),
-            user_id: row
-                .get::<String>("user_id")
-                .parse()
-                .expect("invalid UUID in database"),
+            user_id: uuid_from_row(row, "user_id"),
             title: row.get("title"),
             status: row.get("status"),
             workflow_complete: row.get::<i64>("workflow_complete") != 0,
@@ -334,10 +334,7 @@ impl From<&mut Row<'_>> for Task {
 impl From<&mut Row<'_>> for Worktree {
     fn from(row: &mut Row<'_>) -> Self {
         Self {
-            id: row
-                .get::<String>("id")
-                .parse()
-                .expect("invalid UUID in database"),
+            id: uuid_from_row(row, "id"),
             project_id: row.get::<i64>("project_id"),
             task_id: row.get::<i64>("task_id"),
             worktree_path: row.get("worktree_path"),
@@ -374,10 +371,7 @@ impl From<&mut Row<'_>> for SessionSummary {
 impl From<&mut Row<'_>> for Conversation {
     fn from(row: &mut Row<'_>) -> Self {
         Self {
-            id: row
-                .get::<String>("id")
-                .parse()
-                .expect("invalid UUID in database"),
+            id: uuid_from_row(row, "id"),
             task_id: row.get::<i64>("task_id"),
             omp_session_id: row.get("omp_session_id"),
             model: row.get("model"),
@@ -395,17 +389,14 @@ impl From<&mut Row<'_>> for AgentHarnessConfig {
         let agent_type_str: String = row.get("agent_type");
         let agent_type = agent_type_str.parse().unwrap_or(AgentType::Implementation);
         Self {
-            id: row
-                .get::<String>("id")
-                .parse()
-                .expect("invalid UUID in database"),
+            id: uuid_from_row(row, "id"),
             agent_type,
             harness: row.get("harness"),
             provider_config_ref: row.get("provider_config_ref"),
             scope_type,
-            user_id: row
-                .get::<Option<String>>("user_id")
-                .map(|s| Uuid::parse_str(&s).expect("invalid UUID in database")),
+            user_id: row.get::<Option<String>>("user_id").map(|s| {
+                Uuid::parse_str(&s).expect("invalid UUID in database")
+            }),
             project_id: row.get::<Option<i64>>("project_id"),
             model: row.get("model"),
             effort: row.get("effort"),
@@ -422,16 +413,13 @@ impl From<&mut Row<'_>> for TaskAgentRun {
         let status_str: String = row.get("status");
         let status = status_str.parse().unwrap_or(RunStatus::Pending);
         Self {
-            id: row
-                .get::<String>("id")
-                .parse()
-                .expect("invalid UUID in database"),
+            id: uuid_from_row(row, "id"),
             task_id: row.get::<i64>("task_id"),
             agent_type,
             status,
-            conversation_id: row
-                .get::<Option<String>>("conversation_id")
-                .map(|s| Uuid::parse_str(&s).expect("invalid UUID in database")),
+            conversation_id: row.get::<Option<String>>("conversation_id").map(|s| {
+                Uuid::parse_str(&s).expect("invalid UUID in database")
+            }),
             created_at: parse_naive_datetime(&row.get::<String>("created_at")),
             completed_at: row
                 .get::<Option<String>>("completed_at")
@@ -443,14 +431,8 @@ impl From<&mut Row<'_>> for TaskAgentRun {
 impl From<&mut Row<'_>> for UserModelConfig {
     fn from(row: &mut Row<'_>) -> Self {
         Self {
-            id: row
-                .get::<String>("id")
-                .parse()
-                .expect("invalid UUID in database"),
-            user_id: row
-                .get::<String>("user_id")
-                .parse()
-                .expect("invalid UUID in database"),
+            id: uuid_from_row(row, "id"),
+            user_id: uuid_from_row(row, "user_id"),
             name: row.get("name"),
             config_body: row.get("config_body"),
             harness: row.get("harness"),
@@ -463,10 +445,7 @@ impl From<&mut Row<'_>> for UserModelConfig {
 impl From<&mut Row<'_>> for User {
     fn from(row: &mut Row<'_>) -> Self {
         Self {
-            id: row
-                .get::<String>("id")
-                .parse()
-                .expect("invalid UUID in database"),
+            id: uuid_from_row(row, "id"),
             username: row.get("username"),
             oidc_subject: row.get("oidc_subject"),
             is_admin: row.get::<i64>("is_admin") != 0,
@@ -487,14 +466,8 @@ impl From<&mut Row<'_>> for User {
 impl From<&mut Row<'_>> for SessionDb {
     fn from(row: &mut Row<'_>) -> Self {
         Self {
-            id: row
-                .get::<String>("id")
-                .parse()
-                .expect("invalid UUID in database"),
-            user_id: row
-                .get::<String>("user_id")
-                .parse()
-                .expect("invalid UUID in database"),
+            id: uuid_from_row(row, "id"),
+            user_id: uuid_from_row(row, "user_id"),
             token_version: row.get::<i64>("token_version") as i32,
             refresh_token: row.get("refresh_token"),
             id_token: row.get("id_token"),

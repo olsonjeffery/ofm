@@ -57,6 +57,15 @@ pub enum ServerMessage {
     },
 }
 
+impl WsTopic {
+    pub fn task(id: i64) -> Self {
+        Self {
+            kind: WsTopicKind::Task,
+            id: TopicId(id),
+        }
+    }
+}
+
 impl ServerMessage {
     pub fn timestamp(&self) -> Option<DateTime<Utc>> {
         match self {

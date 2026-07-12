@@ -2,13 +2,7 @@ use std::path::PathBuf;
 use tracing_subscriber::{fmt, EnvFilter};
 
 pub fn init() {
-    let filter = EnvFilter::try_from_default_env().unwrap_or_else(|_| EnvFilter::new("info"));
-
-    fmt()
-        .with_env_filter(filter)
-        .with_target(false)
-        .compact()
-        .init();
+    init_with_config(None);
 }
 
 /// Initialize logging with optional config file for STDOUT logging of chat activity.
@@ -90,12 +84,9 @@ fn default_level() -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use tempfile::TempDir;
 
     #[test]
-    fn test_default_init() {
-        // Just verify it doesn't panic
-        // Note: Can't call init() twice in tests, so we just test the config parsing
+    fn test_logging_config_serde() {
         let config = LoggingConfig {
             stdout_logging: StdoutLoggingConfig {
                 enabled: true,

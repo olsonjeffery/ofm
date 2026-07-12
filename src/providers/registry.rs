@@ -89,22 +89,21 @@ pub async fn resolve_agent_config_statuses(
             Ok(t) => t,
             Err(_) => continue,
         };
-        let result =
-            resolve_harness_config(db, &agent_type, Some(&user_id), Some(project_id)).await;
-        match result {
-            Ok(cfg) => results.push(AgentConfigStatus {
+        let status = match resolve_harness_config(db, &agent_type, Some(&user_id), Some(project_id)).await {
+            Ok(cfg) => AgentConfigStatus {
                 agent_type: at_str.to_string(),
                 configured: true,
                 scope: Some(cfg.scope.to_string()),
                 label: cfg.model,
-            }),
-            Err(_) => results.push(AgentConfigStatus {
+            },
+            Err(_) => AgentConfigStatus {
                 agent_type: at_str.to_string(),
                 configured: false,
                 scope: None,
                 label: None,
-            }),
-        }
+            },
+        };
+        results.push(status);
     }
     results
 }

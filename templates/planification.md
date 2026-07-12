@@ -3,7 +3,7 @@
 ## Primary Goal
 Your job is to produce a **planning document** (markdown only — no code, no config, no other files) and write it to: `{{taskDocPath}}`. The document must follow the template structure exactly.
 
-**Template (read this first):** @{{planTemplatePath}}
+**Template (read this first):** `{{planTemplatePath}}`
 
 Read this file in full before doing anything else. Your output written to `{{taskDocPath}}` must follow the template's structure section-for-section, in the same order, with no sections removed.
 
@@ -50,7 +50,7 @@ Write the plan YOURSELF using the Write tool to: `{{taskDocPath}}`
 
 Do NOT delegate file writing to a sub-agent.
 
-The plan must follow every section in the template at @{{planTemplatePath}}, in the same order, with no sections removed. Add new sections only if the work genuinely requires them. In particular:
+The plan must follow every section in the template at `{{planTemplatePath}}`, in the same order, with no sections removed. Add new sections only if the work genuinely requires them. In particular:
 - The `## Original Request` section must quote, verbatim, the pre-existing content of `{{taskDocPath}}` as you read it before this step (plus the task title if the doc was empty). Read the file BEFORE writing — once you Write, the original content is gone.
 - The Testing Strategy must reflect what was confirmed with the user in Step 2.
 - The Project Docs Update section may say "Not needed for this change." for minor features, but the section must still be present.

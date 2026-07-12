@@ -167,6 +167,81 @@ async fn test_create_agent_run_201() {
 }
 
 #[tokio::test]
+async fn test_create_agent_run_planification_201() {
+    let app = setup_app().await;
+    let task_id = create_task_seed(&app.db, app.project_id).await;
+
+    let resp = client()
+        .post(format!("{}/api/tasks/{}/agent-runs", app.addr, task_id))
+        .json(&serde_json::json!({ "agent_type": "planification" }))
+        .send()
+        .await
+        .unwrap();
+
+    assert_eq!(resp.status(), 201);
+}
+
+#[tokio::test]
+async fn test_create_agent_run_review_201() {
+    let app = setup_app().await;
+    let task_id = create_task_seed(&app.db, app.project_id).await;
+
+    let resp = client()
+        .post(format!("{}/api/tasks/{}/agent-runs", app.addr, task_id))
+        .json(&serde_json::json!({ "agent_type": "review" }))
+        .send()
+        .await
+        .unwrap();
+
+    assert_eq!(resp.status(), 201);
+}
+
+#[tokio::test]
+async fn test_create_agent_run_pr_201() {
+    let app = setup_app().await;
+    let task_id = create_task_seed(&app.db, app.project_id).await;
+
+    let resp = client()
+        .post(format!("{}/api/tasks/{}/agent-runs", app.addr, task_id))
+        .json(&serde_json::json!({ "agent_type": "pr" }))
+        .send()
+        .await
+        .unwrap();
+
+    assert_eq!(resp.status(), 201);
+}
+
+#[tokio::test]
+async fn test_create_agent_run_refinement_201() {
+    let app = setup_app().await;
+    let task_id = create_task_seed(&app.db, app.project_id).await;
+
+    let resp = client()
+        .post(format!("{}/api/tasks/{}/agent-runs", app.addr, task_id))
+        .json(&serde_json::json!({ "agent_type": "refinement" }))
+        .send()
+        .await
+        .unwrap();
+
+    assert_eq!(resp.status(), 201);
+}
+
+#[tokio::test]
+async fn test_create_agent_run_yolo_201() {
+    let app = setup_app().await;
+    let task_id = create_task_seed(&app.db, app.project_id).await;
+
+    let resp = client()
+        .post(format!("{}/api/tasks/{}/agent-runs", app.addr, task_id))
+        .json(&serde_json::json!({ "agent_type": "yolo" }))
+        .send()
+        .await
+        .unwrap();
+
+    assert_eq!(resp.status(), 201);
+}
+
+#[tokio::test]
 async fn test_create_agent_run_409_concurrent() {
     let app = setup_app().await;
     let task_id = create_task_seed(&app.db, app.project_id).await;

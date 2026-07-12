@@ -10,7 +10,7 @@ use uuid::Uuid;
 use crate::auth::AuthUser;
 use crate::db::schema::{Conversation, ConversationWithRun, TaskAgentRun};
 use crate::providers::types::{ProviderEvent, ResumeInput};
-use crate::server::ws::message::{ServerMessage, TopicId, WsTopic, WsTopicKind};
+use crate::server::ws::message::{ServerMessage, WsTopic};
 use crate::server::{error::ServerError, state::AppState};
 use crate::services::{session, tasks, transcript};
 
@@ -126,10 +126,7 @@ async fn send_message(
         .map_err(|e| ServerError::Internal(e.to_string()))?;
 
     // Broadcast user message via WS
-    let topic = WsTopic {
-        kind: WsTopicKind::Task,
-        id: TopicId(task_id),
-    };
+    let topic = WsTopic::task(task_id);
     let msg = ServerMessage::Event {
         topic: topic.clone(),
         event_type: "user_text".to_string(),
@@ -199,10 +196,7 @@ async fn send_message(
                                         tracing::warn!("Failed to persist event: {e}");
                                     }
 
-                                    let topic = WsTopic {
-                                        kind: WsTopicKind::Task,
-                                        id: TopicId(t_id),
-                                    };
+                                    let topic = WsTopic::task(t_id);
 
                                     let (event_type, payload) = event.to_ws_event();
                                     if matches!(event, ProviderEvent::Done(_)) {
@@ -230,10 +224,7 @@ async fn send_message(
                             }
                         }
                         if !completed_normally {
-                            let topic = WsTopic {
-                                kind: WsTopicKind::Task,
-                                id: TopicId(t_id),
-                            };
+                            let topic = WsTopic::task(t_id);
                             let msg = ServerMessage::Event {
                                 topic: topic.clone(),
                                 event_type: "error".to_string(),

@@ -17,10 +17,17 @@ use crate::orchestration::guards;
 use crate::providers;
 use crate::providers::registry;
 use crate::providers::types::{ProviderEvent, TurnInput};
-use crate::server::ws::message::{ServerMessage, TopicId, WsTopic, WsTopicKind};
+use crate::server::ws::message::{ServerMessage, WsTopic};
 use crate::server::{error::ServerError, state::AppState};
 use crate::services::session;
 use crate::services::tasks;
+
+fn strip_agent_directive(s: &str) -> String {
+    s.lines()
+        .skip_while(|line| line.starts_with("@agent-"))
+        .collect::<Vec<_>>()
+        .join("\n")
+}
 
 #[derive(Debug, Deserialize)]
 struct StartAgentRunRequest {
@@ -165,6 +172,11 @@ async fn post_create_agent_run(
                                 agents::implementation::build_implementation_prompt("")
                             }
                             AgentType::Review => agents::review::build_review_prompt(""),
+                            AgentType::Pr => agents::pull_request::build_pull_request_prompt(
+                                "",
+                                &agents::pull_request::PullRequestStatus::NoPr,
+                            ),
+                            AgentType::Refinement => agents::refinement::build_refinement_prompt(""),
                             _ => String::new(),
                         };
                         if context_prompt.is_empty() {
@@ -175,6 +187,7 @@ async fn post_create_agent_run(
                             format!("{}\n\n{}", phase_prompt, context_prompt)
                         }
                     };
+                    let prompt_text = strip_agent_directive(&prompt_text);
 
                     let turn_input = TurnInput::new(
                         prompt_text.clone(),
@@ -201,10 +214,7 @@ async fn post_create_agent_run(
                     {
                         tracing::warn!("Failed to persist prompt event: {e}");
                     }
-                    let topic = WsTopic {
-                        kind: WsTopicKind::Task,
-                        id: TopicId(task_id),
-                    };
+                    let topic = WsTopic::task(task_id);
                     let msg = ServerMessage::Event {
                         topic: topic.clone(),
                         event_type: "user_text".to_string(),
@@ -248,10 +258,7 @@ async fn post_create_agent_run(
                                                 tracing::warn!("Failed to persist event: {e}");
                                             }
 
-                                            let topic = WsTopic {
-                                                kind: WsTopicKind::Task,
-                                                id: TopicId(t_id),
-                                            };
+                    let topic = WsTopic::task(t_id);
 
                                             let (event_type, payload) = event.to_ws_event();
                                             if matches!(event, ProviderEvent::Done(_)) {
@@ -284,10 +291,7 @@ async fn post_create_agent_run(
                                         "UPDATE task_agent_runs SET status = 'failed' WHERE conversation_id = $1",
                                         hiqlite::params!(conversation_id.to_string()),
                                     ).await;
-                                    let topic = WsTopic {
-                                        kind: WsTopicKind::Task,
-                                        id: TopicId(t_id),
-                                    };
+                                    let topic = WsTopic::task(t_id);
                                     let msg = ServerMessage::Event {
                                         topic: topic.clone(),
                                         event_type: "error".to_string(),
@@ -404,11 +408,8 @@ async fn reset_agent_runs(
     tracing::info!(task_id = %task_id, affected_runs = affected, "Marked running runs as failed");
 
     // Broadcast reset notification
-    let topic = crate::server::ws::message::WsTopic {
-        kind: crate::server::ws::message::WsTopicKind::Task,
-        id: crate::server::ws::message::TopicId(task_id),
-    };
-    let msg = crate::server::ws::message::ServerMessage::Event {
+    let topic = WsTopic::task(task_id);
+    let msg = ServerMessage::Event {
         topic: topic.clone(),
         event_type: "error".to_string(),
         timestamp: chrono::Utc::now(),
@@ -436,4 +437,41 @@ async fn list_agent_runs(
         .map_err(orchestration::internal_err)?;
 
     Ok(Json(runs))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_strip_agent_directive_none() {
+        let input = "Hello world\nThis is a test";
+        assert_eq!(strip_agent_directive(input), input);
+    }
+
+    #[test]
+    fn test_strip_agent_directive_first_line() {
+        let input = "@agent-Plan Do planning stuff\n## Primary Goal\nDo the thing";
+        let expected = "## Primary Goal\nDo the thing";
+        assert_eq!(strip_agent_directive(input), expected);
+    }
+
+    #[test]
+    fn test_strip_agent_directive_only_directive() {
+        let input = "@agent-Implement";
+        assert_eq!(strip_agent_directive(input), "");
+    }
+
+    #[test]
+    fn test_strip_agent_directive_multiple_lines() {
+        let input = "@agent-Review\n\n## Section 1\ncontent\n## Section 2\nmore content";
+        let expected = "\n## Section 1\ncontent\n## Section 2\nmore content";
+        assert_eq!(strip_agent_directive(input), expected);
+    }
+
+    #[test]
+    fn test_strip_agent_directive_no_trailing_newline() {
+        let input = "@agent-PR\ncontent";
+        assert_eq!(strip_agent_directive(input), "content");
+    }
 }
