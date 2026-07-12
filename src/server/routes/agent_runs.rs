@@ -10,6 +10,7 @@ use axum::{
 use serde::Deserialize;
 
 use crate::agents;
+use crate::auth::AuthUser;
 use crate::db::schema::{AgentType, TaskAgentRun};
 use crate::orchestration;
 use crate::orchestration::guards;
@@ -17,7 +18,6 @@ use crate::providers;
 use crate::providers::registry;
 use crate::providers::types::{ProviderEvent, TurnInput};
 use crate::server::ws::message::{ServerMessage, TopicId, WsTopic, WsTopicKind};
-use crate::auth::AuthUser;
 use crate::server::{error::ServerError, state::AppState};
 use crate::services::session;
 use crate::services::tasks;

@@ -17,7 +17,11 @@ pub fn agent_flags_router() -> Router<AppState> {
         .route("/complete-pr", post(complete_pr))
 }
 
-async fn require_task_ownership(state: &AppState, auth: &AuthUser, task_id: i64) -> Result<(), ServerError> {
+async fn require_task_ownership(
+    state: &AppState,
+    auth: &AuthUser,
+    task_id: i64,
+) -> Result<(), ServerError> {
     let task = tasks::get_task(&state.db, task_id)
         .await
         .map_err(|_| ServerError::NotFound("Task not found".into()))?;
