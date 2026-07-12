@@ -101,7 +101,6 @@ pub fn ConversationList(
                                         {if !date_str.is_empty() {
                                             view! { <span>{format!(" \u{00B7} {}", date_str)}</span> }.into_any()
                                         } else {
-                                            let _: () = view! {};
                                             ().into_any()
                                         }}
                                     </small>
