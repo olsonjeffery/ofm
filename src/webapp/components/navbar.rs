@@ -45,7 +45,7 @@ pub fn Navbar(user_json: Option<String>) -> impl IntoView {
                             </div>
                             <div class="navbar-item">
                                 <form action="/api/auth/logout" method="post" id="logout-form">
-                                    <button type="submit" class="button is-white">
+                                    <button type="submit" class="button is-primary is-light">
                                         <span class="icon is-small"><i class="mdi mdi-logout"></i></span>
                                         <span>"Logout"</span>
                                     </button>

@@ -22,13 +22,6 @@ use crate::server::{error::ServerError, state::AppState};
 use crate::services::session;
 use crate::services::tasks;
 
-fn strip_agent_directive(s: &str) -> String {
-    s.lines()
-        .skip_while(|line| line.starts_with("@agent-"))
-        .collect::<Vec<_>>()
-        .join("\n")
-}
-
 #[derive(Debug, Deserialize)]
 struct StartAgentRunRequest {
     agent_type: String,
@@ -162,12 +155,16 @@ async fn post_create_agent_run(
 
                     let prompt_text = {
                         let phase_prompt = match agent_type {
-                            AgentType::Planification => agents::planning::build_planning_prompt(
-                                "",
-                                &doc_path.to_string_lossy(),
-                                &task_str,
-                                "",
-                            ),
+                            AgentType::Planification => {
+                                let prompt = agents::planning::build_planning_prompt(
+                                    "",
+                                    &doc_path.to_string_lossy(),
+                                    &task_str,
+                                    "",
+                                );
+                                let template = agents::planning::get_plan_template();
+                                format!("{}\n\n-------\n\n{}", prompt, template)
+                            }
                             AgentType::Implementation => {
                                 agents::implementation::build_implementation_prompt("")
                             }
@@ -189,7 +186,6 @@ async fn post_create_agent_run(
                             format!("{}\n\n{}", phase_prompt, context_prompt)
                         }
                     };
-                    let prompt_text = strip_agent_directive(&prompt_text);
 
                     let turn_input = TurnInput::new(
                         prompt_text.clone(),
@@ -446,41 +442,4 @@ async fn list_agent_runs(
         .map_err(orchestration::internal_err)?;
 
     Ok(Json(runs))
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn test_strip_agent_directive_none() {
-        let input = "Hello world\nThis is a test";
-        assert_eq!(strip_agent_directive(input), input);
-    }
-
-    #[test]
-    fn test_strip_agent_directive_first_line() {
-        let input = "@agent-Plan Do planning stuff\n## Primary Goal\nDo the thing";
-        let expected = "## Primary Goal\nDo the thing";
-        assert_eq!(strip_agent_directive(input), expected);
-    }
-
-    #[test]
-    fn test_strip_agent_directive_only_directive() {
-        let input = "@agent-Implement";
-        assert_eq!(strip_agent_directive(input), "");
-    }
-
-    #[test]
-    fn test_strip_agent_directive_multiple_lines() {
-        let input = "@agent-Review\n\n## Section 1\ncontent\n## Section 2\nmore content";
-        let expected = "\n## Section 1\ncontent\n## Section 2\nmore content";
-        assert_eq!(strip_agent_directive(input), expected);
-    }
-
-    #[test]
-    fn test_strip_agent_directive_no_trailing_newline() {
-        let input = "@agent-PR\ncontent";
-        assert_eq!(strip_agent_directive(input), "content");
-    }
 }

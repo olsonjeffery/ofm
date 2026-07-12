@@ -14,7 +14,6 @@ body {
 
 /* Main content area accounts for fixed-top navbar */
 main {
-    width: 95%;
     margin: 0 auto;
     min-height: 100vh;
     padding-top: calc(3.25rem + 0.5rem);

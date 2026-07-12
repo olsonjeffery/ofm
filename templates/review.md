@@ -42,16 +42,16 @@ For EVERY checked item (`[x]`) in the To-Do List:
 
 1. **Read the plan description** — what specific artifact or change was supposed to be produced?
 2. **Verify the artifact exists and matches the plan:**
-   - If the plan says "Create `path/to/file`" → confirm the file exists and contains what was described
-   - If the plan says "Move X to Y" → confirm X is in Y (and removed from the original location if applicable)
-   - If the plan says "Add method Z" → confirm the method exists with the expected signature
+   - If the plan says "Create `path/to/file`" -> confirm the file exists and contains what was described
+   - If the plan says "Move X to Y" -> confirm X is in Y (and removed from the original location if applicable)
+   - If the plan says "Add method Z" -> confirm the method exists with the expected signature
 3. **Apply strict matching, not spirit matching:**
-   - Plan says "Create file X" but file doesn't exist → FAILED, even if equivalent functionality exists elsewhere
-   - Plan says "Move A to B" but A is still in the original location → FAILED, even if B also has a copy
+   - Plan says "Create file X" but file doesn't exist -> FAILED, even if equivalent functionality exists elsewhere
+   - Plan says "Move A to B" but A is still in the original location -> FAILED, even if B also has a copy
    - Do NOT rationalize deviations. Document them as findings.
 4. **Record your verdict** for each item: VERIFIED or FAILED (with reason)
 
-If ANY checked item fails verification → the final status is NEEDS_WORK, regardless of test results.
+If ANY checked item fails verification -> the final status is NEEDS_WORK, regardless of test results.
 
 **Include in Review Findings:**
 ```
@@ -133,7 +133,7 @@ Based on your findings from steps 2-4, determine if the feature is **READY**, **
   - Explicitly approve skipping those items
 
 **Key question:** "Are there uncompleted checklist items that I physically cannot complete?"
-If YES → BLOCKED (even if the code works perfectly)
+If YES -> BLOCKED (even if the code works perfectly)
 
 ### 6. Update Task Documentation
 Update the task documentation file at `{{taskDocPath}}`:

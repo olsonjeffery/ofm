@@ -28,8 +28,8 @@ summarize, or omit any part of it. This section is mandatory.
 
 ### Phase 2: {{ phase title }}
 
-{{ … repeat as needed. Order phases logically: infrastructure → models → controllers →
-   views → helpers/utilities. Each phase should be a logical chunk a reviewer can verify
+{{ … repeat as needed. Order phases logically: infrastructure -> models -> controllers ->
+   views -> helpers/utilities. Each phase should be a logical chunk a reviewer can verify
    in isolation. }}
 
 ## Testing Strategy
@@ -52,5 +52,5 @@ summarize, or omit any part of it. This section is mandatory.
 
 ## Project Docs Update
 
-{{ Note any updates required to .bottega/project.md (architecture, new patterns, new
+{{ Note any updates required to project documentation artifacts (architecture, new patterns, new
    files), or write "Not needed for this change." }}

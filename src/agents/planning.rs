@@ -1,15 +1,19 @@
 const PLANIFICATION_TEMPLATE: &str = include_str!("../../templates/planification.md");
+const PLAN_TEMPLATE: &str = include_str!("../../templates/plan-template.md");
 
 pub fn build_planning_prompt(
     _task_doc_content: &str,
     task_doc_path: &str,
     task_id: &str,
-    plan_template_path: &str,
+    _plan_template_path: &str,
 ) -> String {
     PLANIFICATION_TEMPLATE
         .replace("{{taskDocPath}}", task_doc_path)
         .replace("{{taskId}}", task_id)
-        .replace("{{planTemplatePath}}", plan_template_path)
+}
+
+pub fn get_plan_template<'a>() -> &'a str {
+    PLAN_TEMPLATE
 }
 
 #[cfg(test)]
@@ -62,9 +66,7 @@ mod tests {
             "/home/user/plan-template.md",
         );
         assert!(prompt.contains("/home/user/task-42.md"));
-        assert!(prompt.contains("/home/user/plan-template.md"));
         assert!(!prompt.contains("{{taskDocPath}}"));
-        assert!(!prompt.contains("{{planTemplatePath}}"));
         assert!(!prompt.contains("{{taskId}}"));
     }
 }
