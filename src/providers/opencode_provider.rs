@@ -107,7 +107,7 @@ async fn spawn_opencode_server(
     config_ref: &str,
     snippet: &str,
 ) -> Result<OpenCodeServer, ProviderError> {
-    let base_config = r#"{"providers":{},"telemetry":{"enabled":false}}"#;
+    let base_config = r#"{"provider":{},"telemetry":{"enabled":false}}"#;
     let provider_cfg = PConfig {
         harness: "opencode".to_string(),
         config_ref: config_ref.to_string(),
