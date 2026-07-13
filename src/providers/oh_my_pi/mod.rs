@@ -52,7 +52,7 @@ pub fn spawn_oh_my_pi(
 
 /// Maximum size of a prompt chunk sent in a single `prompt` message to omp.
 /// Prompts larger than this are split into multiple steering messages.
-const PROMPT_CHUNK_SIZE: usize = 800;
+const PROMPT_CHUNK_SIZE: usize = 1500;
 
 impl OhMyPiSession {
     pub fn start_turn(
@@ -310,14 +310,14 @@ fn spawn_reader(
     tx: mpsc::Sender<ProviderEvent>,
 ) {
     const MAX_LINE_LEN: usize = 10 * 1024 * 1024;
-    const READ_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(300);
+    const READ_IDLE_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(1800);
 
     tokio::task::spawn_blocking(move || {
-        let start = std::time::Instant::now();
+        let mut last_read = std::time::Instant::now();
         let reader = BufReader::new(reader);
         for line in reader.lines() {
-            if start.elapsed() > READ_TIMEOUT {
-                tracing::warn!("oh-my-pi: read timeout exceeded, killing subprocess");
+            if last_read.elapsed() > READ_IDLE_TIMEOUT {
+                tracing::warn!("oh-my-pi: read idle timeout exceeded (30min), killing subprocess");
                 let _ = killer.kill();
                 return;
             }
@@ -329,6 +329,7 @@ fn spawn_reader(
                     return;
                 }
             };
+            last_read = std::time::Instant::now();
 
             if line.trim().is_empty() {
                 continue;
