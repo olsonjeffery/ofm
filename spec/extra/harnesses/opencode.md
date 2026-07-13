@@ -69,13 +69,14 @@ user-provided provider configuration is merged on top via `merge_configs` in
 `src/providers/config.rs`:
 
 ```rust
+let config_path = temp_dir.path().join("opencode.json");
 let base_config = r#"{"provider":{},"telemetry":{"enabled":false}}"#;
 let merged = merge_configs(base_config, &provider_cfg)?;
-std::fs::write(temp_dir.path().join("opencode.json"), &merged)?;
+std::fs::write(&config_path, &merged)?;
 ```
 
-The `OPENCODE_CONFIG` environment variable points the OpenCode binary at this
-temporary directory. The `OPENCODE_SERVER_PASSWORD` env var secures the HTTP API.
+The `OPENCODE_CONFIG` environment variable points the OpenCode binary at the
+config file. The `OPENCODE_SERVER_PASSWORD` env var secures the HTTP API.
 
 ## SSE streaming protocol
 

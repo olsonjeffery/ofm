@@ -138,7 +138,8 @@ async fn spawn_opencode_server(
         "Merged opencode provider configuration"
     );
     let temp_dir = TempDir::new().map_err(ProviderError::Io)?;
-    std::fs::write(temp_dir.path().join("opencode.json"), &merged).map_err(ProviderError::Io)?;
+    let config_path = temp_dir.path().join("opencode.json");
+    std::fs::write(&config_path, &merged).map_err(ProviderError::Io)?;
 
     let port = pick_free_port()?;
     let hostname = "127.0.0.1".to_string();
@@ -150,7 +151,7 @@ async fn spawn_opencode_server(
         .arg(port.to_string())
         .arg("--hostname")
         .arg(&hostname)
-        .env("OPENCODE_CONFIG", temp_dir.path())
+        .env("OPENCODE_CONFIG", &config_path)
         .env("OPENCODE_SERVER_PASSWORD", &password)
         .stdout(std::process::Stdio::null())
         .stderr(std::process::Stdio::inherit());
