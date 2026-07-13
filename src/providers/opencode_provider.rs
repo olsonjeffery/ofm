@@ -145,7 +145,7 @@ async fn spawn_opencode_server(
         .env("OPENCODE_CONFIG", temp_dir.path())
         .env("OPENCODE_SERVER_PASSWORD", &password)
         .stdout(std::process::Stdio::null())
-        .stderr(std::process::Stdio::piped())
+        .stderr(std::process::Stdio::inherit())
         .spawn()
         .map_err(|e| {
             if e.kind() == std::io::ErrorKind::NotFound {
