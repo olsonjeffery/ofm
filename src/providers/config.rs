@@ -109,13 +109,10 @@ fn merge_json_configs(base: &str, overlay: &str) -> Result<String, ProviderError
     let mut base_val: serde_json::Value =
         serde_json::from_str(base).map_err(|e| ProviderError::Config(e.to_string()))?;
     let overlay = trim_json_input(overlay);
-    let overlay_val: serde_json::Value =
-        serde_json::from_str(overlay).map_err(|e| {
-            let preview: String = overlay.chars().take(80).collect();
-            ProviderError::Config(format!(
-                "{e} — raw content preview: {preview:?}"
-            ))
-        })?;
+    let overlay_val: serde_json::Value = serde_json::from_str(overlay).map_err(|e| {
+        let preview: String = overlay.chars().take(80).collect();
+        ProviderError::Config(format!("{e} — raw content preview: {preview:?}"))
+    })?;
     deep_merge(&mut base_val, &overlay_val);
     serde_json::to_string_pretty(&base_val).map_err(|e| ProviderError::Config(e.to_string()))
 }
@@ -311,7 +308,11 @@ mod tests {
             raw_snippet: "\u{feff}{\"key2\": \"val2\"}".into(),
         };
         let result = merge_configs(base, &snippet);
-        assert!(result.is_ok(), "BOM-prefixed JSON should parse: {:?}", result.err());
+        assert!(
+            result.is_ok(),
+            "BOM-prefixed JSON should parse: {:?}",
+            result.err()
+        );
     }
 
     #[test]
