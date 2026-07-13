@@ -2,6 +2,7 @@ use std::path::{Path, PathBuf};
 use std::sync::Mutex;
 
 use async_trait::async_trait;
+use base64::Engine;
 use serde::Deserialize;
 use tempfile::TempDir;
 use tokio::sync::mpsc;
@@ -70,6 +71,12 @@ impl OpenCodeProvider {
     }
 }
 
+fn basic_auth_header(password: impl AsRef<str>) -> String {
+    let encoded =
+        base64::engine::general_purpose::STANDARD.encode(format!("opencode:{}", password.as_ref()));
+    format!("Basic {encoded}")
+}
+
 fn pick_free_port() -> Result<u16, ProviderError> {
     let listener = std::net::TcpListener::bind("127.0.0.1:0").map_err(ProviderError::Io)?;
     let port = listener.local_addr().map_err(ProviderError::Io)?.port();
@@ -96,7 +103,7 @@ async fn wait_for_health(
 
         match client
             .get(&url)
-            .header("Authorization", format!("Bearer {password}"))
+            .header("Authorization", basic_auth_header(password))
             .timeout(std::time::Duration::from_millis(500))
             .send()
             .await
@@ -187,7 +194,7 @@ async fn fetch_models(
 ) -> Result<Vec<String>, ProviderError> {
     let resp = client
         .get(format!("{base_url}/config/providers"))
-        .header("Authorization", format!("Bearer {password}"))
+        .header("Authorization", basic_auth_header(password))
         .send()
         .await?;
     let providers: Vec<serde_json::Value> = resp.json().await.unwrap_or_default();
@@ -216,7 +223,7 @@ async fn one_shot_with_server(
 ) -> Result<String, ProviderError> {
     let session_resp = client
         .post(format!("{base_url}/session"))
-        .header("Authorization", format!("Bearer {password}"))
+        .header("Authorization", basic_auth_header(password))
         .json(&serde_json::json!({"title": "one-shot"}))
         .send()
         .await?;
@@ -233,7 +240,7 @@ async fn one_shot_with_server(
 
     let msg_resp = client
         .post(format!("{base_url}/session/{session_id}/prompt_async"))
-        .header("Authorization", format!("Bearer {password}"))
+        .header("Authorization", basic_auth_header(password))
         .json(&serde_json::json!({
             "model": model,
             "parts": [{"type": "text", "text": prompt}]
@@ -250,7 +257,7 @@ async fn one_shot_with_server(
 
     let _ = client
         .delete(format!("{base_url}/session/{session_id}"))
-        .header("Authorization", format!("Bearer {password}"))
+        .header("Authorization", basic_auth_header(password))
         .send()
         .await;
 
@@ -351,7 +358,7 @@ async fn read_sse_to_completion(
 ) {
     let Ok(resp) = client
         .get(url)
-        .header("Authorization", format!("Bearer {password}"))
+        .header("Authorization", basic_auth_header(password))
         .send()
         .await
     else {
@@ -389,7 +396,7 @@ async fn collect_response_via_sse(
     let events_url = format!("{base_url}/event");
     let resp = client
         .get(&events_url)
-        .header("Authorization", format!("Bearer {password}"))
+        .header("Authorization", basic_auth_header(password))
         .send()
         .await?;
 
@@ -479,7 +486,7 @@ impl LlmProvider for OpenCodeProvider {
         let session_resp = self
             .http_client
             .post(format!("{base_url}/session"))
-            .header("Authorization", format!("Bearer {password}"))
+            .header("Authorization", basic_auth_header(&password))
             .json(&serde_json::json!({"title": "ofm session"}))
             .send()
             .await?;
@@ -498,7 +505,7 @@ impl LlmProvider for OpenCodeProvider {
         let msg_resp = self
             .http_client
             .post(format!("{base_url}/session/{session_id}/prompt_async"))
-            .header("Authorization", format!("Bearer {password}"))
+            .header("Authorization", basic_auth_header(&password))
             .json(&serde_json::json!({
                 "model": input.model,
                 "parts": [{"type": "text", "text": input.prompt}]
@@ -538,7 +545,7 @@ impl LlmProvider for OpenCodeProvider {
             let _ = self
                 .http_client
                 .post(format!("{base_url}/session/current/abort"))
-                .header("Authorization", format!("Bearer {password}"))
+                .header("Authorization", basic_auth_header(&password))
                 .send()
                 .await;
         }
