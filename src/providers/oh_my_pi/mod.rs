@@ -125,37 +125,24 @@ fn parse_provider_event(line: &str) -> Option<ProviderEvent> {
     let val: serde_json::Value = serde_json::from_str(line).ok()?;
     let type_name = val.get("type")?.as_str()?;
 
-    Some(match type_name {
-        "response" => ProviderEvent::Response(val),
-        "extension_ui_request" => ProviderEvent::ExtensionUiRequest(val),
-        "available_commands_update" => ProviderEvent::AvailableCommandsUpdate(val),
-        "extension_error" => ProviderEvent::Error {
+    match type_name {
+        "response" => Some(ProviderEvent::Response(val)),
+        "extension_ui_request" => Some(ProviderEvent::ExtensionUiRequest(val)),
+        "available_commands_update" => Some(ProviderEvent::AvailableCommandsUpdate(val)),
+        "extension_error" => Some(ProviderEvent::Error {
             error: val
                 .get("error")
                 .and_then(|e| e.as_str())
                 .unwrap_or("extension_error")
                 .to_string(),
-        },
-        "ready" => ProviderEvent::Ready,
-        "start" => return None,
-        "message_update" => {
-            if let Some(event) = val
-                .get("assistantMessageEvent")
-                .and_then(parse_assistant_message_event)
-            {
-                return Some(event);
-            }
-            return None;
-        }
-        "agent_end" => {
-            return Some(ProviderEvent::Done(val));
-        }
-        "message_end" => {
-            if let Some(text) = extract_assistant_text(&val) {
-                return Some(ProviderEvent::Text { text });
-            }
-            return None;
-        }
+        }),
+        "ready" => Some(ProviderEvent::Ready),
+        "start" => None,
+        "message_update" => val
+            .get("assistantMessageEvent")
+            .and_then(parse_assistant_message_event),
+        "agent_end" => Some(ProviderEvent::Done(val)),
+        "message_end" => extract_assistant_text(&val).map(|text| ProviderEvent::Text { text }),
         "message_start"
         | "agent_start"
         | "turn_start"
@@ -177,12 +164,12 @@ fn parse_provider_event(line: &str) -> Option<ProviderEvent> {
         | "host_tool_cancel"
         | "subagent_lifecycle"
         | "subagent_progress"
-        | "subagent_event" => return None,
+        | "subagent_event" => None,
         _ => {
             tracing::debug!("oh-my-pi: unhandled event type: {type_name}");
-            return None;
+            None
         }
-    })
+    }
 }
 
 fn parse_assistant_message_event(val: &serde_json::Value) -> Option<ProviderEvent> {

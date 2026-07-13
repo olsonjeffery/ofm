@@ -114,6 +114,11 @@ async fn spawn_opencode_server(
         raw_snippet: snippet.to_string(),
     };
     let merged = merge_configs(base_config, &provider_cfg)?;
+    tracing::info!(
+        config_ref = %config_ref,
+        config = %merged,
+        "Merged opencode provider configuration"
+    );
     let temp_dir = TempDir::new().map_err(ProviderError::Io)?;
     std::fs::write(temp_dir.path().join("opencode.json"), &merged).map_err(ProviderError::Io)?;
 
