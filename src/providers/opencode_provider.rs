@@ -123,6 +123,7 @@ async fn wait_for_health(
 async fn spawn_opencode_server(
     config_ref: &str,
     snippet: &str,
+    working_dir: Option<&std::path::Path>,
 ) -> Result<OpenCodeServer, ProviderError> {
     let base_config = r#"{"provider":{},"telemetry":{"enabled":false}}"#;
     let provider_cfg = PConfig {
@@ -143,8 +144,8 @@ async fn spawn_opencode_server(
     let hostname = "127.0.0.1".to_string();
     let password = Uuid::new_v4().to_string();
 
-    let child = std::process::Command::new("opencode")
-        .arg("serve")
+    let mut cmd = std::process::Command::new("opencode");
+    cmd.arg("serve")
         .arg("--port")
         .arg(port.to_string())
         .arg("--hostname")
@@ -152,15 +153,17 @@ async fn spawn_opencode_server(
         .env("OPENCODE_CONFIG", temp_dir.path())
         .env("OPENCODE_SERVER_PASSWORD", &password)
         .stdout(std::process::Stdio::null())
-        .stderr(std::process::Stdio::inherit())
-        .spawn()
-        .map_err(|e| {
-            if e.kind() == std::io::ErrorKind::NotFound {
-                ProviderError::Protocol("opencode binary not found in PATH".to_string())
-            } else {
-                ProviderError::Io(e)
-            }
-        })?;
+        .stderr(std::process::Stdio::inherit());
+    if let Some(dir) = working_dir {
+        cmd.current_dir(dir);
+    }
+    let child = cmd.spawn().map_err(|e| {
+        if e.kind() == std::io::ErrorKind::NotFound {
+            ProviderError::Protocol("opencode binary not found in PATH".to_string())
+        } else {
+            ProviderError::Io(e)
+        }
+    })?;
 
     Ok(OpenCodeServer {
         child,
@@ -175,7 +178,7 @@ async fn spawn_transient_server(
     config_ref: &str,
     snippet: &str,
 ) -> Result<(OpenCodeServer, reqwest::Client), ProviderError> {
-    let mut server = spawn_opencode_server(config_ref, snippet).await?;
+    let mut server = spawn_opencode_server(config_ref, snippet, None).await?;
     let client = reqwest::Client::new();
     wait_for_health(
         &client,
@@ -463,8 +466,12 @@ impl LlmProvider for OpenCodeProvider {
     }
 
     async fn start(&mut self, working_dir: &Path) -> Result<(), ProviderError> {
-        let mut server =
-            spawn_opencode_server(&self.config.provider_config_ref, &self.provider_snippet).await?;
+        let mut server = spawn_opencode_server(
+            &self.config.provider_config_ref,
+            &self.provider_snippet,
+            Some(working_dir),
+        )
+        .await?;
         wait_for_health(
             &self.http_client,
             &format!("http://{}:{}", server.hostname, server.port),
