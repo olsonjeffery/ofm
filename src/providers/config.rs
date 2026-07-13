@@ -109,20 +109,10 @@ fn merge_json_configs(base: &str, overlay: &str) -> Result<String, ProviderError
     let mut base_val: serde_json::Value =
         serde_json::from_str(base).map_err(|e| ProviderError::Config(e.to_string()))?;
     let overlay = trim_json_input(overlay);
-    let overlay_val: serde_json::Value = match serde_json::from_str(overlay) {
-        Ok(v) => v,
-        Err(_) => {
-            let yaml_val: serde_yaml::Value = serde_yaml::from_str(overlay).map_err(|_| {
-                let preview: String = overlay.chars().take(80).collect();
-                ProviderError::Config(format!("config overlay is neither valid JSON nor valid YAML — raw content preview: {preview:?}"))
-            })?;
-            serde_json::to_value(yaml_val).map_err(|e| {
-                ProviderError::Config(format!(
-                    "failed to convert YAML config overlay to JSON: {e}"
-                ))
-            })?
-        }
-    };
+    let overlay_val: serde_json::Value = serde_json::from_str(overlay).map_err(|e| {
+        let preview: String = overlay.chars().take(80).collect();
+        ProviderError::Config(format!("{e} — raw content preview: {preview:?}"))
+    })?;
     deep_merge(&mut base_val, &overlay_val);
     serde_json::to_string_pretty(&base_val).map_err(|e| ProviderError::Config(e.to_string()))
 }
@@ -358,53 +348,7 @@ mod tests {
     }
 
     #[test]
-    fn test_merge_json_yaml_fallback() {
-        let base = r#"{"providers":{},"telemetry":{"enabled":false}}"#;
-        let snippet = ProviderConfig {
-            harness: "opencode".into(),
-            config_ref: "yamlish.json".into(),
-            raw_snippet: r#""provider": {"myprovider": {"npm": "@ai-sdk/openai-compatible"}}"#
-                .into(),
-        };
-        let result = merge_configs(base, &snippet);
-        assert!(
-            result.is_ok(),
-            "YAML bare key: value syntax should parse via YAML fallback: {:?}",
-            result.err()
-        );
-        let merged = result.unwrap();
-        let v: serde_json::Value = serde_json::from_str(&merged).unwrap();
-        assert_eq!(
-            v["provider"]["myprovider"]["npm"],
-            "@ai-sdk/openai-compatible"
-        );
-    }
-
-    #[test]
-    fn test_merge_json_yaml_fallback_multiline() {
-        let base = r#"{"providers":{},"telemetry":{"enabled":false}}"#;
-        let snippet = ProviderConfig {
-            harness: "opencode".into(),
-            config_ref: "multi.json".into(),
-            raw_snippet: "\"provider\": {\n  \"myprovider\": {\n    \"npm\": \"@ai-sdk/openai-compatible\"\n  }\n}"
-                .into(),
-        };
-        let result = merge_configs(base, &snippet);
-        assert!(
-            result.is_ok(),
-            "multiline YAML should be accepted: {:?}",
-            result.err()
-        );
-        let merged = result.unwrap();
-        let v: serde_json::Value = serde_json::from_str(&merged).unwrap();
-        assert_eq!(
-            v["provider"]["myprovider"]["npm"],
-            "@ai-sdk/openai-compatible"
-        );
-    }
-
-    #[test]
-    fn test_merge_json_neither_json_nor_yaml() {
+    fn test_merge_json_truly_invalid() {
         let base = r#"{"key": "val"}"#;
         let snippet = ProviderConfig {
             harness: "opencode".into(),
@@ -415,8 +359,8 @@ mod tests {
         assert!(result.is_err());
         let err = result.unwrap_err().to_string();
         assert!(
-            err.contains("neither valid JSON nor valid YAML"),
-            "error should mention both formats, got: {err}"
+            err.contains("raw content preview"),
+            "error should contain content preview, got: {err}"
         );
     }
 }
