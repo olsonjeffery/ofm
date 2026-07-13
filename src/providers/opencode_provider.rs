@@ -81,9 +81,19 @@ async fn wait_for_health(
     client: &reqwest::Client,
     base_url: &str,
     password: &str,
+    mut child: Option<&mut std::process::Child>,
 ) -> Result<(), ProviderError> {
     let url = format!("{base_url}/global/health");
     for i in 0..20 {
+        // Check if the child process has exited early
+        if let Some(child) = child.as_mut() {
+            if let Some(status) = child.try_wait().map_err(ProviderError::Io)? {
+                return Err(ProviderError::Config(format!(
+                    "opencode process exited prematurely with status: {status}"
+                )));
+            }
+        }
+
         match client
             .get(&url)
             .header("Authorization", format!("Bearer {password}"))
@@ -135,7 +145,7 @@ async fn spawn_opencode_server(
         .env("OPENCODE_CONFIG", temp_dir.path())
         .env("OPENCODE_SERVER_PASSWORD", &password)
         .stdout(std::process::Stdio::null())
-        .stderr(std::process::Stdio::null())
+        .stderr(std::process::Stdio::piped())
         .spawn()
         .map_err(|e| {
             if e.kind() == std::io::ErrorKind::NotFound {
@@ -158,12 +168,13 @@ async fn spawn_transient_server(
     config_ref: &str,
     snippet: &str,
 ) -> Result<(OpenCodeServer, reqwest::Client), ProviderError> {
-    let server = spawn_opencode_server(config_ref, snippet).await?;
+    let mut server = spawn_opencode_server(config_ref, snippet).await?;
     let client = reqwest::Client::new();
     wait_for_health(
         &client,
         &format!("http://{}:{}", server.hostname, server.port),
         server.password.as_deref().unwrap_or(""),
+        Some(&mut server.child),
     )
     .await?;
     Ok((server, client))
@@ -445,12 +456,13 @@ impl LlmProvider for OpenCodeProvider {
     }
 
     async fn start(&mut self, working_dir: &Path) -> Result<(), ProviderError> {
-        let server =
+        let mut server =
             spawn_opencode_server(&self.config.provider_config_ref, &self.provider_snippet).await?;
         wait_for_health(
             &self.http_client,
             &format!("http://{}:{}", server.hostname, server.port),
             server.password.as_deref().unwrap_or(""),
+            Some(&mut server.child),
         )
         .await?;
         *self.server.lock().unwrap() = Some(server);
