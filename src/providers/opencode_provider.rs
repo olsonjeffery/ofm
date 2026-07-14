@@ -451,27 +451,36 @@ async fn read_sse_to_completion(
     session_id: &str,
     tx: mpsc::Sender<ProviderEvent>,
 ) {
-    let Ok(resp) = client
+    let resp = match client
         .get(url)
         .header("Authorization", basic_auth_header(password))
         .send()
         .await
-    else {
-        tracing::warn!("SSE connection failed to {url}");
-        return;
+    {
+        Ok(r) if r.status().is_success() => r,
+        Ok(r) => {
+            tracing::warn!("SSE connection returned {} for {url}", r.status());
+            let _ = tx.send(ProviderEvent::Done(serde_json::Value::Null)).await;
+            return;
+        }
+        Err(e) => {
+            tracing::warn!("SSE connection failed to {url}: {e}");
+            let _ = tx.send(ProviderEvent::Done(serde_json::Value::Null)).await;
+            return;
+        }
     };
-    if !resp.status().is_success() {
-        tracing::warn!("SSE connection returned {}", resp.status());
-        return;
-    }
 
     let mut buf = Vec::new();
     let mut stream = resp.bytes_stream();
     let mut line_count = 0usize;
     while let Some(chunk_result) = stream.next().await {
-        let Ok(chunk) = chunk_result else {
-            tracing::warn!("SSE chunk error: {:?}", chunk_result.err());
-            return;
+        let chunk = match chunk_result {
+            Ok(c) => c,
+            Err(e) => {
+                tracing::warn!("SSE chunk error: {e}");
+                let _ = tx.send(ProviderEvent::Done(serde_json::Value::Null)).await;
+                return;
+            }
         };
         buf.extend_from_slice(&chunk);
         for data in drain_sse_lines(&mut buf) {
@@ -487,13 +496,24 @@ async fn read_sse_to_completion(
                 .and_then(|p| p.get("type"))
                 .and_then(|t| t.as_str());
             match event_type {
-                Some("session.idle") => {
+                Some("session.idle") | Some("session.status") => {
                     let sid = v
                         .get("payload")
                         .and_then(|p| p.get("properties"))
                         .and_then(|p| p.get("sessionID"))
                         .and_then(|s| s.as_str());
                     if sid == Some(session_id) {
+                        if event_type == Some("session.status") {
+                            let status_type = v
+                                .get("payload")
+                                .and_then(|p| p.get("properties"))
+                                .and_then(|p| p.get("status"))
+                                .and_then(|s| s.get("type"))
+                                .and_then(|t| t.as_str());
+                            if status_type != Some("idle") {
+                                continue;
+                            }
+                        }
                         tracing::debug!("session {session_id} idle — done");
                         let _ = tx.send(ProviderEvent::Done(serde_json::Value::Null)).await;
                         return;
@@ -521,6 +541,25 @@ async fn read_sse_to_completion(
                         return;
                     }
                 }
+                Some("message.updated") => {
+                    // Assistant message with finish set means message is complete
+                    let info = v
+                        .get("payload")
+                        .and_then(|p| p.get("properties"))
+                        .and_then(|p| p.get("info"));
+                    let sid = info
+                        .and_then(|i| i.get("sessionID"))
+                        .and_then(|s| s.as_str());
+                    let role = info.and_then(|i| i.get("role")).and_then(|r| r.as_str());
+                    let finish = info.and_then(|i| i.get("finish")).and_then(|f| f.as_str());
+                    if sid == Some(session_id) && role == Some("assistant") && finish.is_some() {
+                        tracing::debug!(
+                            "session {session_id} message finished ({finish:?}) — done"
+                        );
+                        let _ = tx.send(ProviderEvent::Done(serde_json::Value::Null)).await;
+                        return;
+                    }
+                }
                 _ => {}
             }
             if let Some(event) = map_opencode_event_to_provider_event(&data) {
@@ -534,6 +573,9 @@ async fn read_sse_to_completion(
             }
         }
     }
+    // Stream ended without explicit session.idle — still signal done
+    tracing::debug!("SSE stream ended for session {session_id}");
+    let _ = tx.send(ProviderEvent::Done(serde_json::Value::Null)).await;
 }
 
 async fn collect_response_via_sse(
@@ -576,13 +618,24 @@ async fn collect_response_via_sse(
                 .and_then(|p| p.get("type"))
                 .and_then(|t| t.as_str());
             match event_type {
-                Some("session.idle") => {
+                Some("session.idle") | Some("session.status") => {
                     let sid = v
                         .get("payload")
                         .and_then(|p| p.get("properties"))
                         .and_then(|p| p.get("sessionID"))
                         .and_then(|s| s.as_str());
                     if sid == Some(session_id) {
+                        if event_type == Some("session.status") {
+                            let status_type = v
+                                .get("payload")
+                                .and_then(|p| p.get("properties"))
+                                .and_then(|p| p.get("status"))
+                                .and_then(|s| s.get("type"))
+                                .and_then(|t| t.as_str());
+                            if status_type != Some("idle") {
+                                continue;
+                            }
+                        }
                         if response.is_empty() {
                             return Err(ProviderError::Protocol(
                                 "no response from opencode".into(),
@@ -605,6 +658,25 @@ async fn collect_response_via_sse(
                             .and_then(|e| e.as_str())
                             .unwrap_or("session error");
                         return Err(ProviderError::Protocol(msg.to_string()));
+                    }
+                }
+                Some("message.updated") => {
+                    let info = v
+                        .get("payload")
+                        .and_then(|p| p.get("properties"))
+                        .and_then(|p| p.get("info"));
+                    let sid = info
+                        .and_then(|i| i.get("sessionID"))
+                        .and_then(|s| s.as_str());
+                    let role = info.and_then(|i| i.get("role")).and_then(|r| r.as_str());
+                    let finish = info.and_then(|i| i.get("finish")).and_then(|f| f.as_str());
+                    if sid == Some(session_id) && role == Some("assistant") && finish.is_some() {
+                        if response.is_empty() {
+                            return Err(ProviderError::Protocol(
+                                "no response from opencode".into(),
+                            ));
+                        }
+                        return Ok(response);
                     }
                 }
                 _ => {}
