@@ -331,7 +331,7 @@ async fn send_message(
                 .insert(conv_id.to_string(), provider);
 
             // Retry — the provider is now in active_sessions
-            return Box::pin(send_message(
+            Box::pin(send_message(
                 auth,
                 State(state),
                 Path((task_id, conv_id)),
@@ -339,7 +339,7 @@ async fn send_message(
                     text: body.text.clone(),
                 }),
             ))
-            .await;
+            .await
         }
     }
 }
