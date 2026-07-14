@@ -946,15 +946,16 @@ impl LlmProvider for OpenCodeProvider {
 
         let msg_resp = self
             .http_client
-            .post(format!("{base_url}/session/{session_id}/message"))
+            .post(format!("{base_url}/session/{session_id}/prompt_async"))
             .header("Authorization", basic_auth_header(&password))
             .json(&msg_body)
             .send()
             .await?;
         if !msg_resp.status().is_success() {
+            let status = msg_resp.status();
+            let body = msg_resp.text().await.unwrap_or_default();
             return Err(ProviderError::Protocol(format!(
-                "failed to send resume message: {}",
-                msg_resp.status()
+                "failed to send resume message ({status}): {body}"
             )));
         }
 
