@@ -290,72 +290,142 @@ async fn one_shot_with_server(
 
 fn map_opencode_event_to_provider_event(line: &str) -> Option<ProviderEvent> {
     let v: serde_json::Value = serde_json::from_str(line).ok()?;
-    match v.get("type").and_then(|t| t.as_str()) {
-        Some("message.updated") => {
-            let role = v.get("role").and_then(|r| r.as_str()).unwrap_or("");
-            if role == "assistant" {
-                let content = v.get("content").and_then(|c| c.as_str()).unwrap_or("");
-                if !content.is_empty() {
-                    Some(ProviderEvent::TextChunk {
-                        delta: content.to_string(),
+
+    // opencode wraps events in a GlobalEvent: { directory, payload: { type, properties } }
+    let payload = v.get("payload").unwrap_or(&v);
+
+    let event_type = match payload.get("type").and_then(|t| t.as_str()) {
+        Some(t) => t,
+        None => {
+            tracing::debug!("opencode event missing type field: {v:?}");
+            return None;
+        }
+    };
+
+    match event_type {
+        "message.part.updated" => {
+            let part = payload.get("properties").and_then(|p| p.get("part"));
+            let part_type = part.and_then(|p| p.get("type")).and_then(|t| t.as_str());
+            let delta = payload
+                .get("properties")
+                .and_then(|p| p.get("delta"))
+                .and_then(|d| d.as_str())
+                .unwrap_or("");
+            match part_type {
+                Some("text") => {
+                    let text = part
+                        .and_then(|p| p.get("text"))
+                        .and_then(|t| t.as_str())
+                        .unwrap_or(delta);
+                    if !text.is_empty() {
+                        Some(ProviderEvent::TextChunk {
+                            delta: text.to_string(),
+                        })
+                    } else {
+                        None
+                    }
+                }
+                Some("reasoning") => {
+                    let thinking = part
+                        .and_then(|p| p.get("text"))
+                        .and_then(|t| t.as_str())
+                        .unwrap_or("");
+                    Some(ProviderEvent::Thinking {
+                        thinking: thinking.to_string(),
                     })
-                } else {
+                }
+                Some("tool") => {
+                    let call_id = part
+                        .and_then(|p| p.get("callID"))
+                        .and_then(|c| c.as_str())
+                        .map(|s| s.to_string());
+                    let state = part.and_then(|p| p.get("state"));
+                    let status = state.and_then(|s| s.get("status")).and_then(|s| s.as_str());
+                    if status == Some("completed") || status == Some("error") {
+                        let result = state
+                            .and_then(|s| s.get("output"))
+                            .or_else(|| state.and_then(|s| s.get("error")))
+                            .and_then(|r| r.as_str())
+                            .unwrap_or("")
+                            .to_string();
+                        Some(ProviderEvent::ToolResult {
+                            tool_use_id: call_id,
+                            result,
+                        })
+                    } else {
+                        let tool_name = part
+                            .and_then(|p| p.get("tool"))
+                            .and_then(|t| t.as_str())
+                            .unwrap_or("unknown")
+                            .to_string();
+                        let input = state
+                            .and_then(|s| s.get("input"))
+                            .cloned()
+                            .unwrap_or(serde_json::Value::Null);
+                        Some(ProviderEvent::ToolUse {
+                            tool_name,
+                            tool_use_id: call_id,
+                            input,
+                        })
+                    }
+                }
+                _ => {
+                    tracing::debug!("opencode unhandled part type: {part_type:?} — {v:?}");
                     None
                 }
-            } else {
-                None
             }
         }
-        Some("tool_use") => {
-            let tool_name = v
-                .get("tool_name")
-                .and_then(|t| t.as_str())
-                .unwrap_or("unknown")
-                .to_string();
-            let tool_use_id = v
-                .get("tool_use_id")
-                .and_then(|t| t.as_str())
-                .map(|s| s.to_string());
-            let input = v.get("input").cloned().unwrap_or(serde_json::Value::Null);
-            Some(ProviderEvent::ToolUse {
-                tool_name,
-                tool_use_id,
-                input,
-            })
+        "message.updated" => {
+            let info = payload.get("properties").and_then(|p| p.get("info"));
+            let role = info.and_then(|i| i.get("role")).and_then(|r| r.as_str());
+            if role == Some("assistant") {
+                let parts = info
+                    .and_then(|i| i.as_object())
+                    .and_then(|o| {
+                        o.get("parts").or_else(|| {
+                            // fallback: check parts in properties directly
+                            payload.get("properties").and_then(|p| p.get("parts"))
+                        })
+                    })
+                    .and_then(|p| p.as_array());
+                if let Some(parts) = parts {
+                    for part in parts {
+                        if part.get("type").and_then(|t| t.as_str()) == Some("text") {
+                            if let Some(text) = part.get("text").and_then(|t| t.as_str()) {
+                                if !text.is_empty() {
+                                    return Some(ProviderEvent::TextChunk {
+                                        delta: text.to_string(),
+                                    });
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+            None
         }
-        Some("tool_result") => {
-            let tool_use_id = v
-                .get("tool_use_id")
-                .and_then(|t| t.as_str())
-                .map(|s| s.to_string());
-            let result = v
-                .get("result")
-                .and_then(|r| r.as_str())
-                .unwrap_or("")
-                .to_string();
-            Some(ProviderEvent::ToolResult {
-                tool_use_id,
-                result,
-            })
-        }
-        Some("thinking") => {
-            let thinking = v
-                .get("thinking")
-                .and_then(|t| t.as_str())
-                .unwrap_or("")
-                .to_string();
-            Some(ProviderEvent::Thinking { thinking })
-        }
-        Some("error") => {
-            let error = v
-                .get("error")
+        "error" => {
+            let props = payload.get("properties");
+            let error = props
+                .and_then(|p| p.get("error"))
                 .and_then(|e| e.as_str())
+                .or_else(|| {
+                    props
+                        .and_then(|p| p.get("info"))
+                        .and_then(|i| i.get("error"))
+                        .and_then(|e| e.as_str())
+                })
                 .unwrap_or("unknown error")
                 .to_string();
             Some(ProviderEvent::Error { error })
         }
-        Some("done") | Some("completed") => Some(ProviderEvent::Done(serde_json::Value::Null)),
-        _ => None,
+        "done" | "completed" => Some(ProviderEvent::Done(serde_json::Value::Null)),
+        "server.connected" | "session.status" | "session.idle" | "session.created"
+        | "session.updated" | "permission.updated" => None,
+        _ => {
+            tracing::debug!("opencode unhandled event type: {event_type} — {v:?}");
+            None
+        }
     }
 }
 
@@ -386,11 +456,17 @@ async fn read_sse_to_completion(
         .send()
         .await
     else {
+        tracing::warn!("SSE connection failed to {url}");
         return;
     };
+    if !resp.status().is_success() {
+        tracing::warn!("SSE connection returned {}", resp.status());
+        return;
+    }
 
     let mut buf = Vec::new();
     let mut stream = resp.bytes_stream();
+    let mut line_count = 0usize;
     while let Some(chunk_result) = stream.next().await {
         let Ok(chunk) = chunk_result else {
             tracing::warn!("SSE chunk error: {:?}", chunk_result.err());
@@ -398,6 +474,8 @@ async fn read_sse_to_completion(
         };
         buf.extend_from_slice(&chunk);
         for data in drain_sse_lines(&mut buf) {
+            line_count += 1;
+            tracing::debug!("SSE line #{line_count}: {data}");
             if let Some(event) = map_opencode_event_to_provider_event(&data) {
                 let is_done = matches!(&event, ProviderEvent::Done(_));
                 if tx.blocking_send(event).is_err() {
@@ -651,18 +729,25 @@ impl LlmProvider for OpenCodeProvider {
 mod tests {
     use super::*;
 
+    fn global_event(payload: &str) -> String {
+        format!(r#"{{"directory":"/tmp","payload":{payload}}}"#)
+    }
+
     #[test]
-    fn test_map_opencode_event_message_updated_assistant() {
-        let line = r#"{"type":"message.updated","role":"assistant","content":"Hello"}"#;
-        let event = map_opencode_event_to_provider_event(line);
+    fn test_map_opencode_event_text_chunk() {
+        let line = global_event(
+            r#"{"type":"message.part.updated","properties":{"part":{"type":"text","text":"Hello"},"delta":"Hello"}}"#,
+        );
+        let event = map_opencode_event_to_provider_event(&line);
         assert!(matches!(event, Some(ProviderEvent::TextChunk { delta }) if delta == "Hello"));
     }
 
     #[test]
     fn test_map_opencode_event_tool_use() {
-        let line =
-            r#"{"type":"tool_use","tool_name":"read","tool_use_id":"id1","input":{"path":"/tmp"}}"#;
-        let event = map_opencode_event_to_provider_event(line);
+        let line = global_event(
+            r#"{"type":"message.part.updated","properties":{"part":{"type":"tool","tool":"read","callID":"id1","state":{"input":{"path":"/tmp"}}}}}"#,
+        );
+        let event = map_opencode_event_to_provider_event(&line);
         assert!(
             matches!(event, Some(ProviderEvent::ToolUse { tool_name, tool_use_id: Some(id), .. }) if tool_name == "read" && id == "id1")
         );
@@ -670,8 +755,10 @@ mod tests {
 
     #[test]
     fn test_map_opencode_event_tool_result() {
-        let line = r#"{"type":"tool_result","tool_use_id":"id1","result":"ok"}"#;
-        let event = map_opencode_event_to_provider_event(line);
+        let line = global_event(
+            r#"{"type":"message.part.updated","properties":{"part":{"type":"tool","callID":"id1","state":{"status":"completed","output":"ok"}}}}"#,
+        );
+        let event = map_opencode_event_to_provider_event(&line);
         assert!(
             matches!(event, Some(ProviderEvent::ToolResult { tool_use_id: Some(id), result }) if id == "id1" && result == "ok")
         );
@@ -679,15 +766,18 @@ mod tests {
 
     #[test]
     fn test_map_opencode_event_thinking() {
-        let line = r#"{"type":"thinking","thinking":"hmm"}"#;
-        let event = map_opencode_event_to_provider_event(line);
+        let line = global_event(
+            r#"{"type":"message.part.updated","properties":{"part":{"type":"reasoning","text":"hmm"}}}"#,
+        );
+        let event = map_opencode_event_to_provider_event(&line);
         assert!(matches!(event, Some(ProviderEvent::Thinking { thinking }) if thinking == "hmm"));
     }
 
     #[test]
     fn test_map_opencode_event_error() {
-        let line = r#"{"type":"error","error":"something went wrong"}"#;
-        let event = map_opencode_event_to_provider_event(line);
+        let line =
+            global_event(r#"{"type":"error","properties":{"error":"something went wrong"}}"#);
+        let event = map_opencode_event_to_provider_event(&line);
         assert!(
             matches!(event, Some(ProviderEvent::Error { error }) if error == "something went wrong")
         );
@@ -695,29 +785,31 @@ mod tests {
 
     #[test]
     fn test_map_opencode_event_done() {
-        let line = r#"{"type":"done"}"#;
-        let event = map_opencode_event_to_provider_event(line);
+        let line = global_event(r#"{"type":"done","properties":{}}"#);
+        let event = map_opencode_event_to_provider_event(&line);
         assert!(matches!(event, Some(ProviderEvent::Done(_))));
     }
 
     #[test]
     fn test_map_opencode_event_completed() {
-        let line = r#"{"type":"completed"}"#;
-        let event = map_opencode_event_to_provider_event(line);
+        let line = global_event(r#"{"type":"completed","properties":{}}"#);
+        let event = map_opencode_event_to_provider_event(&line);
         assert!(matches!(event, Some(ProviderEvent::Done(_))));
     }
 
     #[test]
     fn test_map_opencode_event_unknown_type() {
-        let line = r#"{"type":"unknown","data":"foo"}"#;
-        let event = map_opencode_event_to_provider_event(line);
+        let line = global_event(r#"{"type":"unknown","properties":{"data":"foo"}}"#);
+        let event = map_opencode_event_to_provider_event(&line);
         assert!(event.is_none());
     }
 
     #[test]
     fn test_map_opencode_event_user_message_ignored() {
-        let line = r#"{"type":"message.updated","role":"user","content":"hello"}"#;
-        let event = map_opencode_event_to_provider_event(line);
+        let line = global_event(
+            r#"{"type":"message.updated","properties":{"info":{"role":"user","parts":[{"type":"text","text":"hello"}]}}}"#,
+        );
+        let event = map_opencode_event_to_provider_event(&line);
         assert!(event.is_none());
     }
 }
