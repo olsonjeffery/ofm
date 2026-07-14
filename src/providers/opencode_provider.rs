@@ -448,6 +448,7 @@ async fn read_sse_to_completion(
     client: &reqwest::Client,
     url: &str,
     password: &str,
+    session_id: &str,
     tx: mpsc::Sender<ProviderEvent>,
 ) {
     let Ok(resp) = client
@@ -476,6 +477,52 @@ async fn read_sse_to_completion(
         for data in drain_sse_lines(&mut buf) {
             line_count += 1;
             tracing::debug!("SSE line #{line_count}: {data}");
+            // Check for session lifecycle events before dispatching
+            let v: serde_json::Value = match serde_json::from_str(&data) {
+                Ok(v) => v,
+                Err(_) => continue,
+            };
+            let event_type = v
+                .get("payload")
+                .and_then(|p| p.get("type"))
+                .and_then(|t| t.as_str());
+            match event_type {
+                Some("session.idle") => {
+                    let sid = v
+                        .get("payload")
+                        .and_then(|p| p.get("properties"))
+                        .and_then(|p| p.get("sessionID"))
+                        .and_then(|s| s.as_str());
+                    if sid == Some(session_id) {
+                        tracing::debug!("session {session_id} idle — done");
+                        let _ = tx.send(ProviderEvent::Done(serde_json::Value::Null)).await;
+                        return;
+                    }
+                }
+                Some("session.error") => {
+                    let sid = v
+                        .get("payload")
+                        .and_then(|p| p.get("properties"))
+                        .and_then(|p| p.get("sessionID"))
+                        .and_then(|s| s.as_str());
+                    if sid == Some(session_id) {
+                        let msg = v
+                            .get("payload")
+                            .and_then(|p| p.get("properties"))
+                            .and_then(|p| p.get("error"))
+                            .and_then(|e| e.as_str())
+                            .unwrap_or("session error");
+                        tracing::warn!("session {session_id} error: {msg}");
+                        let _ = tx
+                            .send(ProviderEvent::Error {
+                                error: msg.to_string(),
+                            })
+                            .await;
+                        return;
+                    }
+                }
+                _ => {}
+            }
             if let Some(event) = map_opencode_event_to_provider_event(&data) {
                 let is_done = matches!(&event, ProviderEvent::Done(_));
                 if tx.send(event).await.is_err() {
@@ -493,7 +540,7 @@ async fn collect_response_via_sse(
     client: &reqwest::Client,
     base_url: &str,
     password: &str,
-    _session_id: &str,
+    session_id: &str,
 ) -> Result<String, ProviderError> {
     let events_url = format!("{base_url}/event");
     let resp = client
@@ -519,6 +566,49 @@ async fn collect_response_via_sse(
         };
         buf.extend_from_slice(&chunk);
         for data in drain_sse_lines(&mut buf) {
+            // Check for session lifecycle events
+            let v: serde_json::Value = match serde_json::from_str(&data) {
+                Ok(v) => v,
+                Err(_) => continue,
+            };
+            let event_type = v
+                .get("payload")
+                .and_then(|p| p.get("type"))
+                .and_then(|t| t.as_str());
+            match event_type {
+                Some("session.idle") => {
+                    let sid = v
+                        .get("payload")
+                        .and_then(|p| p.get("properties"))
+                        .and_then(|p| p.get("sessionID"))
+                        .and_then(|s| s.as_str());
+                    if sid == Some(session_id) {
+                        if response.is_empty() {
+                            return Err(ProviderError::Protocol(
+                                "no response from opencode".into(),
+                            ));
+                        }
+                        return Ok(response);
+                    }
+                }
+                Some("session.error") => {
+                    let sid = v
+                        .get("payload")
+                        .and_then(|p| p.get("properties"))
+                        .and_then(|p| p.get("sessionID"))
+                        .and_then(|s| s.as_str());
+                    if sid == Some(session_id) {
+                        let msg = v
+                            .get("payload")
+                            .and_then(|p| p.get("properties"))
+                            .and_then(|p| p.get("error"))
+                            .and_then(|e| e.as_str())
+                            .unwrap_or("session error");
+                        return Err(ProviderError::Protocol(msg.to_string()));
+                    }
+                }
+                _ => {}
+            }
             if let Some(event) = map_opencode_event_to_provider_event(&data) {
                 match event {
                     ProviderEvent::TextChunk { delta } => response.push_str(&delta),
@@ -646,9 +736,10 @@ impl LlmProvider for OpenCodeProvider {
         let client = self.http_client.clone();
         let events_url = format!("{base_url}/event");
         let pw = password.clone();
+        let sid = session_id.clone();
 
         tokio::spawn(async move {
-            read_sse_to_completion(&client, &events_url, &pw, tx).await;
+            read_sse_to_completion(&client, &events_url, &pw, &sid, tx).await;
         });
 
         Ok(rx)
