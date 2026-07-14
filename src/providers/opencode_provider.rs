@@ -10,7 +10,9 @@ use tokio_stream::StreamExt;
 use uuid::Uuid;
 
 use crate::providers::config::{merge_configs, ProviderConfig as PConfig, ProviderConfigDir};
-use crate::providers::types::{ProviderEvent, QuestionOption, ResumeInput, TurnInput};
+use crate::providers::types::{
+    AskedQuestion, ProviderEvent, QuestionOption, ResumeInput, TurnInput,
+};
 use crate::providers::{HarnessConfig, LlmProvider, ProviderError};
 
 pub struct OpenCodeProvider {
@@ -425,26 +427,22 @@ fn map_opencode_event_to_provider_event(line: &str) -> Option<ProviderEvent> {
         "question.asked" => {
             let props = payload.get("properties")?;
             let qid = props.get("sessionID")?.as_str()?;
-            let question = props
-                .get("questions")?
-                .as_array()?
-                .first()
-                .and_then(|q| q.get("question"))
-                .and_then(|q| q.as_str())
-                .unwrap_or("");
-            let header = props
-                .get("questions")?
-                .as_array()?
-                .first()
-                .and_then(|q| q.get("header"))
-                .and_then(|h| h.as_str());
-            let options = props
-                .get("questions")?
-                .as_array()?
-                .first()
-                .and_then(|q| q.get("options"))
-                .and_then(|o| serde_json::from_value::<Vec<QuestionOption>>(o.clone()).ok())
-                .unwrap_or_default();
+            let questions_arr = props.get("questions")?.as_array()?;
+            let mut questions = Vec::with_capacity(questions_arr.len());
+            for q in questions_arr {
+                questions.push(AskedQuestion {
+                    question: q
+                        .get("question")
+                        .and_then(|t| t.as_str())
+                        .unwrap_or("")
+                        .to_string(),
+                    header: q.get("header").and_then(|h| h.as_str()).map(String::from),
+                    options: q
+                        .get("options")
+                        .and_then(|o| serde_json::from_value::<Vec<QuestionOption>>(o.clone()).ok())
+                        .unwrap_or_default(),
+                });
+            }
             let tool_call_id = props
                 .get("tool")
                 .and_then(|t| t.get("callID"))
@@ -452,9 +450,7 @@ fn map_opencode_event_to_provider_event(line: &str) -> Option<ProviderEvent> {
                 .map(|s| s.to_string());
             Some(ProviderEvent::QuestionAsked {
                 session_id: qid.to_string(),
-                question: question.to_string(),
-                header: header.map(String::from),
-                options,
+                questions,
                 tool_call_id,
             })
         }
@@ -1135,16 +1131,15 @@ mod tests {
             event,
             Some(ProviderEvent::QuestionAsked {
                 session_id,
-                question,
-                header,
-                options,
+                ref questions,
                 tool_call_id,
             }) if session_id == "sess-1"
-                && question == "What model?"
-                && header == Some("Choose".to_string())
-                && options.len() == 2
-                && options[0].label == "gpt-4"
-                && options[1].label == "claude-3"
+                && questions.len() == 1
+                && questions[0].question == "What model?"
+                && questions[0].header == Some("Choose".to_string())
+                && questions[0].options.len() == 2
+                && questions[0].options[0].label == "gpt-4"
+                && questions[0].options[1].label == "claude-3"
                 && tool_call_id.is_none()
         ));
     }
@@ -1159,17 +1154,36 @@ mod tests {
             event,
             Some(ProviderEvent::QuestionAsked {
                 session_id,
-                question,
-                header,
-                options,
+                ref questions,
                 tool_call_id,
             }) if session_id == "sess-2"
-                && question == "Proceed?"
-                && header == Some("Confirm".to_string())
-                && options.len() == 2
-                && options[0].label == "Yes"
-                && options[1].label == "No"
+                && questions.len() == 1
+                && questions[0].question == "Proceed?"
+                && questions[0].header == Some("Confirm".to_string())
+                && questions[0].options.len() == 2
+                && questions[0].options[0].label == "Yes"
+                && questions[0].options[1].label == "No"
                 && tool_call_id == Some("call_123".to_string())
+        ));
+    }
+
+    #[test]
+    fn test_map_opencode_event_question_asked_multiple() {
+        let line = global_event(
+            r#"{"type":"question.asked","properties":{"sessionID":"sess-3","questions":[{"question":"First?","header":"Q1","options":[{"label":"A","description":"Opt A"}]},{"question":"Second?","header":"Q2","options":[{"label":"B","description":"Opt B"}]}]}}"#,
+        );
+        let event = map_opencode_event_to_provider_event(&line);
+        assert!(matches!(
+            event,
+            Some(ProviderEvent::QuestionAsked {
+                session_id,
+                ref questions,
+                ..
+            }) if session_id == "sess-3" && questions.len() == 2
+                && questions[0].question == "First?"
+                && questions[0].header == Some("Q1".to_string())
+                && questions[1].question == "Second?"
+                && questions[1].header == Some("Q2".to_string())
         ));
     }
 }

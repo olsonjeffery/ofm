@@ -100,22 +100,22 @@ fn render_event(event: &ProviderEvent) -> String {
                 )
             }
         }
-        ProviderEvent::QuestionAsked {
-            question,
-            header,
-            options,
-            ..
-        } => {
-            let hdr = header.as_deref().unwrap_or("Question");
-            let opts_html: String = options
-                .iter()
-                .map(|o| format!(r#"<span class="tag is-info is-light">{}</span>"#, o.label))
-                .collect::<Vec<_>>()
-                .join(" ");
-            format!(
-                r#"<div class="box"><strong>{}</strong><p>{}</p><div style="margin-top:0.5rem">{}</div></div>"#,
-                hdr, question, opts_html
-            )
+        ProviderEvent::QuestionAsked { ref questions, .. } => {
+            let mut html = String::new();
+            for q in questions {
+                let hdr = q.header.as_deref().unwrap_or("Question");
+                let opts_html: String = q
+                    .options
+                    .iter()
+                    .map(|o| format!(r#"<span class="tag is-info is-light">{}</span>"#, o.label))
+                    .collect::<Vec<_>>()
+                    .join(" ");
+                html.push_str(&format!(
+                    r#"<div class="box"><strong>{}</strong><p>{}</p><div style="margin-top:0.5rem">{}</div></div>"#,
+                    hdr, q.question, opts_html
+                ));
+            }
+            html
         }
         ProviderEvent::Done(_) => {
             r#"<div class="notification is-success is-light">Done</div>"#.to_string()

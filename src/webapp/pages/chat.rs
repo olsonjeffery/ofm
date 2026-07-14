@@ -227,7 +227,19 @@ document.addEventListener('DOMContentLoaded', function() {
             case 'error': return '<div class="notification is-danger is-light">' + escapeHtml(evt.error) + '</div>';
             case 'question_asked':
                 setProcessing(false);
-                return '<div class="box"><strong>' + escapeHtml(evt.header || 'Question') + '</strong><p>' + escapeHtml(evt.question) + '</p></div>';
+                if (!evt.questions) return '';
+                var html = '';
+                evt.questions.forEach(function(q) {
+                    var hdr = q.header || 'Question';
+                    var opts = '';
+                    if (q.options) {
+                        q.options.forEach(function(o) {
+                            opts += '<span class="tag is-info is-light" style="margin:0.15rem">' + escapeHtml(o.label) + '</span> ';
+                        });
+                    }
+                    html += '<div class="box"><strong>' + escapeHtml(hdr) + '</strong><p>' + escapeHtml(q.question) + '</p><div style="margin-top:0.5rem">' + opts + '</div></div>';
+                });
+                return html;
             case 'done': return '<div class="notification is-success is-light">Done</div>';
             default: return '';
         }
@@ -261,7 +273,19 @@ document.addEventListener('DOMContentLoaded', function() {
             case 'error': return '<div class="notification is-danger is-light">' + escapeHtml(msg.payload.error || '') + '</div>';
             case 'question_asked':
                 setProcessing(false);
-                return '<div class="box"><strong>' + escapeHtml(msg.payload.header || 'Question') + '</strong><p>' + escapeHtml(msg.payload.question) + '</p></div>';
+                var questions = msg.payload.questions || [];
+                var qHtml = '';
+                questions.forEach(function(q) {
+                    var hdr = q.header || 'Question';
+                    var opts = '';
+                    if (q.options) {
+                        q.options.forEach(function(o) {
+                            opts += '<span class="tag is-info is-light" style="margin:0.15rem">' + escapeHtml(o.label) + '</span> ';
+                        });
+                    }
+                    qHtml += '<div class="box"><strong>' + escapeHtml(hdr) + '</strong><p>' + escapeHtml(q.question) + '</p><div style="margin-top:0.5rem">' + opts + '</div></div>';
+                });
+                return qHtml;
             case 'done':
                 setProcessing(false);
                 return '<div class="notification is-success is-light">Done</div>';

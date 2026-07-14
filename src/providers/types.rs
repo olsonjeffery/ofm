@@ -8,6 +8,14 @@ pub struct QuestionOption {
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct AskedQuestion {
+    pub question: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub header: Option<String>,
+    pub options: Vec<QuestionOption>,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(tag = "type", rename_all = "snake_case")]
 pub enum ProviderEvent {
     SessionStart {
@@ -50,10 +58,7 @@ pub enum ProviderEvent {
     Done(serde_json::Value),
     QuestionAsked {
         session_id: String,
-        question: String,
-        #[serde(skip_serializing_if = "Option::is_none")]
-        header: Option<String>,
-        options: Vec<QuestionOption>,
+        questions: Vec<AskedQuestion>,
         #[serde(skip_serializing_if = "Option::is_none")]
         tool_call_id: Option<String>,
     },
@@ -192,17 +197,13 @@ impl ProviderEvent {
             }
             ProviderEvent::Done(data) => ("done".to_string(), serde_json::json!({"data": data})),
             ProviderEvent::QuestionAsked {
-                question,
-                header,
-                options,
+                questions,
                 tool_call_id,
                 ..
             } => (
                 "question_asked".to_string(),
                 serde_json::json!({
-                    "question": question,
-                    "header": header,
-                    "options": options,
+                    "questions": questions,
                     "tool_call_id": tool_call_id,
                 }),
             ),
@@ -219,27 +220,31 @@ mod tests {
     fn test_question_asked_to_ws_event() {
         let event = ProviderEvent::QuestionAsked {
             session_id: "sess-1".into(),
-            question: "What model?".into(),
-            header: Some("Choose".into()),
-            options: vec![
-                QuestionOption {
-                    label: "gpt-4".into(),
-                    description: Some("Fast".into()),
-                },
-                QuestionOption {
-                    label: "claude-3".into(),
-                    description: None,
-                },
-            ],
+            questions: vec![AskedQuestion {
+                question: "What model?".into(),
+                header: Some("Choose".into()),
+                options: vec![
+                    QuestionOption {
+                        label: "gpt-4".into(),
+                        description: Some("Fast".into()),
+                    },
+                    QuestionOption {
+                        label: "claude-3".into(),
+                        description: None,
+                    },
+                ],
+            }],
             tool_call_id: Some("call_123".into()),
         };
         let (event_type, payload) = event.to_ws_event();
         assert_eq!(event_type, "question_asked");
-        assert_eq!(payload["question"], "What model?");
-        assert_eq!(payload["header"], "Choose");
-        assert_eq!(payload["options"].as_array().unwrap().len(), 2);
-        assert_eq!(payload["options"][0]["label"], "gpt-4");
-        assert_eq!(payload["options"][1]["label"], "claude-3");
+        let qs = payload["questions"].as_array().unwrap();
+        assert_eq!(qs.len(), 1);
+        assert_eq!(qs[0]["question"], "What model?");
+        assert_eq!(qs[0]["header"], "Choose");
+        assert_eq!(qs[0]["options"].as_array().unwrap().len(), 2);
+        assert_eq!(qs[0]["options"][0]["label"], "gpt-4");
+        assert_eq!(qs[0]["options"][1]["label"], "claude-3");
         assert_eq!(payload["tool_call_id"], "call_123");
     }
 }
