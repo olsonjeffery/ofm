@@ -201,6 +201,12 @@ async fn fetch_models(
         .header("Authorization", basic_auth_header(password))
         .send()
         .await?;
+    let resp_status = resp.status();
+    if !resp_status.is_success() {
+        let body = resp.text().await.unwrap_or_default();
+        tracing::warn!("GET /config/providers failed: {resp_status} — body: {body}");
+        return Ok(vec!["default".to_string()]);
+    }
     let providers: Vec<serde_json::Value> = resp.json().await.unwrap_or_default();
     let models: Vec<String> = providers
         .iter()
@@ -231,10 +237,12 @@ async fn one_shot_with_server(
         .json(&serde_json::json!({"title": "one-shot"}))
         .send()
         .await?;
-    if !session_resp.status().is_success() {
-        return Err(ProviderError::Protocol(
-            "failed to create one-shot session".into(),
-        ));
+    let session_status = session_resp.status();
+    if !session_status.is_success() {
+        let body = session_resp.text().await.unwrap_or_default();
+        return Err(ProviderError::Protocol(format!(
+            "failed to create one-shot session: {session_status} — body: {body}"
+        )));
     }
     let session_id: String = session_resp
         .json::<OpenCodeSession>()
@@ -251,10 +259,12 @@ async fn one_shot_with_server(
         }))
         .send()
         .await?;
-    if !msg_resp.status().is_success() {
-        return Err(ProviderError::Protocol(
-            "failed to send one-shot message".into(),
-        ));
+    let msg_status = msg_resp.status();
+    if !msg_status.is_success() {
+        let body = msg_resp.text().await.unwrap_or_default();
+        return Err(ProviderError::Protocol(format!(
+            "failed to send one-shot message: {msg_status} — body: {body}"
+        )));
     }
 
     let result = collect_response_via_sse(client, base_url, password, &session_id).await;
@@ -403,6 +413,13 @@ async fn collect_response_via_sse(
         .header("Authorization", basic_auth_header(password))
         .send()
         .await?;
+    let resp_status = resp.status();
+    if !resp_status.is_success() {
+        let body = resp.text().await.unwrap_or_default();
+        return Err(ProviderError::Protocol(format!(
+            "failed to connect to event stream: {resp_status} — body: {body}"
+        )));
+    }
 
     let mut response = String::new();
     let mut buf = Vec::new();
