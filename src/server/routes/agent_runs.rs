@@ -149,7 +149,7 @@ async fn post_create_agent_run(
                     let task_str = task_id.to_string();
                     let doc_path = archive.task_doc_path(&proj_str, &task_str);
                     let context_prompt = archive
-                        .build_context_prompt(&proj_str, &task_str)
+                        .build_context_prompt(&state.footprint, task.project_id, task_id)
                         .ok()
                         .unwrap_or_default();
 
