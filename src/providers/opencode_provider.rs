@@ -425,16 +425,22 @@ fn map_opencode_event_to_provider_event(line: &str) -> Option<ProviderEvent> {
         "question.asked" => {
             let props = payload.get("properties")?;
             let qid = props.get("sessionID")?.as_str()?;
-            let question = props.get("questions")?.as_array()?
+            let question = props
+                .get("questions")?
+                .as_array()?
                 .first()
                 .and_then(|q| q.get("question"))
                 .and_then(|q| q.as_str())
                 .unwrap_or("");
-            let header = props.get("questions")?.as_array()?
+            let header = props
+                .get("questions")?
+                .as_array()?
                 .first()
                 .and_then(|q| q.get("header"))
                 .and_then(|h| h.as_str());
-            let options = props.get("questions")?.as_array()?
+            let options = props
+                .get("questions")?
+                .as_array()?
                 .first()
                 .and_then(|q| q.get("options"))
                 .and_then(|o| serde_json::from_value::<Vec<QuestionOption>>(o.clone()).ok())
@@ -606,11 +612,13 @@ async fn read_sse_to_completion(
                 }
                 _ => {}
             }
-            let raw_type = v.get("payload")
+            let raw_type = v
+                .get("payload")
                 .and_then(|p| p.get("type"))
                 .and_then(|t| t.as_str());
             if raw_type == Some("question.asked") {
-                let qsid = v.get("payload")
+                let qsid = v
+                    .get("payload")
                     .and_then(|p| p.get("properties"))
                     .and_then(|p| p.get("sessionID"))
                     .and_then(|s| s.as_str());
@@ -868,10 +876,11 @@ impl LlmProvider for OpenCodeProvider {
             .unwrap_or_else(|_| Uuid::new_v4().to_string());
 
         let (tx, rx) = mpsc::channel(256);
-        let _ = tx.send(ProviderEvent::SessionStart {
-            session_id: session_id.clone(),
-        })
-        .await;
+        let _ = tx
+            .send(ProviderEvent::SessionStart {
+                session_id: session_id.clone(),
+            })
+            .await;
 
         let msg_resp = self
             .http_client
@@ -910,7 +919,9 @@ impl LlmProvider for OpenCodeProvider {
         let (base_url, password) = self.server_details().ok_or(ProviderError::NotStarted)?;
         let session_id = input.session_id.clone();
 
-        let last_text = input.messages.as_array()
+        let last_text = input
+            .messages
+            .as_array()
             .and_then(|arr| arr.last())
             .and_then(|m| m.get("text"))
             .and_then(|t| t.as_str())
@@ -921,7 +932,8 @@ impl LlmProvider for OpenCodeProvider {
             return Err(ProviderError::Protocol("no user text to send".into()));
         }
 
-        let msg_resp = self.http_client
+        let msg_resp = self
+            .http_client
             .post(format!("{base_url}/session/{session_id}/message"))
             .header("Authorization", basic_auth_header(&password))
             .json(&serde_json::json!({

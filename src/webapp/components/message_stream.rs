@@ -109,12 +109,7 @@ fn render_event(event: &ProviderEvent) -> String {
             let hdr = header.as_deref().unwrap_or("Question");
             let opts_html: String = options
                 .iter()
-                .map(|o| {
-                    format!(
-                        r#"<span class="tag is-info is-light">{}</span>"#,
-                        o.label
-                    )
-                })
+                .map(|o| format!(r#"<span class="tag is-info is-light">{}</span>"#, o.label))
                 .collect::<Vec<_>>()
                 .join(" ");
             format!(

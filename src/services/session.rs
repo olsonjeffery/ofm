@@ -177,7 +177,10 @@ mod tests {
         assert_eq!(conv.model, "test-model");
         assert_eq!(conv.effort, "balanced");
         assert_eq!(conv.provider_session_id, Some(result.session_id.clone()));
-        assert!(result.session_id.starts_with("UNSET_"), "session_id should start with UNSET_ prefix");
+        assert!(
+            result.session_id.starts_with("UNSET_"),
+            "session_id should start with UNSET_ prefix"
+        );
         assert_eq!(conv.id, result.conversation_id);
     }
 

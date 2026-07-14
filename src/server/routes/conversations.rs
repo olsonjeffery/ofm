@@ -290,10 +290,8 @@ async fn send_message(
                     ServerError::NotFound("No active session for this conversation".into())
                 })?;
 
-            let agent_type =
-                AgentType::from_str(&run.agent_type.to_string()).map_err(|_| {
-                    ServerError::Internal("Invalid agent type".into())
-                })?;
+            let agent_type = AgentType::from_str(&run.agent_type.to_string())
+                .map_err(|_| ServerError::Internal("Invalid agent type".into()))?;
 
             let harness_config = registry::resolve_harness_config(
                 &state.db,
