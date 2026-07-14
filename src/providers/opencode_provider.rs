@@ -485,7 +485,25 @@ async fn read_sse_to_completion(
         buf.extend_from_slice(&chunk);
         for data in drain_sse_lines(&mut buf) {
             line_count += 1;
-            tracing::debug!("SSE line #{line_count}: {data}");
+            // Log SSE data to console, skipping noisy text deltas
+            let is_text_chunk = serde_json::from_str::<serde_json::Value>(&data)
+                .ok()
+                .is_some_and(|v| {
+                    let t = v
+                        .get("payload")
+                        .and_then(|p| p.get("type"))
+                        .and_then(|t| t.as_str());
+                    let pt = v
+                        .get("payload")
+                        .and_then(|p| p.get("properties"))
+                        .and_then(|p| p.get("part"))
+                        .and_then(|p| p.get("type"))
+                        .and_then(|t| t.as_str());
+                    t == Some("message.part.updated") && pt == Some("text")
+                });
+            if !is_text_chunk {
+                tracing::info!("SSE #{line_count}: {data}");
+            }
             // Check for session lifecycle events before dispatching
             let v: serde_json::Value = match serde_json::from_str(&data) {
                 Ok(v) => v,
@@ -608,6 +626,25 @@ async fn collect_response_via_sse(
         };
         buf.extend_from_slice(&chunk);
         for data in drain_sse_lines(&mut buf) {
+            // Log SSE data, skipping noisy text deltas
+            let is_text_chunk = serde_json::from_str::<serde_json::Value>(&data)
+                .ok()
+                .is_some_and(|v| {
+                    let t = v
+                        .get("payload")
+                        .and_then(|p| p.get("type"))
+                        .and_then(|t| t.as_str());
+                    let pt = v
+                        .get("payload")
+                        .and_then(|p| p.get("properties"))
+                        .and_then(|p| p.get("part"))
+                        .and_then(|p| p.get("type"))
+                        .and_then(|t| t.as_str());
+                    t == Some("message.part.updated") && pt == Some("text")
+                });
+            if !is_text_chunk {
+                tracing::info!("SSE data: {data}");
+            }
             // Check for session lifecycle events
             let v: serde_json::Value = match serde_json::from_str(&data) {
                 Ok(v) => v,
