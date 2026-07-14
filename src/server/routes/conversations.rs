@@ -96,12 +96,6 @@ async fn send_message(
     Path((task_id, conv_id)): Path<(i64, Uuid)>,
     Json(body): Json<SendMessageRequest>,
 ) -> Result<StatusCode, ServerError> {
-    tracing::info!(
-        task_id = %task_id,
-        conversation_id = %conv_id,
-        "Sending message to resume session"
-    );
-
     let task = tasks::get_task(&state.db, task_id)
         .await
         .map_err(|_| ServerError::NotFound("Task not found".into()))?;
@@ -116,6 +110,14 @@ async fn send_message(
         return Err(ServerError::NotFound("Conversation not found".into()));
     }
 
+    let provider_session_id = conv.provider_session_id.clone().unwrap_or_default();
+    tracing::info!(
+        task_id = %task_id,
+        conversation_id = %conv_id,
+        session_id = %provider_session_id,
+        "Sending message to resume session"
+    );
+
     if body.text.trim().is_empty() {
         return Err(ServerError::BadRequest("message text is required".into()));
     }
@@ -124,7 +126,6 @@ async fn send_message(
     let user_event = ProviderEvent::UserText {
         text: body.text.clone(),
     };
-    let provider_session_id = conv.provider_session_id.clone().unwrap_or_default();
     transcript::persist_event(&state.db, &user_event, &provider_session_id, task_id)
         .await
         .map_err(|e| ServerError::Internal(e.to_string()))?;
@@ -148,7 +149,7 @@ async fn send_message(
 
     match provider {
         Some(p) => {
-            tracing::debug!(
+            tracing::info!(
                 task_id = %task_id,
                 conversation_id = %conv_id,
                 session_id = %provider_session_id,
@@ -159,7 +160,7 @@ async fn send_message(
                 .await
                 .map_err(|e| ServerError::Internal(e.to_string()))?;
 
-            tracing::debug!(
+            tracing::info!(
                 task_id = %task_id,
                 conversation_id = %conv_id,
                 message_count = messages.len(),
@@ -171,100 +172,98 @@ async fn send_message(
 
             let resume_input = ResumeInput::new(provider_session_id.clone(), messages_json);
 
-            match p.resume_turn(resume_input).await {
-                Ok(mut rx) => {
-                    tracing::info!(
-                        task_id = %task_id,
-                        conversation_id = %conv_id,
-                        session_id = %provider_session_id,
-                        "Successfully resumed turn, spawning broadcast task"
-                    );
-                    let db = state.db.clone();
-                    let ws_bus = state.ws_bus.clone();
-                    let active_sessions = state.active_sessions.clone();
-                    let t_id = task_id;
-                    let s_id = provider_session_id;
-                    let project_key = task_id;
-                    let c_id = conv_id;
+            let mut rx = p.resume_turn(resume_input).await.map_err(|e| {
+                tracing::warn!(
+                    task_id = %task_id,
+                    conversation_id = %conv_id,
+                    session_id = %provider_session_id,
+                    error = %e,
+                    "Failed to resume turn"
+                );
+                ServerError::Internal(format!("Failed to resume turn: {e}"))
+            })?;
 
-                    tokio::spawn(async move {
-                        let mut completed_normally = false;
-                        loop {
-                            tokio::select! {
-                                event = rx.recv() => {
-                                    let event = match event {
-                                        Some(e) => e,
-                                        None => break,
-                                    };
+            tracing::info!(
+                task_id = %task_id,
+                conversation_id = %conv_id,
+                session_id = %provider_session_id,
+                "Successfully resumed turn, spawning broadcast task"
+            );
+            let db = state.db.clone();
+            let ws_bus = state.ws_bus.clone();
+            let active_sessions = state.active_sessions.clone();
+            let t_id = task_id;
+            let s_id = provider_session_id;
+            let project_key = task_id;
+            let c_id = conv_id;
 
-                                    if let Err(e) = transcript::persist_event(
-                                        &db, &event, &s_id, project_key
-                                    ).await {
-                                        tracing::warn!("Failed to persist event: {e}");
-                                    }
+            tokio::spawn(async move {
+                let mut completed_normally = false;
+                loop {
+                    tokio::select! {
+                        event = rx.recv() => {
+                            let event = match event {
+                                Some(e) => e,
+                                None => break,
+                            };
 
-                                    if let ProviderEvent::SessionStart { session_id } = &event {
-                                        let _ = db.execute(
-                                            "UPDATE conversations SET provider_session_id = $1 WHERE id = $2",
-                                            hiqlite::params!(session_id, c_id.to_string()),
-                                        ).await;
-                                    }
-
-                                    let topic = WsTopic {
-                                        kind: WsTopicKind::Task,
-                                        id: TopicId(t_id),
-                                    };
-
-                                    let (event_type, payload) = event.to_ws_event();
-                                    if matches!(event, ProviderEvent::Done(_)) {
-                                        completed_normally = true;
-                                    }
-
-                                    let msg = ServerMessage::Event {
-                                        topic: topic.clone(),
-                                        event_type,
-                                        timestamp: chrono::Utc::now(),
-                                        payload,
-                                    };
-
-                                    ws_bus.broadcast(&topic, msg).await;
-
-                                    if matches!(event, ProviderEvent::Done(_)) {
-                                        if let Err(e) = crate::orchestration::completion_handler(
-                                            &db, c_id, &active_sessions
-                                        ).await {
-                                            tracing::warn!("Error in completion handler: {e:?}");
-                                        }
-                                        break;
-                                    }
-                                }
+                            if let Err(e) = transcript::persist_event(
+                                &db, &event, &s_id, project_key
+                            ).await {
+                                tracing::warn!("Failed to persist event: {e}");
                             }
-                        }
-                        if !completed_normally {
+
+                            if let ProviderEvent::SessionStart { session_id } = &event {
+                                let _ = db.execute(
+                                    "UPDATE conversations SET provider_session_id = $1 WHERE id = $2",
+                                    hiqlite::params!(session_id, c_id.to_string()),
+                                ).await;
+                            }
+
                             let topic = WsTopic {
                                 kind: WsTopicKind::Task,
                                 id: TopicId(t_id),
                             };
+
+                            let (event_type, payload) = event.to_ws_event();
+                            if matches!(event, ProviderEvent::Done(_)) {
+                                completed_normally = true;
+                            }
+
                             let msg = ServerMessage::Event {
                                 topic: topic.clone(),
-                                event_type: "error".to_string(),
+                                event_type,
                                 timestamp: chrono::Utc::now(),
-                                payload: serde_json::json!({"error": "Agent session ended unexpectedly. Send a message to resume."}),
+                                payload,
                             };
+
                             ws_bus.broadcast(&topic, msg).await;
+
+                            if matches!(event, ProviderEvent::Done(_)) {
+                                if let Err(e) = crate::orchestration::completion_handler(
+                                    &db, c_id, &active_sessions
+                                ).await {
+                                    tracing::warn!("Error in completion handler: {e:?}");
+                                }
+                                break;
+                            }
                         }
-                    });
+                    }
                 }
-                Err(e) => {
-                    tracing::warn!(
-                        task_id = %task_id,
-                        conversation_id = %conv_id,
-                        session_id = %provider_session_id,
-                        error = %e,
-                        "Failed to resume turn"
-                    );
+                if !completed_normally {
+                    let topic = WsTopic {
+                        kind: WsTopicKind::Task,
+                        id: TopicId(t_id),
+                    };
+                    let msg = ServerMessage::Event {
+                        topic: topic.clone(),
+                        event_type: "error".to_string(),
+                        timestamp: chrono::Utc::now(),
+                        payload: serde_json::json!({"error": "Agent session ended unexpectedly. Send a message to resume."}),
+                    };
+                    ws_bus.broadcast(&topic, msg).await;
                 }
-            }
+            });
 
             Ok(StatusCode::OK)
         }

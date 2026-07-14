@@ -273,7 +273,7 @@ document.addEventListener('DOMContentLoaded', function() {
         var toolName = escapeHtml(payload.tool_name || 'unknown');
         var toolId = escapeHtml(payload.tool_use_id || '');
         var inputStr = escapeHtml(JSON.stringify(payload.input, null, 2));
-        return '<div class="card"><div class="card-content"><span class="tag is-info is-light">' + toolName + '</span><code>' + toolId + '</code><div id="tool-input-' + toolId + '" class="tool-input-box" style="margin-top:0.25rem"><pre>' + inputStr + '</pre></div></div></div>';
+        return '<div class="card"><div class="card-content"><span class="tag is-info is-light">' + toolName + '</span><code>' + toolId + '</code><div id="tool-input-' + toolId + '" class="tool-input-box" style="margin-top:0.25rem"><pre style="white-space:pre-wrap;word-break:break-word;overflow-wrap:break-word;max-width:100%">' + inputStr + '</pre></div></div></div>';
     }
 
     function renderToolResult(payload) {
@@ -282,8 +282,8 @@ document.addEventListener('DOMContentLoaded', function() {
         var truncated = result.length > 100;
         var displayText = truncated ? escapeHtml(result.substring(0, 100)) + '...' : escapeHtml(result);
         var extra = truncated ? '<a href="#" class="toggle-result" data-tool-id="' + toolId + '" onclick="toggleResult(this);return false">show more</a>' : '';
-        var fullContent = truncated ? '<div class="tool-result-full" id="result-full-' + toolId + '" style="display:none"><pre>' + escapeHtml(result) + '</pre></div>' : '';
-        return '<div class="card"><div class="card-content"><span class="tag is-success is-light">result</span><code>' + toolId + '</code><pre class="tool-result-preview" id="result-preview-' + toolId + '">' + displayText + '</pre>' + extra + fullContent + '</div></div>';
+        var fullContent = truncated ? '<div class="tool-result-full" id="result-full-' + toolId + '" style="display:none"><pre style="white-space:pre-wrap;word-break:break-word;overflow-wrap:break-word;max-width:100%">' + escapeHtml(result) + '</pre></div>' : '';
+        return '<div class="card"><div class="card-content"><span class="tag is-success is-light">result</span><code>' + toolId + '</code><pre class="tool-result-preview" id="result-preview-' + toolId + '" style="white-space:pre-wrap;word-break:break-word;overflow-wrap:break-word;max-width:100%">' + displayText + '</pre>' + extra + fullContent + '</div></div>';
     }
 
     window.toggleResult = function(el) {

@@ -421,7 +421,7 @@ fn map_opencode_event_to_provider_event(line: &str) -> Option<ProviderEvent> {
         }
         "done" | "completed" => Some(ProviderEvent::Done(serde_json::Value::Null)),
         "server.connected" | "session.status" | "session.idle" | "session.created"
-        | "session.updated" | "permission.updated" => None,
+        | "session.updated" | "permission.updated" | "message.part.delta" => None,
         "question.asked" => {
             let props = payload.get("properties")?;
             let qid = props.get("sessionID")?.as_str()?;
@@ -519,19 +519,10 @@ async fn read_sse_to_completion(
             let skip = serde_json::from_str::<serde_json::Value>(&data)
                 .ok()
                 .is_some_and(|v| {
-                    let t = v
-                        .get("payload")
-                        .and_then(|p| p.get("type"))
-                        .and_then(|t| t.as_str());
-                    // Skip streaming text deltas and message.part.delta events
+                    let payload = v.get("payload").unwrap_or(&v);
+                    let t = payload.get("type").and_then(|t| t.as_str());
                     t == Some("message.part.delta")
-                        || (t == Some("message.part.updated")
-                            && v.get("payload")
-                                .and_then(|p| p.get("properties"))
-                                .and_then(|p| p.get("part"))
-                                .and_then(|p| p.get("type"))
-                                .and_then(|t| t.as_str())
-                                == Some("text"))
+                        || t == Some("message.part.updated")
                 });
             if !skip {
                 tracing::info!("SSE #{line_count}: {data}");
@@ -681,18 +672,10 @@ async fn collect_response_via_sse(
             let skip = serde_json::from_str::<serde_json::Value>(&data)
                 .ok()
                 .is_some_and(|v| {
-                    let t = v
-                        .get("payload")
-                        .and_then(|p| p.get("type"))
-                        .and_then(|t| t.as_str());
+                    let payload = v.get("payload").unwrap_or(&v);
+                    let t = payload.get("type").and_then(|t| t.as_str());
                     t == Some("message.part.delta")
-                        || (t == Some("message.part.updated")
-                            && v.get("payload")
-                                .and_then(|p| p.get("properties"))
-                                .and_then(|p| p.get("part"))
-                                .and_then(|p| p.get("type"))
-                                .and_then(|t| t.as_str())
-                                == Some("text"))
+                        || t == Some("message.part.updated")
                 });
             if !skip {
                 tracing::info!("SSE data: {data}");

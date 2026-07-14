@@ -228,8 +228,8 @@ async fn post_create_agent_run(
                             let active_sessions = state.active_sessions.clone();
                             let conversation_id = session_result.conversation_id;
                             let t_id = task_id;
-                            let s_id = session_result.session_id;
                             let project_key = task_id;
+                            let mut s_id = session_result.session_id;
 
                             tokio::spawn(async move {
                                 let mut completed_normally = false;
@@ -249,6 +249,7 @@ async fn post_create_agent_run(
                                             }
 
                                             if let ProviderEvent::SessionStart { session_id } = &event {
+                                                s_id = session_id.clone();
                                                 let _ = db.execute(
                                                     "UPDATE conversations SET provider_session_id = $1 WHERE id = $2",
                                                     hiqlite::params!(session_id, conversation_id.to_string()),

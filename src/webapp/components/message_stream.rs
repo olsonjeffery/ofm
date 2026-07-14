@@ -40,7 +40,7 @@ fn render_event(event: &ProviderEvent) -> String {
             let input_str = serde_json::to_string_pretty(input).unwrap_or_default();
             let id_str = tool_use_id.as_deref().unwrap_or("");
             format!(
-                r#"<div class="card"><div class="card-content"><span class="tag is-info is-light">{}</span> <code>{}</code><pre>{}</pre></div></div>"#,
+                r#"<div class="card"><div class="card-content"><span class="tag is-info is-light">{}</span> <code>{}</code><pre style="white-space:pre-wrap;word-break:break-word;overflow-wrap:break-word;max-width:100%">{}</pre></div></div>"#,
                 tool_name, id_str, input_str
             )
         }
@@ -50,7 +50,7 @@ fn render_event(event: &ProviderEvent) -> String {
         } => {
             let id_str = tool_use_id.as_deref().unwrap_or("");
             format!(
-                r#"<div class="card"><div class="card-content"><span class="tag is-success is-light">result</span> <code>{}</code><pre>{}</pre></div></div>"#,
+                r#"<div class="card"><div class="card-content"><span class="tag is-success is-light">result</span> <code>{}</code><pre style="white-space:pre-wrap;word-break:break-word;overflow-wrap:break-word;max-width:100%">{}</pre></div></div>"#,
                 id_str, result
             )
         }
