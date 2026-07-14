@@ -445,11 +445,17 @@ fn map_opencode_event_to_provider_event(line: &str) -> Option<ProviderEvent> {
                 .and_then(|q| q.get("options"))
                 .and_then(|o| serde_json::from_value::<Vec<QuestionOption>>(o.clone()).ok())
                 .unwrap_or_default();
+            let tool_call_id = props
+                .get("tool")
+                .and_then(|t| t.get("callID"))
+                .and_then(|c| c.as_str())
+                .map(|s| s.to_string());
             Some(ProviderEvent::QuestionAsked {
                 session_id: qid.to_string(),
                 question: question.to_string(),
                 header: header.map(String::from),
                 options,
+                tool_call_id,
             })
         }
         _ => {
@@ -900,26 +906,53 @@ impl LlmProvider for OpenCodeProvider {
         let (base_url, password) = self.server_details().ok_or(ProviderError::NotStarted)?;
         let session_id = input.session_id.clone();
 
-        let last_text = input
+        let messages_arr = input
             .messages
             .as_array()
-            .and_then(|arr| arr.last())
+            .ok_or_else(|| ProviderError::Protocol("messages is not an array".into()))?;
+
+        let last_user_text = messages_arr
+            .iter()
+            .rev()
+            .find(|m| m.get("type").and_then(|t| t.as_str()) == Some("user_text"))
             .and_then(|m| m.get("text"))
             .and_then(|t| t.as_str())
             .unwrap_or("")
             .to_string();
 
-        if last_text.is_empty() {
+        if last_user_text.is_empty() {
             return Err(ProviderError::Protocol("no user text to send".into()));
         }
+
+        // Check if the last non-user event was a question.asked with a tool_call_id
+        let question_tool_call_id = messages_arr
+            .iter()
+            .rev()
+            .skip_while(|m| m.get("type").and_then(|t| t.as_str()) == Some("user_text"))
+            .find(|m| m.get("type").and_then(|t| t.as_str()) == Some("question_asked"))
+            .and_then(|m| m.get("tool_call_id"))
+            .and_then(|t| t.as_str())
+            .map(|s| s.to_string());
+
+        let msg_body = if let Some(ref call_id) = question_tool_call_id {
+            serde_json::json!({
+                "parts": [{
+                    "type": "tool_result",
+                    "tool_use_id": call_id,
+                    "content": last_user_text
+                }]
+            })
+        } else {
+            serde_json::json!({
+                "parts": [{"type": "text", "text": last_user_text}]
+            })
+        };
 
         let msg_resp = self
             .http_client
             .post(format!("{base_url}/session/{session_id}/message"))
             .header("Authorization", basic_auth_header(&password))
-            .json(&serde_json::json!({
-                "parts": [{"type": "text", "text": last_text}]
-            }))
+            .json(&msg_body)
             .send()
             .await?;
         if !msg_resp.status().is_success() {
@@ -1105,12 +1138,38 @@ mod tests {
                 question,
                 header,
                 options,
+                tool_call_id,
             }) if session_id == "sess-1"
                 && question == "What model?"
                 && header == Some("Choose".to_string())
                 && options.len() == 2
                 && options[0].label == "gpt-4"
                 && options[1].label == "claude-3"
+                && tool_call_id.is_none()
+        ));
+    }
+
+    #[test]
+    fn test_map_opencode_event_question_asked_with_tool() {
+        let line = global_event(
+            r#"{"type":"question.asked","properties":{"sessionID":"sess-2","questions":[{"question":"Proceed?","header":"Confirm","options":[{"label":"Yes","description":"Do it"},{"label":"No","description":"Skip"}]}],"tool":{"messageID":"msg_1","callID":"call_123"}}}"#,
+        );
+        let event = map_opencode_event_to_provider_event(&line);
+        assert!(matches!(
+            event,
+            Some(ProviderEvent::QuestionAsked {
+                session_id,
+                question,
+                header,
+                options,
+                tool_call_id,
+            }) if session_id == "sess-2"
+                && question == "Proceed?"
+                && header == Some("Confirm".to_string())
+                && options.len() == 2
+                && options[0].label == "Yes"
+                && options[1].label == "No"
+                && tool_call_id == Some("call_123".to_string())
         ));
     }
 }
