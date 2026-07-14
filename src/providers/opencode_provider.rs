@@ -485,23 +485,25 @@ async fn read_sse_to_completion(
         buf.extend_from_slice(&chunk);
         for data in drain_sse_lines(&mut buf) {
             line_count += 1;
-            // Log SSE data to console, skipping noisy text deltas
-            let is_text_chunk = serde_json::from_str::<serde_json::Value>(&data)
+            // Log SSE data to console, skipping noisy text deltas and part deltas
+            let skip = serde_json::from_str::<serde_json::Value>(&data)
                 .ok()
                 .is_some_and(|v| {
                     let t = v
                         .get("payload")
                         .and_then(|p| p.get("type"))
                         .and_then(|t| t.as_str());
-                    let pt = v
-                        .get("payload")
-                        .and_then(|p| p.get("properties"))
-                        .and_then(|p| p.get("part"))
-                        .and_then(|p| p.get("type"))
-                        .and_then(|t| t.as_str());
-                    t == Some("message.part.updated") && pt == Some("text")
+                    // Skip streaming text deltas and message.part.delta events
+                    t == Some("message.part.delta")
+                        || (t == Some("message.part.updated")
+                            && v.get("payload")
+                                .and_then(|p| p.get("properties"))
+                                .and_then(|p| p.get("part"))
+                                .and_then(|p| p.get("type"))
+                                .and_then(|t| t.as_str())
+                                == Some("text"))
                 });
-            if !is_text_chunk {
+            if !skip {
                 tracing::info!("SSE #{line_count}: {data}");
             }
             // Check for session lifecycle events before dispatching
@@ -626,23 +628,24 @@ async fn collect_response_via_sse(
         };
         buf.extend_from_slice(&chunk);
         for data in drain_sse_lines(&mut buf) {
-            // Log SSE data, skipping noisy text deltas
-            let is_text_chunk = serde_json::from_str::<serde_json::Value>(&data)
+            // Log SSE data, skipping noisy text deltas and part deltas
+            let skip = serde_json::from_str::<serde_json::Value>(&data)
                 .ok()
                 .is_some_and(|v| {
                     let t = v
                         .get("payload")
                         .and_then(|p| p.get("type"))
                         .and_then(|t| t.as_str());
-                    let pt = v
-                        .get("payload")
-                        .and_then(|p| p.get("properties"))
-                        .and_then(|p| p.get("part"))
-                        .and_then(|p| p.get("type"))
-                        .and_then(|t| t.as_str());
-                    t == Some("message.part.updated") && pt == Some("text")
+                    t == Some("message.part.delta")
+                        || (t == Some("message.part.updated")
+                            && v.get("payload")
+                                .and_then(|p| p.get("properties"))
+                                .and_then(|p| p.get("part"))
+                                .and_then(|p| p.get("type"))
+                                .and_then(|t| t.as_str())
+                                == Some("text"))
                 });
-            if !is_text_chunk {
+            if !skip {
                 tracing::info!("SSE data: {data}");
             }
             // Check for session lifecycle events
