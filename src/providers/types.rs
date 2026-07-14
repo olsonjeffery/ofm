@@ -61,6 +61,8 @@ pub enum ProviderEvent {
         questions: Vec<AskedQuestion>,
         #[serde(skip_serializing_if = "Option::is_none")]
         tool_call_id: Option<String>,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        message_id: Option<String>,
     },
 }
 
@@ -199,12 +201,14 @@ impl ProviderEvent {
             ProviderEvent::QuestionAsked {
                 questions,
                 tool_call_id,
+                message_id,
                 ..
             } => (
                 "question_asked".to_string(),
                 serde_json::json!({
                     "questions": questions,
                     "tool_call_id": tool_call_id,
+                    "message_id": message_id,
                 }),
             ),
             ProviderEvent::Ready => ("ready".to_string(), serde_json::json!({})),
@@ -235,6 +239,7 @@ mod tests {
                 ],
             }],
             tool_call_id: Some("call_123".into()),
+            message_id: Some("msg_456".into()),
         };
         let (event_type, payload) = event.to_ws_event();
         assert_eq!(event_type, "question_asked");
@@ -246,5 +251,6 @@ mod tests {
         assert_eq!(qs[0]["options"][0]["label"], "gpt-4");
         assert_eq!(qs[0]["options"][1]["label"], "claude-3");
         assert_eq!(payload["tool_call_id"], "call_123");
+        assert_eq!(payload["message_id"], "msg_456");
     }
 }

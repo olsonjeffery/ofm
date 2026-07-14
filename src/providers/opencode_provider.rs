@@ -448,10 +448,16 @@ fn map_opencode_event_to_provider_event(line: &str) -> Option<ProviderEvent> {
                 .and_then(|t| t.get("callID"))
                 .and_then(|c| c.as_str())
                 .map(|s| s.to_string());
+            let message_id = props
+                .get("tool")
+                .and_then(|t| t.get("messageID"))
+                .and_then(|m| m.as_str())
+                .map(|s| s.to_string());
             Some(ProviderEvent::QuestionAsked {
                 session_id: qid.to_string(),
                 questions,
                 tool_call_id,
+                message_id,
             })
         }
         _ => {
@@ -920,9 +926,26 @@ impl LlmProvider for OpenCodeProvider {
             return Err(ProviderError::Protocol("no user text to send".into()));
         }
 
-        let msg_body = serde_json::json!({
-            "parts": [{"type": "text", "text": last_user_text}]
-        });
+        // Check if the last non-user event was a question.asked — include its messageID
+        let question_message_id = messages_arr
+            .iter()
+            .rev()
+            .skip_while(|m| m.get("type").and_then(|t| t.as_str()) == Some("user_text"))
+            .find(|m| m.get("type").and_then(|t| t.as_str()) == Some("question_asked"))
+            .and_then(|m| m.get("message_id"))
+            .and_then(|t| t.as_str())
+            .map(|s| s.to_string());
+
+        let msg_body = if let Some(ref mid) = question_message_id {
+            serde_json::json!({
+                "messageID": mid,
+                "parts": [{"type": "text", "text": last_user_text}]
+            })
+        } else {
+            serde_json::json!({
+                "parts": [{"type": "text", "text": last_user_text}]
+            })
+        };
 
         let msg_resp = self
             .http_client
@@ -1114,6 +1137,7 @@ mod tests {
                 session_id,
                 ref questions,
                 tool_call_id,
+                message_id,
             }) if session_id == "sess-1"
                 && questions.len() == 1
                 && questions[0].question == "What model?"
@@ -1122,6 +1146,7 @@ mod tests {
                 && questions[0].options[0].label == "gpt-4"
                 && questions[0].options[1].label == "claude-3"
                 && tool_call_id.is_none()
+                && message_id.is_none()
         ));
     }
 
@@ -1137,6 +1162,7 @@ mod tests {
                 session_id,
                 ref questions,
                 tool_call_id,
+                message_id,
             }) if session_id == "sess-2"
                 && questions.len() == 1
                 && questions[0].question == "Proceed?"
@@ -1145,6 +1171,7 @@ mod tests {
                 && questions[0].options[0].label == "Yes"
                 && questions[0].options[1].label == "No"
                 && tool_call_id == Some("call_123".to_string())
+                && message_id == Some("msg_1".to_string())
         ));
     }
 
