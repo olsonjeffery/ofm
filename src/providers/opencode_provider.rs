@@ -491,17 +491,26 @@ impl LlmProvider for OpenCodeProvider {
     ) -> Result<mpsc::Receiver<ProviderEvent>, ProviderError> {
         let (base_url, password) = self.server_details().ok_or(ProviderError::NotStarted)?;
 
+        let working_dir = self.working_dir.lock().unwrap().clone().unwrap_or_default();
+
         let session_resp = self
             .http_client
-            .post(format!("{base_url}/session"))
+            .post(
+                reqwest::Url::parse_with_params(
+                    &format!("{base_url}/session"),
+                    &[("directory", working_dir.to_string_lossy().as_ref())],
+                )
+                .map_err(|e| ProviderError::Protocol(e.to_string()))?,
+            )
             .header("Authorization", basic_auth_header(&password))
             .json(&serde_json::json!({"title": "ofm session"}))
             .send()
             .await?;
-        if !session_resp.status().is_success() {
+        let session_status = session_resp.status();
+        if !session_status.is_success() {
+            let body = session_resp.text().await.unwrap_or_default();
             return Err(ProviderError::Protocol(format!(
-                "failed to create session: {}",
-                session_resp.status()
+                "failed to create session: {session_status} — body: {body}"
             )));
         }
         let session_id: String = session_resp
