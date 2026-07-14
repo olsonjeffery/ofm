@@ -920,29 +920,9 @@ impl LlmProvider for OpenCodeProvider {
             return Err(ProviderError::Protocol("no user text to send".into()));
         }
 
-        // Check if the last non-user event was a question.asked with a tool_call_id
-        let question_tool_call_id = messages_arr
-            .iter()
-            .rev()
-            .skip_while(|m| m.get("type").and_then(|t| t.as_str()) == Some("user_text"))
-            .find(|m| m.get("type").and_then(|t| t.as_str()) == Some("question_asked"))
-            .and_then(|m| m.get("tool_call_id"))
-            .and_then(|t| t.as_str())
-            .map(|s| s.to_string());
-
-        let msg_body = if let Some(ref call_id) = question_tool_call_id {
-            serde_json::json!({
-                "parts": [{
-                    "type": "tool_result",
-                    "tool_use_id": call_id,
-                    "content": last_user_text
-                }]
-            })
-        } else {
-            serde_json::json!({
-                "parts": [{"type": "text", "text": last_user_text}]
-            })
-        };
+        let msg_body = serde_json::json!({
+            "parts": [{"type": "text", "text": last_user_text}]
+        });
 
         let msg_resp = self
             .http_client
