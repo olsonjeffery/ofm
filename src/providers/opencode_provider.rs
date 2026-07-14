@@ -16,6 +16,7 @@ use crate::providers::{HarnessConfig, LlmProvider, ProviderError};
 pub struct OpenCodeProvider {
     config: HarnessConfig,
     provider_snippet: String,
+    provider_id: String,
     server: Mutex<Option<OpenCodeServer>>,
     working_dir: Mutex<Option<PathBuf>>,
     http_client: reqwest::Client,
@@ -33,13 +34,21 @@ impl OpenCodeProvider {
     pub async fn new(config: &HarnessConfig, config_root: &Path) -> Result<Self, ProviderError> {
         let cfg_dir = ProviderConfigDir::new(config_root);
         let provider_cfg = cfg_dir.load_provider_config(&config.provider_config_ref)?;
+        let provider_id = Self::extract_provider_id(&provider_cfg.raw_snippet)
+            .unwrap_or_else(|| "default".to_string());
         Ok(Self {
             config: config.clone(),
             provider_snippet: provider_cfg.raw_snippet,
+            provider_id,
             server: Mutex::new(None),
             working_dir: Mutex::new(None),
             http_client: reqwest::Client::new(),
         })
+    }
+
+    fn extract_provider_id(snippet: &str) -> Option<String> {
+        let v: serde_json::Value = serde_json::from_str(snippet).ok()?;
+        v.get("provider")?.as_object()?.keys().next().cloned()
     }
 
     fn server_details(&self) -> Option<(String, String)> {
@@ -230,6 +239,7 @@ async fn one_shot_with_server(
     password: &str,
     prompt: &str,
     model: &str,
+    provider_id: &str,
 ) -> Result<String, ProviderError> {
     let session_resp = client
         .post(format!("{base_url}/session"))
@@ -254,7 +264,7 @@ async fn one_shot_with_server(
         .post(format!("{base_url}/session/{session_id}/prompt_async"))
         .header("Authorization", basic_auth_header(password))
         .json(&serde_json::json!({
-            "model": model,
+            "model": {"providerID": provider_id, "modelID": model},
             "parts": [{"type": "text", "text": prompt}]
         }))
         .send()
@@ -541,7 +551,7 @@ impl LlmProvider for OpenCodeProvider {
             .post(format!("{base_url}/session/{session_id}/prompt_async"))
             .header("Authorization", basic_auth_header(&password))
             .json(&serde_json::json!({
-                "model": input.model,
+                "model": {"providerID": self.provider_id, "modelID": input.model},
                 "parts": [{"type": "text", "text": input.prompt}]
             }))
             .send()
@@ -588,8 +598,17 @@ impl LlmProvider for OpenCodeProvider {
     }
 
     async fn one_shot_prompt(&self, prompt: &str, model: &str) -> Result<String, ProviderError> {
+        let provider_id = self.provider_id.clone();
         if let Some((base_url, password)) = self.server_details() {
-            one_shot_with_server(&self.http_client, &base_url, &password, prompt, model).await
+            one_shot_with_server(
+                &self.http_client,
+                &base_url,
+                &password,
+                prompt,
+                model,
+                &provider_id,
+            )
+            .await
         } else {
             let config_ref = self.config.provider_config_ref.clone();
             let snippet = self.provider_snippet.clone();
@@ -599,7 +618,15 @@ impl LlmProvider for OpenCodeProvider {
                 &config_ref,
                 &snippet,
                 move |client, base_url, password| async move {
-                    one_shot_with_server(&client, &base_url, &password, &prompt, &model).await
+                    one_shot_with_server(
+                        &client,
+                        &base_url,
+                        &password,
+                        &prompt,
+                        &model,
+                        &provider_id,
+                    )
+                    .await
                 },
             )
             .await
