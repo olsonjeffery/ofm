@@ -248,6 +248,13 @@ async fn post_create_agent_run(
                                                 tracing::warn!("Failed to persist event: {e}");
                                             }
 
+                                            if let ProviderEvent::SessionStart { session_id } = &event {
+                                                let _ = db.execute(
+                                                    "UPDATE conversations SET provider_session_id = $1 WHERE id = $2",
+                                                    hiqlite::params!(session_id, conversation_id.to_string()),
+                                                ).await;
+                                            }
+
                                             let topic = WsTopic {
                                                 kind: WsTopicKind::Task,
                                                 id: TopicId(t_id),

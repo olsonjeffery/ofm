@@ -63,7 +63,7 @@ const MIGRATIONS: &[(&str, &str)] = &[
         "CREATE TABLE IF NOT EXISTS conversations (
             id TEXT PRIMARY KEY,
             task_id INTEGER NOT NULL REFERENCES tasks(id) ON DELETE CASCADE,
-            omp_session_id TEXT,
+            provider_session_id TEXT,
             model TEXT NOT NULL,
             effort TEXT NOT NULL DEFAULT 'medium',
             created_at TEXT NOT NULL DEFAULT ''

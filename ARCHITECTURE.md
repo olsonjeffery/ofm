@@ -52,7 +52,7 @@ The workspace has a single member crate (`ofm` binary) defined inline.
 | `projects` | Project definitions (repo paths, monorepo subproject paths) |
 | `project_members` | Many-to-many user/project join table |
 | `tasks` | Task definitions with workflow state flags |
-| `conversations` | LLM conversation sessions (omp-mediated) |
+| `conversations` | LLM conversation sessions (provider-agnostic via `provider_session_id`, renamed from `omp_session_id`) |
 | `task_agent_runs` | Agent execution tracking per task |
 | `messages` | Transcript events (composite PK: project_key, session_id, seq) |
 | `session_summaries` | Session memory snapshots (composite PK: project_key, session_id) |
@@ -122,7 +122,7 @@ The chat view (`/webapp/projects/{project_id}/tasks/{task_id}/chat`) provides a 
 - **Manual chat**: `POST /api/tasks/{task_id}/conversations/{id}/messages` — persists the user message, loads the transcript, calls `provider.resume_turn()`, and spawns a broadcast task for the response events.
 - **Orchestrator phase skip**: When a phase's agent config is missing (no model configured), `post_create_agent_run` creates a `Blocked` run and returns immediately. `next_agent()` checks config statuses before returning `StartAgent`, skipping unconfigured phases.
 - **Chat API**: `GET /api/tasks/{task_id}/conversations` lists conversations with their associated runs; `GET /api/tasks/{task_id}/conversations/{id}` returns a conversation with its full message transcript.
-- **UI Components**: The chat page has four Leptos SSR components — `ConversationList` (sidebar), `MessageStream` (event display), `ChatInput` (message input with agent-type selector), and `AgentRunBanner` (status bar with config indicators).
+- **UI Components**: The chat page has four Leptos SSR components — `ConversationList` (sidebar), `MessageStream` (event display with `overflow-wrap: break-word` bounding), `ChatInput` (message input — agent-type phases dropdown removed in Task 204), and `AgentRunBanner` (status bar with config indicators).
 
 ## WebApp (Leptos Islands)
 

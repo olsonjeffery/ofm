@@ -16,7 +16,7 @@ pub fn ChatPage(
     current_run: Option<TaskAgentRun>,
     agent_runs: Vec<TaskAgentRun>,
 ) -> impl IntoView {
-    let agent_types: Vec<String> = agent_config_statuses
+    let _agent_types: Vec<String> = agent_config_statuses
         .iter()
         .filter(|s| s.configured)
         .map(|s| s.agent_type.clone())
@@ -48,14 +48,13 @@ pub fn ChatPage(
                     <ConversationList conversations=conversations active_id=None />
                 </div>
                 <div class="column" style="display:flex;flex-direction:column">
-                    <div id="message-stream-container" style="flex:1;overflow-y:auto;min-height:300px">
+                    <div id="message-stream-container" style="flex:1;overflow-y:auto;overflow-x:hidden;min-height:300px">
                         <MessageStream messages=messages />
                     </div>
                     <ChatInput
                         _on_send=Callback::new(|_text: String| {
                             // handled by JS interop
                         })
-                        agent_types=agent_types
                         disabled=is_running
                         _active_conversation_id=None
                         task_id=task_id
@@ -226,6 +225,9 @@ document.addEventListener('DOMContentLoaded', function() {
             case 'thinking_chunk': return '<span style="color:#888;font-style:italic;">' + escapeHtml(evt.delta) + '</span>';
             case 'context_usage': return '<div class="notification is-light is-small">' + escapeHtml(JSON.stringify(evt.usage)) + '</div>';
             case 'error': return '<div class="notification is-danger is-light">' + escapeHtml(evt.error) + '</div>';
+            case 'question_asked':
+                setProcessing(false);
+                return '<div class="box"><strong>' + escapeHtml(evt.header || 'Question') + '</strong><p>' + escapeHtml(evt.question) + '</p></div>';
             case 'done': return '<div class="notification is-success is-light">Done</div>';
             default: return '';
         }
@@ -257,6 +259,9 @@ document.addEventListener('DOMContentLoaded', function() {
                 return '';
             case 'context_usage': return '<div class="notification is-light is-small">' + escapeHtml(JSON.stringify(msg.payload.usage || {})) + '</div>';
             case 'error': return '<div class="notification is-danger is-light">' + escapeHtml(msg.payload.error || '') + '</div>';
+            case 'question_asked':
+                setProcessing(false);
+                return '<div class="box"><strong>' + escapeHtml(msg.payload.header || 'Question') + '</strong><p>' + escapeHtml(msg.payload.question) + '</p></div>';
             case 'done':
                 setProcessing(false);
                 return '<div class="notification is-success is-light">Done</div>';

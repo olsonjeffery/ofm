@@ -1,3 +1,6 @@
+use std::path::PathBuf;
+use std::str::FromStr;
+
 use axum::{
     extract::{Path, State},
     http::StatusCode,
@@ -8,7 +11,8 @@ use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
 use crate::auth::AuthUser;
-use crate::db::schema::{Conversation, ConversationWithRun, TaskAgentRun};
+use crate::db::schema::{AgentType, Conversation, ConversationWithRun, TaskAgentRun};
+use crate::providers::registry;
 use crate::providers::types::{ProviderEvent, ResumeInput};
 use crate::server::ws::message::{ServerMessage, TopicId, WsTopic, WsTopicKind};
 use crate::server::{error::ServerError, state::AppState};
@@ -74,8 +78,8 @@ async fn get_conversation(
         .await
         .ok();
 
-    let omp_session_id = conv.omp_session_id.clone().unwrap_or_default();
-    let messages = transcript::load_transcript(&state.db, &omp_session_id, conv.task_id)
+    let provider_session_id = conv.provider_session_id.clone().unwrap_or_default();
+    let messages = transcript::load_transcript(&state.db, &provider_session_id, conv.task_id)
         .await
         .unwrap_or_default();
 
@@ -120,8 +124,8 @@ async fn send_message(
     let user_event = ProviderEvent::UserText {
         text: body.text.clone(),
     };
-    let omp_session_id = conv.omp_session_id.clone().unwrap_or_default();
-    transcript::persist_event(&state.db, &user_event, &omp_session_id, task_id)
+    let provider_session_id = conv.provider_session_id.clone().unwrap_or_default();
+    transcript::persist_event(&state.db, &user_event, &provider_session_id, task_id)
         .await
         .map_err(|e| ServerError::Internal(e.to_string()))?;
 
@@ -147,11 +151,11 @@ async fn send_message(
             tracing::debug!(
                 task_id = %task_id,
                 conversation_id = %conv_id,
-                session_id = %omp_session_id,
+                session_id = %provider_session_id,
                 "Found active provider, loading transcript"
             );
 
-            let messages = transcript::load_transcript(&state.db, &omp_session_id, task_id)
+            let messages = transcript::load_transcript(&state.db, &provider_session_id, task_id)
                 .await
                 .map_err(|e| ServerError::Internal(e.to_string()))?;
 
@@ -165,21 +169,21 @@ async fn send_message(
             let messages_json = serde_json::to_value(&messages)
                 .map_err(|e| ServerError::Internal(e.to_string()))?;
 
-            let resume_input = ResumeInput::new(omp_session_id.clone(), messages_json);
+            let resume_input = ResumeInput::new(provider_session_id.clone(), messages_json);
 
             match p.resume_turn(resume_input).await {
                 Ok(mut rx) => {
                     tracing::info!(
                         task_id = %task_id,
                         conversation_id = %conv_id,
-                        session_id = %omp_session_id,
+                        session_id = %provider_session_id,
                         "Successfully resumed turn, spawning broadcast task"
                     );
                     let db = state.db.clone();
                     let ws_bus = state.ws_bus.clone();
                     let active_sessions = state.active_sessions.clone();
                     let t_id = task_id;
-                    let s_id = omp_session_id;
+                    let s_id = provider_session_id;
                     let project_key = task_id;
                     let c_id = conv_id;
 
@@ -197,6 +201,13 @@ async fn send_message(
                                         &db, &event, &s_id, project_key
                                     ).await {
                                         tracing::warn!("Failed to persist event: {e}");
+                                    }
+
+                                    if let ProviderEvent::SessionStart { session_id } = &event {
+                                        let _ = db.execute(
+                                            "UPDATE conversations SET provider_session_id = $1 WHERE id = $2",
+                                            hiqlite::params!(session_id, c_id.to_string()),
+                                        ).await;
                                     }
 
                                     let topic = WsTopic {
@@ -248,7 +259,7 @@ async fn send_message(
                     tracing::warn!(
                         task_id = %task_id,
                         conversation_id = %conv_id,
-                        session_id = %omp_session_id,
+                        session_id = %provider_session_id,
                         error = %e,
                         "Failed to resume turn"
                     );
@@ -261,11 +272,76 @@ async fn send_message(
             tracing::warn!(
                 task_id = %task_id,
                 conversation_id = %conv_id,
-                "No active provider session found for conversation"
+                "No active provider — attempting lazy recreation after restart"
             );
-            Err(ServerError::NotFound(
-                "No active provider session for this conversation".into(),
+
+            let psid = conv.provider_session_id.as_deref().unwrap_or("");
+            if psid.starts_with("UNSET_") {
+                return Err(ServerError::NotFound(
+                    "Session was never started. Start a new agent run.".into(),
+                ));
+            }
+
+            drop(sessions);
+
+            let run = tasks::get_agent_run_by_conversation(&state.db, &conv_id)
+                .await
+                .map_err(|_| {
+                    ServerError::NotFound("No active session for this conversation".into())
+                })?;
+
+            let agent_type =
+                AgentType::from_str(&run.agent_type.to_string()).map_err(|_| {
+                    ServerError::Internal("Invalid agent type".into())
+                })?;
+
+            let harness_config = registry::resolve_harness_config(
+                &state.db,
+                &agent_type,
+                Some(&task.user_id),
+                Some(task.project_id),
+            )
+            .await
+            .map_err(|e| {
+                ServerError::Internal(format!("Failed to resolve provider config: {e}"))
+            })?;
+
+            let config_root = PathBuf::from(&state.config_root);
+            let mut provider = registry::resolve_provider(
+                &harness_config,
+                std::path::Path::new("omp"),
+                &config_root,
+            )
+            .await
+            .map_err(|e| ServerError::Internal(format!("Failed to resolve provider: {e}")))?;
+
+            let worktree = tasks::get_worktree_by_task(&state.db, task_id).await.ok();
+            let working_dir = worktree
+                .as_ref()
+                .map(|w| PathBuf::from(&w.worktree_path))
+                .unwrap_or_else(|| PathBuf::from("/tmp"));
+
+            provider
+                .start(&working_dir)
+                .await
+                .map_err(|e| ServerError::Internal(format!("Failed to start provider: {e}")))?;
+
+            state
+                .active_sessions
+                .lock()
+                .await
+                .insert(conv_id.to_string(), provider);
+
+            // Retry — the provider is now in active_sessions
+            return Box::pin(send_message(
+                auth,
+                State(state),
+                Path((task_id, conv_id)),
+                Json(SendMessageRequest {
+                    text: body.text.clone(),
+                }),
             ))
+            .await;
         }
     }
 }

@@ -109,3 +109,12 @@ a.box:active {
     margin: 0;
     padding: 0.5rem 0;
 }
+
+.message-stream .box,
+.message-stream .card,
+.message-stream .notification,
+.message-stream content {
+    max-width: 100%;
+    overflow-wrap: break-word;
+    word-break: break-word;
+}
