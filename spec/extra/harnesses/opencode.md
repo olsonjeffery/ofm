@@ -70,7 +70,7 @@ user-provided provider configuration is merged on top via `merge_configs` in
 
 ```rust
 let config_path = temp_dir.path().join("opencode.json");
-let base_config = r#"{"provider":{},"telemetry":{"enabled":false}}"#;
+let base_config = r#"{"provider":{}}"#;
 let merged = merge_configs(base_config, &provider_cfg)?;
 std::fs::write(&config_path, &merged)?;
 ```
