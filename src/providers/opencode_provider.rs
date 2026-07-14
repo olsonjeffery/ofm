@@ -521,8 +521,7 @@ async fn read_sse_to_completion(
                 .is_some_and(|v| {
                     let payload = v.get("payload").unwrap_or(&v);
                     let t = payload.get("type").and_then(|t| t.as_str());
-                    t == Some("message.part.delta")
-                        || t == Some("message.part.updated")
+                    t == Some("message.part.delta") || t == Some("message.part.updated")
                 });
             if !skip {
                 tracing::info!("SSE #{line_count}: {data}");
@@ -674,8 +673,7 @@ async fn collect_response_via_sse(
                 .is_some_and(|v| {
                     let payload = v.get("payload").unwrap_or(&v);
                     let t = payload.get("type").and_then(|t| t.as_str());
-                    t == Some("message.part.delta")
-                        || t == Some("message.part.updated")
+                    t == Some("message.part.delta") || t == Some("message.part.updated")
                 });
             if !skip {
                 tracing::info!("SSE data: {data}");
