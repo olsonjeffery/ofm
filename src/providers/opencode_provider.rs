@@ -478,7 +478,7 @@ async fn read_sse_to_completion(
             tracing::debug!("SSE line #{line_count}: {data}");
             if let Some(event) = map_opencode_event_to_provider_event(&data) {
                 let is_done = matches!(&event, ProviderEvent::Done(_));
-                if tx.blocking_send(event).is_err() {
+                if tx.send(event).await.is_err() {
                     return;
                 }
                 if is_done {
