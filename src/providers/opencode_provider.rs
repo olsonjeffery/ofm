@@ -529,10 +529,11 @@ impl LlmProvider for OpenCodeProvider {
             }))
             .send()
             .await?;
-        if !msg_resp.status().is_success() {
+        let msg_status = msg_resp.status();
+        if !msg_status.is_success() {
+            let body = msg_resp.text().await.unwrap_or_default();
             return Err(ProviderError::Protocol(format!(
-                "failed to send message: {}",
-                msg_resp.status()
+                "failed to send message: {msg_status} — body: {body}"
             )));
         }
 
