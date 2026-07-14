@@ -33,7 +33,10 @@ async fn next_seq(
             hiqlite::params!(project_key, session_id),
         )
         .await?;
-    let seq: i64 = rows.first_mut().map(|r| r.get("next_seq")).unwrap_or(1);
+    let seq: i64 = rows
+        .first_mut()
+        .expect("COALESCE query always returns one row")
+        .get("next_seq");
     Ok(seq as i32)
 }
 

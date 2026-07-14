@@ -38,7 +38,7 @@ pub async fn create_model_config(
     config_body: &str,
     harness: &str,
 ) -> Result<UserModelConfig, String> {
-    config_format::validate(config_body).map_err(|e| e.to_string())?;
+    config_format::validate_for_harness(config_body, harness).map_err(|e| e.to_string())?;
 
     let id = Uuid::new_v4();
     let now = chrono::Utc::now().naive_utc().to_string();
@@ -73,7 +73,7 @@ pub async fn update_model_config(
     config_body: &str,
     harness: &str,
 ) -> Result<Option<UserModelConfig>, String> {
-    config_format::validate(config_body).map_err(|e| e.to_string())?;
+    config_format::validate_for_harness(config_body, harness).map_err(|e| e.to_string())?;
 
     let now = chrono::Utc::now().naive_utc().to_string();
     let rows = client
