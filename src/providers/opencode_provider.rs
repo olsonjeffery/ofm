@@ -134,7 +134,7 @@ async fn spawn_opencode_server(
     snippet: &str,
     working_dir: Option<&std::path::Path>,
 ) -> Result<OpenCodeServer, ProviderError> {
-    let base_config = r#"{"provider":{}}"#;
+    let base_config = r#"{"provider":{},"permission":{"edit":"allow","bash":"allow","webfetch":"allow","doom_loop":"allow","external_directory":"allow"}}"#;
     let provider_cfg = PConfig {
         harness: "opencode".to_string(),
         config_ref: config_ref.to_string(),
