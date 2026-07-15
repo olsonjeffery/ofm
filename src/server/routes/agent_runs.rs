@@ -149,7 +149,7 @@ async fn post_create_agent_run(
                     let task_str = task_id.to_string();
                     let doc_path = archive.task_doc_path(&proj_str, &task_str);
                     let context_prompt = archive
-                        .build_context_prompt(&proj_str, &task_str)
+                        .build_context_prompt(&state.footprint, task.project_id, task_id)
                         .ok()
                         .unwrap_or_default();
 
@@ -228,8 +228,8 @@ async fn post_create_agent_run(
                             let active_sessions = state.active_sessions.clone();
                             let conversation_id = session_result.conversation_id;
                             let t_id = task_id;
-                            let s_id = session_result.session_id;
                             let project_key = task_id;
+                            let mut s_id = session_result.session_id;
 
                             tokio::spawn(async move {
                                 let mut completed_normally = false;
@@ -246,6 +246,14 @@ async fn post_create_agent_run(
                                                 &db, &event, &s_id, project_key
                                             ).await {
                                                 tracing::warn!("Failed to persist event: {e}");
+                                            }
+
+                                            if let ProviderEvent::SessionStart { session_id } = &event {
+                                                s_id = session_id.clone();
+                                                let _ = db.execute(
+                                                    "UPDATE conversations SET provider_session_id = $1 WHERE id = $2",
+                                                    hiqlite::params!(session_id, conversation_id.to_string()),
+                                                ).await;
                                             }
 
                                             let topic = WsTopic {

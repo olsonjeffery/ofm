@@ -10,7 +10,9 @@ use tokio_stream::StreamExt;
 use uuid::Uuid;
 
 use crate::providers::config::{merge_configs, ProviderConfig as PConfig, ProviderConfigDir};
-use crate::providers::types::{ProviderEvent, ResumeInput, TurnInput};
+use crate::providers::types::{
+    AskedQuestion, ProviderEvent, QuestionOption, ResumeInput, TurnInput,
+};
 use crate::providers::{HarnessConfig, LlmProvider, ProviderError};
 
 pub struct OpenCodeProvider {
@@ -421,7 +423,43 @@ fn map_opencode_event_to_provider_event(line: &str) -> Option<ProviderEvent> {
         }
         "done" | "completed" => Some(ProviderEvent::Done(serde_json::Value::Null)),
         "server.connected" | "session.status" | "session.idle" | "session.created"
-        | "session.updated" | "permission.updated" => None,
+        | "session.updated" | "permission.updated" | "message.part.delta" => None,
+        "question.asked" => {
+            let props = payload.get("properties")?;
+            let qid = props.get("sessionID")?.as_str()?;
+            let questions_arr = props.get("questions")?.as_array()?;
+            let mut questions = Vec::with_capacity(questions_arr.len());
+            for q in questions_arr {
+                questions.push(AskedQuestion {
+                    question: q
+                        .get("question")
+                        .and_then(|t| t.as_str())
+                        .unwrap_or("")
+                        .to_string(),
+                    header: q.get("header").and_then(|h| h.as_str()).map(String::from),
+                    options: q
+                        .get("options")
+                        .and_then(|o| serde_json::from_value::<Vec<QuestionOption>>(o.clone()).ok())
+                        .unwrap_or_default(),
+                });
+            }
+            let tool_call_id = props
+                .get("tool")
+                .and_then(|t| t.get("callID"))
+                .and_then(|c| c.as_str())
+                .map(|s| s.to_string());
+            let message_id = props
+                .get("tool")
+                .and_then(|t| t.get("messageID"))
+                .and_then(|m| m.as_str())
+                .map(|s| s.to_string());
+            Some(ProviderEvent::QuestionAsked {
+                session_id: qid.to_string(),
+                questions,
+                tool_call_id,
+                message_id,
+            })
+        }
         _ => {
             tracing::debug!("opencode unhandled event type: {event_type} — {v:?}");
             None
@@ -489,19 +527,9 @@ async fn read_sse_to_completion(
             let skip = serde_json::from_str::<serde_json::Value>(&data)
                 .ok()
                 .is_some_and(|v| {
-                    let t = v
-                        .get("payload")
-                        .and_then(|p| p.get("type"))
-                        .and_then(|t| t.as_str());
-                    // Skip streaming text deltas and message.part.delta events
-                    t == Some("message.part.delta")
-                        || (t == Some("message.part.updated")
-                            && v.get("payload")
-                                .and_then(|p| p.get("properties"))
-                                .and_then(|p| p.get("part"))
-                                .and_then(|p| p.get("type"))
-                                .and_then(|t| t.as_str())
-                                == Some("text"))
+                    let payload = v.get("payload").unwrap_or(&v);
+                    let t = payload.get("type").and_then(|t| t.as_str());
+                    t == Some("message.part.delta") || t == Some("message.part.updated")
                 });
             if !skip {
                 tracing::info!("SSE #{line_count}: {data}");
@@ -582,12 +610,31 @@ async fn read_sse_to_completion(
                 }
                 _ => {}
             }
+            let raw_type = v
+                .get("payload")
+                .and_then(|p| p.get("type"))
+                .and_then(|t| t.as_str());
+            if raw_type == Some("question.asked") {
+                let qsid = v
+                    .get("payload")
+                    .and_then(|p| p.get("properties"))
+                    .and_then(|p| p.get("sessionID"))
+                    .and_then(|s| s.as_str());
+                if qsid == Some(session_id) {
+                    if let Some(event) = map_opencode_event_to_provider_event(&data) {
+                        let _ = tx.send(event).await;
+                    }
+                    return;
+                }
+                continue;
+            }
             if let Some(event) = map_opencode_event_to_provider_event(&data) {
                 let is_done = matches!(&event, ProviderEvent::Done(_));
+                let is_question = matches!(&event, ProviderEvent::QuestionAsked { .. });
                 if tx.send(event).await.is_err() {
                     return;
                 }
-                if is_done {
+                if is_done || is_question {
                     return;
                 }
             }
@@ -632,18 +679,9 @@ async fn collect_response_via_sse(
             let skip = serde_json::from_str::<serde_json::Value>(&data)
                 .ok()
                 .is_some_and(|v| {
-                    let t = v
-                        .get("payload")
-                        .and_then(|p| p.get("type"))
-                        .and_then(|t| t.as_str());
-                    t == Some("message.part.delta")
-                        || (t == Some("message.part.updated")
-                            && v.get("payload")
-                                .and_then(|p| p.get("properties"))
-                                .and_then(|p| p.get("part"))
-                                .and_then(|p| p.get("type"))
-                                .and_then(|t| t.as_str())
-                                == Some("text"))
+                    let payload = v.get("payload").unwrap_or(&v);
+                    let t = payload.get("type").and_then(|t| t.as_str());
+                    t == Some("message.part.delta") || t == Some("message.part.updated")
                 });
             if !skip {
                 tracing::info!("SSE data: {data}");
@@ -826,6 +864,13 @@ impl LlmProvider for OpenCodeProvider {
             .map(|s| s.id)
             .unwrap_or_else(|_| Uuid::new_v4().to_string());
 
+        let (tx, rx) = mpsc::channel(256);
+        let _ = tx
+            .send(ProviderEvent::SessionStart {
+                session_id: session_id.clone(),
+            })
+            .await;
+
         let msg_resp = self
             .http_client
             .post(format!("{base_url}/session/{session_id}/prompt_async"))
@@ -844,7 +889,6 @@ impl LlmProvider for OpenCodeProvider {
             )));
         }
 
-        let (tx, rx) = mpsc::channel(256);
         let client = self.http_client.clone();
         let events_url = format!("{base_url}/event");
         let pw = password.clone();
@@ -859,11 +903,76 @@ impl LlmProvider for OpenCodeProvider {
 
     async fn resume_turn(
         &self,
-        _input: ResumeInput,
+        input: ResumeInput,
     ) -> Result<mpsc::Receiver<ProviderEvent>, ProviderError> {
-        Err(ProviderError::Protocol(
-            "resume_turn not supported by OpenCodeProvider".into(),
-        ))
+        let (base_url, password) = self.server_details().ok_or(ProviderError::NotStarted)?;
+        let session_id = input.session_id.clone();
+
+        let messages_arr = input
+            .messages
+            .as_array()
+            .ok_or_else(|| ProviderError::Protocol("messages is not an array".into()))?;
+
+        let last_user_text = messages_arr
+            .iter()
+            .rev()
+            .find(|m| m.get("type").and_then(|t| t.as_str()) == Some("user_text"))
+            .and_then(|m| m.get("text"))
+            .and_then(|t| t.as_str())
+            .unwrap_or("")
+            .to_string();
+
+        if last_user_text.is_empty() {
+            return Err(ProviderError::Protocol("no user text to send".into()));
+        }
+
+        // Check if the last non-user event was a question.asked — include its messageID
+        let question_message_id = messages_arr
+            .iter()
+            .rev()
+            .skip_while(|m| m.get("type").and_then(|t| t.as_str()) == Some("user_text"))
+            .find(|m| m.get("type").and_then(|t| t.as_str()) == Some("question_asked"))
+            .and_then(|m| m.get("message_id"))
+            .and_then(|t| t.as_str())
+            .map(|s| s.to_string());
+
+        let msg_body = if let Some(ref mid) = question_message_id {
+            serde_json::json!({
+                "messageID": mid,
+                "parts": [{"type": "text", "text": last_user_text}]
+            })
+        } else {
+            serde_json::json!({
+                "parts": [{"type": "text", "text": last_user_text}]
+            })
+        };
+
+        let msg_resp = self
+            .http_client
+            .post(format!("{base_url}/session/{session_id}/prompt_async"))
+            .header("Authorization", basic_auth_header(&password))
+            .json(&msg_body)
+            .send()
+            .await?;
+        if !msg_resp.status().is_success() {
+            let status = msg_resp.status();
+            let body = msg_resp.text().await.unwrap_or_default();
+            return Err(ProviderError::Protocol(format!(
+                "failed to send resume message ({status}): {body}"
+            )));
+        }
+
+        let (tx, rx) = mpsc::channel(256);
+        let client = self.http_client.clone();
+        let events_url = format!("{base_url}/event");
+        let pw = password.clone();
+        let sid = session_id.clone();
+
+        tokio::spawn(async move {
+            read_sse_to_completion(&client, &events_url, &pw, &sid, tx).await;
+        });
+
+        Ok(rx)
     }
 
     async fn abort_turn(&self) -> Result<(), ProviderError> {
@@ -1014,5 +1123,75 @@ mod tests {
         );
         let event = map_opencode_event_to_provider_event(&line);
         assert!(event.is_none());
+    }
+
+    #[test]
+    fn test_map_opencode_event_question_asked() {
+        let line = global_event(
+            r#"{"type":"question.asked","properties":{"sessionID":"sess-1","questions":[{"question":"What model?","header":"Choose","options":[{"label":"gpt-4","description":"Fast"},{"label":"claude-3","description":"Smart"}]}]}}"#,
+        );
+        let event = map_opencode_event_to_provider_event(&line);
+        assert!(matches!(
+            event,
+            Some(ProviderEvent::QuestionAsked {
+                session_id,
+                ref questions,
+                tool_call_id,
+                message_id,
+            }) if session_id == "sess-1"
+                && questions.len() == 1
+                && questions[0].question == "What model?"
+                && questions[0].header == Some("Choose".to_string())
+                && questions[0].options.len() == 2
+                && questions[0].options[0].label == "gpt-4"
+                && questions[0].options[1].label == "claude-3"
+                && tool_call_id.is_none()
+                && message_id.is_none()
+        ));
+    }
+
+    #[test]
+    fn test_map_opencode_event_question_asked_with_tool() {
+        let line = global_event(
+            r#"{"type":"question.asked","properties":{"sessionID":"sess-2","questions":[{"question":"Proceed?","header":"Confirm","options":[{"label":"Yes","description":"Do it"},{"label":"No","description":"Skip"}]}],"tool":{"messageID":"msg_1","callID":"call_123"}}}"#,
+        );
+        let event = map_opencode_event_to_provider_event(&line);
+        assert!(matches!(
+            event,
+            Some(ProviderEvent::QuestionAsked {
+                session_id,
+                ref questions,
+                tool_call_id,
+                message_id,
+            }) if session_id == "sess-2"
+                && questions.len() == 1
+                && questions[0].question == "Proceed?"
+                && questions[0].header == Some("Confirm".to_string())
+                && questions[0].options.len() == 2
+                && questions[0].options[0].label == "Yes"
+                && questions[0].options[1].label == "No"
+                && tool_call_id == Some("call_123".to_string())
+                && message_id == Some("msg_1".to_string())
+        ));
+    }
+
+    #[test]
+    fn test_map_opencode_event_question_asked_multiple() {
+        let line = global_event(
+            r#"{"type":"question.asked","properties":{"sessionID":"sess-3","questions":[{"question":"First?","header":"Q1","options":[{"label":"A","description":"Opt A"}]},{"question":"Second?","header":"Q2","options":[{"label":"B","description":"Opt B"}]}]}}"#,
+        );
+        let event = map_opencode_event_to_provider_event(&line);
+        assert!(matches!(
+            event,
+            Some(ProviderEvent::QuestionAsked {
+                session_id,
+                ref questions,
+                ..
+            }) if session_id == "sess-3" && questions.len() == 2
+                && questions[0].question == "First?"
+                && questions[0].header == Some("Q1".to_string())
+                && questions[1].question == "Second?"
+                && questions[1].header == Some("Q2".to_string())
+        ));
     }
 }

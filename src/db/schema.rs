@@ -128,7 +128,7 @@ pub struct Task {
 pub struct Conversation {
     pub id: Uuid,
     pub task_id: i64,
-    pub omp_session_id: Option<String>,
+    pub provider_session_id: Option<String>,
     pub model: String,
     pub effort: String,
     pub name: Option<String>,
@@ -379,7 +379,7 @@ impl From<&mut Row<'_>> for Conversation {
                 .parse()
                 .expect("invalid UUID in database"),
             task_id: row.get::<i64>("task_id"),
-            omp_session_id: row.get("omp_session_id"),
+            provider_session_id: row.get("provider_session_id"),
             model: row.get("model"),
             effort: row.get("effort"),
             name: row.get("name"),
