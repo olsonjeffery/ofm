@@ -8,6 +8,10 @@
 </p>
 
 <p align="center">
+  <strong>⚠️ WARNING: ofm is alpha quality software ⚠️</strong>
+</p>
+
+<p align="center">
     (Pronounce it as an acronym: oh-eff-em)
 </p>
 
