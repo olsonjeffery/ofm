@@ -3,7 +3,6 @@ use leptos::prelude::*;
 #[component]
 pub fn ChatInput(
     _on_send: leptos::prelude::Callback<String>,
-    agent_types: Vec<String>,
     disabled: bool,
     _active_conversation_id: Option<uuid::Uuid>,
     task_id: i64,
@@ -33,23 +32,6 @@ pub fn ChatInput(
                         </button>
                     </div>
                 </div>
-                {if !agent_types.is_empty() {
-                    view! {
-                        <div class="field">
-                            <div class="control">
-                                <div class="select is-small">
-                                    <select id="chat-agent-type">
-                                        {agent_types.iter().map(|t| {
-                                            view! { <option value={t.clone()}>{t.clone()}</option> }
-                                        }).collect::<Vec<_>>()}
-                                    </select>
-                                </div>
-                            </div>
-                        </div>
-                    }.into_any()
-                } else {
-                    view! { <div></div> }.into_any()
-                }}
             </form>
         </div>
     }
@@ -64,7 +46,6 @@ mod tests {
         let html = leptos::view! {
             <ChatInput
                 _on_send=Callback::new(|_: String| {})
-                agent_types=vec!["implementation".to_string()]
                 disabled=false
                 _active_conversation_id=None
                 task_id=42
@@ -81,7 +62,6 @@ mod tests {
         let html = leptos::view! {
             <ChatInput
                 _on_send=Callback::new(|_: String| {})
-                agent_types=vec![]
                 disabled=true
                 _active_conversation_id=None
                 task_id=1
@@ -89,21 +69,5 @@ mod tests {
         }
         .to_html();
         assert!(html.contains("disabled"));
-    }
-
-    #[test]
-    fn test_chat_input_with_agent_types() {
-        let html = leptos::view! {
-            <ChatInput
-                _on_send=Callback::new(|_: String| {})
-                agent_types=vec!["implementation".to_string(), "review".to_string()]
-                disabled=false
-                _active_conversation_id=None
-                task_id=1
-            />
-        }
-        .to_html();
-        assert!(html.contains("implementation"));
-        assert!(html.contains("review"));
     }
 }

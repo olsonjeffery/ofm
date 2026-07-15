@@ -16,7 +16,7 @@ pub fn ChatPage(
     current_run: Option<TaskAgentRun>,
     agent_runs: Vec<TaskAgentRun>,
 ) -> impl IntoView {
-    let agent_types: Vec<String> = agent_config_statuses
+    let _agent_types: Vec<String> = agent_config_statuses
         .iter()
         .filter(|s| s.configured)
         .map(|s| s.agent_type.clone())
@@ -48,14 +48,13 @@ pub fn ChatPage(
                     <ConversationList conversations=conversations active_id=None />
                 </div>
                 <div class="column" style="display:flex;flex-direction:column">
-                    <div id="message-stream-container" style="flex:1;overflow-y:auto;min-height:300px">
+                    <div id="message-stream-container" style="flex:1;overflow-y:auto;overflow-x:hidden;min-height:300px">
                         <MessageStream messages=messages />
                     </div>
                     <ChatInput
                         _on_send=Callback::new(|_text: String| {
                             // handled by JS interop
                         })
-                        agent_types=agent_types
                         disabled=is_running
                         _active_conversation_id=None
                         task_id=task_id
@@ -226,6 +225,21 @@ document.addEventListener('DOMContentLoaded', function() {
             case 'thinking_chunk': return '<span style="color:#888;font-style:italic;">' + escapeHtml(evt.delta) + '</span>';
             case 'context_usage': return '<div class="notification is-light is-small">' + escapeHtml(JSON.stringify(evt.usage)) + '</div>';
             case 'error': return '<div class="notification is-danger is-light">' + escapeHtml(evt.error) + '</div>';
+            case 'question_asked':
+                setProcessing(false);
+                if (!evt.questions) return '';
+                var html = '';
+                evt.questions.forEach(function(q) {
+                    var hdr = q.header || 'Question';
+                    var opts = '';
+                    if (q.options) {
+                        q.options.forEach(function(o) {
+                            opts += '<span class="tag is-info is-light" style="margin:0.15rem">' + escapeHtml(o.label) + '</span> ';
+                        });
+                    }
+                    html += '<div class="box"><strong>' + escapeHtml(hdr) + '</strong><p>' + escapeHtml(q.question) + '</p><div style="margin-top:0.5rem">' + opts + '</div></div>';
+                });
+                return html;
             case 'done': return '<div class="notification is-success is-light">Done</div>';
             default: return '';
         }
@@ -257,6 +271,21 @@ document.addEventListener('DOMContentLoaded', function() {
                 return '';
             case 'context_usage': return '<div class="notification is-light is-small">' + escapeHtml(JSON.stringify(msg.payload.usage || {})) + '</div>';
             case 'error': return '<div class="notification is-danger is-light">' + escapeHtml(msg.payload.error || '') + '</div>';
+            case 'question_asked':
+                setProcessing(false);
+                var questions = msg.payload.questions || [];
+                var qHtml = '';
+                questions.forEach(function(q) {
+                    var hdr = q.header || 'Question';
+                    var opts = '';
+                    if (q.options) {
+                        q.options.forEach(function(o) {
+                            opts += '<span class="tag is-info is-light" style="margin:0.15rem">' + escapeHtml(o.label) + '</span> ';
+                        });
+                    }
+                    qHtml += '<div class="box"><strong>' + escapeHtml(hdr) + '</strong><p>' + escapeHtml(q.question) + '</p><div style="margin-top:0.5rem">' + opts + '</div></div>';
+                });
+                return qHtml;
             case 'done':
                 setProcessing(false);
                 return '<div class="notification is-success is-light">Done</div>';
@@ -268,7 +297,7 @@ document.addEventListener('DOMContentLoaded', function() {
         var toolName = escapeHtml(payload.tool_name || 'unknown');
         var toolId = escapeHtml(payload.tool_use_id || '');
         var inputStr = escapeHtml(JSON.stringify(payload.input, null, 2));
-        return '<div class="card"><div class="card-content"><span class="tag is-info is-light">' + toolName + '</span><code>' + toolId + '</code><div id="tool-input-' + toolId + '" class="tool-input-box" style="margin-top:0.25rem"><pre>' + inputStr + '</pre></div></div></div>';
+        return '<div class="card"><div class="card-content"><span class="tag is-info is-light">' + toolName + '</span><code>' + toolId + '</code><div id="tool-input-' + toolId + '" class="tool-input-box" style="margin-top:0.25rem"><pre style="white-space:pre-wrap;word-break:break-word;overflow-wrap:break-word;max-width:100%">' + inputStr + '</pre></div></div></div>';
     }
 
     function renderToolResult(payload) {
@@ -277,8 +306,8 @@ document.addEventListener('DOMContentLoaded', function() {
         var truncated = result.length > 100;
         var displayText = truncated ? escapeHtml(result.substring(0, 100)) + '...' : escapeHtml(result);
         var extra = truncated ? '<a href="#" class="toggle-result" data-tool-id="' + toolId + '" onclick="toggleResult(this);return false">show more</a>' : '';
-        var fullContent = truncated ? '<div class="tool-result-full" id="result-full-' + toolId + '" style="display:none"><pre>' + escapeHtml(result) + '</pre></div>' : '';
-        return '<div class="card"><div class="card-content"><span class="tag is-success is-light">result</span><code>' + toolId + '</code><pre class="tool-result-preview" id="result-preview-' + toolId + '">' + displayText + '</pre>' + extra + fullContent + '</div></div>';
+        var fullContent = truncated ? '<div class="tool-result-full" id="result-full-' + toolId + '" style="display:none"><pre style="white-space:pre-wrap;word-break:break-word;overflow-wrap:break-word;max-width:100%">' + escapeHtml(result) + '</pre></div>' : '';
+        return '<div class="card"><div class="card-content"><span class="tag is-success is-light">result</span><code>' + toolId + '</code><pre class="tool-result-preview" id="result-preview-' + toolId + '" style="white-space:pre-wrap;word-break:break-word;overflow-wrap:break-word;max-width:100%">' + displayText + '</pre>' + extra + fullContent + '</div></div>';
     }
 
     window.toggleResult = function(el) {

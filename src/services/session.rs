@@ -17,12 +17,12 @@ pub async fn start_session(
 ) -> Result<SessionStart, hiqlite::Error> {
     let conversation_id = Uuid::new_v4();
     let run_id = Uuid::new_v4();
-    let session_id = Uuid::new_v4().to_string();
+    let session_id = format!("UNSET_{}", Uuid::new_v4());
     let now = chrono::Utc::now().naive_utc().to_string();
 
     client
         .execute(
-            "INSERT INTO conversations (id, task_id, omp_session_id, model, effort, created_at) VALUES ($1, $2, $3, $4, $5, $6)",
+            "INSERT INTO conversations (id, task_id, provider_session_id, model, effort, created_at) VALUES ($1, $2, $3, $4, $5, $6)",
             hiqlite::params!(
                 conversation_id.to_string(),
                 task_id,
@@ -60,7 +60,7 @@ pub async fn resume_session(
 ) -> Result<Conversation, hiqlite::Error> {
     client
         .query_map_one::<Conversation, _>(
-            "SELECT id, task_id, omp_session_id, model, effort, name, created_at FROM conversations WHERE id = $1",
+                "SELECT id, task_id, provider_session_id, model, effort, name, created_at FROM conversations WHERE id = $1",
             hiqlite::params!(conversation_id.to_string()),
         )
         .await
@@ -70,7 +70,7 @@ pub async fn abort_session(client: &Client, session_id: &str) -> Result<(), hiql
     let now = chrono::Utc::now().naive_utc().to_string();
     client
         .execute(
-            "UPDATE task_agent_runs SET status = $1, completed_at = $2 WHERE conversation_id = (SELECT id FROM conversations WHERE omp_session_id = $3)",
+            "UPDATE task_agent_runs SET status = $1, completed_at = $2 WHERE conversation_id = (SELECT id FROM conversations WHERE provider_session_id = $3)",
             hiqlite::params!(RunStatus::Failed.to_string(), &now, session_id),
         )
         .await?;
@@ -167,7 +167,7 @@ mod tests {
 
         let conv: Conversation = client
             .query_map_one(
-                "SELECT id, task_id, omp_session_id, model, effort, name, created_at FROM conversations WHERE id = $1",
+            "SELECT id, task_id, provider_session_id, model, effort, name, created_at FROM conversations WHERE id = $1",
                 hiqlite::params!(result.conversation_id.to_string()),
             )
             .await
@@ -176,7 +176,11 @@ mod tests {
         assert_eq!(conv.task_id, task_id);
         assert_eq!(conv.model, "test-model");
         assert_eq!(conv.effort, "balanced");
-        assert_eq!(conv.omp_session_id, Some(result.session_id.clone()));
+        assert_eq!(conv.provider_session_id, Some(result.session_id.clone()));
+        assert!(
+            result.session_id.starts_with("UNSET_"),
+            "session_id should start with UNSET_ prefix"
+        );
         assert_eq!(conv.id, result.conversation_id);
     }
 

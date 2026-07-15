@@ -148,7 +148,7 @@ pub async fn list_conversations_for_task(
 ) -> Result<Vec<ConversationWithRun>, hiqlite::Error> {
     let conversations = client
         .query_map::<Conversation, _>(
-            "SELECT id, task_id, omp_session_id, model, effort, name, created_at FROM conversations WHERE task_id = $1 ORDER BY created_at DESC",
+            "SELECT id, task_id, provider_session_id, model, effort, name, created_at FROM conversations WHERE task_id = $1 ORDER BY created_at DESC",
             hiqlite::params!(task_id),
         )
         .await?;

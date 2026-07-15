@@ -124,7 +124,7 @@ mod tests {
         Conversation {
             id,
             task_id: 1,
-            omp_session_id: Some("sess-1".into()),
+            provider_session_id: Some("sess-1".into()),
             model: "gpt-4".into(),
             effort: "balanced".into(),
             name: Some(name.into()),

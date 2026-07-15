@@ -40,7 +40,7 @@ fn render_event(event: &ProviderEvent) -> String {
             let input_str = serde_json::to_string_pretty(input).unwrap_or_default();
             let id_str = tool_use_id.as_deref().unwrap_or("");
             format!(
-                r#"<div class="card"><div class="card-content"><span class="tag is-info is-light">{}</span> <code>{}</code><pre>{}</pre></div></div>"#,
+                r#"<div class="card"><div class="card-content"><span class="tag is-info is-light">{}</span> <code>{}</code><pre style="white-space:pre-wrap;word-break:break-word;overflow-wrap:break-word;max-width:100%">{}</pre></div></div>"#,
                 tool_name, id_str, input_str
             )
         }
@@ -50,7 +50,7 @@ fn render_event(event: &ProviderEvent) -> String {
         } => {
             let id_str = tool_use_id.as_deref().unwrap_or("");
             format!(
-                r#"<div class="card"><div class="card-content"><span class="tag is-success is-light">result</span> <code>{}</code><pre>{}</pre></div></div>"#,
+                r#"<div class="card"><div class="card-content"><span class="tag is-success is-light">result</span> <code>{}</code><pre style="white-space:pre-wrap;word-break:break-word;overflow-wrap:break-word;max-width:100%">{}</pre></div></div>"#,
                 id_str, result
             )
         }
@@ -99,6 +99,23 @@ fn render_event(event: &ProviderEvent) -> String {
                     txt
                 )
             }
+        }
+        ProviderEvent::QuestionAsked { ref questions, .. } => {
+            let mut html = String::new();
+            for q in questions {
+                let hdr = q.header.as_deref().unwrap_or("Question");
+                let opts_html: String = q
+                    .options
+                    .iter()
+                    .map(|o| format!(r#"<span class="tag is-info is-light">{}</span>"#, o.label))
+                    .collect::<Vec<_>>()
+                    .join(" ");
+                html.push_str(&format!(
+                    r#"<div class="box"><strong>{}</strong><p>{}</p><div style="margin-top:0.5rem">{}</div></div>"#,
+                    hdr, q.question, opts_html
+                ));
+            }
+            html
         }
         ProviderEvent::Done(_) => {
             r#"<div class="notification is-success is-light">Done</div>"#.to_string()
@@ -190,7 +207,7 @@ pub fn MessageStream(messages: Vec<ProviderEvent>) -> impl IntoView {
     let clean = sanitize_html(&rendered);
 
     view! {
-        <div id="message-stream" class="message-stream" style="flex:1;overflow-y:auto;padding:1rem">
+        <div id="message-stream" class="message-stream" style="flex:1;overflow-y:auto;overflow-x:hidden;padding:1rem;overflow-wrap:break-word">
             {if messages.is_empty() {
                 view! { <p class="has-text-grey">"No messages yet. Start a conversation to see messages here."</p> }.into_any()
             } else {

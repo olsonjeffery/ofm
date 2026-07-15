@@ -4,6 +4,8 @@ pub mod paths;
 use std::os::unix::fs::PermissionsExt;
 use std::path::{Path, PathBuf};
 
+use crate::worktree::get_worktree_path;
+
 pub struct ArchiveRoot {
     root: PathBuf,
 }
@@ -116,13 +118,18 @@ impl ArchiveRoot {
 
     pub fn build_context_prompt(
         &self,
-        project_id: &str,
-        task_id: &str,
+        ofm_footprint_path: &str,
+        project_id: i64,
+        task_id: i64,
     ) -> Result<String, Box<dyn std::error::Error>> {
-        let task_doc_path = self.task_doc_path(project_id, task_id);
-        let port = Self::get_dev_server_port(task_id)?;
+        let proj_str = project_id.to_string();
+        let task_str = task_id.to_string();
+        let task_doc_path = self.task_doc_path(&proj_str, &task_str);
+        let port = Self::get_dev_server_port(&task_str)?;
 
         let mut sections: Vec<String> = Vec::new();
+
+        let worktree_path = get_worktree_path(ofm_footprint_path, project_id, task_id);
 
         // Task Plan File section
         let task_plan = format!(
@@ -132,17 +139,18 @@ impl ArchiveRoot {
 The canonical task plan — also known as the specification for this task — is stored at:
 `{}`
 
+While working on this task, your **authoratative** working directly (Which should also be your CWD) is {}. It is a git worktree, so you can do normal git lifecycle actions within it. **You are not permitted to make changes outside of this directory**.
+
 **At the start of this conversation, before answering the user's first message, you MUST read this file in full using the Read tool.** It contains the requirements, constraints, and prior decisions you need to do this work correctly. Do not skip this step even if the user's first message looks unrelated to the plan.
 
-When the user refers to the \"task plan\", \"task doc\", \"task spec\", \"specifications\", or asks you to read or update the task documentation, this is the file — read or edit it directly with the Read/Edit tool. Do NOT search for it elsewhere; the path above is authoritative.
-
-Note: any `.bottega/tasks/*.md` files inside the repo itself are legacy from before task docs were moved to a central archive. Ignore them — the path above is the only source of truth.",
-            task_doc_path.display()
+When the user refers to the \"task plan\", \"task doc\", \"task spec\", \"specifications\", or asks you to read or update the task documentation, this is the file — read or edit it directly with the Read/Edit tool. Do NOT search for it elsewhere; the path above is authoritative.",
+            task_doc_path.display(),
+            worktree_path.display(),
         );
         sections.push(task_plan);
 
         // Input Files section
-        let tasks_root = self.root.join("projects").join(project_id).join("tasks");
+        let tasks_root = self.root.join("projects").join(&proj_str).join("tasks");
         let input_dir = tasks_root
             .join(format!("task-{task_id}"))
             .join("input_files");
@@ -311,7 +319,7 @@ mod tests {
         let dir = tempfile::TempDir::new().unwrap();
         let root = ArchiveRoot::new(dir.path().to_path_buf());
 
-        let prompt = root.build_context_prompt("p1", "42").unwrap();
+        let prompt = root.build_context_prompt("/foo", 1, 42).unwrap();
         assert!(prompt.contains("Task Plan File"));
         assert!(prompt.contains("task-42.md"));
         assert!(prompt.contains("Testing Configuration"));
@@ -325,7 +333,7 @@ mod tests {
         let dir = tempfile::TempDir::new().unwrap();
         let root = ArchiveRoot::new(dir.path().to_path_buf());
 
-        let prompt = root.build_context_prompt("p1", "1").unwrap();
+        let prompt = root.build_context_prompt("/foo", 1, 1).unwrap();
         assert!(!prompt.contains("Input Files"));
     }
 
