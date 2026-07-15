@@ -102,6 +102,9 @@ pub fn TaskDetailPage(
         AgentType::Pr,
     ];
 
+    let doc_value = doc_content.clone().unwrap_or_default();
+    let doc_escaped = html_escape::encode_text(&doc_value).to_string();
+
     view! {
         <section class="section">
             <nav class="breadcrumb" aria-label="breadcrumbs">
@@ -148,7 +151,7 @@ pub fn TaskDetailPage(
                     <div class="field">
                         <label class="label" for="edit-task-doc">"Document"</label>
                         <div class="control">
-                            <textarea id="edit-task-doc" name="doc_content" class="textarea" rows="10">{doc_content.clone().unwrap_or_default()}</textarea>
+                            <textarea id="edit-task-doc" name="doc_content" class="textarea" rows="10">{doc_escaped}</textarea>
                         </div>
                     </div>
                     <div class="field">
