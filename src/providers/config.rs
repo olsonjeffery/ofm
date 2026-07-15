@@ -54,6 +54,11 @@ impl ProviderConfigDir {
         let path = self.config_path(name);
         let raw_snippet =
             std::fs::read_to_string(&path).map_err(|e| ProviderError::Config(e.to_string()))?;
+        let raw_snippet = if name.ends_with(".json") {
+            trim_json_input(&raw_snippet).to_string()
+        } else {
+            raw_snippet
+        };
         let harness = if name.ends_with(".yaml") || name.ends_with(".yml") {
             "oh-my-pi"
         } else if name.ends_with(".json") {
@@ -96,11 +101,18 @@ pub fn merge_configs(base: &str, snippet: &ProviderConfig) -> Result<String, Pro
     }
 }
 
+fn trim_json_input(input: &str) -> &str {
+    input.trim_start_matches('\u{feff}').trim()
+}
+
 fn merge_json_configs(base: &str, overlay: &str) -> Result<String, ProviderError> {
     let mut base_val: serde_json::Value =
         serde_json::from_str(base).map_err(|e| ProviderError::Config(e.to_string()))?;
-    let overlay_val: serde_json::Value =
-        serde_json::from_str(overlay).map_err(|e| ProviderError::Config(e.to_string()))?;
+    let overlay = trim_json_input(overlay);
+    let overlay_val: serde_json::Value = serde_json::from_str(overlay).map_err(|e| {
+        let preview: String = overlay.chars().take(80).collect();
+        ProviderError::Config(format!("{e} — raw content preview: {preview:?}"))
+    })?;
     deep_merge(&mut base_val, &overlay_val);
     serde_json::to_string_pretty(&base_val).map_err(|e| ProviderError::Config(e.to_string()))
 }
@@ -247,5 +259,108 @@ mod tests {
             .unwrap();
         let result = cfg_dir.load_provider_config("test.txt");
         assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_trim_json_input_bom() {
+        let input = "\u{feff}{\"key\": \"val\"}";
+        assert_eq!(trim_json_input(input), "{\"key\": \"val\"}");
+    }
+
+    #[test]
+    fn test_trim_json_input_whitespace() {
+        let input = "  {\"key\": \"val\"}  \n";
+        assert_eq!(trim_json_input(input), "{\"key\": \"val\"}");
+    }
+
+    #[test]
+    fn test_trim_json_input_bom_with_whitespace() {
+        let input = "\u{feff}  {\"key\": \"val\"}  ";
+        assert_eq!(trim_json_input(input), "{\"key\": \"val\"}");
+    }
+
+    #[test]
+    fn test_trim_json_input_noop() {
+        let input = "{\"key\": \"val\"}";
+        assert_eq!(trim_json_input(input), "{\"key\": \"val\"}");
+    }
+
+    #[test]
+    fn test_merge_json_trailing_garbage() {
+        let base = r#"{"key": "val"}"#;
+        let snippet = ProviderConfig {
+            harness: "opencode".into(),
+            config_ref: "bad.json".into(),
+            raw_snippet: r#"{"key2": "val2"}extra"#.into(),
+        };
+        let result = merge_configs(base, &snippet);
+        assert!(result.is_err());
+        let err = result.unwrap_err().to_string();
+        assert!(
+            err.contains("raw content preview"),
+            "error should contain content preview, got: {err}"
+        );
+    }
+
+    #[test]
+    fn test_merge_json_bom_prefix() {
+        let base = r#"{"key": "val"}"#;
+        let snippet = ProviderConfig {
+            harness: "opencode".into(),
+            config_ref: "bom.json".into(),
+            raw_snippet: "\u{feff}{\"key2\": \"val2\"}".into(),
+        };
+        let result = merge_configs(base, &snippet);
+        assert!(
+            result.is_ok(),
+            "BOM-prefixed JSON should parse: {:?}",
+            result.err()
+        );
+    }
+
+    #[test]
+    fn test_load_provider_config_strips_bom() {
+        let tmp = TempDir::new().unwrap();
+        let cfg_dir = ProviderConfigDir::new(tmp.path());
+        cfg_dir.ensure_exists().unwrap();
+        cfg_dir
+            .write_provider_config("bom.json", "\u{feff}{\"model\": \"gpt-4\"}")
+            .unwrap();
+        let loaded = cfg_dir.load_provider_config("bom.json").unwrap();
+        assert_eq!(loaded.raw_snippet, "{\"model\": \"gpt-4\"}");
+    }
+
+    #[test]
+    fn test_merge_json_bare_string_trailing() {
+        let base = r#"{"key": "val"}"#;
+        let snippet = ProviderConfig {
+            harness: "opencode".into(),
+            config_ref: "bad2.json".into(),
+            raw_snippet: r#""hello" more"#.into(),
+        };
+        let result = merge_configs(base, &snippet);
+        assert!(result.is_err());
+        let err = result.unwrap_err().to_string();
+        assert!(
+            err.contains("raw content preview"),
+            "error should contain content preview, got: {err}"
+        );
+    }
+
+    #[test]
+    fn test_merge_json_truly_invalid() {
+        let base = r#"{"key": "val"}"#;
+        let snippet = ProviderConfig {
+            harness: "opencode".into(),
+            config_ref: "totally_bad.json".into(),
+            raw_snippet: "{{{".into(),
+        };
+        let result = merge_configs(base, &snippet);
+        assert!(result.is_err());
+        let err = result.unwrap_err().to_string();
+        assert!(
+            err.contains("raw content preview"),
+            "error should contain content preview, got: {err}"
+        );
     }
 }

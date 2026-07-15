@@ -112,6 +112,7 @@ cargo test --lib -- board
 
 # Run integration tests (brings up in-process server)
 cargo test --tests -- webapp_test
+```
 
 ## Documentation Updates
 
