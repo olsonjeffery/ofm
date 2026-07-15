@@ -9,7 +9,7 @@ use axum::{
 };
 use serde::Deserialize;
 
-use crate::agents;
+use crate::agents::{self, pull_request::PullRequestStatus};
 use crate::auth::AuthUser;
 use crate::db::schema::{AgentType, TaskAgentRun};
 use crate::orchestration;
@@ -165,6 +165,12 @@ async fn post_create_agent_run(
                                 agents::implementation::build_implementation_prompt("")
                             }
                             AgentType::Review => agents::review::build_review_prompt(""),
+                            // FIXME: need to thread in real PR status in case it does in fact
+                            // exist..
+                            AgentType::Pr => agents::pull_request::build_pull_request_prompt(
+                                task_id,
+                                &PullRequestStatus::NoPr,
+                            ),
                             _ => String::new(),
                         };
                         if context_prompt.is_empty() {
