@@ -102,6 +102,9 @@ pub fn TaskDetailPage(
         AgentType::Pr,
     ];
 
+    let doc_value = doc_content.clone().unwrap_or_default();
+    let doc_escaped = html_escape::encode_text(&doc_value).to_string();
+
     view! {
         <section class="section">
             <nav class="breadcrumb" aria-label="breadcrumbs">
@@ -146,6 +149,12 @@ pub fn TaskDetailPage(
                         </div>
                     </div>
                     <div class="field">
+                        <label class="label" for="edit-task-doc">"Document"</label>
+                        <div class="control">
+                            <textarea id="edit-task-doc" name="doc_content" class="textarea" rows="10">{doc_escaped}</textarea>
+                        </div>
+                    </div>
+                    <div class="field">
                         <div class="control">
                             <button type="submit" class="button is-success">"Save"</button>
                             <button type="button" id="cancel-edit-task-btn" class="button is-light">"Cancel"</button>
@@ -178,9 +187,6 @@ pub fn TaskDetailPage(
                         <div class="level is-mobile" style="margin-bottom:0.5rem">
                             <div class="level-left">
                                 <h2 class="title is-4">"Documentation"</h2>
-                            </div>
-                            <div class="level-right">
-                                <button class="button is-small is-light">"Edit"</button>
                             </div>
                         </div>
                         {if let Some(ref doc) = doc_content {
@@ -330,10 +336,11 @@ pub fn TaskDetailPage(
                         ev.preventDefault();
                         var title=document.getElementById('edit-task-title').value;
                         var status=document.getElementById('edit-task-status').value;
+                        var docContent=document.getElementById('edit-task-doc').value;
                         apiCall('/api/tasks/'+taskId,{
                             method:'PUT',
                             headers:{'Content-Type':'application/json'},
-                            body:JSON.stringify({title:title,status:status})
+                            body:JSON.stringify({title:title,status:status,doc_content:docContent})
                         }).then(function(r){
                             if(r.ok){window.location.reload();}
                             else{showMessage('Error saving task');}

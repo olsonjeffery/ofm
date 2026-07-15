@@ -80,8 +80,9 @@ http-body-util = "0.1"
 # Markdown rendering (server-side)
 pulldown-cmark = "0.13"
 
-# HTML sanitization for rendered markdown
+# HTML sanitization/escaping
 ammonia = "4"
+html-escape = "0.2"
 
 [features]
 ssr = ["leptos/ssr", "leptos_styling/ssr"]
