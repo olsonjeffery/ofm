@@ -252,10 +252,11 @@ async fn update_task(
 
     if let Some(ref doc_content) = body.doc_content {
         if let Ok(worktree) = services::tasks::get_worktree_by_task(&state.db, id).await {
-            let archive =
-                archive::ArchiveRoot::new(std::path::PathBuf::from(&state.archive_root));
-            let doc_path =
-                archive.task_doc_path(&worktree.project_id.to_string(), &worktree.task_id.to_string());
+            let archive = archive::ArchiveRoot::new(std::path::PathBuf::from(&state.archive_root));
+            let doc_path = archive.task_doc_path(
+                &worktree.project_id.to_string(),
+                &worktree.task_id.to_string(),
+            );
             if let Err(e) = archive.write_task_doc(&doc_path, doc_content) {
                 tracing::warn!("failed to write task doc: {e}");
             }
