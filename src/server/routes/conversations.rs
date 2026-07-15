@@ -35,7 +35,7 @@ pub fn conversations_router() -> Router<AppState> {
         .route("/", get(list_conversations))
         .route("/{id}", get(get_conversation))
         .route("/{id}/messages", post(send_message))
-        .route("/{id}/abort", post(abort_turn))
+        .route("/{id}/abort", post(stop_agent))
 }
 
 async fn list_conversations(
@@ -251,6 +251,13 @@ async fn send_message(
                     }
                 }
                 if !completed_normally {
+                    // Remove provider from active_sessions and shut down
+                    if let Some(mut provider) = active_sessions.lock().await.remove(&c_id.to_string()) {
+                        if let Err(e) = provider.shutdown().await {
+                            tracing::warn!("Error shutting down provider after abnormal end: {e}");
+                        }
+                    }
+
                     let topic = WsTopic {
                         kind: WsTopicKind::Task,
                         id: TopicId(t_id),
@@ -343,7 +350,7 @@ async fn send_message(
     }
 }
 
-async fn abort_turn(
+async fn stop_agent(
     auth: AuthUser,
     State(state): State<AppState>,
     Path((task_id, conv_id)): Path<(i64, Uuid)>,
@@ -351,7 +358,7 @@ async fn abort_turn(
     tracing::info!(
         task_id = %task_id,
         conversation_id = %conv_id,
-        "Aborting current turn"
+        "Stopping agent"
     );
 
     let task = tasks::get_task(&state.db, task_id)
@@ -361,27 +368,31 @@ async fn abort_turn(
         return Err(ServerError::NotFound("Task not found".into()));
     }
 
-    let sessions = state.active_sessions.lock().await;
-    let provider = sessions
-        .get(&conv_id.to_string())
-        .ok_or_else(|| {
-            tracing::warn!(task_id = %task_id, conversation_id = %conv_id, "No active session to abort");
-            ServerError::NotFound("No active session".into())
-        })?;
+    let mut sessions = state.active_sessions.lock().await;
+    if let Some(mut provider) = sessions.remove(&conv_id.to_string()) {
+        let _ = provider.abort_turn().await; // best-effort
+        if let Err(e) = provider.shutdown().await {
+            tracing::warn!("Error shutting down provider: {e}");
+        }
+    }
+    drop(sessions);
 
-    provider
-        .abort_turn()
-        .await
-        .map_err(|e| {
-            tracing::warn!(task_id = %task_id, conversation_id = %conv_id, error = %e, "Failed to abort turn");
-            ServerError::Internal(e.to_string())
-        })?;
+    let _ = state.db.execute(
+        "UPDATE task_agent_runs SET status = 'failed', completed_at = $2 WHERE conversation_id = $1 AND status = 'running'",
+        hiqlite::params!(conv_id.to_string(), chrono::Utc::now().naive_utc().to_string()),
+    ).await;
 
-    tracing::info!(
-        task_id = %task_id,
-        conversation_id = %conv_id,
-        "Turn aborted successfully"
-    );
+    let topic = WsTopic {
+        kind: WsTopicKind::Task,
+        id: TopicId(task_id),
+    };
+    let msg = ServerMessage::Event {
+        topic: topic.clone(),
+        event_type: "error".to_string(),
+        timestamp: chrono::Utc::now(),
+        payload: serde_json::json!({"error": "Agent session ended unexpectedly. Send a message to resume."}),
+    };
+    state.ws_bus.broadcast(&topic, msg).await;
 
     Ok(StatusCode::OK)
 }

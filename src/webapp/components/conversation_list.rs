@@ -1,26 +1,6 @@
 use crate::db::schema::{ConversationWithRun, RunStatus};
 use leptos::prelude::*;
 
-fn run_status_class(status: &RunStatus) -> &'static str {
-    match status {
-        RunStatus::Pending => "is-light",
-        RunStatus::Running => "is-info",
-        RunStatus::Completed => "is-success",
-        RunStatus::Failed => "is-danger",
-        RunStatus::Blocked => "is-warning",
-    }
-}
-
-fn run_status_label(status: &RunStatus) -> &'static str {
-    match status {
-        RunStatus::Pending => "Pending",
-        RunStatus::Running => "Running",
-        RunStatus::Completed => "Completed",
-        RunStatus::Failed => "Failed",
-        RunStatus::Blocked => "Blocked",
-    }
-}
-
 fn is_valid_name(name: &str) -> bool {
     if name.len() < 3 {
         return false;
@@ -90,9 +70,13 @@ pub fn ConversationList(
                                         <small style="flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap"><strong>{name}</strong></small>
                                         <div style="flex-shrink:0">
                                             {if let Some(s) = status {
-                                                view! { <span class={format!("tag is-small {}", run_status_class(s))}>{run_status_label(s)}</span> }.into_any()
+                                                if *s == RunStatus::Running {
+                                                    view! { <span class="icon has-text-info"><i class="mdi mdi-loading mdi-spin"></i></span> }.into_any()
+                                                } else {
+                                                    ().into_any()
+                                                }
                                             } else {
-                                                view! { <span class="tag is-small is-light">"Unknown"</span> }.into_any()
+                                                ().into_any()
                                             }}
                                         </div>
                                     </div>
@@ -163,6 +147,24 @@ mod tests {
         let html =
             leptos::view! { <ConversationList conversations=convs active_id=None /> }.to_html();
         assert!(html.contains("Test Chat"));
-        assert!(html.contains("Completed"));
+        // Badge text should no longer appear for completed runs
+        assert!(!html.contains("Completed"));
+        assert!(!html.contains("tag"));
+    }
+
+    #[test]
+    fn test_conversation_list_shows_spinner_for_running() {
+        let conv_id = uuid::Uuid::new_v4();
+        let mut run = make_run(conv_id);
+        run.status = RunStatus::Running;
+        let convs = vec![ConversationWithRun {
+            conversation: make_conversation(conv_id, "Active Chat"),
+            run: Some(run),
+        }];
+        let html =
+            leptos::view! { <ConversationList conversations=convs active_id=None /> }.to_html();
+        assert!(html.contains("mdi-loading"));
+        assert!(html.contains("mdi-spin"));
+        assert!(!html.contains("Running"));
     }
 }

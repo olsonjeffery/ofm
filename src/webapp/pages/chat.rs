@@ -62,10 +62,7 @@ pub fn ChatPage(
                     <div id="agent-thinking-bar" class={if is_running { "is-active" } else { "" }} style="display:none;padding:0.5rem 1rem;background:#f5f5f5;border-top:1px solid #ddd">
                         <span class="icon has-text-info" style="margin-right:0.5rem"><i class="mdi mdi-loading mdi-spin"></i></span>
                         <span class="has-text-info">Agent is processing...</span>
-                        <button id="stop-agent-btn" class="button is-small is-danger is-light" style="margin-left:auto" onclick="abortCurrentTurn()">"Stop"</button>
-                    </div>
-                    <div style="padding:0.25rem 1rem;text-align:right">
-                        <button id="reset-agent-btn" class="button is-small is-warning is-light" onclick="resetAgentSession()">"Reset Session"</button>
+                        <button id="stop-agent-btn" class="button is-small is-danger is-light" style="margin-left:auto" onclick="stopAgent()">"Stop Agent"</button>
                     </div>
                 </div>
             </div>
@@ -87,29 +84,14 @@ document.addEventListener('DOMContentLoaded', function() {
         if (sendBtn) sendBtn.disabled = processing;
     }
 
-    // Stop button
-    window.abortCurrentTurn = function() {
+    // Stop Agent button
+    window.stopAgent = function() {
         if (!currentConversationId || !taskId) return;
         setProcessing(false);
         apiCall('/api/tasks/' + taskId + '/conversations/' + currentConversationId + '/abort', {
             method: 'POST'
         }).then(function(r) {
-            if (!r.ok) showMessage('Failed to abort');
-        });
-    };
-
-    window.resetAgentSession = function() {
-        if (!taskId) return;
-        setProcessing(false);
-        apiCall('/api/tasks/' + taskId + '/agent-runs/reset', {
-            method: 'POST'
-        }).then(function(r) {
-            if (r.ok) {
-                showMessage('Session reset. You can now start a new agent run.');
-                setTimeout(function() { window.location.reload(); }, 2000);
-            } else {
-                showMessage('Failed to reset session');
-            }
+            if (!r.ok) showMessage('Failed to stop agent');
         });
     };
 
@@ -224,7 +206,9 @@ document.addEventListener('DOMContentLoaded', function() {
             case 'thinking': return '<div class="box message-thinking"><em style="color:#888;">' + escapeHtml(evt.thinking) + '</em></div>';
             case 'thinking_chunk': return '<span style="color:#888;font-style:italic;">' + escapeHtml(evt.delta) + '</span>';
             case 'context_usage': return '<div class="notification is-light is-small">' + escapeHtml(JSON.stringify(evt.usage)) + '</div>';
-            case 'error': return '<div class="notification is-danger is-light">' + escapeHtml(evt.error) + '</div>';
+            case 'error':
+                setProcessing(false);
+                return '<div class="notification is-danger is-light">' + escapeHtml(evt.error) + '</div>';
             case 'question_asked':
                 setProcessing(false);
                 if (!evt.questions) return '';
@@ -270,7 +254,9 @@ document.addEventListener('DOMContentLoaded', function() {
                 }
                 return '';
             case 'context_usage': return '<div class="notification is-light is-small">' + escapeHtml(JSON.stringify(msg.payload.usage || {})) + '</div>';
-            case 'error': return '<div class="notification is-danger is-light">' + escapeHtml(msg.payload.error || '') + '</div>';
+            case 'error':
+                setProcessing(false);
+                return '<div class="notification is-danger is-light">' + escapeHtml(msg.payload.error || '') + '</div>';
             case 'question_asked':
                 setProcessing(false);
                 var questions = msg.payload.questions || [];
@@ -388,6 +374,8 @@ mod tests {
         assert!(html.contains("Chat Test Task"));
         assert!(html.contains("Chat"));
         assert!(html.contains("Conversations"));
+        assert!(html.contains("Stop Agent"));
+        assert!(!html.contains("Reset Session"));
         assert!(html.contains("Start Planification"));
     }
 }

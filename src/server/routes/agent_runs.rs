@@ -287,6 +287,13 @@ async fn post_create_agent_run(
                                     }
                                 }
                                 if !completed_normally {
+                                    // Remove provider from active_sessions and shut down
+                                    if let Some(mut provider) = active_sessions.lock().await.remove(&conversation_id.to_string()) {
+                                        if let Err(e) = provider.shutdown().await {
+                                            tracing::warn!("Error shutting down provider after abnormal end: {e}");
+                                        }
+                                    }
+
                                     // Mark run as failed and notify UI
                                     let _ = db.execute(
                                         "UPDATE task_agent_runs SET status = 'failed' WHERE conversation_id = $1",
