@@ -431,6 +431,41 @@ async fn test_update_task() {
     let body: serde_json::Value = resp.json().await.unwrap();
     assert_eq!(body["title"], "updated title");
     assert_eq!(body["status"], "in_progress");
+
+    // Update doc_content only
+    let resp = client()
+        .put(format!("{}/api/tasks/{}", app.addr, task_id))
+        .json(&serde_json::json!({
+            "doc_content": "Updated document content",
+        }))
+        .send()
+        .await
+        .unwrap();
+
+    assert_eq!(resp.status(), 200);
+
+    // Verify via GET
+    let resp = client()
+        .get(format!("{}/api/tasks/{}", app.addr, task_id))
+        .send()
+        .await
+        .unwrap();
+
+    assert_eq!(resp.status(), 200);
+    let body: serde_json::Value = resp.json().await.unwrap();
+    assert_eq!(body["doc_content"], "Updated document content");
+
+    // Verify archive file was written
+    let worktree = ofm::services::tasks::get_worktree_by_task(&app.db, task_id)
+        .await
+        .unwrap();
+    let doc_path = std::path::PathBuf::from(&app.archive_root)
+        .join("projects")
+        .join(worktree.project_id.to_string())
+        .join("tasks")
+        .join(format!("task-{}.md", worktree.task_id));
+    let file_content = std::fs::read_to_string(&doc_path).unwrap();
+    assert_eq!(file_content, "Updated document content");
 }
 
 #[tokio::test]
@@ -476,6 +511,49 @@ async fn test_update_task_nonexistent() {
         .unwrap();
 
     assert_eq!(resp.status(), 404);
+}
+
+#[tokio::test]
+async fn test_update_task_doc_content_only() {
+    let app = setup_app_with_git().await;
+    let resp = client()
+        .post(format!("{}/api/tasks", app.addr))
+        .json(&serde_json::json!({
+            "project_id": app.project_id,
+            "title": "doc only test",
+            "original_request": "Initial doc",
+        }))
+        .send()
+        .await
+        .unwrap();
+
+    assert_eq!(resp.status(), 201);
+    let created: serde_json::Value = resp.json().await.unwrap();
+    let task_id: i64 = created["id"].as_i64().unwrap();
+
+    // Update with doc_content only (no title/status)
+    let resp = client()
+        .put(format!("{}/api/tasks/{}", app.addr, task_id))
+        .json(&serde_json::json!({
+            "doc_content": "Updated via doc_content_only",
+        }))
+        .send()
+        .await
+        .unwrap();
+
+    assert_eq!(resp.status(), 200);
+
+    // Verify the doc file was updated
+    let worktree = ofm::services::tasks::get_worktree_by_task(&app.db, task_id)
+        .await
+        .unwrap();
+    let doc_path = std::path::PathBuf::from(&app.archive_root)
+        .join("projects")
+        .join(worktree.project_id.to_string())
+        .join("tasks")
+        .join(format!("task-{}.md", worktree.task_id));
+    let file_content = std::fs::read_to_string(&doc_path).unwrap();
+    assert_eq!(file_content, "Updated via doc_content_only");
 }
 
 #[tokio::test]

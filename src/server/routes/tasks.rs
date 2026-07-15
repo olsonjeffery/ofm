@@ -29,6 +29,7 @@ struct CreateTaskRequest {
 struct UpdateTaskRequest {
     title: Option<String>,
     status: Option<String>,
+    doc_content: Option<String>,
 }
 
 #[derive(Debug, serde::Serialize)]
@@ -215,9 +216,9 @@ async fn update_task(
     if existing.user_id != auth.user_id {
         return Err(ServerError::NotFound("Task not found".into()));
     }
-    if body.title.is_none() && body.status.is_none() {
+    if body.title.is_none() && body.status.is_none() && body.doc_content.is_none() {
         return Err(ServerError::BadRequest(
-            "at least one field (title, status) must be provided".into(),
+            "at least one field (title, status, doc_content) must be provided".into(),
         ));
     }
 
@@ -248,6 +249,20 @@ async fn update_task(
                     ServerError::Internal(e.to_string())
                 }
             })?;
+
+    if let Some(ref doc_content) = body.doc_content {
+        if let Ok(worktree) = services::tasks::get_worktree_by_task(&state.db, id).await {
+            let archive = archive::ArchiveRoot::new(std::path::PathBuf::from(&state.archive_root));
+            let doc_path = archive.task_doc_path(
+                &worktree.project_id.to_string(),
+                &worktree.task_id.to_string(),
+            );
+            if let Err(e) = archive.write_task_doc(&doc_path, doc_content) {
+                tracing::warn!("failed to write task doc: {e}");
+            }
+        }
+    }
+
     Ok(Json(task))
 }
 
