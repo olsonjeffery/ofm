@@ -8,7 +8,7 @@
 @use "setup";
 
 // The main lightness of this theme
-$scheme-main-l: 100%;
+$scheme-main-l: 99%;
 
 // The main scheme color, used to make calculations
 $scheme-main: hsl(iv.$scheme-h, iv.$scheme-s, $scheme-main-l);

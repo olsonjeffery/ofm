@@ -30,7 +30,7 @@ pub fn ChatPage(
     let messages = Vec::new();
 
     view! {
-        <section class="section" style="padding-top:1rem;padding-bottom:0">
+        <div id="chat-layout" style="display:flex;flex-direction:column;height:calc(100vh - 3.75rem);overflow:hidden">
             <nav class="breadcrumb" aria-label="breadcrumbs">
                 <ul>
                     <li><a href="/webapp">"Dashboard"</a></li>
@@ -42,40 +42,51 @@ pub fn ChatPage(
 
             <AgentRunBanner task=task agent_config_statuses=agent_config_statuses.clone() current_run=current_run agent_runs=agent_runs />
 
-            <div class="columns" style="margin-top:0.5rem;min-height:60vh">
-                <div class="column is-one-quarter" style="border-right:1px solid #ddd">
+            <div class="columns" style="flex:1;overflow:hidden;display:flex;margin-top:0.5rem">
+                <div class="column is-one-quarter" style="border-right:1px solid #ddd;overflow-y:auto">
                     <h2 class="title is-6">"Conversations"</h2>
                     <ConversationList conversations=conversations active_id=None />
                 </div>
-                <div class="column" style="display:flex;flex-direction:column">
-                    <div id="message-stream-container" style="flex:1;overflow-y:auto;overflow-x:hidden;min-height:300px">
+                <div class="column" style="display:flex;flex-direction:column;overflow:hidden">
+                    <div id="message-stream-container" style="flex:1;overflow-y:auto;overflow-x:hidden">
                         <MessageStream messages=messages />
-                    </div>
-                    <ChatInput
-                        _on_send=Callback::new(|_text: String| {
-                            // handled by JS interop
-                        })
-                        disabled=is_running
-                        _active_conversation_id=None
-                        task_id=task_id
-                    />
-                    <div id="agent-thinking-bar" class={if is_running { "is-active" } else { "" }} style="display:none;padding:0.5rem 1rem;background:#f5f5f5;border-top:1px solid #ddd">
-                        <span class="icon has-text-info" style="margin-right:0.5rem"><i class="mdi mdi-loading mdi-spin"></i></span>
-                        <span class="has-text-info">Agent is processing...</span>
-                        <button id="stop-agent-btn" class="button is-small is-danger is-light" style="margin-left:auto" onclick="abortCurrentTurn()">"Stop"</button>
-                    </div>
-                    <div style="padding:0.25rem 1rem;text-align:right">
-                        <button id="reset-agent-btn" class="button is-small is-warning is-light" onclick="resetAgentSession()">"Reset Session"</button>
+                        <div id="jump-to-newest-pill"
+                             style="display:none;position:sticky;bottom:0.5rem;left:50%;transform:translateX(-50%);z-index:10;background:#3273dc;color:#fff;border-radius:2rem;padding:0.5rem 1rem;cursor:pointer;box-shadow:0 2px 6px rgba(0,0,0,0.2);font-size:0.875rem;white-space:nowrap"
+                             onclick="window.scrollToBottom()">
+                            "↓ Jump to newest"
+                        </div>
                     </div>
                 </div>
             </div>
-        </section>
+            <div id="chat-footer" style="border-top:1px solid #ddd;background:#fff;padding:0.5rem 1rem">
+                <div id="agent-thinking-bar" class={if is_running { "is-active" } else { "" }} style="display:none;padding:0.5rem 1rem;background:#f5f5f5;border-top:1px solid #ddd">
+                    <span class="icon has-text-info" style="margin-right:0.5rem"><i class="mdi mdi-loading mdi-spin"></i></span>
+                    <span class="has-text-info">"Agent is processing..."</span>
+                    <button id="stop-agent-btn" class="button is-small is-danger is-light" style="margin-left:auto" onclick="abortCurrentTurn()">"Stop"</button>
+                </div>
+                <ChatInput
+                    _on_send=Callback::new(|_text: String| {
+                        // handled by JS interop
+                    })
+                    disabled=is_running
+                    _active_conversation_id=None
+                    task_id=task_id
+                />
+                <div style="padding:0.25rem 1rem;text-align:right">
+                    <button id="reset-agent-btn" class="button is-small is-warning is-light" onclick="resetAgentSession()">"Reset Session"</button>
+                </div>
+            </div>
+        </div>
         <script>
             {r##"
 document.addEventListener('DOMContentLoaded', function() {
     var currentConversationId = null;
     var taskId = document.getElementById('chat-form')?.getAttribute('data-task-id');
     var isProcessing = false;
+    var isAtBottom = true;
+    var userScrolledUp = false;
+    var streamContainer = document.getElementById('message-stream-container');
+    var jumpPill = document.getElementById('jump-to-newest-pill');
 
     function setProcessing(processing) {
         isProcessing = processing;
@@ -86,6 +97,22 @@ document.addEventListener('DOMContentLoaded', function() {
         if (input) input.disabled = processing;
         if (sendBtn) sendBtn.disabled = processing;
     }
+
+    // Scroll management
+    if (streamContainer) {
+        streamContainer.addEventListener('scroll', function() {
+            var threshold = 50;
+            isAtBottom = (streamContainer.scrollHeight - streamContainer.scrollTop - streamContainer.clientHeight) < threshold;
+            if (jumpPill) jumpPill.style.display = isAtBottom ? 'none' : 'block';
+        });
+    }
+
+    function scrollToBottom() {
+        isAtBottom = true;
+        if (jumpPill) jumpPill.style.display = 'none';
+        if (streamContainer) streamContainer.scrollTop = streamContainer.scrollHeight;
+    }
+    window.scrollToBottom = scrollToBottom;
 
     // Stop button
     window.abortCurrentTurn = function() {
@@ -134,8 +161,7 @@ document.addEventListener('DOMContentLoaded', function() {
                         html = '<p class="has-text-grey">No messages yet.</p>';
                     }
                     container.innerHTML = html;
-                    var streamContainer = document.getElementById('message-stream-container');
-                    if (streamContainer) streamContainer.scrollTop = streamContainer.scrollHeight;
+                    scrollToBottom();
                 }
             });
     };
@@ -202,8 +228,7 @@ document.addEventListener('DOMContentLoaded', function() {
                     var eventHtml = renderServerEvent(msg);
                     if (eventHtml) {
                         container.insertAdjacentHTML('beforeend', eventHtml);
-                        var streamContainer = document.getElementById('message-stream-container');
-                        if (streamContainer) streamContainer.scrollTop = streamContainer.scrollHeight;
+                        if (isAtBottom) { scrollToBottom(); }
                     }
                 }
             }
@@ -389,5 +414,8 @@ mod tests {
         assert!(html.contains("Chat"));
         assert!(html.contains("Conversations"));
         assert!(html.contains("Start Planification"));
+        assert!(html.contains("chat-layout"));
+        assert!(html.contains("chat-footer"));
+        assert!(html.contains("jump-to-newest-pill"));
     }
 }
