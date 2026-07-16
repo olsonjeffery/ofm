@@ -28,17 +28,8 @@ jobs:
       - run: cargo fmt --check
       - run: cargo clippy --workspace -- -D warnings
 
-  unit-test:
-    name: Unit Tests
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      - uses: dtolnay/rust-toolchain@stable
-      - uses: Swatinem/rust-cache@v2
-      - run: cargo test --lib
-
-  integration-test:
-    name: Integration Tests
+  test:
+    name: Unit + Integration Tests
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
