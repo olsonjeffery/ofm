@@ -31,13 +31,14 @@ pub fn ChatPage(
 
     view! {
         <section class="section" style="padding-top:1rem;padding-bottom:0">
-            <nav class="breadcrumb" aria-label="breadcrumbs">
+            <nav class="breadcrumb" aria-label="breadcrumbs" style="display:flex;align-items:center;justify-content:space-between">
                 <ul>
                     <li><a href="/webapp">"Dashboard"</a></li>
                     <li><a href={format!("/webapp/projects/{}", project_id)}>"Board"</a></li>
                     <li><a href={format!("/webapp/projects/{}/tasks/{}", project_id, task_id)}>{task.title.clone()}</a></li>
                     <li class="is-active"><a href="#">"Chat"</a></li>
                 </ul>
+                <button id="stop-agent-btn" class="button is-small is-danger is-light" onclick="stopAgent()">"Stop Agent"</button>
             </nav>
 
             <AgentRunBanner task=task agent_config_statuses=agent_config_statuses.clone() current_run=current_run agent_runs=agent_runs />
@@ -62,7 +63,6 @@ pub fn ChatPage(
                     <div id="agent-thinking-bar" class={if is_running { "is-active" } else { "" }} style="display:none;padding:0.5rem 1rem;background:#f5f5f5;border-top:1px solid #ddd">
                         <span class="icon has-text-info" style="margin-right:0.5rem"><i class="mdi mdi-loading mdi-spin"></i></span>
                         <span class="has-text-info">Agent is processing...</span>
-                        <button id="stop-agent-btn" class="button is-small is-danger is-light" style="margin-left:auto" onclick="stopAgent()">"Stop Agent"</button>
                     </div>
                 </div>
             </div>
@@ -84,15 +84,14 @@ document.addEventListener('DOMContentLoaded', function() {
         if (sendBtn) sendBtn.disabled = processing;
     }
 
-    // Stop Agent button
+    // Stop Agent button — sweeps all running sessions for the task
     window.stopAgent = function() {
-        if (!currentConversationId || !taskId) return;
+        if (!taskId) return;
         setProcessing(false);
-        apiCall('/api/tasks/' + taskId + '/conversations/' + currentConversationId + '/abort', {
-            method: 'POST'
-        }).then(function(r) {
-            if (!r.ok) showMessage('Failed to stop agent');
-        });
+        apiCall('/api/tasks/' + taskId + '/agent-runs/stop', { method: 'POST' })
+            .then(function(r) {
+                if (!r.ok) showMessage('Failed to stop agent');
+            });
     };
 
     window.handleConversationClick = function(e) {

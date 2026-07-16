@@ -396,7 +396,7 @@ fn map_opencode_event_to_provider_event(line: &str) -> Option<ProviderEvent> {
                             if let Some(text) = part.get("text").and_then(|t| t.as_str()) {
                                 if !text.is_empty() {
                                     return Some(ProviderEvent::TextChunk {
-                                        delta: text.to_string(),
+                                                    delta: text.to_string(),
                                     });
                                 }
                             }
@@ -1024,15 +1024,51 @@ impl LlmProvider for OpenCodeProvider {
     }
 
     async fn shutdown(&mut self) -> Result<bool, ProviderError> {
-        let mut guard = self.server.lock().unwrap();
-        if let Some(s) = guard.as_mut() {
-            let _ = s.child.stdin.take();
-            let _ = s.child.kill();
-            let _ = s.child.wait();
-            *guard = None;
-            Ok(true)
-        } else {
-            Ok(false)
+        let probe_info = {
+            let mut guard = self.server.lock().unwrap();
+            match guard.as_mut() {
+                Some(s) => {
+                    let port = s.port;
+                    let hostname = s.hostname.clone();
+                    let _ = s.child.stdin.take();
+                    let _ = s.child.kill();
+                    let _ = s.child.wait();
+                    *guard = None;
+                    Some((port, hostname))
+                }
+                None => None,
+            }
+        };
+
+        match probe_info {
+            Some((port, hostname)) => {
+                // Port probe: verify the process is actually dead
+                let addr = format!("{hostname}:{port}");
+                let probe = tokio::time::timeout(
+                    std::time::Duration::from_millis(500),
+                    tokio::net::TcpStream::connect(&addr),
+                )
+                .await;
+
+                match probe {
+                    Ok(Ok(_)) => {
+                        tracing::error!(
+                            port = port,
+                            "OpenCode subprocess still listening after shutdown — port probe succeeded"
+                        );
+                        Ok(false)
+                    }
+                    Ok(Err(_)) => {
+                        tracing::info!(port = port, "OpenCode subprocess confirmed dead (connection refused)");
+                        Ok(true)
+                    }
+                    Err(_) => {
+                        tracing::warn!(port = port, "Port probe timed out — assuming subprocess is dead");
+                        Ok(true)
+                    }
+                }
+            }
+            None => Ok(false),
         }
     }
 }
@@ -1187,11 +1223,48 @@ mod tests {
                 session_id,
                 ref questions,
                 ..
-            }) if session_id == "sess-3" && questions.len() == 2
+            })             if session_id == "sess-3" && questions.len() == 2
                 && questions[0].question == "First?"
                 && questions[0].header == Some("Q1".to_string())
-                && questions[1].question == "Second?"
-                && questions[1].header == Some("Q2".to_string())
+                && questions[0].options.len() == 1
+                && questions[0].options[0].label == "A"
         ));
+    }
+
+    #[tokio::test]
+    async fn test_shutdown_no_server() {
+        let mut provider = OpenCodeProvider {
+            config: HarnessConfig {
+                agent_type: "planification".into(),
+                harness: "opencode".into(),
+                provider_config_ref: "test".into(),
+                model: None,
+                effort: None,
+                scope: crate::db::schema::ScopeType::Global,
+            },
+            provider_snippet: "{}".into(),
+            provider_id: "default".into(),
+            server: std::sync::Mutex::new(None),
+            working_dir: std::sync::Mutex::new(None),
+            http_client: reqwest::Client::new(),
+        };
+        let result = provider.shutdown().await.unwrap();
+        assert!(!result, "shutdown with no server should return false");
+    }
+
+    #[tokio::test]
+    async fn test_port_probe_connection_refused() {
+        // Connect to a port that is not listening — should get connection refused
+        let addr = "127.0.0.1:1";
+        let result = tokio::time::timeout(
+            std::time::Duration::from_millis(500),
+            tokio::net::TcpStream::connect(addr),
+        )
+        .await;
+        match result {
+            Ok(Err(_)) => {} // expected — connection refused
+            Ok(Ok(_)) => panic!("should not connect to privileged port"),
+            Err(_) => panic!("timeout should not occur for connection refused"),
+        }
     }
 }

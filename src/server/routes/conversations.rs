@@ -1,6 +1,7 @@
 use std::path::PathBuf;
 use std::str::FromStr;
 
+use futures_util::FutureExt;
 use axum::{
     extract::{Path, State},
     http::StatusCode,
@@ -198,63 +199,70 @@ async fn send_message(
             let c_id = conv_id;
 
             tokio::spawn(async move {
-                let mut completed_normally = false;
-                loop {
-                    tokio::select! {
-                        event = rx.recv() => {
-                            let event = match event {
-                                Some(e) => e,
-                                None => break,
-                            };
+                let completed_normally = std::sync::atomic::AtomicBool::new(false);
 
-                            if let Err(e) = transcript::persist_event(
-                                &db, &event, &s_id, project_key
-                            ).await {
-                                tracing::warn!("Failed to persist event: {e}");
-                            }
+                let _ = std::panic::AssertUnwindSafe(async {
+                    let mut completed = false;
+                    loop {
+                        tokio::select! {
+                            event = rx.recv() => {
+                                let event = match event {
+                                    Some(e) => e,
+                                    None => break,
+                                };
 
-                            if let ProviderEvent::SessionStart { session_id } = &event {
-                                let _ = db.execute(
-                                    "UPDATE conversations SET provider_session_id = $1 WHERE id = $2",
-                                    hiqlite::params!(session_id, c_id.to_string()),
-                                ).await;
-                            }
-
-                            let topic = WsTopic {
-                                kind: WsTopicKind::Task,
-                                id: TopicId(t_id),
-                            };
-
-                            let (event_type, payload) = event.to_ws_event();
-                            if matches!(event, ProviderEvent::Done(_)) {
-                                completed_normally = true;
-                            }
-
-                            let msg = ServerMessage::Event {
-                                topic: topic.clone(),
-                                event_type,
-                                timestamp: chrono::Utc::now(),
-                                payload,
-                            };
-
-                            ws_bus.broadcast(&topic, msg).await;
-
-                            if matches!(event, ProviderEvent::Done(_)) {
-                                if let Err(e) = crate::orchestration::completion_handler(
-                                    &db, c_id, &active_sessions
+                                if let Err(e) = transcript::persist_event(
+                                    &db, &event, &s_id, project_key
                                 ).await {
-                                    tracing::warn!("Error in completion handler: {e:?}");
+                                    tracing::warn!("Failed to persist event: {e}");
                                 }
-                                break;
+
+                                if let ProviderEvent::SessionStart { session_id } = &event {
+                                    let _ = db.execute(
+                                        "UPDATE conversations SET provider_session_id = $1 WHERE id = $2",
+                                        hiqlite::params!(session_id, c_id.to_string()),
+                                    ).await;
+                                }
+
+                                let topic = WsTopic {
+                                    kind: WsTopicKind::Task,
+                                    id: TopicId(t_id),
+                                };
+
+                                let (event_type, payload) = event.to_ws_event();
+                                if matches!(event, ProviderEvent::Done(_)) {
+                                    completed = true;
+                                }
+
+                                let msg = ServerMessage::Event {
+                                    topic: topic.clone(),
+                                    event_type,
+                                    timestamp: chrono::Utc::now(),
+                                    payload,
+                                };
+
+                                ws_bus.broadcast(&topic, msg).await;
+
+                                if matches!(event, ProviderEvent::Done(_)) {
+                                    if let Err(e) = crate::orchestration::completion_handler(
+                                        &db, c_id, &active_sessions
+                                    ).await {
+                                        tracing::warn!("Error in completion handler: {e:?}");
+                                    }
+                                    completed_normally.store(true, std::sync::atomic::Ordering::SeqCst);
+                                    break;
+                                }
                             }
                         }
                     }
-                }
-                if !completed_normally {
+                    if completed {
+                        completed_normally.store(true, std::sync::atomic::Ordering::SeqCst);
+                    }
+                }).catch_unwind().await;
+
+                if !completed_normally.load(std::sync::atomic::Ordering::SeqCst) {
                     // Remove provider from active_sessions and shut down
-                    if let Some(mut provider) =
-                        active_sessions.lock().await.remove(&c_id.to_string())
-                    {
+                    if let Some(mut provider) = active_sessions.lock().await.remove(&c_id.to_string()) {
                         if let Err(e) = provider.shutdown().await {
                             tracing::warn!("Error shutting down provider after abnormal end: {e}");
                         }
