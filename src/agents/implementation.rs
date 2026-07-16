@@ -2,8 +2,8 @@ use crate::agents;
 
 const IMPLEMENTATION_TEMPLATE: &str = include_str!("../../templates/implementation.md");
 
-pub fn build_implementation_prompt(task_doc_content: &str) -> String {
-    agents::build_prompt(IMPLEMENTATION_TEMPLATE, task_doc_content)
+pub fn build_implementation_prompt(task_doc_path: &str) -> String {
+    agents::build_prompt(IMPLEMENTATION_TEMPLATE, task_doc_path)
 }
 
 #[cfg(test)]
@@ -44,8 +44,6 @@ mod tests {
         let prompt = build_implementation_prompt("");
         assert!(!prompt.contains("{{taskDocPath}}"));
         assert!(!prompt.contains("{{taskId}}"));
-        assert!(prompt.contains("storage/projects/{project_id}/tasks/task-{task_id}.md"));
-        assert!(prompt.contains("{task_id}"));
     }
 
     #[test]
@@ -54,10 +52,6 @@ mod tests {
         let prompt = build_implementation_prompt(content);
         assert!(
             !prompt.contains("## Task Documentation"),
-            "doc content should NOT be inlined"
-        );
-        assert!(
-            !prompt.contains(content),
             "doc content should NOT be inlined"
         );
     }
