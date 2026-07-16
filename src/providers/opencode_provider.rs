@@ -1044,7 +1044,8 @@ impl LlmProvider for OpenCodeProvider {
         let probe = tokio::time::timeout(
             std::time::Duration::from_millis(500),
             tokio::net::TcpStream::connect(&addr),
-        ).await;
+        )
+        .await;
 
         match probe {
             Ok(Ok(_)) => {
@@ -1055,11 +1056,17 @@ impl LlmProvider for OpenCodeProvider {
                 Ok(false)
             }
             Ok(Err(_)) => {
-                tracing::info!(port = port, "OpenCode subprocess confirmed dead (connection refused)");
+                tracing::info!(
+                    port = port,
+                    "OpenCode subprocess confirmed dead (connection refused)"
+                );
                 Ok(true)
             }
             Err(_) => {
-                tracing::warn!(port = port, "Port probe timed out — assuming subprocess is dead");
+                tracing::warn!(
+                    port = port,
+                    "Port probe timed out — assuming subprocess is dead"
+                );
                 Ok(true)
             }
         }
@@ -1295,7 +1302,10 @@ mod tests {
 
         let mut provider = make_provider(Some(server));
         let result = provider.shutdown().await.unwrap();
-        assert!(!result, "shutdown when port is still listening should return Ok(false)");
+        assert!(
+            !result,
+            "shutdown when port is still listening should return Ok(false)"
+        );
 
         drop(listener);
     }

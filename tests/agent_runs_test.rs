@@ -252,7 +252,10 @@ async fn test_stop_agent_runs_marks_running_as_failed() {
 
     // Call stop endpoint — should sweep and mark all runs as failed
     let resp = client()
-        .post(format!("{}/api/tasks/{}/agent-runs/stop", app.addr, task_id))
+        .post(format!(
+            "{}/api/tasks/{}/agent-runs/stop",
+            app.addr, task_id
+        ))
         .send()
         .await
         .unwrap();
@@ -278,7 +281,10 @@ async fn test_stop_agent_runs_no_running_runs() {
 
     // No running runs — stop should be a no-op
     let resp = client()
-        .post(format!("{}/api/tasks/{}/agent-runs/stop", app.addr, task_id))
+        .post(format!(
+            "{}/api/tasks/{}/agent-runs/stop",
+            app.addr, task_id
+        ))
         .send()
         .await
         .unwrap();

@@ -21,10 +21,10 @@ use crate::server::ws::message::{ServerMessage, TopicId, WsTopic, WsTopicKind};
 use crate::server::{error::ServerError, state::AppState};
 use crate::services::session;
 use crate::services::tasks;
+use futures_util::FutureExt;
 use std::panic::AssertUnwindSafe;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
-use futures_util::FutureExt;
 
 #[derive(Debug, Deserialize)]
 struct StartAgentRunRequest {
