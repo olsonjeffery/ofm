@@ -234,6 +234,70 @@ async fn test_create_agent_run_409_iteration_cap() {
 }
 
 #[tokio::test]
+async fn test_stop_agent_runs_marks_running_as_failed() {
+    let app = setup_app().await;
+    let task_id = create_task_seed(&app.db, app.project_id).await;
+
+    // Create a running agent run
+    let resp = client()
+        .post(format!("{}/api/tasks/{}/agent-runs", app.addr, task_id))
+        .json(&serde_json::json!({ "agent_type": "implementation" }))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(resp.status(), 201);
+    let body: serde_json::Value = resp.json().await.unwrap();
+    let run_id = body["id"].as_str().unwrap().to_string();
+    assert_eq!(body["status"], "running");
+
+    // Call stop endpoint — should sweep and mark all runs as failed
+    let resp = client()
+        .post(format!("{}/api/tasks/{}/agent-runs/stop", app.addr, task_id))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(resp.status(), 200);
+
+    // Verify the run is now marked as failed
+    let resp = client()
+        .get(format!("{}/api/tasks/{}/agent-runs", app.addr, task_id))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(resp.status(), 200);
+    let runs: Vec<serde_json::Value> = resp.json().await.unwrap();
+    assert_eq!(runs.len(), 1);
+    assert_eq!(runs[0]["status"], "failed");
+    assert_eq!(runs[0]["id"], run_id);
+}
+
+#[tokio::test]
+async fn test_stop_agent_runs_no_running_runs() {
+    let app = setup_app().await;
+    let task_id = create_task_seed(&app.db, app.project_id).await;
+
+    // No running runs — stop should be a no-op
+    let resp = client()
+        .post(format!("{}/api/tasks/{}/agent-runs/stop", app.addr, task_id))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(resp.status(), 200);
+}
+
+#[tokio::test]
+async fn test_stop_agent_runs_task_not_found() {
+    let app = setup_app().await;
+
+    let resp = client()
+        .post(format!("{}/api/tasks/{}/agent-runs/stop", app.addr, 99999))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(resp.status(), 404);
+}
+
+#[tokio::test]
 async fn test_list_agent_runs() {
     let app = setup_app().await;
     let task_id = create_task_seed(&app.db, app.project_id).await;

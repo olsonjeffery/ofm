@@ -1024,15 +1024,44 @@ impl LlmProvider for OpenCodeProvider {
     }
 
     async fn shutdown(&mut self) -> Result<bool, ProviderError> {
-        let mut guard = self.server.lock().unwrap();
-        if let Some(s) = guard.as_mut() {
-            let _ = s.child.stdin.take();
-            let _ = s.child.kill();
-            let _ = s.child.wait();
-            *guard = None;
-            Ok(true)
-        } else {
-            Ok(false)
+        let (port, hostname) = {
+            let mut guard = self.server.lock().unwrap();
+            match guard.as_mut() {
+                Some(s) => {
+                    let port = s.port;
+                    let hostname = s.hostname.clone();
+                    let _ = s.child.stdin.take();
+                    let _ = s.child.kill();
+                    let _ = s.child.wait();
+                    *guard = None;
+                    (port, hostname)
+                }
+                None => return Ok(false),
+            }
+        };
+
+        let addr = format!("{hostname}:{port}");
+        let probe = tokio::time::timeout(
+            std::time::Duration::from_millis(500),
+            tokio::net::TcpStream::connect(&addr),
+        ).await;
+
+        match probe {
+            Ok(Ok(_)) => {
+                tracing::error!(
+                    port = port,
+                    "OpenCode subprocess still listening after shutdown — port probe succeeded"
+                );
+                Ok(false)
+            }
+            Ok(Err(_)) => {
+                tracing::info!(port = port, "OpenCode subprocess confirmed dead (connection refused)");
+                Ok(true)
+            }
+            Err(_) => {
+                tracing::warn!(port = port, "Port probe timed out — assuming subprocess is dead");
+                Ok(true)
+            }
         }
     }
 }
@@ -1040,9 +1069,32 @@ impl LlmProvider for OpenCodeProvider {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::providers::HarnessConfig;
 
     fn global_event(payload: &str) -> String {
         format!(r#"{{"directory":"/tmp","payload":{payload}}}"#)
+    }
+
+    fn make_harness_config() -> HarnessConfig {
+        HarnessConfig {
+            agent_type: "planification".into(),
+            harness: "opencode".into(),
+            provider_config_ref: "test.json".into(),
+            model: None,
+            effort: None,
+            scope: crate::db::schema::ScopeType::Project,
+        }
+    }
+
+    fn make_provider(server: Option<OpenCodeServer>) -> OpenCodeProvider {
+        OpenCodeProvider {
+            config: make_harness_config(),
+            provider_snippet: "{}".into(),
+            provider_id: "test".into(),
+            server: Mutex::new(server),
+            working_dir: Mutex::new(None),
+            http_client: reqwest::Client::new(),
+        }
     }
 
     #[test]
@@ -1193,5 +1245,58 @@ mod tests {
                 && questions[1].question == "Second?"
                 && questions[1].header == Some("Q2".to_string())
         ));
+    }
+
+    #[tokio::test]
+    async fn test_shutdown_no_server() {
+        let mut provider = make_provider(None);
+        let result = provider.shutdown().await.unwrap();
+        assert!(!result, "shutdown with no server should return Ok(false)");
+    }
+
+    #[tokio::test]
+    async fn test_shutdown_port_probe_connection_refused() {
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let port = listener.local_addr().unwrap().port();
+        drop(listener);
+        tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+
+        let child = std::process::Command::new("true").spawn().unwrap();
+        let temp_dir = TempDir::new().unwrap();
+
+        let server = OpenCodeServer {
+            child,
+            port,
+            hostname: "127.0.0.1".to_string(),
+            password: None,
+            _temp_dir: temp_dir,
+        };
+
+        let mut provider = make_provider(Some(server));
+        let result = provider.shutdown().await.unwrap();
+        assert!(result, "shutdown when port is free should return Ok(true)");
+    }
+
+    #[tokio::test]
+    async fn test_shutdown_port_probe_still_listening() {
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let port = listener.local_addr().unwrap().port();
+
+        let child = std::process::Command::new("true").spawn().unwrap();
+        let temp_dir = TempDir::new().unwrap();
+
+        let server = OpenCodeServer {
+            child,
+            port,
+            hostname: "127.0.0.1".to_string(),
+            password: None,
+            _temp_dir: temp_dir,
+        };
+
+        let mut provider = make_provider(Some(server));
+        let result = provider.shutdown().await.unwrap();
+        assert!(!result, "shutdown when port is still listening should return Ok(false)");
+
+        drop(listener);
     }
 }
