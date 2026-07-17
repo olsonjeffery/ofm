@@ -175,6 +175,10 @@ async fn post_create_agent_run(
                                 task_id,
                                 &doc_path.to_string_lossy(),
                             ),
+                            AgentType::Refinement => agents::refinement::build_refinement_prompt(
+                                task_id,
+                                &doc_path.to_string_lossy(),
+                            ),
                             // FIXME: need to thread in real PR status in case it does in fact
                             // exist..
                             AgentType::Pr => agents::pull_request::build_pull_request_prompt(
