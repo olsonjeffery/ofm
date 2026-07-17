@@ -8,7 +8,7 @@
 </p>
 
 <p align="center">
-  <strong>⚠️ ACHTUNG! ofm is alpha-quality software ACHTUNG! ⚠️</strong>
+  <strong><ins>ACHTUNG!<br />ACHTUNG!<br />ACHTUNG!</ins><br />⚠️ ofm is alpha-quality software ACHTUNG! ⚠️</strong>
 </p>
 
 <p align="center">
