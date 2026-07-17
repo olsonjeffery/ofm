@@ -8,7 +8,7 @@
 </p>
 
 <p align="center">
-  <strong>$${\color{red}⚠️ \space ACHTUNG! \space ofm \space is \space alpha-quality \space software \space ACHTUNG! \space ⚠️}$$</strong>
+  <strong>⚠️ ACHTUNG! ofm is alpha-quality software ACHTUNG! ⚠️</strong>
 </p>
 
 <p align="center">
