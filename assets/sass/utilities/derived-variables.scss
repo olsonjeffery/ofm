@@ -12,10 +12,10 @@ $scheme-invert-ter: iv.$black-ter !default;
 
 // Text colors
 
-$text: iv.$grey-dark !default;
+$text: iv.$grey-darker !default;
 $text-invert: fn.bulmaFindColorInvert($text) !default;
 $text-weak: iv.$grey !default;
-$text-strong: iv.$grey-darker !default;
+$text-strong: iv.$black-ter !default;
 
 // Status colors
 
@@ -34,7 +34,7 @@ $link: iv.$turquoise !default;
 // Decorative colors
 
 $background: iv.$white-ter !default;
-$border: iv.$grey-lighter !default;
+$border: iv.$grey-darker !default;
 $border-weak: iv.$grey-lightest !default;
 
 // Code colors

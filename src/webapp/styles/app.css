@@ -19,6 +19,10 @@ main {
     min-height: 100vh;
     padding-top: calc(3.25rem + 0.5rem);
 }
+/* Chat page manages its own height via #chat-layout */
+main:has(#chat-layout) {
+    min-height: 0;
+}
 
 /* ===== Navbar theming ===== */
 

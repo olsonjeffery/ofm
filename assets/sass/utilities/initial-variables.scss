@@ -1,26 +1,26 @@
 // Scheme Hue and Saturation
 
-$scheme-h: 221 !default;
-$scheme-s: 14% !default;
-$dark-l: 20% !default;
-$light-l: 90% !default;
+$scheme-h: 45 !default;
+$scheme-s: 20% !default;
+$dark-l: 5% !default;
+$light-l: 99% !default;
 
 // Colors
 
-$black: hsl(221, 14%, 4%) !default;
-$black-bis: hsl(221, 14%, 9%) !default;
-$black-ter: hsl(221, 14%, 14%) !default;
+$black: hsl(45, 20%, 5%) !default;
+$black-bis: hsl(45, 20%, 9%) !default;
+$black-ter: hsl(45, 20%, 14%) !default;
 
-$grey-darker: rgb(54, 40, 20) !default;
-$grey-dark: hsl(221, 14%, 29%) !default;
-$grey: hsl(221, 14%, 48%) !default;
-$grey-light: hsl(221, 14%, 71%) !default;
-$grey-lighter: hsl(221, 14%, 86%) !default;
-$grey-lightest: hsl(221, 14%, 93%) !default;
+$grey-darker: hsl(45, 20%, 40%) !default;
+$grey-dark: hsl(45, 20%, 60%) !default;
+$grey: hsl(45, 20%, 70%) !default;
+$grey-light: hsl(45, 20%, 76%) !default;
+$grey-lighter: hsl(45, 20%, 82%) !default;
+$grey-lightest: hsl(45, 20%, 88%) !default;
 
-$white-ter: rgb(245, 235, 225) !default;
-$white-bis: hsl(221, 14%, 98%) !default;
-$white: rgb(255, 253, 247) !default;
+$white-ter: hsl(45, 20%, 92%) !default;
+$white-bis: hsl(45, 20%, 96%) !default;
+$white: hsl(45, 20%, 99%) !default;
 
 $orange: rgb(245, 122, 0) !default;
 $yellow: rgb(245, 230, 37) !default;

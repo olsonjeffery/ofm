@@ -207,7 +207,7 @@ pub fn MessageStream(messages: Vec<ProviderEvent>) -> impl IntoView {
     let clean = sanitize_html(&rendered);
 
     view! {
-        <div id="message-stream" class="message-stream" style="flex:1;overflow-y:auto;overflow-x:hidden;padding:1rem;overflow-wrap:break-word">
+        <div id="message-stream" class="message-stream" style="padding:1rem;overflow-wrap:break-word">
             {if messages.is_empty() {
                 view! { <p class="has-text-grey">"No messages yet. Start a conversation to see messages here."</p> }.into_any()
             } else {
