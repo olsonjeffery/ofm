@@ -7,9 +7,9 @@
   <strong><a href="https://github.com/olsonjeffery/ofm">GitHub repository</a></strong>
 </p>
 
-<p align="center">
-  <strong>⚠️ACHTUNG! ofm is alpha-quality software ACHTUNG! ⚠️</strong>
-</p>
+```diff
+- ⚠️ACHTUNG! ofm is alpha-quality software ACHTUNG! ⚠️-
+```
 
 <p align="center">
     (Pronounce it as an acronym: oh-eff-em)
