@@ -170,7 +170,7 @@ Update the task documentation file at `{{taskDocPath}}`:
 #### If READY:
 1. **Run the completion command** to signal the workflow is complete:
 ```bash
-ofm agent complete-workflow {{taskId}}
+Echo "<<COMPLETE-WORKFLOW>>"
 ```
 This stops the automated agent loop and awaits final user review.
 
@@ -178,7 +178,9 @@ This stops the automated agent loop and awaits final user review.
 1. **Update the "Review Findings" section** explaining what is blocking progress and what user action is needed
 2. **Run the block command** to pause the workflow:
 ```bash
-ofm agent block-workflow {{taskId}}
+
+Echo "<<BLOCK-WORKFLOW>>"
+
 ```
 This stops the automated agent loop until the user resumes it after providing the needed input.
 

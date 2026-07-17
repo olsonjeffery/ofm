@@ -75,4 +75,4 @@ After writing, READ the file back to verify it was written correctly.
 
 ### Step 4: Complete (master agent — you)
 
-Only after verifying the file contents, run: `ofm agent complete-plan {{taskId}}`
+Only after verifying the file contents, you can stop work by echoing "<<PLANNING-COMPLETE>>" and then ceasing all further action.

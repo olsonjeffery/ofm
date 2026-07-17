@@ -16,3 +16,5 @@
 After implementing, check if ALL To-Do items (both Implementation and Testing sections) are now marked as complete [x].
 
 Start implementing now.
+
+When you have reached the end of your work, summarize your changes in a succinct list and then echo "<<IMPLEMENTATION-COMPLETE>>" and then cease all further action.
