@@ -27,10 +27,10 @@
 </p>
 
 <p align="center">
-TL;DR An orchestration harness for coding agent activity, centering a kanban-like authoring lifecycle (especially for software).
-</p>
-<p align="center">
-Think of it as a web-based layer, with a structured workflow, that mediates between User(s) and coding agents; it aims to increase productivity in the time and quality domains.
+🏃🏾‍♀️ <strong>TL;DR</strong> An orchestration harness for coding agent activity<br />
+🎯 Centering a kanban-like authoring lifecycle (especially for software)<br />
+🫱🏻‍🫲🏿🫲🏿 Think of it as a web-based layer, with a structured workflow, that mediates between User(s) and coding agents<br />
+📈 It aims to increase productivity in the time and quality domains
 </p>
 
 ## Core attributes
