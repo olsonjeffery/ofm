@@ -8,7 +8,7 @@
 </p>
 
 <p align="center">
-  <strong><ins>ACHTUNG!<br />ACHTUNG!<br />ACHTUNG!</ins><br />⚠️ ofm is alpha-quality software ACHTUNG! ⚠️</strong>
+  A specification-level fork of <a href="https://github.com/vdaubry/bottega">bottega</a> by <a href="https://github.com/vdaubry">@vdaubry</a> 
 </p>
 
 <p align="center">
@@ -23,13 +23,14 @@
 </p>
 
 <p align="center">
-  A specification-level fork of <a href="https://github.com/vdaubry/bottega">bottega</a> by <a href="https://github.com/vdaubry">@vdaubry</a> 
+  <strong><ins>ACHTUNG!<br />ACHTUNG!<br />ACHTUNG!</ins><br />⚠️ ofm is alpha-quality software ACHTUNG! ⚠️</strong>
 </p>
 
 <p align="center">
-  TL;DR An orchestration harness, for agentic code delivery. Think of it as a
-  meta-system that sits atop your coding agent to make you more productive in the
-  time and quality domains.
+TL;DR An orchestration harness for coding agent activity, centering a kanban-like authoring lifecycle (especially for software).
+</p>
+<p align="center">
+Think of it as a web-based layer, with a structured workflow, that mediates between User(s) and coding agents; it aims to increase productivity in the time and quality domains.
 </p>
 
 ## Core attributes
