@@ -1,3 +1,4 @@
+use std::os::unix::process::CommandExt;
 use std::path::{Path, PathBuf};
 use std::sync::Mutex;
 
@@ -165,7 +166,8 @@ async fn spawn_opencode_server(
         .env("OPENCODE_CONFIG", &config_path)
         .env("OPENCODE_SERVER_PASSWORD", &password)
         .stdout(std::process::Stdio::null())
-        .stderr(std::process::Stdio::inherit());
+        .stderr(std::process::Stdio::inherit())
+        .process_group(0);
     if let Some(dir) = working_dir {
         cmd.current_dir(dir);
     }
@@ -907,6 +909,7 @@ impl LlmProvider for OpenCodeProvider {
     ) -> Result<mpsc::Receiver<ProviderEvent>, ProviderError> {
         let (base_url, password) = self.server_details().ok_or(ProviderError::NotStarted)?;
         let session_id = input.session_id.clone();
+        let original_session_id = session_id.clone();
 
         let messages_arr = input
             .messages
@@ -954,19 +957,77 @@ impl LlmProvider for OpenCodeProvider {
             .json(&msg_body)
             .send()
             .await?;
-        if !msg_resp.status().is_success() {
+
+        let actual_session_id = if msg_resp.status() == reqwest::StatusCode::NOT_FOUND {
+            // Session doesn't exist on this server (e.g. after Stop Agent killed the old server)
+            // Create a new session and send the message there
+            tracing::warn!(
+                session_id = %session_id,
+                "Session not found on provider — creating new session for resume"
+            );
+            let new_session_resp = self
+                .http_client
+                .post(format!("{base_url}/session"))
+                .header("Authorization", basic_auth_header(&password))
+                .json(&serde_json::json!({"title": "ofm session (resumed)"}))
+                .send()
+                .await?;
+            if !new_session_resp.status().is_success() {
+                let status = new_session_resp.status();
+                let body = new_session_resp.text().await.unwrap_or_default();
+                return Err(ProviderError::Protocol(format!(
+                    "failed to create replacement session ({status}): {body}"
+                )));
+            }
+            let new_session_id: String = new_session_resp
+                .json::<OpenCodeSession>()
+                .await
+                .map(|s| s.id)
+                .unwrap_or_else(|_| Uuid::new_v4().to_string());
+
+            // Send the message to the new session (no question_message_id for a fresh session)
+            let new_msg_body = serde_json::json!({
+                "parts": [{"type": "text", "text": last_user_text}]
+            });
+            let send_resp = self
+                .http_client
+                .post(format!("{base_url}/session/{new_session_id}/prompt_async"))
+                .header("Authorization", basic_auth_header(&password))
+                .json(&new_msg_body)
+                .send()
+                .await?;
+            if !send_resp.status().is_success() {
+                let status = send_resp.status();
+                let body = send_resp.text().await.unwrap_or_default();
+                return Err(ProviderError::Protocol(format!(
+                    "failed to send message to replacement session ({status}): {body}"
+                )));
+            }
+
+            new_session_id
+        } else if !msg_resp.status().is_success() {
             let status = msg_resp.status();
             let body = msg_resp.text().await.unwrap_or_default();
             return Err(ProviderError::Protocol(format!(
                 "failed to send resume message ({status}): {body}"
             )));
-        }
+        } else {
+            session_id
+        };
 
         let (tx, rx) = mpsc::channel(256);
+        // If we created a new session, notify the broadcast task so it updates the DB
+        if actual_session_id != original_session_id {
+            let _ = tx
+                .send(ProviderEvent::SessionStart {
+                    session_id: actual_session_id.clone(),
+                })
+                .await;
+        }
         let client = self.http_client.clone();
         let events_url = format!("{base_url}/event");
         let pw = password.clone();
-        let sid = session_id.clone();
+        let sid = actual_session_id.clone();
 
         tokio::spawn(async move {
             read_sse_to_completion(&client, &events_url, &pw, &sid, tx).await;
@@ -1024,17 +1085,23 @@ impl LlmProvider for OpenCodeProvider {
     }
 
     async fn shutdown(&mut self) -> Result<bool, ProviderError> {
-        let (port, hostname) = {
+        let (port, hostname, pid) = {
             let mut guard = self.server.lock().unwrap();
             match guard.as_mut() {
                 Some(s) => {
                     let port = s.port;
                     let hostname = s.hostname.clone();
+                    let pid = s.child.id();
                     let _ = s.child.stdin.take();
                     let _ = s.child.kill();
                     let _ = s.child.wait();
+                    // Kill the entire process group to handle grandchild processes
+                    let _ = std::process::Command::new("kill")
+                        .arg("-9")
+                        .arg(format!("-{}", pid))
+                        .status();
                     *guard = None;
-                    (port, hostname)
+                    (port, hostname, pid)
                 }
                 None => return Ok(false),
             }
@@ -1051,6 +1118,7 @@ impl LlmProvider for OpenCodeProvider {
             Ok(Ok(_)) => {
                 tracing::error!(
                     port = port,
+                    pid = pid,
                     "OpenCode subprocess still listening after shutdown — port probe succeeded"
                 );
                 Ok(false)
@@ -1058,6 +1126,7 @@ impl LlmProvider for OpenCodeProvider {
             Ok(Err(_)) => {
                 tracing::info!(
                     port = port,
+                    pid = pid,
                     "OpenCode subprocess confirmed dead (connection refused)"
                 );
                 Ok(true)
@@ -1065,6 +1134,7 @@ impl LlmProvider for OpenCodeProvider {
             Err(_) => {
                 tracing::warn!(
                     port = port,
+                    pid = pid,
                     "Port probe timed out — assuming subprocess is dead"
                 );
                 Ok(true)

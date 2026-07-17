@@ -206,6 +206,7 @@ async fn send_message(
                 let db_inner = db.clone();
                 let ws_bus_inner = ws_bus.clone();
                 let active_sessions_inner = active_sessions.clone();
+                let active_sessions_for_guard = active_sessions_inner.clone();
 
                 let broadcast_fut = AssertUnwindSafe(async move {
                     let mut local_completed = false;
@@ -271,6 +272,17 @@ async fn send_message(
                 }
 
                 if !completed_normally.load(Ordering::SeqCst) {
+                    // Remove provider from active_sessions and shut it down
+                    let provider_to_shutdown = {
+                        let mut sessions = active_sessions_for_guard.lock().await;
+                        sessions.remove(&c_id.to_string())
+                    };
+                    if let Some(mut p) = provider_to_shutdown {
+                        if let Err(e) = p.shutdown().await {
+                            tracing::warn!(conversation_id = %c_id, "Error shutting down provider in broadcast cleanup: {e}");
+                        }
+                    }
+
                     let topic = WsTopic {
                         kind: WsTopicKind::Task,
                         id: TopicId(t_id),

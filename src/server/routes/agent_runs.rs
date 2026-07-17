@@ -254,6 +254,7 @@ async fn post_create_agent_run(
                                 let db_inner = db.clone();
                                 let ws_bus_inner = ws_bus.clone();
                                 let active_sessions_inner = active_sessions.clone();
+                                let active_sessions_for_guard = active_sessions_inner.clone();
 
                                 let broadcast_fut = AssertUnwindSafe(async move {
                                     let mut local_completed = false;
@@ -320,6 +321,17 @@ async fn post_create_agent_run(
                                 }
 
                                 if !completed_normally.load(Ordering::SeqCst) {
+                                    // Remove provider from active_sessions and shut it down
+                                    let provider_to_shutdown = {
+                                        let mut sessions = active_sessions_for_guard.lock().await;
+                                        sessions.remove(&conversation_id.to_string())
+                                    };
+                                    if let Some(mut p) = provider_to_shutdown {
+                                        if let Err(e) = p.shutdown().await {
+                                            tracing::warn!(conversation_id = %conversation_id, "Error shutting down provider in broadcast cleanup: {e}");
+                                        }
+                                    }
+
                                     // Mark run as failed and notify UI
                                     let _ = db.execute(
                                         "UPDATE task_agent_runs SET status = 'failed' WHERE conversation_id = $1",
