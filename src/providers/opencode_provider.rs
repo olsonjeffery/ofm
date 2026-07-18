@@ -965,9 +965,16 @@ impl LlmProvider for OpenCodeProvider {
                 session_id = %session_id,
                 "Session not found on provider — creating new session for resume"
             );
+            let working_dir = self.working_dir.lock().unwrap().clone().unwrap_or_default();
             let new_session_resp = self
                 .http_client
-                .post(format!("{base_url}/session"))
+                .post(
+                    reqwest::Url::parse_with_params(
+                        &format!("{base_url}/session"),
+                        &[("directory", working_dir.to_string_lossy().as_ref())],
+                    )
+                    .map_err(|e| ProviderError::Protocol(e.to_string()))?,
+                )
                 .header("Authorization", basic_auth_header(&password))
                 .json(&serde_json::json!({"title": "ofm session (resumed)"}))
                 .send()
@@ -1099,6 +1106,16 @@ impl LlmProvider for OpenCodeProvider {
                     let _ = std::process::Command::new("kill")
                         .arg("-9")
                         .arg(format!("-{}", pid))
+                        .status();
+                    // Kill direct children of the child process (grandchildren from
+                    // our perspective) that may have escaped the process group by
+                    // calling setsid() or similar. This is safe — it only targets
+                    // processes whose parent is our direct child.
+                    let _ = std::process::Command::new("sh")
+                        .arg("-c")
+                        .arg(format!(
+                            "ps --ppid {pid} -o pid= 2>/dev/null | xargs kill -9 2>/dev/null; true"
+                        ))
                         .status();
                     *guard = None;
                     (port, hostname, pid)
