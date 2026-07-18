@@ -14,7 +14,6 @@ use crate::auth::AuthUser;
 use crate::db::schema::{AgentType, TaskAgentRun};
 use crate::orchestration;
 use crate::orchestration::guards;
-use crate::providers;
 use crate::providers::registry;
 use crate::providers::types::{ProviderEvent, TurnInput};
 use crate::server::ws::message::{ServerMessage, TopicId, WsTopic, WsTopicKind};
@@ -375,23 +374,31 @@ async fn post_create_agent_run(
         }
     }
 
-    // Fire-and-forget title generation
-    let db = state.db.clone();
-    let cfg_root = PathBuf::from(&state.config_root);
-    let title_config = harness_config.clone();
-    let conv_id = session_result.conversation_id;
-    let task_title = task.title.clone();
-    let first_message = format!("{} phase, task title: {}", agent_type, task_title);
-    tokio::spawn(async move {
-        providers::generate_conversation_title(
-            &db,
-            &cfg_root,
-            &title_config,
-            conv_id,
-            &first_message,
-        )
-        .await;
-    });
+    // NOTE: Fire-and-forget title generation via a transient opencode
+    // subprocess is disabled temporarily. The transient server it spawned
+    // was escaping Stop Agent's cleanup (it isn't tracked in
+    // active_sessions) and leaving a second live opencode process behind
+    // after Stop Agent was pressed. It also produced inconsistent titles.
+    // Re-enable only after reworking it to register with active_sessions
+    // or run on the in-flight provider's existing server.
+    //
+    // let db = state.db.clone();
+    // let cfg_root = PathBuf::from(&state.config_root);
+    // let title_config = harness_config.clone();
+    // let conv_id = session_result.conversation_id;
+    // let task_title = task.title.clone();
+    // let first_message = format!("{} phase, task title: {}", agent_type, task_title);
+    // tokio::spawn(async move {
+    //     providers::generate_conversation_title(
+    //         &db,
+    //         &cfg_root,
+    //         &title_config,
+    //         conv_id,
+    //         &first_message,
+    //     )
+    //     .await;
+    // });
+    let _ = (task.title.as_str(), agent_type);
 
     let run = tasks::get_agent_run_by_conversation(&state.db, &session_result.conversation_id)
         .await

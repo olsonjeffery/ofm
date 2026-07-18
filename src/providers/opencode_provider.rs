@@ -950,17 +950,66 @@ impl LlmProvider for OpenCodeProvider {
             })
         };
 
-        let msg_resp = self
-            .http_client
-            .post(format!("{base_url}/session/{session_id}/prompt_async"))
-            .header("Authorization", basic_auth_header(&password))
-            .json(&msg_body)
-            .send()
-            .await?;
+        let fresh_msg_body = serde_json::json!({
+            "parts": [{"type": "text", "text": last_user_text}]
+        });
 
-        let actual_session_id = if msg_resp.status() == reqwest::StatusCode::NOT_FOUND {
-            // Session doesn't exist on this server (e.g. after Stop Agent killed the old server)
-            // Create a new session and send the message there
+        // Probe the cached session_id's existence on the current provider
+        // server. After Stop Agent kills the opencode subprocess, lazy
+        // recreation spawns a fresh server with NO sessions, so the cached
+        // session_id refers to a dead session. opencode may return 200 for
+        // POST /session/{id}/prompt_async against a missing session (the
+        // prompt is queued-but-ignored) which would leave the resumed turn
+        // with no matching SSE events. Probe explicitly first so we fall
+        // back to a replacement session reliably.
+        let session_exists = match self
+            .http_client
+            .get(format!("{base_url}/session/{session_id}"))
+            .header("Authorization", basic_auth_header(&password))
+            .timeout(std::time::Duration::from_millis(500))
+            .send()
+            .await
+        {
+            Ok(resp) => resp.status().is_success(),
+            Err(e) => {
+                tracing::warn!(
+                    session_id = %session_id,
+                    error = %e,
+                    "Session probe failed — assuming missing"
+                );
+                false
+            }
+        };
+
+        let mut needs_replacement = !session_exists;
+        let mut actual_session_id = session_id.clone();
+
+        if session_exists {
+            let msg_resp = self
+                .http_client
+                .post(format!("{base_url}/session/{session_id}/prompt_async"))
+                .header("Authorization", basic_auth_header(&password))
+                .json(&msg_body)
+                .send()
+                .await?;
+
+            if msg_resp.status() == reqwest::StatusCode::NOT_FOUND {
+                tracing::warn!(
+                    session_id = %session_id,
+                    "Late 404 on prompt_async — creating replacement session"
+                );
+                needs_replacement = true;
+            } else if !msg_resp.status().is_success() {
+                let status = msg_resp.status();
+                let body = msg_resp.text().await.unwrap_or_default();
+                return Err(ProviderError::Protocol(format!(
+                    "failed to send resume message ({status}): {body}"
+                )));
+            }
+            // 200 → keep session_id as actual_session_id
+        }
+
+        if needs_replacement {
             tracing::warn!(
                 session_id = %session_id,
                 "Session not found on provider — creating new session for resume"
@@ -992,15 +1041,13 @@ impl LlmProvider for OpenCodeProvider {
                 .map(|s| s.id)
                 .unwrap_or_else(|_| Uuid::new_v4().to_string());
 
-            // Send the message to the new session (no question_message_id for a fresh session)
-            let new_msg_body = serde_json::json!({
-                "parts": [{"type": "text", "text": last_user_text}]
-            });
+            // Send the message to the new session (no question_message_id
+            // for a fresh session).
             let send_resp = self
                 .http_client
                 .post(format!("{base_url}/session/{new_session_id}/prompt_async"))
                 .header("Authorization", basic_auth_header(&password))
-                .json(&new_msg_body)
+                .json(&fresh_msg_body)
                 .send()
                 .await?;
             if !send_resp.status().is_success() {
@@ -1011,19 +1058,14 @@ impl LlmProvider for OpenCodeProvider {
                 )));
             }
 
-            new_session_id
-        } else if !msg_resp.status().is_success() {
-            let status = msg_resp.status();
-            let body = msg_resp.text().await.unwrap_or_default();
-            return Err(ProviderError::Protocol(format!(
-                "failed to send resume message ({status}): {body}"
-            )));
-        } else {
-            session_id
-        };
+            actual_session_id = new_session_id;
+        }
+
+        let _ = msg_body;
 
         let (tx, rx) = mpsc::channel(256);
-        // If we created a new session, notify the broadcast task so it updates the DB
+        // If we created a new session, notify the broadcast task so it
+        // updates the DB's conversations.provider_session_id column.
         if actual_session_id != original_session_id {
             let _ = tx
                 .send(ProviderEvent::SessionStart {
@@ -1123,6 +1165,28 @@ impl LlmProvider for OpenCodeProvider {
                 None => return Ok(false),
             }
         };
+
+        // Port-based kill fallback: grandchildren that escaped both the
+        // process group AND the ps --ppid sweep can still be bound to the
+        // opencode server's port. Try fuser and lsof to kill anything still
+        // listening on that port, regardless of process group or session
+        // membership. Both commands are best-effort and silently ignored if
+        // missing on the host.
+        //
+        // Gated on `not(test)` because unit tests exercise shutdown() while
+        // the test process itself holds a tmp listener on the port (to
+        // simulate "still listening"); `fuser -k PORT/tcp` would send
+        // SIGKILL to the test process in that case. In production the OFM
+        // server never holds the opencode subprocess's port, so this is
+        // strictly a test-only hazard.
+        #[cfg(not(test))]
+        let _ = std::process::Command::new("sh")
+            .arg("-c")
+            .arg(format!(
+                "lsof -ti:{port} 2>/dev/null | awk -v p=$PPID '$1!=p' | xargs -r kill -9 2>/dev/null; \
+                 true"
+            ))
+            .status();
 
         let addr = format!("{hostname}:{port}");
         let probe = tokio::time::timeout(
