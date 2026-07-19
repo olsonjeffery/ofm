@@ -18,7 +18,7 @@ pub fn BoardPage(project: Project, tasks: Vec<Task>) -> impl IntoView {
     let in_review = tasks_for_status(&tasks, "in_review");
     let completed = tasks_for_status(&tasks, "completed");
 
-    let render_column = |_status: &str, label: &str, color_class: &str, items: Vec<Task>| {
+    let render_column = |label: &str, color_class: &str, items: Vec<Task>| {
         view! {
             <div class="column">
                 <div class={format!("box {}", color_class)}>
@@ -39,13 +39,6 @@ pub fn BoardPage(project: Project, tasks: Vec<Task>) -> impl IntoView {
 
     view! {
         <section class="section">
-            <nav class="breadcrumb" aria-label="breadcrumbs">
-                <ul>
-                    <li><a href="/webapp">"Dashboard"</a></li>
-                    <li class="is-active"><a href="#">{project.name.clone()}</a></li>
-                </ul>
-            </nav>
-
             <div class="level">
                 <div class="level-left">
                     <h1 class="title">{project.name.clone()}</h1>
@@ -82,10 +75,10 @@ pub fn BoardPage(project: Project, tasks: Vec<Task>) -> impl IntoView {
             </div>
 
             <div class="columns">
-                {render_column("pending", "Pending", "has-background-grey-lighter", pending)}
-                {render_column("in_progress", "In Progress", "has-background-info-light", in_progress)}
-                {render_column("in_review", "In Review", "has-background-warning-light", in_review)}
-                {render_column("completed", "Completed", "has-background-success-light", completed)}
+                {render_column("Pending", "has-background-grey-lighter", pending)}
+                {render_column("In Progress", "has-background-info-light", in_progress)}
+                {render_column("In Review", "has-background-warning-light", in_review)}
+                {render_column("Completed", "has-background-success-light", completed)}
             </div>
         </section>
         <script>
@@ -165,13 +158,14 @@ mod tests {
     #[test]
     fn test_board_renders_four_columns() {
         let project = make_project();
+        let project_name = project.name.clone();
         let tasks = vec![];
         let html = leptos::view! { <BoardPage project tasks /> }.to_html();
         assert!(html.contains("Pending"));
         assert!(html.contains("In Progress"));
         assert!(html.contains("In Review"));
         assert!(html.contains("Completed"));
-        assert!(html.contains("Dashboard"));
+        assert!(html.contains(project_name.as_str()));
     }
 
     #[test]

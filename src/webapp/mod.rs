@@ -21,6 +21,7 @@ use crate::auth::AuthUser;
 use crate::server::error::ServerError;
 use crate::server::state::AppState;
 use crate::services;
+use crate::webapp::components::breadcrumb::{breadcrumb_registry, BreadcrumbItem};
 use crate::webapp::components::project_card::TaskCounts;
 
 pub fn webapp_routes() -> Router<AppState> {
@@ -47,8 +48,12 @@ pub fn webapp_protected_routes() -> Router<AppState> {
         .route("/webapp/islands/infocard", get(infocard_handler))
 }
 
-fn render_shell(page_html: &str, user_json: Option<String>) -> String {
-    let shell = leptos::view! { <app::ShellPage user_json /> }.to_html();
+fn render_shell(
+    page_html: &str,
+    user_json: Option<String>,
+    breadcrumbs: Vec<BreadcrumbItem>,
+) -> String {
+    let shell = leptos::view! { <app::ShellPage user_json breadcrumbs /> }.to_html();
     if shell.contains("<main></main>") {
         shell.replace("<main></main>", &format!("<main>{}</main>", page_html))
     } else {
@@ -59,7 +64,7 @@ fn render_shell(page_html: &str, user_json: Option<String>) -> String {
 
 async fn login_handler() -> Html<String> {
     let login_html = pages::login::render_login_page();
-    Html(render_shell(&login_html, None))
+    Html(render_shell(&login_html, None, Vec::new()))
 }
 
 async fn callback_handler(
@@ -71,6 +76,7 @@ async fn callback_handler(
         Html(render_shell(
             &format!("<script>window.location.href='{path}';</script>"),
             None,
+            Vec::new(),
         ))
     };
 
@@ -105,6 +111,7 @@ async fn onboarding_handler(State(state): State<AppState>, auth: AuthUser) -> Ht
             return Html(render_shell(
                 r#"<script>window.location.href='/webapp/login';</script>"#,
                 None,
+                Vec::new(),
             ))
         }
     };
@@ -114,7 +121,7 @@ async fn onboarding_handler(State(state): State<AppState>, auth: AuthUser) -> Ht
     let is_technical = user.is_technical;
 
     let form_html = pages::onboarding::render_onboarding_form(git_name, git_email, is_technical);
-    Html(render_shell(&form_html, Some(user_json)))
+    Html(render_shell(&form_html, Some(user_json), Vec::new()))
 }
 
 async fn resolve_user_id_from_session(db: &hiqlite::Client, session_id: Uuid) -> Option<Uuid> {
@@ -140,7 +147,11 @@ async fn settings_handler(auth: AuthUser) -> Html<String> {
     let user_json = serde_json::to_string(&auth).unwrap_or_default();
     let settings_html =
         leptos::view! { <pages::settings::SettingsPage access_token=String::new() /> }.to_html();
-    Html(render_shell(&settings_html, Some(user_json)))
+    let breadcrumbs = vec![
+        breadcrumb_registry::all_projects(),
+        breadcrumb_registry::settings(),
+    ];
+    Html(render_shell(&settings_html, Some(user_json), breadcrumbs))
 }
 
 async fn dashboard_handler(
@@ -154,7 +165,8 @@ async fn dashboard_handler(
     let task_counts = compute_task_counts(&state.db, &projects).await;
     let page_html =
         leptos::view! { <pages::dashboard::DashboardPage projects task_counts /> }.to_html();
-    Ok(Html(render_shell(&page_html, Some(user_json))))
+    let breadcrumbs = vec![breadcrumb_registry::all_projects()];
+    Ok(Html(render_shell(&page_html, Some(user_json), breadcrumbs)))
 }
 
 async fn board_handler(
@@ -172,8 +184,12 @@ async fn board_handler(
     let tasks = services::tasks::list_tasks(&state.db, project_id)
         .await
         .map_err(|e| ServerError::Internal(e.to_string()))?;
+    let breadcrumbs = vec![
+        breadcrumb_registry::all_projects(),
+        breadcrumb_registry::project(&project.name, project.id),
+    ];
     let page_html = leptos::view! { <pages::board::BoardPage project tasks /> }.to_html();
-    Ok(Html(render_shell(&page_html, Some(user_json))))
+    Ok(Html(render_shell(&page_html, Some(user_json), breadcrumbs)))
 }
 
 async fn task_detail_handler(
@@ -221,6 +237,11 @@ async fn task_detail_handler(
         .flatten()
         .or_else(|| conversations.first().and_then(|cwr| cwr.run.clone()));
 
+    let breadcrumbs = vec![
+        breadcrumb_registry::all_projects(),
+        breadcrumb_registry::project(&project.name, project.id),
+        breadcrumb_registry::task(&task.title, project.id, task.id),
+    ];
     let page_html = leptos::view! {
         <pages::task_detail::TaskDetailPage
             task
@@ -231,7 +252,7 @@ async fn task_detail_handler(
         />
     }
     .to_html();
-    Ok(Html(render_shell(&page_html, Some(user_json))))
+    Ok(Html(render_shell(&page_html, Some(user_json), breadcrumbs)))
 }
 
 async fn chat_handler(
@@ -262,17 +283,23 @@ async fn chat_handler(
         .flatten()
         .or_else(|| conversations.first().and_then(|cwr| cwr.run.clone()));
 
+    let breadcrumbs = vec![
+        breadcrumb_registry::all_projects(),
+        breadcrumb_registry::project(&project.name, project.id),
+        breadcrumb_registry::task(&task.title, project.id, task.id),
+        breadcrumb_registry::chat(),
+    ];
     let page_html = leptos::view! {
         <pages::chat::ChatPage
-            project_id
+            _project_id=project_id
             task_id
-            task
+            _task=task
             conversations
             current_run
         />
     }
     .to_html();
-    Ok(Html(render_shell(&page_html, Some(user_json))))
+    Ok(Html(render_shell(&page_html, Some(user_json), breadcrumbs)))
 }
 
 async fn compute_task_counts(

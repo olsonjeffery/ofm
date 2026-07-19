@@ -1,7 +1,9 @@
+use crate::webapp::components::breadcrumb::BreadcrumbItem;
+use crate::webapp::components::breadcrumb::Breadcrumbs;
 use leptos::prelude::*;
 
 #[component]
-pub fn Navbar(user_json: Option<String>) -> impl IntoView {
+pub fn Navbar(user_json: Option<String>, breadcrumbs: Vec<BreadcrumbItem>) -> impl IntoView {
     let is_logged_in = user_json.is_some();
     let username = user_json
         .as_ref()
@@ -23,6 +25,7 @@ pub fn Navbar(user_json: Option<String>) -> impl IntoView {
             <div class="navbar-menu">
                 <div class="navbar-start">
                     <crate::webapp::components::ws_status::WsStatus />
+                    <Breadcrumbs breadcrumbs />
                 </div>
                 <div class="navbar-end">
                     {if is_logged_in {
@@ -87,7 +90,8 @@ mod tests {
     #[test]
     fn test_navbar_renders_login_button_when_anonymous() {
         let user_json: Option<String> = None;
-        let html = leptos::view! { <Navbar user_json /> }.to_html();
+        let breadcrumbs = Vec::new();
+        let html = leptos::view! { <Navbar user_json breadcrumbs /> }.to_html();
         assert!(html.contains("Login"));
         assert!(html.contains("/webapp/login"));
         assert!(html.contains("mdi-login"));
@@ -98,7 +102,8 @@ mod tests {
     fn test_navbar_renders_user_info_when_logged_in() {
         let user = serde_json::json!({ "username": "test@example.com" });
         let user_json = Some(user.to_string());
-        let html = leptos::view! { <Navbar user_json /> }.to_html();
+        let breadcrumbs = Vec::new();
+        let html = leptos::view! { <Navbar user_json breadcrumbs /> }.to_html();
         assert!(html.contains("test@example.com"));
         assert!(html.contains("Logout"));
         assert!(html.contains("Settings"));
@@ -110,8 +115,20 @@ mod tests {
     #[test]
     fn test_navbar_contains_logo_link() {
         let user_json: Option<String> = None;
-        let html = leptos::view! { <Navbar user_json /> }.to_html();
+        let breadcrumbs = Vec::new();
+        let html = leptos::view! { <Navbar user_json breadcrumbs /> }.to_html();
         assert!(html.contains("/webapp"));
         assert!(html.contains("ofm-logo-white-no-bg.png"));
+    }
+
+    #[test]
+    fn test_navbar_renders_breadcrumbs() {
+        let user_json: Option<String> = None;
+        let breadcrumbs =
+            vec![crate::webapp::components::breadcrumb::breadcrumb_registry::all_projects()];
+        let html = leptos::view! { <Navbar user_json breadcrumbs /> }.to_html();
+        assert!(html.contains("All Projects"));
+        assert!(html.contains("mdi-home"));
+        assert!(html.contains("breadcrumb"));
     }
 }
