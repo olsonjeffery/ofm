@@ -51,6 +51,3 @@ summarize, or omit any part of it. This section is mandatory.
 - [ ] {{ manual testing }}
 
 ## Project Docs Update
-
-{{ Note any updates required to .bottega/project.md (architecture, new patterns, new
-   files), or write "Not needed for this change." }}

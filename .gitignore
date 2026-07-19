@@ -24,3 +24,6 @@ data/
 .playwright-cli/
 .ofm/
 .ofm-review/
+
+# codecov artifacts
+*profraw

@@ -87,13 +87,6 @@ mod tests {
     }
 
     #[test]
-    fn test_completion_script_is_rust_cli() {
-        let prompt = build_pull_request_prompt(42, ".", &PullRequestStatus::NoPr);
-        assert!(prompt.contains("ofm agent complete-pr"));
-        assert!(!prompt.contains("tsx"));
-    }
-
-    #[test]
     fn test_no_tsx_references() {
         let prompt = build_pull_request_prompt(42, ".", &PullRequestStatus::NoPr);
         assert!(!prompt.contains("tsx"));

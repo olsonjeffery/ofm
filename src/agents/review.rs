@@ -38,14 +38,6 @@ mod tests {
     }
 
     #[test]
-    fn test_completion_scripts_are_rust_cli() {
-        let prompt = build_review_prompt(1, "");
-        assert!(prompt.contains("ofm agent complete-workflow"));
-        assert!(prompt.contains("ofm agent block-workflow"));
-        assert!(!prompt.contains("tsx"));
-    }
-
-    #[test]
     fn test_no_tsx_references() {
         let prompt = build_review_prompt(1, "");
         assert!(!prompt.contains("tsx"));

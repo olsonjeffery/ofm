@@ -89,6 +89,8 @@ $colors: fn.mergeColorMaps(
     "success": $success,
     "warning": $warning,
     "danger": $danger,
+    "purple": iv.$purple,
+    "cyan": iv.$cyan,
   ),
   $custom-colors
 ) !default;

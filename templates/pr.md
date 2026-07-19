@@ -44,9 +44,7 @@ gh pr view --json mergeStateStatus,mergeable --jq '{ mergeStateStatus, mergeable
 
 **If mergeable is "MERGEABLE" (no conflicts):**
 Run the completion script:
-```bash
-ofm agent complete-pr {{taskId}}
-```
+`Echo the phrase "<<PR-COMPLETE>>>"
 
 **If mergeable is "CONFLICTING" (has conflicts):**
 1. Rebase onto the base branch to resolve conflicts:

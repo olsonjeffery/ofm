@@ -1,3 +1,4 @@
+use std::os::unix::process::CommandExt;
 use std::path::{Path, PathBuf};
 use std::sync::Mutex;
 
@@ -165,7 +166,8 @@ async fn spawn_opencode_server(
         .env("OPENCODE_CONFIG", &config_path)
         .env("OPENCODE_SERVER_PASSWORD", &password)
         .stdout(std::process::Stdio::null())
-        .stderr(std::process::Stdio::inherit());
+        .stderr(std::process::Stdio::inherit())
+        .process_group(0);
     if let Some(dir) = working_dir {
         cmd.current_dir(dir);
     }
@@ -907,6 +909,7 @@ impl LlmProvider for OpenCodeProvider {
     ) -> Result<mpsc::Receiver<ProviderEvent>, ProviderError> {
         let (base_url, password) = self.server_details().ok_or(ProviderError::NotStarted)?;
         let session_id = input.session_id.clone();
+        let original_session_id = session_id.clone();
 
         let messages_arr = input
             .messages
@@ -947,26 +950,133 @@ impl LlmProvider for OpenCodeProvider {
             })
         };
 
-        let msg_resp = self
+        let fresh_msg_body = serde_json::json!({
+            "parts": [{"type": "text", "text": last_user_text}]
+        });
+
+        // Probe the cached session_id's existence on the current provider
+        // server. After Stop Agent kills the opencode subprocess, lazy
+        // recreation spawns a fresh server with NO sessions, so the cached
+        // session_id refers to a dead session. opencode may return 200 for
+        // POST /session/{id}/prompt_async against a missing session (the
+        // prompt is queued-but-ignored) which would leave the resumed turn
+        // with no matching SSE events. Probe explicitly first so we fall
+        // back to a replacement session reliably.
+        let session_exists = match self
             .http_client
-            .post(format!("{base_url}/session/{session_id}/prompt_async"))
+            .get(format!("{base_url}/session/{session_id}"))
             .header("Authorization", basic_auth_header(&password))
-            .json(&msg_body)
+            .timeout(std::time::Duration::from_millis(500))
             .send()
-            .await?;
-        if !msg_resp.status().is_success() {
-            let status = msg_resp.status();
-            let body = msg_resp.text().await.unwrap_or_default();
-            return Err(ProviderError::Protocol(format!(
-                "failed to send resume message ({status}): {body}"
-            )));
+            .await
+        {
+            Ok(resp) => resp.status().is_success(),
+            Err(e) => {
+                tracing::warn!(
+                    session_id = %session_id,
+                    error = %e,
+                    "Session probe failed — assuming missing"
+                );
+                false
+            }
+        };
+
+        let mut needs_replacement = !session_exists;
+        let mut actual_session_id = session_id.clone();
+
+        if session_exists {
+            let msg_resp = self
+                .http_client
+                .post(format!("{base_url}/session/{session_id}/prompt_async"))
+                .header("Authorization", basic_auth_header(&password))
+                .json(&msg_body)
+                .send()
+                .await?;
+
+            if msg_resp.status() == reqwest::StatusCode::NOT_FOUND {
+                tracing::warn!(
+                    session_id = %session_id,
+                    "Late 404 on prompt_async — creating replacement session"
+                );
+                needs_replacement = true;
+            } else if !msg_resp.status().is_success() {
+                let status = msg_resp.status();
+                let body = msg_resp.text().await.unwrap_or_default();
+                return Err(ProviderError::Protocol(format!(
+                    "failed to send resume message ({status}): {body}"
+                )));
+            }
+            // 200 → keep session_id as actual_session_id
         }
 
+        if needs_replacement {
+            tracing::warn!(
+                session_id = %session_id,
+                "Session not found on provider — creating new session for resume"
+            );
+            let working_dir = self.working_dir.lock().unwrap().clone().unwrap_or_default();
+            let new_session_resp = self
+                .http_client
+                .post(
+                    reqwest::Url::parse_with_params(
+                        &format!("{base_url}/session"),
+                        &[("directory", working_dir.to_string_lossy().as_ref())],
+                    )
+                    .map_err(|e| ProviderError::Protocol(e.to_string()))?,
+                )
+                .header("Authorization", basic_auth_header(&password))
+                .json(&serde_json::json!({"title": "ofm session (resumed)"}))
+                .send()
+                .await?;
+            if !new_session_resp.status().is_success() {
+                let status = new_session_resp.status();
+                let body = new_session_resp.text().await.unwrap_or_default();
+                return Err(ProviderError::Protocol(format!(
+                    "failed to create replacement session ({status}): {body}"
+                )));
+            }
+            let new_session_id: String = new_session_resp
+                .json::<OpenCodeSession>()
+                .await
+                .map(|s| s.id)
+                .unwrap_or_else(|_| Uuid::new_v4().to_string());
+
+            // Send the message to the new session (no question_message_id
+            // for a fresh session).
+            let send_resp = self
+                .http_client
+                .post(format!("{base_url}/session/{new_session_id}/prompt_async"))
+                .header("Authorization", basic_auth_header(&password))
+                .json(&fresh_msg_body)
+                .send()
+                .await?;
+            if !send_resp.status().is_success() {
+                let status = send_resp.status();
+                let body = send_resp.text().await.unwrap_or_default();
+                return Err(ProviderError::Protocol(format!(
+                    "failed to send message to replacement session ({status}): {body}"
+                )));
+            }
+
+            actual_session_id = new_session_id;
+        }
+
+        let _ = msg_body;
+
         let (tx, rx) = mpsc::channel(256);
+        // If we created a new session, notify the broadcast task so it
+        // updates the DB's conversations.provider_session_id column.
+        if actual_session_id != original_session_id {
+            let _ = tx
+                .send(ProviderEvent::SessionStart {
+                    session_id: actual_session_id.clone(),
+                })
+                .await;
+        }
         let client = self.http_client.clone();
         let events_url = format!("{base_url}/event");
         let pw = password.clone();
-        let sid = session_id.clone();
+        let sid = actual_session_id.clone();
 
         tokio::spawn(async move {
             read_sse_to_completion(&client, &events_url, &pw, &sid, tx).await;
@@ -1024,15 +1134,92 @@ impl LlmProvider for OpenCodeProvider {
     }
 
     async fn shutdown(&mut self) -> Result<bool, ProviderError> {
-        let mut guard = self.server.lock().unwrap();
-        if let Some(s) = guard.as_mut() {
-            let _ = s.child.stdin.take();
-            let _ = s.child.kill();
-            let _ = s.child.wait();
-            *guard = None;
-            Ok(true)
-        } else {
-            Ok(false)
+        let (port, hostname, pid) = {
+            let mut guard = self.server.lock().unwrap();
+            match guard.as_mut() {
+                Some(s) => {
+                    let port = s.port;
+                    let hostname = s.hostname.clone();
+                    let pid = s.child.id();
+                    let _ = s.child.stdin.take();
+                    let _ = s.child.kill();
+                    let _ = s.child.wait();
+                    // Kill the entire process group to handle grandchild processes
+                    let _ = std::process::Command::new("kill")
+                        .arg("-9")
+                        .arg(format!("-{}", pid))
+                        .status();
+                    // Kill direct children of the child process (grandchildren from
+                    // our perspective) that may have escaped the process group by
+                    // calling setsid() or similar. This is safe — it only targets
+                    // processes whose parent is our direct child.
+                    let _ = std::process::Command::new("sh")
+                        .arg("-c")
+                        .arg(format!(
+                            "ps --ppid {pid} -o pid= 2>/dev/null | xargs kill -9 2>/dev/null; true"
+                        ))
+                        .status();
+                    *guard = None;
+                    (port, hostname, pid)
+                }
+                None => return Ok(false),
+            }
+        };
+
+        // Port-based kill fallback: grandchildren that escaped both the
+        // process group AND the ps --ppid sweep can still be bound to the
+        // opencode server's port. Try fuser and lsof to kill anything still
+        // listening on that port, regardless of process group or session
+        // membership. Both commands are best-effort and silently ignored if
+        // missing on the host.
+        //
+        // Gated on `not(test)` because unit tests exercise shutdown() while
+        // the test process itself holds a tmp listener on the port (to
+        // simulate "still listening"); `fuser -k PORT/tcp` would send
+        // SIGKILL to the test process in that case. In production the OFM
+        // server never holds the opencode subprocess's port, so this is
+        // strictly a test-only hazard.
+        #[cfg(not(test))]
+        let _ = std::process::Command::new("sh")
+            .arg("-c")
+            .arg(format!(
+                "lsof -ti:{port} 2>/dev/null | awk -v p=$PPID '$1!=p' | xargs -r kill -9 2>/dev/null; \
+                 true"
+            ))
+            .status();
+
+        let addr = format!("{hostname}:{port}");
+        let probe = tokio::time::timeout(
+            std::time::Duration::from_millis(500),
+            tokio::net::TcpStream::connect(&addr),
+        )
+        .await;
+
+        match probe {
+            Ok(Ok(_)) => {
+                tracing::error!(
+                    port = port,
+                    pid = pid,
+                    "OpenCode subprocess still listening after shutdown — port probe succeeded"
+                );
+                Ok(false)
+            }
+            Ok(Err(_)) => {
+                tracing::info!(
+                    port = port,
+                    pid = pid,
+                    "OpenCode subprocess confirmed dead (connection refused)"
+                );
+                Ok(true)
+            }
+            Err(_) => {
+                tracing::warn!(
+                    port = port,
+                    pid = pid,
+                    "Port probe timed out — assuming subprocess is dead"
+                );
+                Ok(true)
+            }
         }
     }
 }
@@ -1040,9 +1227,32 @@ impl LlmProvider for OpenCodeProvider {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::providers::HarnessConfig;
 
     fn global_event(payload: &str) -> String {
         format!(r#"{{"directory":"/tmp","payload":{payload}}}"#)
+    }
+
+    fn make_harness_config() -> HarnessConfig {
+        HarnessConfig {
+            agent_type: "planification".into(),
+            harness: "opencode".into(),
+            provider_config_ref: "test.json".into(),
+            model: None,
+            effort: None,
+            scope: crate::db::schema::ScopeType::Project,
+        }
+    }
+
+    fn make_provider(server: Option<OpenCodeServer>) -> OpenCodeProvider {
+        OpenCodeProvider {
+            config: make_harness_config(),
+            provider_snippet: "{}".into(),
+            provider_id: "test".into(),
+            server: Mutex::new(server),
+            working_dir: Mutex::new(None),
+            http_client: reqwest::Client::new(),
+        }
     }
 
     #[test]
@@ -1193,5 +1403,61 @@ mod tests {
                 && questions[1].question == "Second?"
                 && questions[1].header == Some("Q2".to_string())
         ));
+    }
+
+    #[tokio::test]
+    async fn test_shutdown_no_server() {
+        let mut provider = make_provider(None);
+        let result = provider.shutdown().await.unwrap();
+        assert!(!result, "shutdown with no server should return Ok(false)");
+    }
+
+    #[tokio::test]
+    async fn test_shutdown_port_probe_connection_refused() {
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let port = listener.local_addr().unwrap().port();
+        drop(listener);
+        tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+
+        let child = std::process::Command::new("true").spawn().unwrap();
+        let temp_dir = TempDir::new().unwrap();
+
+        let server = OpenCodeServer {
+            child,
+            port,
+            hostname: "127.0.0.1".to_string(),
+            password: None,
+            _temp_dir: temp_dir,
+        };
+
+        let mut provider = make_provider(Some(server));
+        let result = provider.shutdown().await.unwrap();
+        assert!(result, "shutdown when port is free should return Ok(true)");
+    }
+
+    #[tokio::test]
+    async fn test_shutdown_port_probe_still_listening() {
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let port = listener.local_addr().unwrap().port();
+
+        let child = std::process::Command::new("true").spawn().unwrap();
+        let temp_dir = TempDir::new().unwrap();
+
+        let server = OpenCodeServer {
+            child,
+            port,
+            hostname: "127.0.0.1".to_string(),
+            password: None,
+            _temp_dir: temp_dir,
+        };
+
+        let mut provider = make_provider(Some(server));
+        let result = provider.shutdown().await.unwrap();
+        assert!(
+            !result,
+            "shutdown when port is still listening should return Ok(false)"
+        );
+
+        drop(listener);
     }
 }

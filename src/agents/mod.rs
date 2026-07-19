@@ -1,6 +1,7 @@
 pub mod implementation;
 pub mod planning;
 pub mod pull_request;
+pub mod refinement;
 pub mod review;
 
 /// Builds a prompt from a template string by substituting standard placeholders
