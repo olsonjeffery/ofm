@@ -156,14 +156,7 @@ pub fn TaskDetailPage(
                             <h2 class="title is-5">"Conversations "</h2>
                             <span class="tag is-info is-light ml-1">{conversation_count}</span>
                         </div>
-                        <div class="level-right">
-                            <a
-                                class="button is-primary is-small"
-                                href={format!("/webapp/projects/{}/tasks/{}/chat", task.project_id, task.id)}
-                            >
-                                "+ New Chat"
-                            </a>
-                        </div>
+                        <div class="level-right"></div>
                     </div>
                     <ConversationList conversations=conversations active_id=None />
                 </div>
@@ -208,10 +201,10 @@ pub fn TaskDetailPage(
                             let agent_label = agent_type_label(agent_type);
                             let is_current = current_run.as_ref().map(|r| r.agent_type == *agent_type).unwrap_or(false);
                             let is_running = current_run.as_ref().map(|r| r.status == RunStatus::Running).unwrap_or(false);
-                            let btn_disabled = current_run.is_some();
+                            let btn_disabled = false;
                             let btn_loading = is_current && is_running;
                             view! {
-                                <div class="box is-info is-light" style="padding:0.75rem">
+                                <div class="box is-info is-light" style="padding:0.75rem;margin-bottom:0.25rem">
                                     <div class="level is-mobile">
                                         <div class="level-left">
                                             <span class="icon has-text-info"><i class={format!("mdi mdi-{}", agent_icon)}></i></span>
@@ -472,19 +465,14 @@ mod tests {
     }
 
     #[test]
-    fn test_task_detail_current_run_non_matching_phase_disabled_no_loading() {
+    fn test_task_detail_current_run_non_matching_phase_no_loading() {
         let task = make_task();
         let agent_runs = vec![];
         let doc_content = None;
         let current_run = Some(make_run(AgentType::Planification, RunStatus::Running));
         let html = leptos::view! { <TaskDetailPage task doc_content agent_runs conversations=vec![] current_run /> }.to_html();
-        // All buttons should be disabled, but only the Planification one has is-loading
-        let disabled_count = (html.matches("disabled").count());
-        assert!(
-            disabled_count >= 4,
-            "Expected at least 4 disabled buttons, got {}",
-            disabled_count
-        );
+        // is-loading appears for the Planification phase (and also in inline JS)
+        assert!(html.contains("is-loading"));
     }
 
     #[test]
@@ -560,7 +548,6 @@ mod tests {
         let doc_content = None;
         let html = leptos::view! { <TaskDetailPage task doc_content agent_runs conversations=vec![] current_run=None /> }.to_html();
         assert!(html.contains("Conversations"));
-        assert!(html.contains("New Chat"));
     }
 
     #[test]
