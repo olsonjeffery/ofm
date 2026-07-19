@@ -45,6 +45,7 @@ impl InnerClient {
 
 // ── OpencodeClient ────────────────────────────────────────────────────────
 
+#[derive(Clone)]
 pub struct OpencodeClient {
     inner: std::sync::Arc<InnerClient>,
     pub session: SessionApi,
@@ -88,15 +89,11 @@ impl OpencodeClient {
             Some(&self.inner.password)
         }
     }
-
-    /// Create a new client with the same connection settings.
-    pub fn clone(&self) -> Self {
-        Self::new(self.base_url(), self.password())
-    }
 }
 
 // ── SessionApi ────────────────────────────────────────────────────────────
 
+#[derive(Clone)]
 pub struct SessionApi(std::sync::Arc<InnerClient>);
 
 impl SessionApi {
@@ -118,7 +115,7 @@ impl SessionApi {
                 "POST /session failed: {status} — {body}"
             )));
         }
-        Ok(resp.json().await.map_err(SdkError::Http)?)
+        resp.json().await.map_err(SdkError::Http)
     }
 
     pub async fn get(&self, id: &str) -> Result<Session, SdkError> {
@@ -137,7 +134,7 @@ impl SessionApi {
                 "GET /session/{id} failed: {status} — {body}"
             )));
         }
-        Ok(resp.json().await.map_err(SdkError::Http)?)
+        resp.json().await.map_err(SdkError::Http)
     }
 
     pub async fn list(&self) -> Result<Vec<Session>, SdkError> {
@@ -157,7 +154,7 @@ impl SessionApi {
                 "GET /session failed: {status} — {body}"
             )));
         }
-        Ok(resp.json().await.map_err(SdkError::Http)?)
+        resp.json().await.map_err(SdkError::Http)
     }
 
     pub async fn delete(&self, id: &str) -> Result<(), SdkError> {
@@ -196,7 +193,7 @@ impl SessionApi {
                 "POST /session/{id}/message failed: {status} — {body_text}"
             )));
         }
-        Ok(resp.json().await.map_err(SdkError::Http)?)
+        resp.json().await.map_err(SdkError::Http)
     }
 
     pub async fn prompt_async(&self, id: &str, body: &PromptBody) -> Result<(), SdkError> {
@@ -250,12 +247,13 @@ impl SessionApi {
                 "GET /session/{id}/message failed: {status} — {body}"
             )));
         }
-        Ok(resp.json().await.map_err(SdkError::Http)?)
+        resp.json().await.map_err(SdkError::Http)
     }
 }
 
 // ── EventApi ──────────────────────────────────────────────────────────────
 
+#[derive(Clone)]
 pub struct EventApi(std::sync::Arc<InnerClient>);
 
 impl EventApi {
@@ -319,8 +317,10 @@ impl EventStreamCancellation {
     }
 }
 
+type SseByteStream = Pin<Box<dyn Stream<Item = Result<Bytes, reqwest::Error>> + Send>>;
+
 pub struct EventStream {
-    stream: Option<Pin<Box<dyn Stream<Item = Result<Bytes, reqwest::Error>> + Send>>>,
+    stream: Option<SseByteStream>,
     buf: Vec<u8>,
     pending: Vec<GlobalEvent>,
     retry_delay: Duration,
@@ -497,6 +497,7 @@ impl EventStream {
 
 // ── ConfigApi ─────────────────────────────────────────────────────────────
 
+#[derive(Clone)]
 pub struct ConfigApi(std::sync::Arc<InnerClient>);
 
 impl ConfigApi {
