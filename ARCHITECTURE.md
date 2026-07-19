@@ -21,7 +21,6 @@ ofm/
 │   │       ├── conversation_list.rs  # Conversation sidebar (Phase 5)
 │   │       ├── message_stream.rs     # Streaming event display (Phase 5)
 │   │       ├── chat_input.rs         # Manual message input (Phase 5)
-│   │       └── agent_run_banner.rs   # Agent run status banner (Phase 5)
 │   ├── providers/oh_my_pi/ # oh-my-pi: PTY spawn/reader, session management
 │   ├── orchestration/   # State machine, guards, recovery, completion
 │   ├── providers/       # LlmProvider trait, oh-my-pi/opencode providers
@@ -122,7 +121,7 @@ The chat view (`/webapp/projects/{project_id}/tasks/{task_id}/chat`) provides a 
 - **Manual chat**: `POST /api/tasks/{task_id}/conversations/{id}/messages` — persists the user message, loads the transcript, calls `provider.resume_turn()`, and spawns a broadcast task for the response events.
 - **Orchestrator phase skip**: When a phase's agent config is missing (no model configured), `post_create_agent_run` creates a `Blocked` run and returns immediately. `next_agent()` checks config statuses before returning `StartAgent`, skipping unconfigured phases.
 - **Chat API**: `GET /api/tasks/{task_id}/conversations` lists conversations with their associated runs; `GET /api/tasks/{task_id}/conversations/{id}` returns a conversation with its full message transcript.
-- **UI Components**: The chat page has four Leptos SSR components — `ConversationList` (sidebar), `MessageStream` (event display with `overflow-wrap: break-word` bounding), `ChatInput` (message input — agent-type phases dropdown removed in Task 204), and `AgentRunBanner` (status bar with config indicators).
+- **UI Components**: The chat page has three Leptos SSR components — `ConversationList` (sidebar), `MessageStream` (event display with `overflow-wrap: break-word` bounding), and `ChatInput` (message input — agent-type phases dropdown removed in Task 204). The `AgentRunBanner` was removed in Task 2 (notification bar replaced with task detail page's Agents box controls).
 
 ## WebApp (Leptos Islands)
 
