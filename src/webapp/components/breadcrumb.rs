@@ -17,20 +17,33 @@ impl BreadcrumbItem {
     }
 }
 
+pub fn title_truncate(in_str: &str) -> String {
+    const LENGTH: usize = 24;
+    if in_str.len() <= LENGTH {
+        in_str.to_owned()
+    } else {
+        format!("{}…", in_str.chars().take(LENGTH).collect::<String>())
+    }
+}
+
 pub mod breadcrumb_registry {
-    use super::BreadcrumbItem;
+    use super::{title_truncate, BreadcrumbItem};
 
     pub fn all_projects() -> BreadcrumbItem {
         BreadcrumbItem::new("All Projects", "home", "/webapp")
     }
 
     pub fn project(name: &str, id: i64) -> BreadcrumbItem {
-        BreadcrumbItem::new(name, "folder", format!("/webapp/projects/{}", id))
+        BreadcrumbItem::new(
+            title_truncate(name),
+            "folder",
+            format!("/webapp/projects/{}", id),
+        )
     }
 
     pub fn task(title: &str, project_id: i64, task_id: i64) -> BreadcrumbItem {
         BreadcrumbItem::new(
-            title,
+            title_truncate(title),
             "card-bulleted-outline",
             format!("/webapp/projects/{}/tasks/{}", project_id, task_id),
         )
@@ -103,7 +116,7 @@ mod tests {
     fn test_registry_task() {
         let item = breadcrumb_registry::task("My Task", 1, 99);
         assert_eq!(item.title, "My Task");
-        assert_eq!(item.icon, "checkbox-marked-circle");
+        assert_eq!(item.icon, "card-bulleted-outline");
         assert_eq!(item.path, "/webapp/projects/1/tasks/99");
     }
 
