@@ -1,9 +1,10 @@
+use crate::webapp::components::breadcrumb::BreadcrumbItem;
 use crate::webapp::components::navbar::Navbar;
 use crate::webapp::shim::runtime::global_runtime_script;
 use leptos::prelude::*;
 
 #[component]
-pub fn ShellPage(user_json: Option<String>) -> impl IntoView {
+pub fn ShellPage(user_json: Option<String>, breadcrumbs: Vec<BreadcrumbItem>) -> impl IntoView {
     view! {
         <!DOCTYPE html>
         <html lang="en">
@@ -19,7 +20,7 @@ pub fn ShellPage(user_json: Option<String>) -> impl IntoView {
             <script>{global_runtime_script()}</script>
         </head>
         <body>
-            <Navbar user_json />
+            <Navbar user_json breadcrumbs />
             <main></main>
         </body>
         </html>
@@ -33,7 +34,8 @@ mod tests {
     #[test]
     fn test_shell_page_contains_html_and_script() {
         let user_json: Option<String> = None;
-        let html = leptos::view! { <ShellPage user_json /> }.to_html();
+        let breadcrumbs = Vec::new();
+        let html = leptos::view! { <ShellPage user_json breadcrumbs /> }.to_html();
         assert!(html.contains("<html"));
         assert!(html.contains("data-island-url"));
         assert!(html.contains("ofm"));
@@ -44,14 +46,9 @@ mod tests {
     #[test]
     fn test_shell_page_main_tag_exact_match() {
         let user_json: Option<String> = None;
-        let html = leptos::view! { <ShellPage user_json /> }.to_html();
+        let breadcrumbs = Vec::new();
+        let html = leptos::view! { <ShellPage user_json breadcrumbs /> }.to_html();
         let search = "<main></main>";
-        // Print the actual main tag for debugging
-        for line in html.lines() {
-            if line.contains("<main") {
-                eprintln!("ACTUAL MAIN TAG: [{}]", line);
-            }
-        }
         assert!(
             html.contains(search),
             "Shell HTML does not contain exact main tag match. Search: {}",

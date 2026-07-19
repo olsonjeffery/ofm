@@ -6,30 +6,20 @@ use leptos::prelude::*;
 
 #[component]
 pub fn ChatPage(
-    project_id: i64,
+    _project_id: i64,
     task_id: i64,
-    task: Task,
+    _task: Task,
     conversations: Vec<ConversationWithRun>,
     current_run: Option<TaskAgentRun>,
 ) -> impl IntoView {
     let is_running = current_run
         .as_ref()
-        .map(|r| r.status == crate::db::schema::RunStatus::Running)
-        .unwrap_or(false);
+        .is_some_and(|r| r.status == crate::db::schema::RunStatus::Running);
 
     let messages = Vec::new();
 
     view! {
         <div id="chat-layout" style="display:flex;flex-direction:column;height:calc(100vh - 3.75rem);overflow:hidden">
-            <nav class="breadcrumb" aria-label="breadcrumbs">
-                <ul>
-                    <li><a href="/webapp">"Dashboard"</a></li>
-                    <li><a href={format!("/webapp/projects/{}", project_id)}>"Board"</a></li>
-                    <li><a href={format!("/webapp/projects/{}/tasks/{}", project_id, task_id)}>{task.title.clone()}</a></li>
-                    <li class="is-active"><a href="#">"Chat"</a></li>
-                </ul>
-            </nav>
-
             <div class="columns" style="flex:1;overflow:hidden;display:flex;margin-top:0.5rem">
                 <div class="column is-one-quarter" style="border-right:1px solid #ddd;overflow-y:auto">
                     <h2 class="title is-6">"Conversations"</h2>
@@ -111,8 +101,6 @@ document.addEventListener('DOMContentLoaded', function() {
             if (!r.ok) showMessage('Failed to stop agent');
         });
     };
-
-
 
     window.handleConversationClick = function(e) {
         var card = e.target.closest('[data-conversation-id]');
@@ -337,16 +325,14 @@ mod tests {
         let task = make_task();
         let html = leptos::view! {
             <ChatPage
-                project_id=1
+                _project_id=1
                 task_id=1
-                task
+                _task=task
                 conversations=Vec::new()
                 current_run=None
             />
         }
         .to_html();
-        assert!(html.contains("Chat Test Task"));
-        assert!(html.contains("Chat"));
         assert!(html.contains("Conversations"));
         assert!(html.contains("chat-layout"));
         assert!(html.contains("chat-footer"));

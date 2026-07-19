@@ -1,4 +1,5 @@
 pub mod agent_model_select;
+pub mod breadcrumb;
 
 pub mod api_key_manager;
 pub mod auth_guard;

@@ -93,13 +93,6 @@ pub fn TaskDetailPage(
 
     view! {
         <section class="section">
-            <nav class="breadcrumb" aria-label="breadcrumbs">
-                <ul>
-                    <li><a href="/webapp">"Dashboard"</a></li>
-                    <li><a href={format!("/webapp/projects/{}", task.project_id)}>"Board"</a></li>
-                    <li class="is-active"><a href="#">{task.title.clone()}</a></li>
-                </ul>
-            </nav>
             <div class="level" data-task-id={task.id.to_string()} data-project-id={task.project_id.to_string()}>
                 <div class="level-left">
                     <h1 class="title">{task.title.clone()}</h1>
@@ -168,18 +161,12 @@ pub fn TaskDetailPage(
                                 <h2 class="title is-4">"Documentation"</h2>
                             </div>
                         </div>
-                        {if let Some(ref doc) = doc_content {
-                            if doc.is_empty() {
-                                view! {
-                                    <p class="has-text-grey">"No document yet. Start by running the Planification agent."</p>
-                                }.into_any()
-                            } else {
-                                view! { <MarkdownViewer content=doc.clone() /> }.into_any()
-                            }
-                        } else {
+                        {if doc_content.as_deref().is_none_or(str::is_empty) {
                             view! {
                                 <p class="has-text-grey">"No document yet. Start by running the Planification agent."</p>
                             }.into_any()
+                        } else {
+                            view! { <MarkdownViewer content=doc_content.unwrap_or_default() /> }.into_any()
                         }}
                     </div>
 
@@ -201,7 +188,6 @@ pub fn TaskDetailPage(
                             let agent_label = agent_type_label(agent_type);
                             let is_current = current_run.as_ref().map(|r| r.agent_type == *agent_type).unwrap_or(false);
                             let is_running = current_run.as_ref().map(|r| r.status == RunStatus::Running).unwrap_or(false);
-                            let btn_disabled = false;
                             let btn_loading = is_current && is_running;
                             view! {
                                 <div class="box is-info is-light" style="padding:0.75rem;margin-bottom:0.25rem">
@@ -215,7 +201,7 @@ pub fn TaskDetailPage(
                                                 class={format!("button is-small has-text-info {}", if btn_loading { "is-loading" } else { "" })}
                                                 data-task-id={task_id.clone()}
                                                 data-agent-type={agent_val}
-                                                disabled=btn_disabled
+                                                disabled=false
                                             >
                                                 <span class="icon is-small"><i class="mdi mdi-play-outline"></i></span>
                                                 <span>"Run"</span>

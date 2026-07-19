@@ -132,6 +132,10 @@ All webapp UI follows the Islands Architecture pattern:
 - Auth is enforced by the existing `AuthLayer` and per-handler `AuthUser` extractor.
 - Styling via Bulma CSS with MDI icons.
 
+### UI Components
+
+- **Breadcrumbs**: Shared breadcrumb navigation system. `BreadcrumbItem` data struct holds `title`, `icon`, and `path`. A `breadcrumb_registry` module centralizes canonical breadcrumb definitions (e.g., `all_projects()`, `project()`, `task()`, `chat()`, `settings()`). The `Breadcrumbs` Leptos component renders Bulma `<nav class="breadcrumb">` markup. Breadcrumbs flow from page handler -> `render_shell()` -> `ShellPage` -> `Navbar`, appearing immediately after the WS status indicator in the navbar-start div.
+
 ## Agent Prompt Pipeline
 
 Agent prompts are assembled from templates in `templates/`:
