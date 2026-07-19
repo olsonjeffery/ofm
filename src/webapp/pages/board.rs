@@ -39,13 +39,6 @@ pub fn BoardPage(project: Project, tasks: Vec<Task>) -> impl IntoView {
 
     view! {
         <section class="section">
-            <nav class="breadcrumb" aria-label="breadcrumbs">
-                <ul>
-                    <li><a href="/webapp">"Dashboard"</a></li>
-                    <li class="is-active"><a href="#">{project.name.clone()}</a></li>
-                </ul>
-            </nav>
-
             <div class="level">
                 <div class="level-left">
                     <h1 class="title">{project.name.clone()}</h1>
@@ -165,13 +158,14 @@ mod tests {
     #[test]
     fn test_board_renders_four_columns() {
         let project = make_project();
+        let project_name = project.name.clone();
         let tasks = vec![];
         let html = leptos::view! { <BoardPage project tasks /> }.to_html();
         assert!(html.contains("Pending"));
         assert!(html.contains("In Progress"));
         assert!(html.contains("In Review"));
         assert!(html.contains("Completed"));
-        assert!(html.contains("Dashboard"));
+        assert!(html.contains(project_name.as_str()));
     }
 
     #[test]

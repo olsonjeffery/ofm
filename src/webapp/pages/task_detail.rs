@@ -93,13 +93,6 @@ pub fn TaskDetailPage(
 
     view! {
         <section class="section">
-            <nav class="breadcrumb" aria-label="breadcrumbs">
-                <ul>
-                    <li><a href="/webapp">"Dashboard"</a></li>
-                    <li><a href={format!("/webapp/projects/{}", task.project_id)}>"Board"</a></li>
-                    <li class="is-active"><a href="#">{task.title.clone()}</a></li>
-                </ul>
-            </nav>
             <div class="level" data-task-id={task.id.to_string()} data-project-id={task.project_id.to_string()}>
                 <div class="level-left">
                     <h1 class="title">{task.title.clone()}</h1>
