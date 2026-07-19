@@ -278,10 +278,7 @@ async fn test_prompt_async_and_abort() {
         })],
     };
 
-    let result = client
-        .session
-        .prompt_async(&session.id, &body)
-        .await;
+    let result = client.session.prompt_async(&session.id, &body).await;
     match result {
         Ok(()) => {}
         Err(e) => {
@@ -485,7 +482,10 @@ async fn test_multi_session_lifecycle() {
     let mut conversations = Vec::new();
     for i in 0..n {
         let conv = UnstructuredConversation::start(&client).await.unwrap();
-        let mut stream = conv.send_message(&format!("Hello from conversation {i}")).await.unwrap();
+        let mut stream = conv
+            .send_message(&format!("Hello from conversation {i}"))
+            .await
+            .unwrap();
         // Consume events until idle
         while let Some(event) = stream.next().await {
             match event {

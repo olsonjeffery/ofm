@@ -739,9 +739,7 @@ mod tests {
 
     #[test]
     fn test_event_session_idle() {
-        let json = global_event(
-            r#"{"type":"session.idle","properties":{"sessionID":"sess1"}}"#,
-        );
+        let json = global_event(r#"{"type":"session.idle","properties":{"sessionID":"sess1"}}"#);
         let event = parse_event(&json);
         assert!(matches!(event, Event::SessionIdle(data) if data.session_id == "sess1"));
     }
@@ -763,63 +761,52 @@ mod tests {
 
     #[test]
     fn test_event_server_connected() {
-        let json = global_event(
-            r#"{"type":"server.connected","properties":{"version":"1.15.5"}}"#,
-        );
+        let json = global_event(r#"{"type":"server.connected","properties":{"version":"1.15.5"}}"#);
         let event = parse_event(&json);
-        assert!(matches!(event, Event::ServerConnected(data) if data.version.as_deref() == Some("1.15.5")));
+        assert!(
+            matches!(event, Event::ServerConnected(data) if data.version.as_deref() == Some("1.15.5"))
+        );
     }
 
     #[test]
     fn test_event_server_instance_disposed() {
-        let json = global_event(
-            r#"{"type":"server.instance.disposed","properties":{}}"#,
-        );
+        let json = global_event(r#"{"type":"server.instance.disposed","properties":{}}"#);
         let event = parse_event(&json);
         assert!(matches!(event, Event::ServerInstanceDisposed(_)));
     }
 
     #[test]
     fn test_event_file_edited() {
-        let json = global_event(
-            r#"{"type":"file.edited","properties":{"path":"/tmp/test.txt"}}"#,
-        );
+        let json = global_event(r#"{"type":"file.edited","properties":{"path":"/tmp/test.txt"}}"#);
         let event = parse_event(&json);
         assert!(matches!(event, Event::FileEdited(_)));
     }
 
     #[test]
     fn test_event_todo_updated() {
-        let json = global_event(
-            r#"{"type":"todo.updated","properties":{"items":[]}}"#,
-        );
+        let json = global_event(r#"{"type":"todo.updated","properties":{"items":[]}}"#);
         let event = parse_event(&json);
         assert!(matches!(event, Event::TodoUpdated(_)));
     }
 
     #[test]
     fn test_event_command_executed() {
-        let json = global_event(
-            r#"{"type":"command.executed","properties":{"command":"ls"}}"#,
-        );
+        let json = global_event(r#"{"type":"command.executed","properties":{"command":"ls"}}"#);
         let event = parse_event(&json);
         assert!(matches!(event, Event::CommandExecuted(_)));
     }
 
     #[test]
     fn test_event_file_watcher_updated() {
-        let json = global_event(
-            r#"{"type":"file_watcher.updated","properties":{"change":"created"}}"#,
-        );
+        let json =
+            global_event(r#"{"type":"file_watcher.updated","properties":{"change":"created"}}"#);
         let event = parse_event(&json);
         assert!(matches!(event, Event::FileWatcherUpdated(_)));
     }
 
     #[test]
     fn test_event_vcs_branch_updated() {
-        let json = global_event(
-            r#"{"type":"vcs.branch.updated","properties":{"branch":"main"}}"#,
-        );
+        let json = global_event(r#"{"type":"vcs.branch.updated","properties":{"branch":"main"}}"#);
         let event = parse_event(&json);
         assert!(matches!(event, Event::VcsBranchUpdated(_)));
     }
@@ -868,9 +855,7 @@ mod tests {
 
     #[test]
     fn test_event_installation_updated() {
-        let json = global_event(
-            r#"{"type":"installation.updated","properties":{"name":"test"}}"#,
-        );
+        let json = global_event(r#"{"type":"installation.updated","properties":{"name":"test"}}"#);
         let event = parse_event(&json);
         assert!(matches!(event, Event::InstallationUpdated(_)));
     }
@@ -895,9 +880,8 @@ mod tests {
 
     #[test]
     fn test_event_lsp_updated() {
-        let json = global_event(
-            r#"{"type":"lsp.updated","properties":{"server":"rust-analyzer"}}"#,
-        );
+        let json =
+            global_event(r#"{"type":"lsp.updated","properties":{"server":"rust-analyzer"}}"#);
         let event = parse_event(&json);
         assert!(matches!(event, Event::LspUpdated(_)));
     }
@@ -933,18 +917,15 @@ mod tests {
 
     #[test]
     fn test_event_tui_prompt_append() {
-        let json = global_event(
-            r#"{"type":"tui.prompt_append","properties":{"text":"extra"}}"#,
-        );
+        let json = global_event(r#"{"type":"tui.prompt_append","properties":{"text":"extra"}}"#);
         let event = parse_event(&json);
         assert!(matches!(event, Event::TuiPromptAppend(_)));
     }
 
     #[test]
     fn test_event_tui_command_execute() {
-        let json = global_event(
-            r#"{"type":"tui.command_execute","properties":{"command":"/help"}}"#,
-        );
+        let json =
+            global_event(r#"{"type":"tui.command_execute","properties":{"command":"/help"}}"#);
         let event = parse_event(&json);
         assert!(matches!(event, Event::TuiCommandExecute(_)));
     }
@@ -966,27 +947,23 @@ mod tests {
 
     #[test]
     fn test_event_session_deleted() {
-        let json = global_event(
-            r#"{"type":"session.deleted","properties":{"sessionID":"sess1"}}"#,
-        );
+        let json = global_event(r#"{"type":"session.deleted","properties":{"sessionID":"sess1"}}"#);
         let event = parse_event(&json);
         assert!(matches!(event, Event::SessionDeleted(data) if data.session_id == "sess1"));
     }
 
     #[test]
     fn test_event_session_compacted() {
-        let json = global_event(
-            r#"{"type":"session.compacted","properties":{"sessionID":"sess1"}}"#,
-        );
+        let json =
+            global_event(r#"{"type":"session.compacted","properties":{"sessionID":"sess1"}}"#);
         let event = parse_event(&json);
         assert!(matches!(event, Event::SessionCompacted(data) if data.session_id == "sess1"));
     }
 
     #[test]
     fn test_event_session_diff() {
-        let json = global_event(
-            r#"{"type":"session.diff","properties":{"sessionID":"sess1","diff":{}}}"#,
-        );
+        let json =
+            global_event(r#"{"type":"session.diff","properties":{"sessionID":"sess1","diff":{}}}"#);
         let event = parse_event(&json);
         assert!(matches!(event, Event::SessionDiff(_)));
     }
@@ -1012,45 +989,139 @@ mod tests {
     #[test]
     fn test_event_roundtrip_all_variants() {
         let cases = [
-            (r#"{"type":"message.part.updated","properties":{"part":{"type":"text","text":"hi"},"delta":"hi"}}"#, "message.part.updated"),
-            (r#"{"type":"message.updated","properties":{"info":{"id":"m1","sessionID":"s1","role":"assistant","time":"t","parts":[{"type":"text","text":"hi"}]}}}"#, "message.updated"),
-            (r#"{"type":"message.removed","properties":{"sessionID":"s1","messageID":"m1"}}"#, "message.removed"),
-            (r#"{"type":"message.part.removed","properties":{"sessionID":"s1","messageID":"m1","partID":"p1"}}"#, "message.part.removed"),
-            (r#"{"type":"session.status","properties":{"sessionID":"s1","status":{"type":"idle"}}}"#, "session.status"),
-            (r#"{"type":"session.idle","properties":{"sessionID":"s1"}}"#, "session.idle"),
-            (r#"{"type":"session.created","properties":{"sessionID":"s1","session":{"id":"s1","directory":"/tmp"}}}"#, "session.created"),
-            (r#"{"type":"session.updated","properties":{"sessionID":"s1","session":{"id":"s1","directory":"/tmp"}}}"#, "session.updated"),
-            (r#"{"type":"session.deleted","properties":{"sessionID":"s1"}}"#, "session.deleted"),
-            (r#"{"type":"session.error","properties":{"sessionID":"s1","error":"err"}}"#, "session.error"),
-            (r#"{"type":"session.compacted","properties":{"sessionID":"s1"}}"#, "session.compacted"),
-            (r#"{"type":"session.diff","properties":{"sessionID":"s1","diff":{}}}"#, "session.diff"),
-            (r#"{"type":"server.connected","properties":{}}"#, "server.connected"),
-            (r#"{"type":"server.instance.disposed","properties":{}}"#, "server.instance.disposed"),
+            (
+                r#"{"type":"message.part.updated","properties":{"part":{"type":"text","text":"hi"},"delta":"hi"}}"#,
+                "message.part.updated",
+            ),
+            (
+                r#"{"type":"message.updated","properties":{"info":{"id":"m1","sessionID":"s1","role":"assistant","time":"t","parts":[{"type":"text","text":"hi"}]}}}"#,
+                "message.updated",
+            ),
+            (
+                r#"{"type":"message.removed","properties":{"sessionID":"s1","messageID":"m1"}}"#,
+                "message.removed",
+            ),
+            (
+                r#"{"type":"message.part.removed","properties":{"sessionID":"s1","messageID":"m1","partID":"p1"}}"#,
+                "message.part.removed",
+            ),
+            (
+                r#"{"type":"session.status","properties":{"sessionID":"s1","status":{"type":"idle"}}}"#,
+                "session.status",
+            ),
+            (
+                r#"{"type":"session.idle","properties":{"sessionID":"s1"}}"#,
+                "session.idle",
+            ),
+            (
+                r#"{"type":"session.created","properties":{"sessionID":"s1","session":{"id":"s1","directory":"/tmp"}}}"#,
+                "session.created",
+            ),
+            (
+                r#"{"type":"session.updated","properties":{"sessionID":"s1","session":{"id":"s1","directory":"/tmp"}}}"#,
+                "session.updated",
+            ),
+            (
+                r#"{"type":"session.deleted","properties":{"sessionID":"s1"}}"#,
+                "session.deleted",
+            ),
+            (
+                r#"{"type":"session.error","properties":{"sessionID":"s1","error":"err"}}"#,
+                "session.error",
+            ),
+            (
+                r#"{"type":"session.compacted","properties":{"sessionID":"s1"}}"#,
+                "session.compacted",
+            ),
+            (
+                r#"{"type":"session.diff","properties":{"sessionID":"s1","diff":{}}}"#,
+                "session.diff",
+            ),
+            (
+                r#"{"type":"server.connected","properties":{}}"#,
+                "server.connected",
+            ),
+            (
+                r#"{"type":"server.instance.disposed","properties":{}}"#,
+                "server.instance.disposed",
+            ),
             (r#"{"type":"file.edited","properties":{}}"#, "file.edited"),
             (r#"{"type":"todo.updated","properties":{}}"#, "todo.updated"),
-            (r#"{"type":"command.executed","properties":{}}"#, "command.executed"),
-            (r#"{"type":"file_watcher.updated","properties":{}}"#, "file_watcher.updated"),
-            (r#"{"type":"vcs.branch.updated","properties":{}}"#, "vcs.branch.updated"),
-            (r#"{"type":"pty.created","properties":{"ptyID":"p1","sessionID":"s1"}}"#, "pty.created"),
-            (r#"{"type":"pty.updated","properties":{"ptyID":"p1","sessionID":"s1","data":"o"}}"#, "pty.updated"),
-            (r#"{"type":"pty.exited","properties":{"ptyID":"p1","sessionID":"s1","code":0}}"#, "pty.exited"),
-            (r#"{"type":"pty.deleted","properties":{"ptyID":"p1","sessionID":"s1"}}"#, "pty.deleted"),
-            (r#"{"type":"installation.updated","properties":{}}"#, "installation.updated"),
-            (r#"{"type":"installation.update_available","properties":{}}"#, "installation.update_available"),
-            (r#"{"type":"lsp.client_diagnostics","properties":{}}"#, "lsp.client_diagnostics"),
+            (
+                r#"{"type":"command.executed","properties":{}}"#,
+                "command.executed",
+            ),
+            (
+                r#"{"type":"file_watcher.updated","properties":{}}"#,
+                "file_watcher.updated",
+            ),
+            (
+                r#"{"type":"vcs.branch.updated","properties":{}}"#,
+                "vcs.branch.updated",
+            ),
+            (
+                r#"{"type":"pty.created","properties":{"ptyID":"p1","sessionID":"s1"}}"#,
+                "pty.created",
+            ),
+            (
+                r#"{"type":"pty.updated","properties":{"ptyID":"p1","sessionID":"s1","data":"o"}}"#,
+                "pty.updated",
+            ),
+            (
+                r#"{"type":"pty.exited","properties":{"ptyID":"p1","sessionID":"s1","code":0}}"#,
+                "pty.exited",
+            ),
+            (
+                r#"{"type":"pty.deleted","properties":{"ptyID":"p1","sessionID":"s1"}}"#,
+                "pty.deleted",
+            ),
+            (
+                r#"{"type":"installation.updated","properties":{}}"#,
+                "installation.updated",
+            ),
+            (
+                r#"{"type":"installation.update_available","properties":{}}"#,
+                "installation.update_available",
+            ),
+            (
+                r#"{"type":"lsp.client_diagnostics","properties":{}}"#,
+                "lsp.client_diagnostics",
+            ),
             (r#"{"type":"lsp.updated","properties":{}}"#, "lsp.updated"),
-            (r#"{"type":"permission.updated","properties":{"permissionID":"p1","sessionID":"s1","type":"bash"}}"#, "permission.updated"),
-            (r#"{"type":"permission.replied","properties":{"permissionID":"p1","sessionID":"s1","approved":true}}"#, "permission.replied"),
-            (r#"{"type":"tui.prompt_append","properties":{}}"#, "tui.prompt_append"),
-            (r#"{"type":"tui.command_execute","properties":{}}"#, "tui.command_execute"),
-            (r#"{"type":"tui.toast_show","properties":{"message":"m","type":"info"}}"#, "tui.toast_show"),
+            (
+                r#"{"type":"permission.updated","properties":{"permissionID":"p1","sessionID":"s1","type":"bash"}}"#,
+                "permission.updated",
+            ),
+            (
+                r#"{"type":"permission.replied","properties":{"permissionID":"p1","sessionID":"s1","approved":true}}"#,
+                "permission.replied",
+            ),
+            (
+                r#"{"type":"tui.prompt_append","properties":{}}"#,
+                "tui.prompt_append",
+            ),
+            (
+                r#"{"type":"tui.command_execute","properties":{}}"#,
+                "tui.command_execute",
+            ),
+            (
+                r#"{"type":"tui.toast_show","properties":{"message":"m","type":"info"}}"#,
+                "tui.toast_show",
+            ),
         ];
         for (props_json, expected_type) in &cases {
             let full = global_event(props_json);
-            let ge: GlobalEvent = serde_json::from_str(&full).unwrap_or_else(|e| panic!("Deserialize failed for {expected_type}: {e}"));
+            let ge: GlobalEvent = serde_json::from_str(&full)
+                .unwrap_or_else(|e| panic!("Deserialize failed for {expected_type}: {e}"));
             let re_serialized = serde_json::to_value(&ge.payload).unwrap();
-            assert_eq!(re_serialized["type"], *expected_type, "type mismatch for {expected_type}");
-            assert!(re_serialized.get("properties").is_some(), "missing properties for {expected_type}");
+            assert_eq!(
+                re_serialized["type"], *expected_type,
+                "type mismatch for {expected_type}"
+            );
+            assert!(
+                re_serialized.get("properties").is_some(),
+                "missing properties for {expected_type}"
+            );
         }
     }
 
@@ -1172,9 +1243,14 @@ mod tests {
             r#"{"type":"subtask"}"#,
         ];
         for json in &parts {
-            let part: Part = serde_json::from_str(json).unwrap_or_else(|e| panic!("Deserialize failed for {json}: {e}"));
+            let part: Part = serde_json::from_str(json)
+                .unwrap_or_else(|e| panic!("Deserialize failed for {json}: {e}"));
             let re = serde_json::to_value(&part).unwrap();
-            assert_eq!(re["type"], serde_json::from_str::<serde_json::Value>(json).unwrap()["type"], "type roundtrip mismatch");
+            assert_eq!(
+                re["type"],
+                serde_json::from_str::<serde_json::Value>(json).unwrap()["type"],
+                "type roundtrip mismatch"
+            );
         }
     }
 
@@ -1217,7 +1293,8 @@ mod tests {
 
     #[test]
     fn test_tool_state_completed() {
-        let ts: ToolState = serde_json::from_str(r#"{"status":"completed","input":{},"output":"done"}"#).unwrap();
+        let ts: ToolState =
+            serde_json::from_str(r#"{"status":"completed","input":{},"output":"done"}"#).unwrap();
         match ts {
             ToolState::Completed(s) => assert_eq!(s.output, "done"),
             _ => panic!("expected Completed"),
@@ -1226,7 +1303,8 @@ mod tests {
 
     #[test]
     fn test_tool_state_error() {
-        let ts: ToolState = serde_json::from_str(r#"{"status":"error","input":{},"error":"failed"}"#).unwrap();
+        let ts: ToolState =
+            serde_json::from_str(r#"{"status":"error","input":{},"error":"failed"}"#).unwrap();
         match ts {
             ToolState::Error(s) => assert_eq!(s.error, "failed"),
             _ => panic!("expected Error"),
@@ -1257,13 +1335,15 @@ mod tests {
 
     #[test]
     fn test_part_input_file() {
-        let pi: PartInput = serde_json::from_str(r#"{"type":"file","path":"/tmp/test.txt"}"#).unwrap();
+        let pi: PartInput =
+            serde_json::from_str(r#"{"type":"file","path":"/tmp/test.txt"}"#).unwrap();
         assert!(matches!(pi, PartInput::File(_)));
     }
 
     #[test]
     fn test_part_input_agent() {
-        let pi: PartInput = serde_json::from_str(r#"{"type":"agent","agent":"coder","prompt":"fix"}"#).unwrap();
+        let pi: PartInput =
+            serde_json::from_str(r#"{"type":"agent","agent":"coder","prompt":"fix"}"#).unwrap();
         assert!(matches!(pi, PartInput::Agent(_)));
     }
 

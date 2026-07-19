@@ -156,7 +156,9 @@ pub async fn create_opencode_server(options: ServerOptions) -> Result<OpenCodeSe
     };
 
     let hostname = options.hostname;
-    let password = options.password.unwrap_or_else(|| Uuid::new_v4().to_string());
+    let password = options
+        .password
+        .unwrap_or_else(|| Uuid::new_v4().to_string());
     let health_timeout = options.timeout;
 
     let mut cmd = std::process::Command::new("opencode");
@@ -183,7 +185,14 @@ pub async fn create_opencode_server(options: ServerOptions) -> Result<OpenCodeSe
 
     let base_url = format!("http://{hostname}:{port}");
     let http_client = reqwest::Client::new();
-    wait_for_health(&http_client, &base_url, &password, Some(&mut child), health_timeout).await?;
+    wait_for_health(
+        &http_client,
+        &base_url,
+        &password,
+        Some(&mut child),
+        health_timeout,
+    )
+    .await?;
 
     Ok(OpenCodeServer {
         child,

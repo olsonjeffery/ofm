@@ -9,9 +9,7 @@ use base64::Engine;
 use bytes::Bytes;
 use futures_util::Stream;
 
-use crate::opencode_sdk::types::{
-    GlobalEvent, PromptBody, PromptResponse, Provider, Session,
-};
+use crate::opencode_sdk::types::{GlobalEvent, PromptBody, PromptResponse, Provider, Session};
 use crate::opencode_sdk::SdkError;
 
 // ── Auth helper ───────────────────────────────────────────────────────────
@@ -181,11 +179,7 @@ impl SessionApi {
         Ok(())
     }
 
-    pub async fn prompt(
-        &self,
-        id: &str,
-        body: &PromptBody,
-    ) -> Result<PromptResponse, SdkError> {
+    pub async fn prompt(&self, id: &str, body: &PromptBody) -> Result<PromptResponse, SdkError> {
         let resp = self
             .0
             .http_client
@@ -237,7 +231,10 @@ impl SessionApi {
         Ok(resp.status().is_success())
     }
 
-    pub async fn messages(&self, id: &str) -> Result<Vec<crate::opencode_sdk::types::Message>, SdkError> {
+    pub async fn messages(
+        &self,
+        id: &str,
+    ) -> Result<Vec<crate::opencode_sdk::types::Message>, SdkError> {
         let resp = self
             .0
             .http_client
@@ -483,7 +480,9 @@ impl EventStream {
             }
             Ok(resp) => {
                 let status = resp.status();
-                Err(SdkError::Protocol(format!("reconnect failed with status {status}")))
+                Err(SdkError::Protocol(format!(
+                    "reconnect failed with status {status}"
+                )))
             }
             Err(e) => {
                 if e.is_timeout() || e.is_connect() {

@@ -7,7 +7,7 @@ use tokio::sync::Mutex;
 
 use crate::opencode_sdk::client::EventStream;
 use crate::opencode_sdk::types::{Event, GlobalEvent, Part, PartInput, TextPartInput};
-use crate::opencode_sdk::{OpencodeClient, OpenCodeServer, ServerOptions, SdkError};
+use crate::opencode_sdk::{OpenCodeServer, OpencodeClient, SdkError, ServerOptions};
 
 // ── Phase config ──────────────────────────────────────────────────────────
 
@@ -97,7 +97,10 @@ impl PhaseConversation {
             })],
         };
 
-        self.client.session.prompt_async(&self.session_id, &body).await?;
+        self.client
+            .session
+            .prompt_async(&self.session_id, &body)
+            .await?;
 
         let event_stream = self.client.event.subscribe().await?;
         Ok(PhaseEventStream {
@@ -135,10 +138,7 @@ pub async fn one_shot(
     prompt: &str,
     config: &OneShotConfig,
 ) -> Result<String, SdkError> {
-    let session = client
-        .session
-        .create("one-shot")
-        .await?;
+    let session = client.session.create("one-shot").await?;
 
     let model_ref = crate::opencode_sdk::types::ModelRef {
         provider_id: "default".into(),
@@ -215,13 +215,14 @@ impl UnstructuredConversation {
             })],
         };
 
-        self.client.session.prompt_async(&self.session_id, &body).await?;
+        self.client
+            .session
+            .prompt_async(&self.session_id, &body)
+            .await?;
         self.client.event.subscribe().await
     }
 
-    pub async fn messages(
-        &self,
-    ) -> Result<Vec<crate::opencode_sdk::types::Message>, SdkError> {
+    pub async fn messages(&self) -> Result<Vec<crate::opencode_sdk::types::Message>, SdkError> {
         self.client.session.messages(&self.session_id).await
     }
 

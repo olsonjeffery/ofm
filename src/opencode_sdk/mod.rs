@@ -4,7 +4,10 @@ pub mod server;
 pub mod types;
 
 pub use client::{create_opencode_client, EventStream, OpencodeClient};
-pub use conversation::{one_shot, PhaseConversation, PhaseEventStream, PhaseConfig, UnstructuredConversation, OneShotConfig};
+pub use conversation::{
+    one_shot, OneShotConfig, PhaseConfig, PhaseConversation, PhaseEventStream,
+    UnstructuredConversation,
+};
 pub use server::{create_opencode_server, OpenCodeServer, ServerOptions};
 pub use types::*;
 
