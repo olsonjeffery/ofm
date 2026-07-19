@@ -1321,7 +1321,7 @@ mod tests {
 
     #[test]
     fn test_provider() {
-        let json = r#"{"id":"p1","name":"OpenAI","source":"openai","env":{},"models":[{"id":"gpt-4","name":"GPT-4"}]}"#;
+        let json = r#"{"id":"p1","name":"OpenAI","source":"openai","env":{},"models":{ "gpt-4": { "name":"GPT-4"}}}"#;
         let provider: Provider = serde_json::from_str(json).unwrap();
         assert_eq!(provider.id, "p1");
         assert_eq!(provider.models.len(), 1);
