@@ -448,7 +448,7 @@ mod tests {
         assert!(html.contains("mdi-code-tags"));
         assert!(html.contains("mdi-checkbox-marked-circle-outline"));
         assert!(html.contains("mdi-creation-outline"));
-        assert!(html.contains("mdi-branch-plus"));
+        assert!(html.contains("mdi-source-branch-plus"));
         assert!(html.contains("mdi-play-outline"));
         // is-loading class appears in inline JS code (not as a rendered class when no run)
     }
