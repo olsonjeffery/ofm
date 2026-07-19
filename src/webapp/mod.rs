@@ -262,10 +262,6 @@ async fn chat_handler(
         .flatten()
         .or_else(|| conversations.first().and_then(|cwr| cwr.run.clone()));
 
-    let agent_runs = services::tasks::list_agent_runs_for_task(&state.db, task_id)
-        .await
-        .unwrap_or_default();
-
     let page_html = leptos::view! {
         <pages::chat::ChatPage
             project_id
@@ -273,7 +269,6 @@ async fn chat_handler(
             task
             conversations
             current_run
-            agent_runs
         />
     }
     .to_html();

@@ -11,7 +11,6 @@ pub fn ChatPage(
     task: Task,
     conversations: Vec<ConversationWithRun>,
     current_run: Option<TaskAgentRun>,
-    agent_runs: Vec<TaskAgentRun>,
 ) -> impl IntoView {
     let is_running = current_run
         .as_ref()
@@ -343,7 +342,6 @@ mod tests {
                 task
                 conversations=Vec::new()
                 current_run=None
-                agent_runs=Vec::new()
             />
         }
         .to_html();
