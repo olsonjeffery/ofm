@@ -521,7 +521,9 @@ impl ConfigApi {
         struct ProvidersResponse {
             providers: Vec<Provider>,
         }
-        let wrapped: ProvidersResponse = resp.json().await.map_err(SdkError::Http)?;
+        let wrapped: ProvidersResponse = resp.json().await.map_err(|e| {
+            SdkError::Protocol(format!("failed to parse providers response: {e}"))
+        })?;
         Ok(wrapped.providers)
     }
 }

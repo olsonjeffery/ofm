@@ -475,7 +475,7 @@ pub struct Provider {
     pub key: Option<String>,
     #[serde(default)]
     pub options: Option<serde_json::Value>,
-    pub models: Vec<ProviderModel>,
+    pub models: std::collections::HashMap<String, serde_json::Value>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
