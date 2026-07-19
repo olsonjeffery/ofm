@@ -48,6 +48,8 @@ job is to decide, each time an agent finishes, what should happen next.
 Four agents make up the core pipeline. Each has its own spec; here is only what
 the loop needs to know about them.
 
+NOTE: DO NOT RESTORE `ofm agent` INSTRUCTIONS IN CODE; DO NOT IMPLEMENT IT
+
 | Agent | Does | Signals "done" by (completion handler) |
 |---|---|---|
 | **planning** (`planification`) | Turns the task doc + original request into a structured plan, written back into the doc. Touches nothing but the doc. | Running `complete-plan.ts` (`bottega`) OR `ofm agent complete-plan <task-id>` → sets `planification_complete`. |
@@ -140,12 +142,16 @@ model's prose for a verdict. Instead, agents are instructed (in their prompts)
 to run small CLI scripts that flip task flags, and the completion handler reads
 those flags after the turn ends.
 
+NOTE: DO NOT RESTORE `ofm agent` INSTRUCTIONS IN CODE; DO NOT IMPLEMENT IT
+
 | Script | Flag set | Run by |
 |---|---|---|
 | [`reference/scripts/complete-plan.ts`](../reference/scripts/complete-plan.ts) (`bottega`) OR `ofm agent complete-plan <task-id>` | `planification_complete` | planning agent |
 | [`reference/scripts/complete-workflow.ts`](../reference/scripts/complete-workflow.ts) (`bottega`) OR `ofm agent complete-workflow <task-id>` | `workflow_complete` | review agent, on READY |
 | [`reference/scripts/block-workflow.ts`](../reference/scripts/block-workflow.ts) (`bottega`) OR `ofm agent block-workflow <task-id>` | `workflow_blocked` | review agent, on BLOCKED |
 | [`reference/scripts/complete-pr.ts`](../reference/scripts/complete-pr.ts) (`bottega`) OR `ofm agent complete-pr <task-id>` | `pr_agent_complete` | PR agent |
+
+NOTE: DO NOT RESTORE `ofm agent` INSTRUCTIONS IN CODE; DO NOT IMPLEMENT IT
 
 Each script is tiny: validate the task id, flip one boolean, exit. They run
 inside the agent's own sandbox (`bottega`; the agent has shell access) OR
@@ -232,6 +238,8 @@ The direct harness integration that step calls is in [`oh-my-pi.md`](../extra/ha
 
 ## Build checklist
 
+NOTE: DO NOT RESTORE `ofm agent` INSTRUCTIONS IN CODE; DO NOT IMPLEMENT IT
+
 - [x] Task flags on the task row: `workflow_complete`, `workflow_blocked`,
       `workflow_run_count`, `planification_complete`, `pr_agent_complete`
       (plus `status`). See `src/db/schema.rs` (`Task` struct).
@@ -242,7 +250,7 @@ The direct harness integration that step calls is in [`oh-my-pi.md`](../extra/ha
       chained starts. See `src/server/routes/agent_runs.rs` (`post_create_agent_run`).
 - [x] A completion handler wired as the streaming on-complete hook, implementing
       the transitions above. See `src/orchestration/mod.rs` (`completion_handler`).
-- [x] The four signalling actions under `ofm agent ...`
+- [ ] The four signalling actions under `ofm agent ...`
       See `src/server/routes/agent_flags.rs`.
 - [x] The "one running agent per task" guard (manual 409 + pre-chain re-check).
       See `src/orchestration/guards.rs`.

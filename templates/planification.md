@@ -9,9 +9,9 @@ Read this file in full before doing anything else. Your output written to `{{tas
 
 **Original Request preservation:** Before you overwrite `{{taskDocPath}}`, you MUST first read it. Whatever it contains today is the user's original request as they wrote it (plus, if it's empty, the task title). The `## Original Request` section of the new plan MUST quote that pre-existing content verbatim as a Markdown blockquote — do not paraphrase, summarize, or omit any part of it.
 
-When the plan is written and verified, run: `ofm agent complete-plan {{taskId}}`
+When the plan is written and verified, echo the following: `<<PLANNING-COMPLETE>>`
 
-**Important**: Only YOU (the master agent) write the plan file and run the completion script. Sub-agents are for research only.
+**Important**: Only YOU (the top-level agent) write the plan file and run the completion action. Sub-agents are for research only.
 
 ## Planning Workflow
 
