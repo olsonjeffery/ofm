@@ -16,6 +16,7 @@ use uuid::Uuid;
 
 const MAX_TITLE_LENGTH: usize = 200;
 const MAX_ORIGINAL_REQUEST_LENGTH: usize = 10_240;
+const MAX_DOC_CONTENT_LENGTH: usize = 1_000_000;
 
 #[derive(Debug, Deserialize)]
 struct CreateTaskRequest {
@@ -251,6 +252,11 @@ async fn update_task(
             })?;
 
     if let Some(ref doc_content) = body.doc_content {
+        if doc_content.len() > MAX_DOC_CONTENT_LENGTH {
+            return Err(ServerError::BadRequest(
+                "doc_content exceeds maximum length".into(),
+            ));
+        }
         if let Ok(worktree) = services::tasks::get_worktree_by_task(&state.db, id).await {
             let archive = archive::ArchiveRoot::new(std::path::PathBuf::from(&state.archive_root));
             let doc_path = archive.task_doc_path(

@@ -72,12 +72,12 @@ impl OpenCodeProvider {
         F: FnOnce(reqwest::Client, String, String) -> Fut + Send,
         Fut: std::future::Future<Output = Result<T, ProviderError>> + Send,
     {
-        let (_server, client) = spawn_transient_server(config_ref, snippet).await?;
-        let base_url = format!("http://{}:{}", _server.hostname, _server.port);
-        let password = _server.password.unwrap_or_default();
+        let (server, client) = spawn_transient_server(config_ref, snippet).await?;
+        let base_url = format!("http://{}:{}", server.hostname, server.port);
+        let password = server.password.unwrap_or_default();
         let result = f(client, base_url, password).await;
         let _ = std::process::Command::new("kill")
-            .arg(_server.child.id().to_string())
+            .arg(server.child.id().to_string())
             .status();
         result
     }
@@ -469,6 +469,16 @@ fn map_opencode_event_to_provider_event(line: &str) -> Option<ProviderEvent> {
     }
 }
 
+fn is_noisy_event(data: &str) -> bool {
+    serde_json::from_str::<serde_json::Value>(data)
+        .ok()
+        .is_some_and(|v| {
+            let payload = v.get("payload").unwrap_or(&v);
+            let t = payload.get("type").and_then(|t| t.as_str());
+            matches!(t, Some("message.part.delta") | Some("message.part.updated"))
+        })
+}
+
 fn drain_sse_lines(buf: &mut Vec<u8>) -> Vec<String> {
     let mut events = Vec::new();
     while let Some(pos) = buf.iter().position(|&b| b == b'\n') {
@@ -525,15 +535,7 @@ async fn read_sse_to_completion(
         buf.extend_from_slice(&chunk);
         for data in drain_sse_lines(&mut buf) {
             line_count += 1;
-            // Log SSE data to console, skipping noisy text deltas and part deltas
-            let skip = serde_json::from_str::<serde_json::Value>(&data)
-                .ok()
-                .is_some_and(|v| {
-                    let payload = v.get("payload").unwrap_or(&v);
-                    let t = payload.get("type").and_then(|t| t.as_str());
-                    t == Some("message.part.delta") || t == Some("message.part.updated")
-                });
-            if !skip {
+            if !is_noisy_event(&data) {
                 tracing::info!("SSE #{line_count}: {data}");
             }
             // Check for session lifecycle events before dispatching
@@ -677,15 +679,7 @@ async fn collect_response_via_sse(
         };
         buf.extend_from_slice(&chunk);
         for data in drain_sse_lines(&mut buf) {
-            // Log SSE data, skipping noisy text deltas and part deltas
-            let skip = serde_json::from_str::<serde_json::Value>(&data)
-                .ok()
-                .is_some_and(|v| {
-                    let payload = v.get("payload").unwrap_or(&v);
-                    let t = payload.get("type").and_then(|t| t.as_str());
-                    t == Some("message.part.delta") || t == Some("message.part.updated")
-                });
-            if !skip {
+            if !is_noisy_event(&data) {
                 tracing::info!("SSE data: {data}");
             }
             // Check for session lifecycle events
@@ -1060,8 +1054,6 @@ impl LlmProvider for OpenCodeProvider {
 
             actual_session_id = new_session_id;
         }
-
-        let _ = msg_body;
 
         let (tx, rx) = mpsc::channel(256);
         // If we created a new session, notify the broadcast task so it

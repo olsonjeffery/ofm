@@ -145,13 +145,9 @@ impl LlmProvider for OhMyPiProvider {
             .start_turn(&input, tx)
             .map_err(|e| ProviderError::Protocol(e.to_string()))?;
         let mut response = String::new();
-        let mut prior_responses = Vec::new();
         while let Some(event) = rx.recv().await {
             match event {
                 ProviderEvent::Text { text } => {
-                    if !prior_responses.contains(&text) {
-                        prior_responses.push(text.clone());
-                    }
                     tracing::info!("one_shot_prompt ProviderEvent::Text: {}", &text);
                     response.push_str(&text)
                 }
