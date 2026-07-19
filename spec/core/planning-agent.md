@@ -53,6 +53,8 @@ written, the original is gone.)
 
 ## The workflow
 
+NOTE: DO NOT RESTORE `ofm agent` INSTRUCTIONS IN CODE; DO NOT IMPLEMENT IT
+
 1. **Explore (research sub-agent).** Spawn a read-only sub-agent to map the
    relevant code and return files with line numbers, the current architecture,
    dependencies, and any ambiguities. It must not write files, run scripts, or
@@ -65,6 +67,8 @@ written, the original is gone.)
 3. **Write the plan** to the task doc, following the template exactly.
 4. **Verify and signal done.** Read the file back, then run the completion
    script (`ofm agent plan-complete <task-id>`), which sets `planification_complete`.
+
+NOTE: DO NOT RESTORE `ofm agent` INSTRUCTIONS IN CODE; DO NOT IMPLEMENT IT
 
 ## The plan template is the contract
 
@@ -112,12 +116,14 @@ and the tech/non-tech prompt split, are role behavior — see
 
 ## What to build
 
+NOTE: DO NOT RESTORE `ofm agent` INSTRUCTIONS IN CODE; DO NOT IMPLEMENT IT
+
 - [x] The planning prompt enforcing the plan-only constraints and the
       verbatim-original-request rule. → `templates/planification.md`
 - [x] A read-only research sub-agent step (or direct read-only exploration).
       → `templates/planification.md` (Step 1: Explore uses Task tool sub-agent)
 - [x] The plan template. → `templates/plan-template.md`
-- [x] A completion script that sets `planification_complete` and the loop's
+- [ ] A completion script that sets `planification_complete` and the loop's
       stop-after-planning gate (`ofm agent complete-plan <task-id>`).
       → `src/server/routes/agent_flags.rs`
 
