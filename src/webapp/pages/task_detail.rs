@@ -161,7 +161,7 @@ pub fn TaskDetailPage(
                                 <h2 class="title is-4">"Documentation"</h2>
                             </div>
                         </div>
-                        {if doc_content.as_deref().map_or(true, str::is_empty) {
+                        {if doc_content.as_deref().is_none_or(str::is_empty) {
                             view! {
                                 <p class="has-text-grey">"No document yet. Start by running the Planification agent."</p>
                             }.into_any()

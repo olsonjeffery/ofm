@@ -14,7 +14,7 @@ pub fn ChatPage(
 ) -> impl IntoView {
     let is_running = current_run
         .as_ref()
-        .map_or(false, |r| r.status == crate::db::schema::RunStatus::Running);
+        .is_some_and(|r| r.status == crate::db::schema::RunStatus::Running);
 
     let messages = Vec::new();
 
