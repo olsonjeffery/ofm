@@ -398,8 +398,6 @@ async fn post_create_agent_run(
     //     )
     //     .await;
     // });
-    let _ = (task.title.as_str(), agent_type);
-
     let run = tasks::get_agent_run_by_conversation(&state.db, &session_result.conversation_id)
         .await
         .map_err(orchestration::internal_err)?;

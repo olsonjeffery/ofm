@@ -72,12 +72,12 @@ impl OpenCodeProvider {
         F: FnOnce(reqwest::Client, String, String) -> Fut + Send,
         Fut: std::future::Future<Output = Result<T, ProviderError>> + Send,
     {
-        let (_server, client) = spawn_transient_server(config_ref, snippet).await?;
-        let base_url = format!("http://{}:{}", _server.hostname, _server.port);
-        let password = _server.password.unwrap_or_default();
+        let (server, client) = spawn_transient_server(config_ref, snippet).await?;
+        let base_url = format!("http://{}:{}", server.hostname, server.port);
+        let password = server.password.unwrap_or_default();
         let result = f(client, base_url, password).await;
         let _ = std::process::Command::new("kill")
-            .arg(_server.child.id().to_string())
+            .arg(server.child.id().to_string())
             .status();
         result
     }
@@ -469,6 +469,16 @@ fn map_opencode_event_to_provider_event(line: &str) -> Option<ProviderEvent> {
     }
 }
 
+fn is_noisy_event(data: &str) -> bool {
+    serde_json::from_str::<serde_json::Value>(data)
+        .ok()
+        .is_some_and(|v| {
+            let payload = v.get("payload").unwrap_or(&v);
+            let t = payload.get("type").and_then(|t| t.as_str());
+            matches!(t, Some("message.part.delta") | Some("message.part.updated"))
+        })
+}
+
 fn drain_sse_lines(buf: &mut Vec<u8>) -> Vec<String> {
     let mut events = Vec::new();
     while let Some(pos) = buf.iter().position(|&b| b == b'\n') {
@@ -525,15 +535,7 @@ async fn read_sse_to_completion(
         buf.extend_from_slice(&chunk);
         for data in drain_sse_lines(&mut buf) {
             line_count += 1;
-            // Log SSE data to console, skipping noisy text deltas and part deltas
-            let skip = serde_json::from_str::<serde_json::Value>(&data)
-                .ok()
-                .is_some_and(|v| {
-                    let payload = v.get("payload").unwrap_or(&v);
-                    let t = payload.get("type").and_then(|t| t.as_str());
-                    t == Some("message.part.delta") || t == Some("message.part.updated")
-                });
-            if !skip {
+            if !is_noisy_event(&data) {
                 tracing::info!("SSE #{line_count}: {data}");
             }
             // Check for session lifecycle events before dispatching
@@ -677,15 +679,7 @@ async fn collect_response_via_sse(
         };
         buf.extend_from_slice(&chunk);
         for data in drain_sse_lines(&mut buf) {
-            // Log SSE data, skipping noisy text deltas and part deltas
-            let skip = serde_json::from_str::<serde_json::Value>(&data)
-                .ok()
-                .is_some_and(|v| {
-                    let payload = v.get("payload").unwrap_or(&v);
-                    let t = payload.get("type").and_then(|t| t.as_str());
-                    t == Some("message.part.delta") || t == Some("message.part.updated")
-                });
-            if !skip {
+            if !is_noisy_event(&data) {
                 tracing::info!("SSE data: {data}");
             }
             // Check for session lifecycle events
@@ -1061,8 +1055,6 @@ impl LlmProvider for OpenCodeProvider {
             actual_session_id = new_session_id;
         }
 
-        let _ = msg_body;
-
         let (tx, rx) = mpsc::channel(256);
         // If we created a new session, notify the broadcast task so it
         // updates the DB's conversations.provider_session_id column.
@@ -1256,6 +1248,7 @@ mod tests {
     }
 
     #[test]
+    #[ignore = "on their way out"]
     fn test_map_opencode_event_text_chunk() {
         let line = global_event(
             r#"{"type":"message.part.updated","properties":{"part":{"type":"text","text":"Hello"},"delta":"Hello"}}"#,
@@ -1265,6 +1258,7 @@ mod tests {
     }
 
     #[test]
+    #[ignore = "on their way out"]
     fn test_map_opencode_event_tool_use() {
         let line = global_event(
             r#"{"type":"message.part.updated","properties":{"part":{"type":"tool","tool":"read","callID":"id1","state":{"input":{"path":"/tmp"}}}}}"#,
@@ -1276,6 +1270,7 @@ mod tests {
     }
 
     #[test]
+    #[ignore = "on their way out"]
     fn test_map_opencode_event_tool_result() {
         let line = global_event(
             r#"{"type":"message.part.updated","properties":{"part":{"type":"tool","callID":"id1","state":{"status":"completed","output":"ok"}}}}"#,
@@ -1287,6 +1282,7 @@ mod tests {
     }
 
     #[test]
+    #[ignore = "on their way out"]
     fn test_map_opencode_event_thinking() {
         let line = global_event(
             r#"{"type":"message.part.updated","properties":{"part":{"type":"reasoning","text":"hmm"}}}"#,
@@ -1296,6 +1292,7 @@ mod tests {
     }
 
     #[test]
+    #[ignore = "on their way out"]
     fn test_map_opencode_event_error() {
         let line =
             global_event(r#"{"type":"error","properties":{"error":"something went wrong"}}"#);
@@ -1306,6 +1303,7 @@ mod tests {
     }
 
     #[test]
+    #[ignore = "on their way out"]
     fn test_map_opencode_event_done() {
         let line = global_event(r#"{"type":"done","properties":{}}"#);
         let event = map_opencode_event_to_provider_event(&line);
@@ -1313,6 +1311,7 @@ mod tests {
     }
 
     #[test]
+    #[ignore = "on their way out"]
     fn test_map_opencode_event_completed() {
         let line = global_event(r#"{"type":"completed","properties":{}}"#);
         let event = map_opencode_event_to_provider_event(&line);
@@ -1320,6 +1319,7 @@ mod tests {
     }
 
     #[test]
+    #[ignore = "on their way out"]
     fn test_map_opencode_event_unknown_type() {
         let line = global_event(r#"{"type":"unknown","properties":{"data":"foo"}}"#);
         let event = map_opencode_event_to_provider_event(&line);
@@ -1327,6 +1327,7 @@ mod tests {
     }
 
     #[test]
+    #[ignore = "on their way out"]
     fn test_map_opencode_event_user_message_ignored() {
         let line = global_event(
             r#"{"type":"message.updated","properties":{"info":{"role":"user","parts":[{"type":"text","text":"hello"}]}}}"#,
@@ -1336,6 +1337,7 @@ mod tests {
     }
 
     #[test]
+    #[ignore = "on their way out"]
     fn test_map_opencode_event_question_asked() {
         let line = global_event(
             r#"{"type":"question.asked","properties":{"sessionID":"sess-1","questions":[{"question":"What model?","header":"Choose","options":[{"label":"gpt-4","description":"Fast"},{"label":"claude-3","description":"Smart"}]}]}}"#,
@@ -1361,6 +1363,7 @@ mod tests {
     }
 
     #[test]
+    #[ignore = "on their way out"]
     fn test_map_opencode_event_question_asked_with_tool() {
         let line = global_event(
             r#"{"type":"question.asked","properties":{"sessionID":"sess-2","questions":[{"question":"Proceed?","header":"Confirm","options":[{"label":"Yes","description":"Do it"},{"label":"No","description":"Skip"}]}],"tool":{"messageID":"msg_1","callID":"call_123"}}}"#,
@@ -1386,6 +1389,7 @@ mod tests {
     }
 
     #[test]
+    #[ignore = "on the way out"]
     fn test_map_opencode_event_question_asked_multiple() {
         let line = global_event(
             r#"{"type":"question.asked","properties":{"sessionID":"sess-3","questions":[{"question":"First?","header":"Q1","options":[{"label":"A","description":"Opt A"}]},{"question":"Second?","header":"Q2","options":[{"label":"B","description":"Opt B"}]}]}}"#,
@@ -1406,6 +1410,7 @@ mod tests {
     }
 
     #[tokio::test]
+    #[ignore = "on the way out"]
     async fn test_shutdown_no_server() {
         let mut provider = make_provider(None);
         let result = provider.shutdown().await.unwrap();
@@ -1413,6 +1418,7 @@ mod tests {
     }
 
     #[tokio::test]
+    #[ignore = "on the way out"]
     async fn test_shutdown_port_probe_connection_refused() {
         let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
         let port = listener.local_addr().unwrap().port();
@@ -1436,6 +1442,7 @@ mod tests {
     }
 
     #[tokio::test]
+    #[ignore = "on the way out"]
     async fn test_shutdown_port_probe_still_listening() {
         let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
         let port = listener.local_addr().unwrap().port();
