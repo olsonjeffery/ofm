@@ -125,10 +125,7 @@ async fn lookup_config(
             hiqlite::params!(agent_type.to_string(), scope_type.to_string(), user_id_str, project_id),
         )
         .await;
-    match result {
-        Ok(config) => Ok(Some(config)),
-        Err(_) => Ok(None),
-    }
+    Ok(result.ok())
 }
 
 pub async fn get_models_for_config(
