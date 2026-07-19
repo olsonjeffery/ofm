@@ -15,7 +15,9 @@ const SSE_TIMEOUT: Duration = Duration::from_secs(15);
 /// Consume events from an SSE stream until `SessionIdle` for the given session
 /// or until the timeout fires. Returns true if at least one event was received.
 async fn consume_until_idle(
-    stream: &mut (impl futures_util::Stream<Item = Result<ofm::opencode_sdk::types::GlobalEvent, ofm::opencode_sdk::SdkError>> + Unpin),
+    stream: &mut (impl futures_util::Stream<
+        Item = Result<ofm::opencode_sdk::types::GlobalEvent, ofm::opencode_sdk::SdkError>,
+    > + Unpin),
     session_id: &str,
 ) -> bool {
     let timeout = tokio::time::timeout(SSE_TIMEOUT, async {
