@@ -31,7 +31,7 @@ pub mod breadcrumb_registry {
     pub fn task(title: &str, project_id: i64, task_id: i64) -> BreadcrumbItem {
         BreadcrumbItem::new(
             title,
-            "checkbox-marked-circle",
+            "card-bulleted-outline",
             format!("/webapp/projects/{}/tasks/{}", project_id, task_id),
         )
     }
@@ -49,23 +49,25 @@ pub mod breadcrumb_registry {
 pub fn Breadcrumbs(breadcrumbs: Vec<BreadcrumbItem>) -> impl IntoView {
     let count = breadcrumbs.len();
     view! {
-        <nav class="breadcrumb" aria-label="breadcrumbs">
-            <ul>
-                {breadcrumbs.into_iter().enumerate().map(move |(i, item)| {
-                    let is_active = i == count - 1;
-                    view! {
-                        <li class={if is_active { "is-active" } else { "" }}>
-                            <a href={item.path}>
-                                <span class="icon is-small">
-                                    <i class={format!("mdi mdi-{}", item.icon)}></i>
-                                </span>
-                                <span>{item.title}</span>
-                            </a>
-                        </li>
-                    }
-                }).collect::<Vec<_>>()}
-            </ul>
-        </nav>
+        <div class="navbar-item">
+            <nav class="breadcrumb" aria-label="breadcrumbs">
+                <ul>
+                    {breadcrumbs.into_iter().enumerate().map(move |(i, item)| {
+                        let is_active = i == count - 1;
+                        view! {
+                            <li class={if is_active { "is-active" } else { "" }}>
+                                <a href={item.path} style="color: var(--bulma-white)">
+                                    <span class="icon is-small">
+                                        <i class={format!("mdi mdi-{}", item.icon)}></i>
+                                    </span>
+                                    <span>{item.title}</span>
+                                </a>
+                            </li>
+                        }
+                    }).collect::<Vec<_>>()}
+                </ul>
+            </nav>
+        </div>
     }
 }
 
