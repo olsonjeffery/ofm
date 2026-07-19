@@ -504,12 +504,16 @@ async fn test_webapp_task_detail_page() {
     assert_eq!(resp.status(), 200);
     let body = resp.text().await.unwrap();
     assert!(body.contains("My Test Task"));
-    assert!(body.contains("Planification"));
+    assert!(body.contains("Plannification"));
     assert!(body.contains("Implementation"));
     assert!(body.contains("Review"));
     assert!(body.contains("PR"));
     assert!(body.contains("No document yet"));
     assert!(body.contains("No runs yet"));
+    assert!(body.contains("is-info is-light"));
+    assert!(body.contains("has-text-info"));
+    assert!(body.contains("mdi-play-outline"));
+    assert!(body.contains("stop-agent-btn"));
 }
 
 #[tokio::test]
@@ -570,7 +574,7 @@ async fn test_webapp_chat_page() {
     assert!(body.contains("Chat Task"));
     assert!(body.contains("Chat"));
     assert!(body.contains("Conversations"));
-    assert!(body.contains(r#"id="start-agent-run-btn""#));
+    assert!(body.contains("chat-footer"));
 }
 
 #[tokio::test]
