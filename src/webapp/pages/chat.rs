@@ -59,21 +59,20 @@ pub fn ChatPage(
                 </div>
             </div>
             <div id="chat-footer" style="border-top:1px solid #ddd;background:#fff;padding:0.5rem 1rem">
-                <div id="agent-thinking-bar" class={if is_running { "is-active" } else { "" }} style="display:none;padding:0.5rem 1rem;background:#f5f5f5;border-top:1px solid #ddd">
+                <div id="agent-thinking-bar" style="display:none;padding:0.5rem 1rem;background:#f5f5f5;border-top:1px solid #ddd">
                     <span class="icon has-text-info" style="margin-right:0.5rem"><i class="mdi mdi-loading mdi-spin"></i></span>
                     <span class="has-text-info">"Agent is processing..."</span>
-                    <button id="stop-agent-btn" class="button is-small is-danger is-light" style="margin-left:auto" onclick="abortCurrentTurn()">"Stop"</button>
                 </div>
-                <ChatInput
-                    _on_send=Callback::new(|_text: String| {
-                        // handled by JS interop
-                    })
-                    disabled=is_running
-                    _active_conversation_id=None
-                    task_id=task_id
-                />
-                <div style="padding:0.25rem 1rem;text-align:right">
-                    <button id="reset-agent-btn" class="button is-small is-warning is-light" onclick="resetAgentSession()">"Reset Session"</button>
+                <div style="display:flex;align-items:center;gap:0.5rem;padding:0.25rem 0">
+                    <button id="stop-agent-btn" class="button is-small is-danger is-light" onclick="stopAgent()">"Stop Agent"</button>
+                    <ChatInput
+                        _on_send=Callback::new(|_text: String| {
+                            // handled by JS interop
+                        })
+                        disabled=is_running
+                        _active_conversation_id=None
+                        task_id=task_id
+                    />
                 </div>
             </div>
         </div>
@@ -114,31 +113,18 @@ document.addEventListener('DOMContentLoaded', function() {
     }
     window.scrollToBottom = scrollToBottom;
 
-    // Stop button
-    window.abortCurrentTurn = function() {
-        if (!currentConversationId || !taskId) return;
+    // Stop agent — sweeps all sessions for the task
+    window.stopAgent = function() {
+        if (!taskId) return;
         setProcessing(false);
-        apiCall('/api/tasks/' + taskId + '/conversations/' + currentConversationId + '/abort', {
+        apiCall('/api/tasks/' + taskId + '/agent-runs/stop', {
             method: 'POST'
         }).then(function(r) {
-            if (!r.ok) showMessage('Failed to abort');
+            if (!r.ok) showMessage('Failed to stop agent');
         });
     };
 
-    window.resetAgentSession = function() {
-        if (!taskId) return;
-        setProcessing(false);
-        apiCall('/api/tasks/' + taskId + '/agent-runs/reset', {
-            method: 'POST'
-        }).then(function(r) {
-            if (r.ok) {
-                showMessage('Session reset. You can now start a new agent run.');
-                setTimeout(function() { window.location.reload(); }, 2000);
-            } else {
-                showMessage('Failed to reset session');
-            }
-        });
-    };
+
 
     window.handleConversationClick = function(e) {
         var card = e.target.closest('[data-conversation-id]');
@@ -417,5 +403,6 @@ mod tests {
         assert!(html.contains("chat-layout"));
         assert!(html.contains("chat-footer"));
         assert!(html.contains("jump-to-newest-pill"));
+        assert!(html.contains("Stop Agent"));
     }
 }

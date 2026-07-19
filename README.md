@@ -3,19 +3,6 @@
 </p>
 
 <p align="center">
-  <strong>Orchestration Force Multiplier (ofm)</strong>
-  <strong><a href="https://github.com/olsonjeffery/ofm">GitHub repository</a></strong>
-</p>
-
-<p align="center">
-  <strong>⚠️ACHTUNG! ofm is alpha-quality software ACHTUNG! ⚠️</strong>
-</p>
-
-<p align="center">
-    (Pronounce it as an acronym: oh-eff-em)
-</p>
-
-<p align="center">
   <a href="https://github.com/olsonjeffery/ofm/blob/main/LICENSE"><img src="https://img.shields.io/github/license/olsonjeffery/ofm?style=flat&colorA=222222&colorB=58A6FF" alt="License"></a>
   <a href="https://github.com/olsonjeffery/ofm/actions"><img src="https://img.shields.io/github/actions/workflow/status/olsonjeffery/ofm/ci.yml" alt="build status"></a>
   <a href="https://www.rust-lang.org"><img src="https://img.shields.io/badge/Rust-DEA584?style=flat&colorA=222222&logo=rust&logoColor=white" alt="Rust"></a>
@@ -23,13 +10,27 @@
 </p>
 
 <p align="center">
+  <strong>Orchestration Force Multiplier (ofm)</strong>
+  <strong><a href="https://github.com/olsonjeffery/ofm">GitHub repository</a></strong>
+</p>
+
+<p align="center">
   A specification-level fork of <a href="https://github.com/vdaubry/bottega">bottega</a> by <a href="https://github.com/vdaubry">@vdaubry</a> 
 </p>
 
 <p align="center">
-  TL;DR An orchestration harness, for agentic code delivery. Think of it as a
-  meta-system that sits atop your coding agent to make you more productive in the
-  time and quality domains.
+    (Pronounce it as an acronym: oh-eff-em)
+</p>
+
+<p align="center">
+  <strong><ins>ACHTUNG!<br />ACHTUNG!<br />ACHTUNG!</ins><br />⚠️ ofm is alpha-quality software ⚠️</strong>
+</p>
+
+<p align="center">
+🏃🏾‍♀️ <strong>TL;DR</strong> An orchestration harness for coding agent activity 🏃🏾‍♀️<br />
+🎯 Centering a kanban-like authoring lifecycle (especially for software) 🎯<br />
+🫱🏻‍🫲🏿 A web-based layer, with a structured workflow that mediates between User(s) and coding agents 🫱🏻‍🫲🏿 <br />
+📈 It aims to increase productivity in the time and quality domains 📈
 </p>
 
 ## Core attributes

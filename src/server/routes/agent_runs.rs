@@ -14,13 +14,16 @@ use crate::auth::AuthUser;
 use crate::db::schema::{AgentType, TaskAgentRun};
 use crate::orchestration;
 use crate::orchestration::guards;
-use crate::providers;
 use crate::providers::registry;
 use crate::providers::types::{ProviderEvent, TurnInput};
 use crate::server::ws::message::{ServerMessage, TopicId, WsTopic, WsTopicKind};
 use crate::server::{error::ServerError, state::AppState};
 use crate::services::session;
 use crate::services::tasks;
+use futures_util::FutureExt;
+use std::panic::AssertUnwindSafe;
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::Arc;
 
 #[derive(Debug, Deserialize)]
 struct StartAgentRunRequest {
@@ -31,6 +34,7 @@ pub fn agent_runs_router() -> Router<AppState> {
     Router::new()
         .route("/", post(post_create_agent_run).get(list_agent_runs))
         .route("/reset", post(reset_agent_runs))
+        .route("/stop", post(reset_agent_runs))
 }
 
 async fn post_create_agent_run(
@@ -170,6 +174,10 @@ async fn post_create_agent_run(
                                 task_id,
                                 &doc_path.to_string_lossy(),
                             ),
+                            AgentType::Refinement => agents::refinement::build_refinement_prompt(
+                                task_id,
+                                &doc_path.to_string_lossy(),
+                            ),
                             // FIXME: need to thread in real PR status in case it does in fact
                             // exist..
                             AgentType::Pr => agents::pull_request::build_pull_request_prompt(
@@ -244,61 +252,89 @@ async fn post_create_agent_run(
                             let mut s_id = session_result.session_id;
 
                             tokio::spawn(async move {
-                                let mut completed_normally = false;
-                                loop {
-                                    tokio::select! {
-                                        event = rx.recv() => {
-                                            let event = match event {
-                                                Some(e) => e,
-                                                None => break,
-                                            };
+                                let completed_normally = Arc::new(AtomicBool::new(false));
+                                let cn = completed_normally.clone();
+                                let db_inner = db.clone();
+                                let ws_bus_inner = ws_bus.clone();
+                                let active_sessions_inner = active_sessions.clone();
+                                let active_sessions_for_guard = active_sessions_inner.clone();
 
-                                            // Persist event
-                                            if let Err(e) = crate::services::transcript::persist_event(
-                                                &db, &event, &s_id, project_key
-                                            ).await {
-                                                tracing::warn!("Failed to persist event: {e}");
-                                            }
+                                let broadcast_fut = AssertUnwindSafe(async move {
+                                    let mut local_completed = false;
+                                    loop {
+                                        tokio::select! {
+                                            event = rx.recv() => {
+                                                let event = match event {
+                                                    Some(e) => e,
+                                                    None => break,
+                                                };
 
-                                            if let ProviderEvent::SessionStart { session_id } = &event {
-                                                s_id = session_id.clone();
-                                                let _ = db.execute(
-                                                    "UPDATE conversations SET provider_session_id = $1 WHERE id = $2",
-                                                    hiqlite::params!(session_id, conversation_id.to_string()),
-                                                ).await;
-                                            }
-
-                                            let topic = WsTopic {
-                                                kind: WsTopicKind::Task,
-                                                id: TopicId(t_id),
-                                            };
-
-                                            let (event_type, payload) = event.to_ws_event();
-                                            if matches!(event, ProviderEvent::Done(_)) {
-                                                completed_normally = true;
-                                            }
-
-                                            let msg = ServerMessage::Event {
-                                                topic: topic.clone(),
-                                                event_type,
-                                                timestamp: chrono::Utc::now(),
-                                                payload,
-                                            };
-
-                                            ws_bus.broadcast(&topic, msg).await;
-
-                                            if matches!(event, ProviderEvent::Done(_)) {
-                                                if let Err(e) = crate::orchestration::completion_handler(
-                                                    &db, conversation_id, &active_sessions
+                                                if let Err(e) = crate::services::transcript::persist_event(
+                                                    &db_inner, &event, &s_id, project_key
                                                 ).await {
-                                                    tracing::warn!("Error in completion handler: {e:?}");
+                                                    tracing::warn!("Failed to persist event: {e}");
                                                 }
-                                                break;
+
+                                                if let ProviderEvent::SessionStart { session_id } = &event {
+                                                    s_id = session_id.clone();
+                                                    let _ = db_inner.execute(
+                                                        "UPDATE conversations SET provider_session_id = $1 WHERE id = $2",
+                                                        hiqlite::params!(session_id, conversation_id.to_string()),
+                                                    ).await;
+                                                }
+
+                                                let topic = WsTopic {
+                                                    kind: WsTopicKind::Task,
+                                                    id: TopicId(t_id),
+                                                };
+
+                                                let (event_type, payload) = event.to_ws_event();
+                                                if matches!(event, ProviderEvent::Done(_)) {
+                                                    local_completed = true;
+                                                }
+
+                                                let msg = ServerMessage::Event {
+                                                    topic: topic.clone(),
+                                                    event_type,
+                                                    timestamp: chrono::Utc::now(),
+                                                    payload,
+                                                };
+
+                                                ws_bus_inner.broadcast(&topic, msg).await;
+
+                                                if matches!(event, ProviderEvent::Done(_)) {
+                                                    if let Err(e) = crate::orchestration::completion_handler(
+                                                        &db_inner, conversation_id, &active_sessions_inner
+                                                    ).await {
+                                                        tracing::warn!("Error in completion handler: {e:?}");
+                                                    }
+                                                    break;
+                                                }
                                             }
                                         }
                                     }
+                                    if local_completed {
+                                        cn.store(true, Ordering::SeqCst);
+                                    }
+                                });
+
+                                let result = broadcast_fut.catch_unwind().await;
+                                if let Err(ref panic) = result {
+                                    tracing::error!("Broadcast task panicked: {panic:?}");
                                 }
-                                if !completed_normally {
+
+                                if !completed_normally.load(Ordering::SeqCst) {
+                                    // Remove provider from active_sessions and shut it down
+                                    let provider_to_shutdown = {
+                                        let mut sessions = active_sessions_for_guard.lock().await;
+                                        sessions.remove(&conversation_id.to_string())
+                                    };
+                                    if let Some(mut p) = provider_to_shutdown {
+                                        if let Err(e) = p.shutdown().await {
+                                            tracing::warn!(conversation_id = %conversation_id, "Error shutting down provider in broadcast cleanup: {e}");
+                                        }
+                                    }
+
                                     // Mark run as failed and notify UI
                                     let _ = db.execute(
                                         "UPDATE task_agent_runs SET status = 'failed' WHERE conversation_id = $1",
@@ -338,23 +374,31 @@ async fn post_create_agent_run(
         }
     }
 
-    // Fire-and-forget title generation
-    let db = state.db.clone();
-    let cfg_root = PathBuf::from(&state.config_root);
-    let title_config = harness_config.clone();
-    let conv_id = session_result.conversation_id;
-    let task_title = task.title.clone();
-    let first_message = format!("{} phase, task title: {}", agent_type, task_title);
-    tokio::spawn(async move {
-        providers::generate_conversation_title(
-            &db,
-            &cfg_root,
-            &title_config,
-            conv_id,
-            &first_message,
-        )
-        .await;
-    });
+    // NOTE: Fire-and-forget title generation via a transient opencode
+    // subprocess is disabled temporarily. The transient server it spawned
+    // was escaping Stop Agent's cleanup (it isn't tracked in
+    // active_sessions) and leaving a second live opencode process behind
+    // after Stop Agent was pressed. It also produced inconsistent titles.
+    // Re-enable only after reworking it to register with active_sessions
+    // or run on the in-flight provider's existing server.
+    //
+    // let db = state.db.clone();
+    // let cfg_root = PathBuf::from(&state.config_root);
+    // let title_config = harness_config.clone();
+    // let conv_id = session_result.conversation_id;
+    // let task_title = task.title.clone();
+    // let first_message = format!("{} phase, task title: {}", agent_type, task_title);
+    // tokio::spawn(async move {
+    //     providers::generate_conversation_title(
+    //         &db,
+    //         &cfg_root,
+    //         &title_config,
+    //         conv_id,
+    //         &first_message,
+    //     )
+    //     .await;
+    // });
+    let _ = (task.title.as_str(), agent_type);
 
     let run = tasks::get_agent_run_by_conversation(&state.db, &session_result.conversation_id)
         .await

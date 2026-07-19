@@ -133,21 +133,53 @@ impl ArchiveRoot {
 
         // Task Plan File section
         let task_plan = format!(
-            "\
+            r#"
 ## Task Plan File
 
 The canonical task plan — also known as the specification for this task — is stored at:
 `{}`
 
-While working on this task, your **authoratative** working directly (Which should also be your CWD) is {}. It is a git worktree, so you can do normal git lifecycle actions within it. **You are not permitted to make changes outside of this directory**.
+While working on this task, your **authoratative** working directly (Which should also
+be your CWD) is {}. It is a git worktree, so you can do normal git lifecycle actions within
+it. **You are not permitted to make changes outside of this directory**.
 
-**At the start of this conversation, before answering the user's first message, you MUST read this file in full using the Read tool.** It contains the requirements, constraints, and prior decisions you need to do this work correctly. Do not skip this step even if the user's first message looks unrelated to the plan.
+**At the start of this conversation, before answering the user's first message, you MUST
+read this file in full using the Read tool.** It contains the requirements, constraints,
+and prior decisions you need to do this work correctly. Do not skip this step even if the
+user's first message looks unrelated to the plan.
 
-When the user refers to the \"task plan\", \"task doc\", \"task spec\", \"specifications\", or asks you to read or update the task documentation, this is the file — read or edit it directly with the Read/Edit tool. Do NOT search for it elsewhere; the path above is authoritative.",
+When the user refers to the "task plan", "task doc", "task spec", "specifications",
+or asks you to read or update the task documentation, this is the file — read or edit it
+directly with the Read/Edit tool. Do NOT search for it elsewhere; the path above is authoritative.
+"#,
             task_doc_path.display(),
             worktree_path.display(),
         );
         sections.push(task_plan);
+
+        let commit_ritual = r#"
+## Commit Ritual Workflow
+
+At the conclusion of a phase of work that produced any changes to the worktree
+repository, do the following actions:
+
+1. For the given codebases/languages you're working within:
+  a. run formatters to clean up code (e.g. `cargo fmt` in rust)
+  b. run linters (e.g. `cargo clippy` in rust) -- this may require separating
+  out commits or doing this step after committing the initial round of changes
+2. Run all automated testing for the project; ensure tests are passing; fix failing
+tests
+  a. NOTE: ignore manual/e2e testing as part of the Commit Ritual Workflow
+3. Author a commit for your code changes; provide a succint commit description
+on the first line (< 60 characters if possible); for further details ALWAYS add
+two break-returns from the top-line description and then begin a bulleted list
+of additional information
+
+You may push up to the feature branch; DO NOT leave uncommitted files at the
+conclusion of a round of work.
+        "#;
+
+        sections.push(commit_ritual.to_owned());
 
         // Input Files section
         let tasks_root = self.root.join("projects").join(&proj_str).join("tasks");

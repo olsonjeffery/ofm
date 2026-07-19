@@ -17,6 +17,10 @@ use crate::providers::types::{ProviderEvent, ResumeInput};
 use crate::server::ws::message::{ServerMessage, TopicId, WsTopic, WsTopicKind};
 use crate::server::{error::ServerError, state::AppState};
 use crate::services::{session, tasks, transcript};
+use futures_util::FutureExt;
+use std::panic::AssertUnwindSafe;
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::Arc;
 
 #[derive(Debug, Serialize)]
 pub struct ConversationDetail {
@@ -35,7 +39,6 @@ pub fn conversations_router() -> Router<AppState> {
         .route("/", get(list_conversations))
         .route("/{id}", get(get_conversation))
         .route("/{id}/messages", post(send_message))
-        .route("/{id}/abort", post(abort_turn))
 }
 
 async fn list_conversations(
@@ -198,59 +201,88 @@ async fn send_message(
             let c_id = conv_id;
 
             tokio::spawn(async move {
-                let mut completed_normally = false;
-                loop {
-                    tokio::select! {
-                        event = rx.recv() => {
-                            let event = match event {
-                                Some(e) => e,
-                                None => break,
-                            };
+                let completed_normally = Arc::new(AtomicBool::new(false));
+                let cn = completed_normally.clone();
+                let db_inner = db.clone();
+                let ws_bus_inner = ws_bus.clone();
+                let active_sessions_inner = active_sessions.clone();
+                let active_sessions_for_guard = active_sessions_inner.clone();
 
-                            if let Err(e) = transcript::persist_event(
-                                &db, &event, &s_id, project_key
-                            ).await {
-                                tracing::warn!("Failed to persist event: {e}");
-                            }
+                let broadcast_fut = AssertUnwindSafe(async move {
+                    let mut local_completed = false;
+                    loop {
+                        tokio::select! {
+                            event = rx.recv() => {
+                                let event = match event {
+                                    Some(e) => e,
+                                    None => break,
+                                };
 
-                            if let ProviderEvent::SessionStart { session_id } = &event {
-                                let _ = db.execute(
-                                    "UPDATE conversations SET provider_session_id = $1 WHERE id = $2",
-                                    hiqlite::params!(session_id, c_id.to_string()),
-                                ).await;
-                            }
-
-                            let topic = WsTopic {
-                                kind: WsTopicKind::Task,
-                                id: TopicId(t_id),
-                            };
-
-                            let (event_type, payload) = event.to_ws_event();
-                            if matches!(event, ProviderEvent::Done(_)) {
-                                completed_normally = true;
-                            }
-
-                            let msg = ServerMessage::Event {
-                                topic: topic.clone(),
-                                event_type,
-                                timestamp: chrono::Utc::now(),
-                                payload,
-                            };
-
-                            ws_bus.broadcast(&topic, msg).await;
-
-                            if matches!(event, ProviderEvent::Done(_)) {
-                                if let Err(e) = crate::orchestration::completion_handler(
-                                    &db, c_id, &active_sessions
+                                if let Err(e) = transcript::persist_event(
+                                    &db_inner, &event, &s_id, project_key
                                 ).await {
-                                    tracing::warn!("Error in completion handler: {e:?}");
+                                    tracing::warn!("Failed to persist event: {e}");
                                 }
-                                break;
+
+                                if let ProviderEvent::SessionStart { session_id } = &event {
+                                    let _ = db_inner.execute(
+                                        "UPDATE conversations SET provider_session_id = $1 WHERE id = $2",
+                                        hiqlite::params!(session_id, c_id.to_string()),
+                                    ).await;
+                                }
+
+                                let topic = WsTopic {
+                                    kind: WsTopicKind::Task,
+                                    id: TopicId(t_id),
+                                };
+
+                                let (event_type, payload) = event.to_ws_event();
+                                if matches!(event, ProviderEvent::Done(_)) {
+                                    local_completed = true;
+                                }
+
+                                let msg = ServerMessage::Event {
+                                    topic: topic.clone(),
+                                    event_type,
+                                    timestamp: chrono::Utc::now(),
+                                    payload,
+                                };
+
+                                ws_bus_inner.broadcast(&topic, msg).await;
+
+                                if matches!(event, ProviderEvent::Done(_)) {
+                                    if let Err(e) = crate::orchestration::completion_handler(
+                                        &db_inner, c_id, &active_sessions_inner
+                                    ).await {
+                                        tracing::warn!("Error in completion handler: {e:?}");
+                                    }
+                                    break;
+                                }
                             }
                         }
                     }
+                    if local_completed {
+                        cn.store(true, Ordering::SeqCst);
+                    }
+                });
+
+                let result = broadcast_fut.catch_unwind().await;
+                if let Err(ref panic) = result {
+                    tracing::error!("Broadcast task panicked: {panic:?}");
                 }
-                if !completed_normally {
+
+                if !completed_normally.load(Ordering::SeqCst) {
+                    // Remove provider from active_sessions and shut it down
+                    let provider_to_shutdown = {
+                        let mut sessions = active_sessions_for_guard.lock().await;
+                        sessions.remove(&c_id.to_string())
+                    };
+                    if let Some(mut p) = provider_to_shutdown {
+                        if let Err(e) = p.shutdown().await {
+                            tracing::warn!(conversation_id = %c_id, "Error shutting down provider in broadcast cleanup: {e}");
+                        }
+                    }
+
                     let topic = WsTopic {
                         kind: WsTopicKind::Task,
                         id: TopicId(t_id),
@@ -341,47 +373,4 @@ async fn send_message(
             .await
         }
     }
-}
-
-async fn abort_turn(
-    auth: AuthUser,
-    State(state): State<AppState>,
-    Path((task_id, conv_id)): Path<(i64, Uuid)>,
-) -> Result<StatusCode, ServerError> {
-    tracing::info!(
-        task_id = %task_id,
-        conversation_id = %conv_id,
-        "Aborting current turn"
-    );
-
-    let task = tasks::get_task(&state.db, task_id)
-        .await
-        .map_err(|_| ServerError::NotFound("Task not found".into()))?;
-    if task.user_id != auth.user_id {
-        return Err(ServerError::NotFound("Task not found".into()));
-    }
-
-    let sessions = state.active_sessions.lock().await;
-    let provider = sessions
-        .get(&conv_id.to_string())
-        .ok_or_else(|| {
-            tracing::warn!(task_id = %task_id, conversation_id = %conv_id, "No active session to abort");
-            ServerError::NotFound("No active session".into())
-        })?;
-
-    provider
-        .abort_turn()
-        .await
-        .map_err(|e| {
-            tracing::warn!(task_id = %task_id, conversation_id = %conv_id, error = %e, "Failed to abort turn");
-            ServerError::Internal(e.to_string())
-        })?;
-
-    tracing::info!(
-        task_id = %task_id,
-        conversation_id = %conv_id,
-        "Turn aborted successfully"
-    );
-
-    Ok(StatusCode::OK)
 }

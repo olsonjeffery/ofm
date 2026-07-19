@@ -8,6 +8,7 @@
 3. Find the To-Do List section and implement unchecked items following the plan
 4. Mark each item as completed ([x]) when done
 5. Do NOT ask any questions - proceed directly with implementation
+6. At the conclusion of a round of work, do the Commit Ritual Workflow
 
 ## Constraints
 - Task tool is disallowed — you must implement code directly, not delegate to sub-agents.
@@ -16,3 +17,5 @@
 After implementing, check if ALL To-Do items (both Implementation and Testing sections) are now marked as complete [x].
 
 Start implementing now.
+
+When you have reached the end of your work, summarize your changes in a succinct list and then echo "<<IMPLEMENTATION-COMPLETE>>" and then cease all further action.
