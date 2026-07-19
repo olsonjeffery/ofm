@@ -10,7 +10,7 @@ fn agent_type_icon(agent_type: &AgentType) -> &'static str {
         AgentType::Implementation => "code-tags",
         AgentType::Refinement => "creation-outline",
         AgentType::Review => "checkbox-marked-circle-outline",
-        AgentType::Pr => "branch-plus",
+        AgentType::Pr => "source-branch-plus",
         AgentType::Yolo => "rocket",
     }
 }
