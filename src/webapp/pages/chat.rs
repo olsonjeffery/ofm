@@ -14,8 +14,7 @@ pub fn ChatPage(
 ) -> impl IntoView {
     let is_running = current_run
         .as_ref()
-        .map(|r| r.status == crate::db::schema::RunStatus::Running)
-        .unwrap_or(false);
+        .map_or(false, |r| r.status == crate::db::schema::RunStatus::Running);
 
     let messages = Vec::new();
 
@@ -102,8 +101,6 @@ document.addEventListener('DOMContentLoaded', function() {
             if (!r.ok) showMessage('Failed to stop agent');
         });
     };
-
-
 
     window.handleConversationClick = function(e) {
         var card = e.target.closest('[data-conversation-id]');

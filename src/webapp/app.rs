@@ -49,12 +49,6 @@ mod tests {
         let breadcrumbs = Vec::new();
         let html = leptos::view! { <ShellPage user_json breadcrumbs /> }.to_html();
         let search = "<main></main>";
-        // Print the actual main tag for debugging
-        for line in html.lines() {
-            if line.contains("<main") {
-                eprintln!("ACTUAL MAIN TAG: [{}]", line);
-            }
-        }
         assert!(
             html.contains(search),
             "Shell HTML does not contain exact main tag match. Search: {}",

@@ -18,7 +18,7 @@ pub fn BoardPage(project: Project, tasks: Vec<Task>) -> impl IntoView {
     let in_review = tasks_for_status(&tasks, "in_review");
     let completed = tasks_for_status(&tasks, "completed");
 
-    let render_column = |_status: &str, label: &str, color_class: &str, items: Vec<Task>| {
+    let render_column = |label: &str, color_class: &str, items: Vec<Task>| {
         view! {
             <div class="column">
                 <div class={format!("box {}", color_class)}>
@@ -75,10 +75,10 @@ pub fn BoardPage(project: Project, tasks: Vec<Task>) -> impl IntoView {
             </div>
 
             <div class="columns">
-                {render_column("pending", "Pending", "has-background-grey-lighter", pending)}
-                {render_column("in_progress", "In Progress", "has-background-info-light", in_progress)}
-                {render_column("in_review", "In Review", "has-background-warning-light", in_review)}
-                {render_column("completed", "Completed", "has-background-success-light", completed)}
+                {render_column("Pending", "has-background-grey-lighter", pending)}
+                {render_column("In Progress", "has-background-info-light", in_progress)}
+                {render_column("In Review", "has-background-warning-light", in_review)}
+                {render_column("Completed", "has-background-success-light", completed)}
             </div>
         </section>
         <script>
