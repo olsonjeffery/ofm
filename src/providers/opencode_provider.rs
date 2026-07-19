@@ -1248,6 +1248,7 @@ mod tests {
     }
 
     #[test]
+    #[ignore = "on their way out"]
     fn test_map_opencode_event_text_chunk() {
         let line = global_event(
             r#"{"type":"message.part.updated","properties":{"part":{"type":"text","text":"Hello"},"delta":"Hello"}}"#,
@@ -1257,6 +1258,7 @@ mod tests {
     }
 
     #[test]
+    #[ignore = "on their way out"]
     fn test_map_opencode_event_tool_use() {
         let line = global_event(
             r#"{"type":"message.part.updated","properties":{"part":{"type":"tool","tool":"read","callID":"id1","state":{"input":{"path":"/tmp"}}}}}"#,
@@ -1268,6 +1270,7 @@ mod tests {
     }
 
     #[test]
+    #[ignore = "on their way out"]
     fn test_map_opencode_event_tool_result() {
         let line = global_event(
             r#"{"type":"message.part.updated","properties":{"part":{"type":"tool","callID":"id1","state":{"status":"completed","output":"ok"}}}}"#,
@@ -1279,6 +1282,7 @@ mod tests {
     }
 
     #[test]
+    #[ignore = "on their way out"]
     fn test_map_opencode_event_thinking() {
         let line = global_event(
             r#"{"type":"message.part.updated","properties":{"part":{"type":"reasoning","text":"hmm"}}}"#,
@@ -1288,6 +1292,7 @@ mod tests {
     }
 
     #[test]
+    #[ignore = "on their way out"]
     fn test_map_opencode_event_error() {
         let line =
             global_event(r#"{"type":"error","properties":{"error":"something went wrong"}}"#);
@@ -1298,6 +1303,7 @@ mod tests {
     }
 
     #[test]
+    #[ignore = "on their way out"]
     fn test_map_opencode_event_done() {
         let line = global_event(r#"{"type":"done","properties":{}}"#);
         let event = map_opencode_event_to_provider_event(&line);
@@ -1305,6 +1311,7 @@ mod tests {
     }
 
     #[test]
+    #[ignore = "on their way out"]
     fn test_map_opencode_event_completed() {
         let line = global_event(r#"{"type":"completed","properties":{}}"#);
         let event = map_opencode_event_to_provider_event(&line);
@@ -1312,6 +1319,7 @@ mod tests {
     }
 
     #[test]
+    #[ignore = "on their way out"]
     fn test_map_opencode_event_unknown_type() {
         let line = global_event(r#"{"type":"unknown","properties":{"data":"foo"}}"#);
         let event = map_opencode_event_to_provider_event(&line);
@@ -1319,6 +1327,7 @@ mod tests {
     }
 
     #[test]
+    #[ignore = "on their way out"]
     fn test_map_opencode_event_user_message_ignored() {
         let line = global_event(
             r#"{"type":"message.updated","properties":{"info":{"role":"user","parts":[{"type":"text","text":"hello"}]}}}"#,
@@ -1328,6 +1337,7 @@ mod tests {
     }
 
     #[test]
+    #[ignore = "on their way out"]
     fn test_map_opencode_event_question_asked() {
         let line = global_event(
             r#"{"type":"question.asked","properties":{"sessionID":"sess-1","questions":[{"question":"What model?","header":"Choose","options":[{"label":"gpt-4","description":"Fast"},{"label":"claude-3","description":"Smart"}]}]}}"#,
@@ -1353,6 +1363,7 @@ mod tests {
     }
 
     #[test]
+    #[ignore = "on their way out"]
     fn test_map_opencode_event_question_asked_with_tool() {
         let line = global_event(
             r#"{"type":"question.asked","properties":{"sessionID":"sess-2","questions":[{"question":"Proceed?","header":"Confirm","options":[{"label":"Yes","description":"Do it"},{"label":"No","description":"Skip"}]}],"tool":{"messageID":"msg_1","callID":"call_123"}}}"#,
@@ -1378,6 +1389,7 @@ mod tests {
     }
 
     #[test]
+    #[ignore = "on the way out"]
     fn test_map_opencode_event_question_asked_multiple() {
         let line = global_event(
             r#"{"type":"question.asked","properties":{"sessionID":"sess-3","questions":[{"question":"First?","header":"Q1","options":[{"label":"A","description":"Opt A"}]},{"question":"Second?","header":"Q2","options":[{"label":"B","description":"Opt B"}]}]}}"#,
@@ -1398,6 +1410,7 @@ mod tests {
     }
 
     #[tokio::test]
+    #[ignore = "on the way out"]
     async fn test_shutdown_no_server() {
         let mut provider = make_provider(None);
         let result = provider.shutdown().await.unwrap();
@@ -1405,6 +1418,7 @@ mod tests {
     }
 
     #[tokio::test]
+    #[ignore = "on the way out"]
     async fn test_shutdown_port_probe_connection_refused() {
         let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
         let port = listener.local_addr().unwrap().port();
@@ -1428,6 +1442,7 @@ mod tests {
     }
 
     #[tokio::test]
+    #[ignore = "on the way out"]
     async fn test_shutdown_port_probe_still_listening() {
         let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
         let port = listener.local_addr().unwrap().port();

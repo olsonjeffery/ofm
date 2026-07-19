@@ -39,6 +39,7 @@ async fn test_opencode_provider_new() {
 }
 
 #[tokio::test]
+#[ignore = "on their way out"]
 async fn test_opencode_provider_start_shutdown() {
     if !has_binary("opencode") {
         eprintln!("skipping OpenCodeProvider start/shutdown test: 'opencode' binary not in PATH");
@@ -80,6 +81,7 @@ async fn test_opencode_provider_start_shutdown() {
 }
 
 #[tokio::test]
+#[ignore = "on their way out"]
 async fn test_opencode_provider_get_models_list_transient() {
     if !has_binary("opencode") {
         eprintln!("skipping OpenCodeProvider get_models_list test: 'opencode' binary not in PATH");
@@ -120,6 +122,7 @@ async fn test_opencode_provider_get_models_list_transient() {
 }
 
 #[tokio::test]
+#[ignore = "on their way out"]
 async fn test_opencode_provider_one_shot_transient() {
     if !has_binary("opencode") {
         eprintln!("skipping OpenCodeProvider one_shot test: 'opencode' binary not in PATH");

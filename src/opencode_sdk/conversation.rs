@@ -303,7 +303,7 @@ mod tests {
     use crate::opencode_sdk::types::*;
 
     #[test]
-    fn test_phase_event_stream_matches_session() {
+    fn test_opencode_sdk_phase_event_stream_matches_session() {
         let global = GlobalEvent {
             directory: "/tmp".into(),
             payload: Event::SessionIdle(SessionIdData {
@@ -315,7 +315,7 @@ mod tests {
     }
 
     #[test]
-    fn test_phase_event_stream_is_terminal() {
+    fn test_opencode_sdk_phase_event_stream_is_terminal() {
         let idle = GlobalEvent {
             directory: "/tmp".into(),
             payload: Event::SessionIdle(SessionIdData {
@@ -347,14 +347,14 @@ mod tests {
     }
 
     #[test]
-    fn test_one_shot_config_default() {
+    fn test_opencode_sdk_one_shot_config_default() {
         let config = OneShotConfig::default();
         assert_eq!(config.model, "default");
         assert!(config.agent.is_none());
     }
 
     #[test]
-    fn test_phase_config_construction() {
+    fn test_opencode_sdk_phase_config_construction() {
         let config = PhaseConfig {
             model: "gpt-4".into(),
             agent: "coder".into(),

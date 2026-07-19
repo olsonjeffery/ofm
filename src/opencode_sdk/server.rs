@@ -260,13 +260,13 @@ mod tests {
     use std::time::Duration;
 
     #[test]
-    fn test_pick_free_port() {
+    fn test_opencode_sdk_pick_free_port() {
         let port = pick_free_port().unwrap();
         assert!(port > 0);
     }
 
     #[test]
-    fn test_server_options_default() {
+    fn test_opencode_sdk_server_options_default() {
         let opts = ServerOptions::default();
         assert_eq!(opts.hostname, "127.0.0.1");
         assert_eq!(opts.port, 0);
@@ -274,7 +274,7 @@ mod tests {
     }
 
     #[test]
-    fn test_config_file_creation() {
+    fn test_opencode_sdk_config_file_creation() {
         let temp_dir = TempDir::new().unwrap();
         let config = serde_json::json!({"provider": {}, "permission": {"edit": "allow"}});
         let config_path = temp_dir.path().join("opencode.json");
@@ -285,7 +285,7 @@ mod tests {
     }
 
     #[test]
-    fn test_basic_auth_header_format() {
+    fn test_opencode_sdk_basic_auth_header_format() {
         let header = basic_auth_header("test-password");
         assert!(header.starts_with("Basic "));
         let encoded = header.strip_prefix("Basic ").unwrap();
@@ -297,7 +297,7 @@ mod tests {
     }
 
     #[test]
-    fn test_default_config_format() {
+    fn test_opencode_sdk_default_config_format() {
         let config = serde_json::json!({
             "provider": {},
             "permission": {
@@ -313,7 +313,7 @@ mod tests {
     }
 
     #[test]
-    fn test_url_construction() {
+    fn test_opencode_sdk_url_construction() {
         let temp_dir = TempDir::new().unwrap();
         let child = std::process::Command::new("true").spawn().unwrap();
         let server = OpenCodeServer {
@@ -329,7 +329,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn test_shutdown_noop_child() {
+    async fn test_opencode_sdk_shutdown_noop_child() {
         let temp_dir = TempDir::new().unwrap();
         let child = std::process::Command::new("true").spawn().unwrap();
         let mut server = OpenCodeServer {

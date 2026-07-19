@@ -84,7 +84,7 @@ fn server_options() -> ServerOptions {
 }
 
 #[tokio::test]
-async fn test_server_lifecycle() {
+async fn test_opencode_sdk_server_lifecycle() {
     if !has_binary("opencode") {
         eprintln!("skipping: 'opencode' binary not in PATH");
         return;
@@ -100,7 +100,7 @@ async fn test_server_lifecycle() {
 }
 
 #[tokio::test]
-async fn test_server_shutdown_releases_port() {
+async fn test_opencode_sdk_server_shutdown_releases_port() {
     if !has_binary("opencode") {
         eprintln!("skipping: 'opencode' binary not in PATH");
         return;
@@ -127,7 +127,7 @@ async fn test_server_shutdown_releases_port() {
 }
 
 #[tokio::test]
-async fn test_create_opencode_and_client() {
+async fn test_opencode_sdk_create_opencode_and_client() {
     if !has_binary("opencode") {
         eprintln!("skipping: 'opencode' binary not in PATH");
         return;
@@ -141,7 +141,7 @@ async fn test_create_opencode_and_client() {
 }
 
 #[tokio::test]
-async fn test_session_lifecycle() {
+async fn test_opencode_sdk_session_lifecycle() {
     if !has_binary("opencode") {
         eprintln!("skipping: 'opencode' binary not in PATH");
         return;
@@ -170,7 +170,7 @@ async fn test_session_lifecycle() {
 }
 
 #[tokio::test]
-async fn test_config_providers() {
+async fn test_opencode_sdk_config_providers() {
     if !has_binary("opencode") {
         eprintln!("skipping: 'opencode' binary not in PATH");
         return;
@@ -186,7 +186,7 @@ async fn test_config_providers() {
 }
 
 #[tokio::test]
-async fn test_one_shot_pattern() {
+async fn test_opencode_sdk_one_shot_pattern() {
     if !has_binary("opencode") {
         eprintln!("skipping: 'opencode' binary not in PATH");
         return;
@@ -215,7 +215,7 @@ async fn test_one_shot_pattern() {
 }
 
 #[tokio::test]
-async fn test_abort_session() {
+async fn test_opencode_sdk_abort_session() {
     if !has_binary("opencode") {
         eprintln!("skipping: 'opencode' binary not in PATH");
         return;
@@ -233,7 +233,7 @@ async fn test_abort_session() {
 }
 
 #[tokio::test]
-async fn test_create_opencode_factory() {
+async fn test_opencode_sdk_create_opencode_factory() {
     if !has_binary("opencode") {
         eprintln!("skipping: 'opencode' binary not in PATH");
         return;
@@ -249,7 +249,7 @@ async fn test_create_opencode_factory() {
 }
 
 #[tokio::test]
-async fn test_concurrent_sessions() {
+async fn test_opencode_sdk_concurrent_sessions() {
     if !has_binary("opencode") {
         eprintln!("skipping: 'opencode' binary not in PATH");
         return;
@@ -279,7 +279,7 @@ async fn test_concurrent_sessions() {
 }
 
 #[tokio::test]
-async fn test_error_on_invalid_session() {
+async fn test_opencode_sdk_error_on_invalid_session() {
     if !has_binary("opencode") {
         eprintln!("skipping: 'opencode' binary not in PATH");
         return;
@@ -295,7 +295,7 @@ async fn test_error_on_invalid_session() {
 }
 
 #[tokio::test]
-async fn test_prompt_async_and_abort() {
+async fn test_opencode_sdk_prompt_async_and_abort() {
     if !has_binary("opencode") {
         eprintln!("skipping: 'opencode' binary not in PATH");
         return;
@@ -335,7 +335,7 @@ async fn test_prompt_async_and_abort() {
 }
 
 #[tokio::test]
-async fn test_phase_based_conversation() {
+async fn test_opencode_sdk_phase_based_conversation() {
     if !has_binary("opencode") {
         eprintln!("skipping: 'opencode' binary not in PATH");
         return;
@@ -363,7 +363,7 @@ async fn test_phase_based_conversation() {
 }
 
 #[tokio::test]
-async fn test_unstructured_conversation() {
+async fn test_opencode_sdk_unstructured_conversation() {
     if !has_binary("opencode") {
         eprintln!("skipping: 'opencode' binary not in PATH");
         return;
@@ -385,7 +385,7 @@ async fn test_unstructured_conversation() {
 }
 
 #[tokio::test]
-async fn test_session_resume() {
+async fn test_opencode_sdk_session_resume() {
     if !has_binary("opencode") {
         eprintln!("skipping: 'opencode' binary not in PATH");
         return;
@@ -413,7 +413,7 @@ async fn test_session_resume() {
 }
 
 #[tokio::test]
-async fn test_process_leak() {
+async fn test_opencode_sdk_process_leak() {
     if !has_binary("opencode") {
         eprintln!("skipping: 'opencode' binary not in PATH");
         return;
@@ -450,7 +450,7 @@ async fn test_process_leak() {
 }
 
 #[tokio::test]
-async fn test_multi_session_lifecycle() {
+async fn test_opencode_sdk_multi_session_lifecycle() {
     if !has_binary("opencode") {
         eprintln!("skipping: 'opencode' binary not in PATH");
         return;

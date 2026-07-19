@@ -543,31 +543,31 @@ mod tests {
     use crate::opencode_sdk::types::*;
 
     #[test]
-    fn test_basic_auth_header() {
+    fn test_opencode_sdk_basic_auth_header() {
         let header = basic_auth_header("test-pw");
         assert!(header.starts_with("Basic "));
     }
 
     #[test]
-    fn test_url_construction() {
+    fn test_opencode_sdk_url_construction() {
         let client = OpencodeClient::new("http://127.0.0.1:3183", Some("pw"));
         assert_eq!(client.base_url(), "http://127.0.0.1:3183");
     }
 
     #[test]
-    fn test_url_trailing_slash_stripped() {
+    fn test_opencode_sdk_url_trailing_slash_stripped() {
         let client = OpencodeClient::new("http://127.0.0.1:3183/", Some("pw"));
         assert_eq!(client.base_url(), "http://127.0.0.1:3183");
     }
 
     #[test]
-    fn test_client_with_directory() {
+    fn test_opencode_sdk_client_with_directory() {
         let client = OpencodeClient::new("http://127.0.0.1:3183", None).with_directory("/tmp");
         assert!(client.inner.directory.is_some());
     }
 
     #[test]
-    fn test_prompt_body_serialization() {
+    fn test_opencode_sdk_prompt_body_serialization() {
         let body = PromptBody {
             message_id: None,
             model: Some(ModelRef {
@@ -590,7 +590,7 @@ mod tests {
     }
 
     #[test]
-    fn test_prompt_body_with_message_id() {
+    fn test_opencode_sdk_prompt_body_with_message_id() {
         let body = PromptBody {
             message_id: Some("msg1".into()),
             model: None,
@@ -607,49 +607,49 @@ mod tests {
     }
 
     #[test]
-    fn test_session_list_url() {
+    fn test_opencode_sdk_session_list_url() {
         let client = OpencodeClient::new("http://127.0.0.1:3183", None);
         let url = client.session.0.session_url("");
         assert_eq!(url, "http://127.0.0.1:3183/session");
     }
 
     #[test]
-    fn test_session_get_url() {
+    fn test_opencode_sdk_session_get_url() {
         let client = OpencodeClient::new("http://127.0.0.1:3183", None);
         let url = client.session.0.session_url("/sess1");
         assert_eq!(url, "http://127.0.0.1:3183/session/sess1");
     }
 
     #[test]
-    fn test_session_prompt_url() {
+    fn test_opencode_sdk_session_prompt_url() {
         let client = OpencodeClient::new("http://127.0.0.1:3183", None);
         let url = client.session.0.session_url("/sess1/message");
         assert_eq!(url, "http://127.0.0.1:3183/session/sess1/message");
     }
 
     #[test]
-    fn test_session_prompt_async_url() {
+    fn test_opencode_sdk_session_prompt_async_url() {
         let client = OpencodeClient::new("http://127.0.0.1:3183", None);
         let url = client.session.0.session_url("/sess1/prompt_async");
         assert_eq!(url, "http://127.0.0.1:3183/session/sess1/prompt_async");
     }
 
     #[test]
-    fn test_session_abort_url() {
+    fn test_opencode_sdk_session_abort_url() {
         let client = OpencodeClient::new("http://127.0.0.1:3183", None);
         let url = client.session.0.session_url("/sess1/abort");
         assert_eq!(url, "http://127.0.0.1:3183/session/sess1/abort");
     }
 
     #[test]
-    fn test_session_messages_url() {
+    fn test_opencode_sdk_session_messages_url() {
         let client = OpencodeClient::new("http://127.0.0.1:3183", None);
         let url = client.session.0.session_url("/sess1/message");
         assert_eq!(url, "http://127.0.0.1:3183/session/sess1/message");
     }
 
     #[test]
-    fn test_event_url() {
+    fn test_opencode_sdk_event_url() {
         let inner = InnerClient {
             base_url: "http://127.0.0.1:3183".into(),
             password: String::new(),
@@ -661,7 +661,7 @@ mod tests {
     }
 
     #[test]
-    fn test_config_providers_url() {
+    fn test_opencode_sdk_config_providers_url() {
         let inner = InnerClient {
             base_url: "http://127.0.0.1:3183".into(),
             password: String::new(),
@@ -673,7 +673,7 @@ mod tests {
     }
 
     #[test]
-    fn test_drain_sse_lines() {
+    fn test_opencode_sdk_drain_sse_lines() {
         let (tx, rx) = tokio::sync::oneshot::channel();
         let rt = tokio::runtime::Runtime::new().unwrap();
         rt.block_on(async {
@@ -737,7 +737,7 @@ mod tests {
     }
 
     #[test]
-    fn test_sse_comment_line_ignored() {
+    fn test_opencode_sdk_sse_comment_line_ignored() {
         let mut buf = Vec::new();
         buf.extend_from_slice(b":comment\ndata: {\"directory\":\"/tmp\",\"payload\":{\"type\":\"session.idle\",\"properties\":{\"sessionID\":\"s1\"}}}\n");
         let (events, _) = parse_sse_lines(&mut buf);
@@ -746,7 +746,7 @@ mod tests {
     }
 
     #[test]
-    fn test_sse_invalid_json_skipped() {
+    fn test_opencode_sdk_sse_invalid_json_skipped() {
         let mut buf = Vec::new();
         buf.extend_from_slice(b"data: not-json\n");
         let (events, _) = parse_sse_lines(&mut buf);
@@ -754,7 +754,7 @@ mod tests {
     }
 
     #[test]
-    fn test_sse_empty_data_ignored() {
+    fn test_opencode_sdk_sse_empty_data_ignored() {
         let mut buf = Vec::new();
         buf.extend_from_slice(b"data: \n");
         let (events, _) = parse_sse_lines(&mut buf);
@@ -762,7 +762,7 @@ mod tests {
     }
 
     #[test]
-    fn test_sse_retry_field_parsed() {
+    fn test_opencode_sdk_sse_retry_field_parsed() {
         let mut buf = Vec::new();
         buf.extend_from_slice(b"retry: 5000\ndata: {\"directory\":\"/tmp\",\"payload\":{\"type\":\"session.idle\",\"properties\":{\"sessionID\":\"s1\"}}}\n");
         let (events, retry) = parse_sse_lines(&mut buf);

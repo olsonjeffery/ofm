@@ -607,7 +607,7 @@ mod tests {
     }
 
     #[test]
-    fn test_event_message_part_updated_text() {
+    fn test_opencode_sdk_event_message_part_updated_text() {
         let json = global_event(
             r#"{"type":"message.part.updated","properties":{"part":{"type":"text","text":"Hello"},"delta":"Hello"}}"#,
         );
@@ -625,7 +625,7 @@ mod tests {
     }
 
     #[test]
-    fn test_event_message_part_updated_reasoning() {
+    fn test_opencode_sdk_event_message_part_updated_reasoning() {
         let json = global_event(
             r#"{"type":"message.part.updated","properties":{"part":{"type":"reasoning","text":"thinking..."},"delta":"thinking..."}}"#,
         );
@@ -640,7 +640,7 @@ mod tests {
     }
 
     #[test]
-    fn test_event_message_part_updated_tool() {
+    fn test_opencode_sdk_event_message_part_updated_tool() {
         let json = global_event(
             r#"{"type":"message.part.updated","properties":{"part":{"type":"tool","tool":"read","callID":"id1","state":{"status":"pending","input":{"path":"/tmp"}}}}}"#,
         );
@@ -659,7 +659,7 @@ mod tests {
     }
 
     #[test]
-    fn test_event_message_part_updated_tool_completed() {
+    fn test_opencode_sdk_event_message_part_updated_tool_completed() {
         let json = global_event(
             r#"{"type":"message.part.updated","properties":{"part":{"type":"tool","tool":"read","callID":"id1","state":{"status":"completed","input":{},"output":"result"}}}}"#,
         );
@@ -676,7 +676,7 @@ mod tests {
     }
 
     #[test]
-    fn test_event_message_part_updated_tool_error() {
+    fn test_opencode_sdk_event_message_part_updated_tool_error() {
         let json = global_event(
             r#"{"type":"message.part.updated","properties":{"part":{"type":"tool","tool":"read","callID":"id1","state":{"status":"error","input":{},"error":"failed"}}}}"#,
         );
@@ -693,7 +693,7 @@ mod tests {
     }
 
     #[test]
-    fn test_event_message_updated() {
+    fn test_opencode_sdk_event_message_updated() {
         let json = global_event(
             r#"{"type":"message.updated","properties":{"info":{"id":"msg1","sessionID":"sess1","role":"assistant","time":"2024-01-01T00:00:00Z","parts":[{"type":"text","text":"Hello"}]}}}"#,
         );
@@ -708,7 +708,7 @@ mod tests {
     }
 
     #[test]
-    fn test_event_session_status_idle() {
+    fn test_opencode_sdk_event_session_status_idle() {
         let json = global_event(
             r#"{"type":"session.status","properties":{"sessionID":"sess1","status":{"type":"idle"}}}"#,
         );
@@ -723,7 +723,7 @@ mod tests {
     }
 
     #[test]
-    fn test_event_session_created() {
+    fn test_opencode_sdk_event_session_created() {
         let json = global_event(
             r#"{"type":"session.created","properties":{"sessionID":"sess1","session":{"id":"sess1","directory":"/tmp"}}}"#,
         );
@@ -738,14 +738,14 @@ mod tests {
     }
 
     #[test]
-    fn test_event_session_idle() {
+    fn test_opencode_sdk_event_session_idle() {
         let json = global_event(r#"{"type":"session.idle","properties":{"sessionID":"sess1"}}"#);
         let event = parse_event(&json);
         assert!(matches!(event, Event::SessionIdle(data) if data.session_id == "sess1"));
     }
 
     #[test]
-    fn test_event_session_error() {
+    fn test_opencode_sdk_event_session_error() {
         let json = global_event(
             r#"{"type":"session.error","properties":{"sessionID":"sess1","error":"something went wrong"}}"#,
         );
@@ -760,7 +760,7 @@ mod tests {
     }
 
     #[test]
-    fn test_event_server_connected() {
+    fn test_opencode_sdk_event_server_connected() {
         let json = global_event(r#"{"type":"server.connected","properties":{"version":"1.15.5"}}"#);
         let event = parse_event(&json);
         assert!(
@@ -769,35 +769,35 @@ mod tests {
     }
 
     #[test]
-    fn test_event_server_instance_disposed() {
+    fn test_opencode_sdk_event_server_instance_disposed() {
         let json = global_event(r#"{"type":"server.instance.disposed","properties":{}}"#);
         let event = parse_event(&json);
         assert!(matches!(event, Event::ServerInstanceDisposed(_)));
     }
 
     #[test]
-    fn test_event_file_edited() {
+    fn test_opencode_sdk_event_file_edited() {
         let json = global_event(r#"{"type":"file.edited","properties":{"path":"/tmp/test.txt"}}"#);
         let event = parse_event(&json);
         assert!(matches!(event, Event::FileEdited(_)));
     }
 
     #[test]
-    fn test_event_todo_updated() {
+    fn test_opencode_sdk_event_todo_updated() {
         let json = global_event(r#"{"type":"todo.updated","properties":{"items":[]}}"#);
         let event = parse_event(&json);
         assert!(matches!(event, Event::TodoUpdated(_)));
     }
 
     #[test]
-    fn test_event_command_executed() {
+    fn test_opencode_sdk_event_command_executed() {
         let json = global_event(r#"{"type":"command.executed","properties":{"command":"ls"}}"#);
         let event = parse_event(&json);
         assert!(matches!(event, Event::CommandExecuted(_)));
     }
 
     #[test]
-    fn test_event_file_watcher_updated() {
+    fn test_opencode_sdk_event_file_watcher_updated() {
         let json =
             global_event(r#"{"type":"file_watcher.updated","properties":{"change":"created"}}"#);
         let event = parse_event(&json);
@@ -805,14 +805,14 @@ mod tests {
     }
 
     #[test]
-    fn test_event_vcs_branch_updated() {
+    fn test_opencode_sdk_event_vcs_branch_updated() {
         let json = global_event(r#"{"type":"vcs.branch.updated","properties":{"branch":"main"}}"#);
         let event = parse_event(&json);
         assert!(matches!(event, Event::VcsBranchUpdated(_)));
     }
 
     #[test]
-    fn test_event_pty_created() {
+    fn test_opencode_sdk_event_pty_created() {
         let json = global_event(
             r#"{"type":"pty.created","properties":{"ptyID":"pty1","sessionID":"sess1","cols":80,"rows":24}}"#,
         );
@@ -827,7 +827,7 @@ mod tests {
     }
 
     #[test]
-    fn test_event_pty_updated() {
+    fn test_opencode_sdk_event_pty_updated() {
         let json = global_event(
             r#"{"type":"pty.updated","properties":{"ptyID":"pty1","sessionID":"sess1","data":"output"}}"#,
         );
@@ -836,7 +836,7 @@ mod tests {
     }
 
     #[test]
-    fn test_event_pty_exited() {
+    fn test_opencode_sdk_event_pty_exited() {
         let json = global_event(
             r#"{"type":"pty.exited","properties":{"ptyID":"pty1","sessionID":"sess1","code":0}}"#,
         );
@@ -845,7 +845,7 @@ mod tests {
     }
 
     #[test]
-    fn test_event_pty_deleted() {
+    fn test_opencode_sdk_event_pty_deleted() {
         let json = global_event(
             r#"{"type":"pty.deleted","properties":{"ptyID":"pty1","sessionID":"sess1"}}"#,
         );
@@ -854,14 +854,14 @@ mod tests {
     }
 
     #[test]
-    fn test_event_installation_updated() {
+    fn test_opencode_sdk_event_installation_updated() {
         let json = global_event(r#"{"type":"installation.updated","properties":{"name":"test"}}"#);
         let event = parse_event(&json);
         assert!(matches!(event, Event::InstallationUpdated(_)));
     }
 
     #[test]
-    fn test_event_installation_update_available() {
+    fn test_opencode_sdk_event_installation_update_available() {
         let json = global_event(
             r#"{"type":"installation.update_available","properties":{"version":"1.16.0"}}"#,
         );
@@ -870,7 +870,7 @@ mod tests {
     }
 
     #[test]
-    fn test_event_lsp_client_diagnostics() {
+    fn test_opencode_sdk_event_lsp_client_diagnostics() {
         let json = global_event(
             r#"{"type":"lsp.client_diagnostics","properties":{"file":"test.rs","diagnostics":[]}}"#,
         );
@@ -879,7 +879,7 @@ mod tests {
     }
 
     #[test]
-    fn test_event_lsp_updated() {
+    fn test_opencode_sdk_event_lsp_updated() {
         let json =
             global_event(r#"{"type":"lsp.updated","properties":{"server":"rust-analyzer"}}"#);
         let event = parse_event(&json);
@@ -887,7 +887,7 @@ mod tests {
     }
 
     #[test]
-    fn test_event_permission_updated() {
+    fn test_opencode_sdk_event_permission_updated() {
         let json = global_event(
             r#"{"type":"permission.updated","properties":{"permissionID":"perm1","sessionID":"sess1","type":"bash"}}"#,
         );
@@ -902,7 +902,7 @@ mod tests {
     }
 
     #[test]
-    fn test_event_permission_replied() {
+    fn test_opencode_sdk_event_permission_replied() {
         let json = global_event(
             r#"{"type":"permission.replied","properties":{"permissionID":"perm1","sessionID":"sess1","approved":true}}"#,
         );
@@ -916,14 +916,14 @@ mod tests {
     }
 
     #[test]
-    fn test_event_tui_prompt_append() {
+    fn test_opencode_sdk_event_tui_prompt_append() {
         let json = global_event(r#"{"type":"tui.prompt_append","properties":{"text":"extra"}}"#);
         let event = parse_event(&json);
         assert!(matches!(event, Event::TuiPromptAppend(_)));
     }
 
     #[test]
-    fn test_event_tui_command_execute() {
+    fn test_opencode_sdk_event_tui_command_execute() {
         let json =
             global_event(r#"{"type":"tui.command_execute","properties":{"command":"/help"}}"#);
         let event = parse_event(&json);
@@ -931,7 +931,7 @@ mod tests {
     }
 
     #[test]
-    fn test_event_tui_toast_show() {
+    fn test_opencode_sdk_event_tui_toast_show() {
         let json = global_event(
             r#"{"type":"tui.toast_show","properties":{"message":"Hello","type":"info","duration":3000}}"#,
         );
@@ -946,14 +946,14 @@ mod tests {
     }
 
     #[test]
-    fn test_event_session_deleted() {
+    fn test_opencode_sdk_event_session_deleted() {
         let json = global_event(r#"{"type":"session.deleted","properties":{"sessionID":"sess1"}}"#);
         let event = parse_event(&json);
         assert!(matches!(event, Event::SessionDeleted(data) if data.session_id == "sess1"));
     }
 
     #[test]
-    fn test_event_session_compacted() {
+    fn test_opencode_sdk_event_session_compacted() {
         let json =
             global_event(r#"{"type":"session.compacted","properties":{"sessionID":"sess1"}}"#);
         let event = parse_event(&json);
@@ -961,7 +961,7 @@ mod tests {
     }
 
     #[test]
-    fn test_event_session_diff() {
+    fn test_opencode_sdk_event_session_diff() {
         let json =
             global_event(r#"{"type":"session.diff","properties":{"sessionID":"sess1","diff":{}}}"#);
         let event = parse_event(&json);
@@ -969,7 +969,7 @@ mod tests {
     }
 
     #[test]
-    fn test_event_message_removed() {
+    fn test_opencode_sdk_event_message_removed() {
         let json = global_event(
             r#"{"type":"message.removed","properties":{"sessionID":"sess1","messageID":"msg1"}}"#,
         );
@@ -978,7 +978,7 @@ mod tests {
     }
 
     #[test]
-    fn test_event_message_part_removed() {
+    fn test_opencode_sdk_event_message_part_removed() {
         let json = global_event(
             r#"{"type":"message.part.removed","properties":{"sessionID":"sess1","messageID":"msg1","partID":"part1"}}"#,
         );
@@ -987,7 +987,7 @@ mod tests {
     }
 
     #[test]
-    fn test_event_roundtrip_all_variants() {
+    fn test_opencode_sdk_event_roundtrip_all_variants() {
         let cases = [
             (
                 r#"{"type":"message.part.updated","properties":{"part":{"type":"text","text":"hi"},"delta":"hi"}}"#,
@@ -1126,7 +1126,7 @@ mod tests {
     }
 
     #[test]
-    fn test_part_text() {
+    fn test_opencode_sdk_part_text() {
         let json = r#"{"type":"text","text":"Hello"}"#;
         let part: Part = serde_json::from_str(json).unwrap();
         match part {
@@ -1136,7 +1136,7 @@ mod tests {
     }
 
     #[test]
-    fn test_part_reasoning() {
+    fn test_opencode_sdk_part_reasoning() {
         let json = r#"{"type":"reasoning","text":"thinking..."}"#;
         let part: Part = serde_json::from_str(json).unwrap();
         match part {
@@ -1146,7 +1146,7 @@ mod tests {
     }
 
     #[test]
-    fn test_part_tool() {
+    fn test_opencode_sdk_part_tool() {
         let json = r#"{"type":"tool","tool":"read","callID":"id1","state":{"status":"pending","input":{}}}"#;
         let part: Part = serde_json::from_str(json).unwrap();
         match part {
@@ -1158,7 +1158,7 @@ mod tests {
     }
 
     #[test]
-    fn test_part_file() {
+    fn test_opencode_sdk_part_file() {
         let json = r#"{"type":"file","path":"/tmp/test.txt","content":"data"}"#;
         let part: Part = serde_json::from_str(json).unwrap();
         match part {
@@ -1171,63 +1171,63 @@ mod tests {
     }
 
     #[test]
-    fn test_part_step_start() {
+    fn test_opencode_sdk_part_step_start() {
         let json = r#"{"type":"step_start","name":"analyze"}"#;
         let part: Part = serde_json::from_str(json).unwrap();
         assert!(matches!(part, Part::StepStart(s) if s.name == "analyze"));
     }
 
     #[test]
-    fn test_part_step_finish() {
+    fn test_opencode_sdk_part_step_finish() {
         let json = r#"{"type":"step_finish","name":"analyze"}"#;
         let part: Part = serde_json::from_str(json).unwrap();
         assert!(matches!(part, Part::StepFinish(s) if s.name == "analyze"));
     }
 
     #[test]
-    fn test_part_snapshot() {
+    fn test_opencode_sdk_part_snapshot() {
         let json = r#"{"type":"snapshot","path":"/tmp/test.rs","content":"fn main() {}"}"#;
         let part: Part = serde_json::from_str(json).unwrap();
         assert!(matches!(part, Part::Snapshot(_)));
     }
 
     #[test]
-    fn test_part_patch() {
+    fn test_opencode_sdk_part_patch() {
         let json = r#"{"type":"patch","path":"/tmp/test.rs","diff":"@@ -1 +1 @@"}"#;
         let part: Part = serde_json::from_str(json).unwrap();
         assert!(matches!(part, Part::Patch(_)));
     }
 
     #[test]
-    fn test_part_agent() {
+    fn test_opencode_sdk_part_agent() {
         let json = r#"{"type":"agent","agent":"coder","prompt":"fix this"}"#;
         let part: Part = serde_json::from_str(json).unwrap();
         assert!(matches!(part, Part::Agent(a) if a.agent == "coder"));
     }
 
     #[test]
-    fn test_part_retry() {
+    fn test_opencode_sdk_part_retry() {
         let json = r#"{"type":"retry","reason":"timeout"}"#;
         let part: Part = serde_json::from_str(json).unwrap();
         assert!(matches!(part, Part::Retry(r) if r.reason == "timeout"));
     }
 
     #[test]
-    fn test_part_compaction() {
+    fn test_opencode_sdk_part_compaction() {
         let json = r#"{"type":"compaction","summary":"summarized previous turns"}"#;
         let part: Part = serde_json::from_str(json).unwrap();
         assert!(matches!(part, Part::Compaction(c) if c.summary == "summarized previous turns"));
     }
 
     #[test]
-    fn test_part_subtask() {
+    fn test_opencode_sdk_part_subtask() {
         let json = r#"{"type":"subtask"}"#;
         let part: Part = serde_json::from_str(json).unwrap();
         assert!(matches!(part, Part::Subtask));
     }
 
     #[test]
-    fn test_part_roundtrip() {
+    fn test_opencode_sdk_part_roundtrip() {
         let parts = [
             r#"{"type":"text","text":"hi"}"#,
             r#"{"type":"reasoning","text":"thinking..."}"#,
@@ -1255,7 +1255,7 @@ mod tests {
     }
 
     #[test]
-    fn test_message_user() {
+    fn test_opencode_sdk_message_user() {
         let json = r#"{"role":"user","id":"u1","sessionID":"s1","time":"t","agent":"human","parts":[{"type":"text","text":"hi"}]}"#;
         let msg: Message = serde_json::from_str(json).unwrap();
         match msg {
@@ -1268,7 +1268,7 @@ mod tests {
     }
 
     #[test]
-    fn test_message_assistant() {
+    fn test_opencode_sdk_message_assistant() {
         let json = r#"{"role":"assistant","id":"a1","sessionID":"s1","time":"t","parts":[{"type":"text","text":"hello"}]}"#;
         let msg: Message = serde_json::from_str(json).unwrap();
         match msg {
@@ -1280,19 +1280,19 @@ mod tests {
     }
 
     #[test]
-    fn test_tool_state_pending() {
+    fn test_opencode_sdk_tool_state_pending() {
         let ts: ToolState = serde_json::from_str(r#"{"status":"pending","input":{}}"#).unwrap();
         assert!(matches!(ts, ToolState::Pending(_)));
     }
 
     #[test]
-    fn test_tool_state_running() {
+    fn test_opencode_sdk_tool_state_running() {
         let ts: ToolState = serde_json::from_str(r#"{"status":"running","input":{}}"#).unwrap();
         assert!(matches!(ts, ToolState::Running(_)));
     }
 
     #[test]
-    fn test_tool_state_completed() {
+    fn test_opencode_sdk_tool_state_completed() {
         let ts: ToolState =
             serde_json::from_str(r#"{"status":"completed","input":{},"output":"done"}"#).unwrap();
         match ts {
@@ -1302,7 +1302,7 @@ mod tests {
     }
 
     #[test]
-    fn test_tool_state_error() {
+    fn test_opencode_sdk_tool_state_error() {
         let ts: ToolState =
             serde_json::from_str(r#"{"status":"error","input":{},"error":"failed"}"#).unwrap();
         match ts {
@@ -1312,7 +1312,7 @@ mod tests {
     }
 
     #[test]
-    fn test_session() {
+    fn test_opencode_sdk_session() {
         let json = r#"{"id":"s1","directory":"/tmp","title":"test","model":"gpt-4","agent":"coder","created":"now"}"#;
         let session: Session = serde_json::from_str(json).unwrap();
         assert_eq!(session.id, "s1");
@@ -1320,7 +1320,7 @@ mod tests {
     }
 
     #[test]
-    fn test_provider() {
+    fn test_opencode_sdk_provider() {
         let json = r#"{"id":"p1","name":"OpenAI","source":"openai","env":{},"models":{ "gpt-4": { "name":"GPT-4"}}}"#;
         let provider: Provider = serde_json::from_str(json).unwrap();
         assert_eq!(provider.id, "p1");
@@ -1328,40 +1328,40 @@ mod tests {
     }
 
     #[test]
-    fn test_part_input_text() {
+    fn test_opencode_sdk_part_input_text() {
         let pi: PartInput = serde_json::from_str(r#"{"type":"text","text":"Hello"}"#).unwrap();
         assert!(matches!(pi, PartInput::Text(t) if t.text == "Hello"));
     }
 
     #[test]
-    fn test_part_input_file() {
+    fn test_opencode_sdk_part_input_file() {
         let pi: PartInput =
             serde_json::from_str(r#"{"type":"file","path":"/tmp/test.txt"}"#).unwrap();
         assert!(matches!(pi, PartInput::File(_)));
     }
 
     #[test]
-    fn test_part_input_agent() {
+    fn test_opencode_sdk_part_input_agent() {
         let pi: PartInput =
             serde_json::from_str(r#"{"type":"agent","agent":"coder","prompt":"fix"}"#).unwrap();
         assert!(matches!(pi, PartInput::Agent(_)));
     }
 
     #[test]
-    fn test_part_input_subtask() {
+    fn test_opencode_sdk_part_input_subtask() {
         let pi: PartInput = serde_json::from_str(r#"{"type":"subtask"}"#).unwrap();
         assert!(matches!(pi, PartInput::Subtask));
     }
 
     #[test]
-    fn test_prompt_body() {
+    fn test_opencode_sdk_prompt_body() {
         let json = r#"{"parts":[{"type":"text","text":"Hello"}]}"#;
         let body: PromptBody = serde_json::from_str(json).unwrap();
         assert_eq!(body.parts.len(), 1);
     }
 
     #[test]
-    fn test_prompt_body_with_model() {
+    fn test_opencode_sdk_prompt_body_with_model() {
         let json = r#"{"model":{"providerID":"openai","modelID":"gpt-4"},"parts":[{"type":"text","text":"Hello"}]}"#;
         let body: PromptBody = serde_json::from_str(json).unwrap();
         let model = body.model.unwrap();
@@ -1370,7 +1370,7 @@ mod tests {
     }
 
     #[test]
-    fn test_token_usage() {
+    fn test_opencode_sdk_token_usage() {
         let json = r#"{"input":100,"output":50,"reasoning":10,"cache":{"read":5,"write":3}}"#;
         let usage: TokenUsage = serde_json::from_str(json).unwrap();
         assert_eq!(usage.input, 100);
@@ -1381,7 +1381,7 @@ mod tests {
     }
 
     #[test]
-    fn test_prompt_response() {
+    fn test_opencode_sdk_prompt_response() {
         let json = r#"{"info":{"id":"a1","sessionID":"s1","role":"assistant","time":"t","parts":[{"type":"text","text":"hello"}]},"parts":[{"type":"text","text":"hello"}]}"#;
         let resp: PromptResponse = serde_json::from_str(json).unwrap();
         assert_eq!(resp.info.id, "a1");
@@ -1389,7 +1389,7 @@ mod tests {
     }
 
     #[test]
-    fn test_global_event_roundtrip() {
+    fn test_opencode_sdk_global_event_roundtrip() {
         let json = r#"{"directory":"/tmp","payload":{"type":"session.idle","properties":{"sessionID":"s1"}}}"#;
         let ge: GlobalEvent = serde_json::from_str(json).unwrap();
         assert_eq!(ge.directory, "/tmp");
