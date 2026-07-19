@@ -18,7 +18,6 @@ use leptos::prelude::*;
 use uuid::Uuid;
 
 use crate::auth::AuthUser;
-use crate::providers::registry;
 use crate::server::error::ServerError;
 use crate::server::state::AppState;
 use crate::services;
@@ -212,9 +211,6 @@ async fn task_detail_handler(
         .await
         .map_err(|e| ServerError::Internal(e.to_string()))?;
 
-    let agent_config_statuses =
-        registry::resolve_agent_config_statuses(&state.db, auth.user_id, project_id).await;
-
     let conversations = services::tasks::list_conversations_for_task(&state.db, task_id)
         .await
         .unwrap_or_default();
@@ -230,9 +226,8 @@ async fn task_detail_handler(
             task
             doc_content
             agent_runs
-            agent_config_statuses=agent_config_statuses
             conversations=conversations
-            _current_run=current_run
+            current_run=current_run
         />
     }
     .to_html();
@@ -261,18 +256,11 @@ async fn chat_handler(
         .await
         .unwrap_or_default();
 
-    let agent_config_statuses =
-        registry::resolve_agent_config_statuses(&state.db, auth.user_id, project_id).await;
-
     let current_run = services::tasks::get_running_agent_for_task(&state.db, task_id)
         .await
         .ok()
         .flatten()
         .or_else(|| conversations.first().and_then(|cwr| cwr.run.clone()));
-
-    let agent_runs = services::tasks::list_agent_runs_for_task(&state.db, task_id)
-        .await
-        .unwrap_or_default();
 
     let page_html = leptos::view! {
         <pages::chat::ChatPage
@@ -280,9 +268,7 @@ async fn chat_handler(
             task_id
             task
             conversations
-            agent_config_statuses
             current_run
-            agent_runs
         />
     }
     .to_html();
