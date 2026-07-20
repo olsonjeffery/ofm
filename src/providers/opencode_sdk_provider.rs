@@ -103,11 +103,16 @@ impl OpenCodeSdkProvider {
         client: &OpencodeClient,
         session_id: &str,
     ) -> Result<mpsc::Receiver<ProviderEvent>, ProviderError> {
+        tracing::info!(
+            session_id = %session_id,
+            "Subscribing to opencode global event stream"
+        );
         let event_stream = client
             .event
             .subscribe()
             .await
             .map_err(|e| ProviderError::Protocol(e.to_string()))?;
+        tracing::info!(session_id = %session_id, "Subscribed to opencode event stream");
 
         let cancellation = event_stream.cancellation_handle();
         *self.event_cancellation.lock().unwrap() = Some(cancellation);
@@ -123,18 +128,33 @@ impl OpenCodeSdkProvider {
 
         tokio::spawn(async move {
             let mut stream = event_stream;
+            tracing::info!(session_id = %s_id, "Event reader task started");
             while let Some(result) = stream.next().await {
                 match result {
                     Ok(global) => {
+                        tracing::debug!(
+                            session_id = %s_id,
+                            event = ?global.payload,
+                            "SDK event received"
+                        );
                         if let Some(provider_event) =
                             map_sdk_event_to_provider_event(&global, &s_id)
                         {
                             if tx.send(provider_event).await.is_err() {
+                                tracing::info!(
+                                    session_id = %s_id,
+                                    "Event channel closed by receiver, exiting reader task"
+                                );
                                 break;
                             }
                         }
                     }
                     Err(e) => {
+                        tracing::warn!(
+                            session_id = %s_id,
+                            error = %e,
+                            "Event stream error"
+                        );
                         let _ = tx
                             .send(ProviderEvent::Error {
                                 error: e.to_string(),
@@ -144,6 +164,7 @@ impl OpenCodeSdkProvider {
                     }
                 }
             }
+            tracing::info!(session_id = %s_id, "Event reader task exited");
         });
 
         Ok(rx)
@@ -278,6 +299,7 @@ impl LlmProvider for OpenCodeSdkProvider {
             .clone()
             .ok_or(ProviderError::NotStarted)?;
 
+        tracing::info!(model = %input.model, "start_turn: creating opencode session");
         let session = client
             .session
             .create(&input.prompt)
@@ -286,14 +308,27 @@ impl LlmProvider for OpenCodeSdkProvider {
 
         *self.session_id.lock().unwrap() = Some(session.id.clone());
 
+        // Subscribe to the global event stream BEFORE issuing the prompt so
+        // we don't miss events that fire immediately when the prompt is
+        // queued on the server.
+        let rx = self.subscribe_and_spawn(&client, &session.id).await?;
+
         let body = self.build_prompt_body(&input.prompt, &input.model);
+        tracing::info!(
+            session_id = %session.id,
+            "start_turn: dispatching prompt_async"
+        );
         client
             .session
             .prompt_async(&session.id, &body)
             .await
             .map_err(|e| ProviderError::Protocol(e.to_string()))?;
+        tracing::info!(
+            session_id = %session.id,
+            "start_turn: prompt_async dispatched"
+        );
 
-        self.subscribe_and_spawn(&client, &session.id).await
+        Ok(rx)
     }
 
     async fn resume_turn(
@@ -327,15 +362,26 @@ impl LlmProvider for OpenCodeSdkProvider {
             "continue".to_string()
         };
 
-        let body =
-            self.build_prompt_body(&prompt, self.config.model.as_deref().unwrap_or("default"));
+        // Subscribe BEFORE issuing the prompt_async so we don't miss events
+        // that fire immediately when the prompt is queued on the server.
+        let rx = self.subscribe_and_spawn(&client, &session_id).await?;
+
+        let body = self.build_prompt_body(&prompt, self.config.model.as_deref().unwrap_or("default"));
+        tracing::info!(
+            session_id = %session_id,
+            "resume_turn: dispatching prompt_async"
+        );
         client
             .session
             .prompt_async(&session_id, &body)
             .await
             .map_err(|e| ProviderError::Protocol(e.to_string()))?;
+        tracing::info!(
+            session_id = %session_id,
+            "resume_turn: prompt_async dispatched"
+        );
 
-        self.subscribe_and_spawn(&client, &session_id).await
+        Ok(rx)
     }
 
     async fn abort_turn(&self) -> Result<(), ProviderError> {

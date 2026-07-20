@@ -298,12 +298,69 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     tracing::info!("Auth middleware: enabled");
 
     // Server
-    let app = server::router(state, auth_layer);
+    let app = server::router(state.clone(), auth_layer);
     let addr = format!("{}:{}", cfg.hostname, cfg.port);
     tracing::info!("Starting server on {}", addr);
 
     let listener = tokio::net::TcpListener::bind(&addr).await?;
-    axum::serve(listener, app).await?;
+    let server_handle = tokio::spawn(async move {
+        if let Err(e) = axum::serve(listener, app).await {
+            tracing::error!("Server error: {e}");
+        }
+    });
+
+    // Install signal handlers so that on Ctrl-C / SIGTERM we shut down any
+    // spawned opencode subprocesses before the ofm process exits. Without
+    // this, the child `opencode serve` processes outlive ofm and pile up as
+    // leaked orphans on the host.
+    let shutdown = async move {
+        let ctrl_c = async {
+            tokio::signal::ctrl_c()
+                .await
+                .expect("failed to install Ctrl-C handler");
+        };
+
+        #[cfg(unix)]
+        let terminate = async {
+            tokio::signal::unix::signal(tokio::signal::unix::SignalKind::terminate())
+                .expect("failed to install SIGTERM handler")
+                .recv()
+                .await;
+        };
+
+        #[cfg(not(unix))]
+        let terminate = std::future::pending::<()>();
+
+        tokio::select! {
+            _ = ctrl_c => tracing::info!("Ctrl-C received, shutting down"),
+            _ = terminate => tracing::info!("SIGTERM received, shutting down"),
+        }
+    };
+
+    tokio::select! {
+        _ = shutdown => {
+            tracing::info!("Shutdown signal received, cleaning up subprocesses");
+        }
+        _ = server_handle => {
+            tracing::info!("Server task exited");
+        }
+    }
+
+    // Tear down any live provider sessions (which in turn kills the
+    // `opencode serve` subprocesses they own). Anything left in
+    // `active_sessions` would otherwise survive the parent process.
+    tracing::info!(
+        remaining = state.active_sessions.lock().await.len(),
+        "Shutting down active provider sessions"
+    );
+    let mut providers: Vec<_> = state.active_sessions.lock().await.drain().collect();
+    for (conv_id, mut provider) in providers.drain(..) {
+        tracing::info!(conversation_id = %conv_id, "Shutting down provider");
+        if let Err(e) = provider.shutdown().await {
+            tracing::warn!(conversation_id = %conv_id, error = %e, "Error shutting down provider during exit");
+        }
+    }
+    tracing::info!("All provider sessions shut down. Exiting.");
 
     Ok(())
 }

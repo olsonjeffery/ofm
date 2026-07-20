@@ -148,7 +148,17 @@ tokio::spawn(async move {
 
 1. `client.session.create(&input.prompt).await` — Creates a new session on the
    server. The SDK sends `POST /session` and returns the session ID.
-2. `client.session.prompt_async(&session_id, &body).await` — Sends the prompt
+2. `client.event.subscribe().await` — Subscribes to the typed event stream
+   (backed by the SDK's SSE connection to `GET /event`). The provider spawns
+   a reader task (see above).
+
+   > **Ordering matters.** The subscription is established *before* the
+   > prompt is dispatched. The opencode server emits events synchronously
+   > as the prompt is queued — if the SSE connection is opened after
+   > `prompt_async` returns, the early `message.part.updated` /
+   > `session.status` events fire before the reader task exists and are
+   > lost, leaving the conversation inert.
+3. `client.session.prompt_async(&session_id, &body).await` — Sends the prompt
    with model selection. The SDK sends
    `POST /session/{id}/prompt_async` with a JSON body:
    ```json
@@ -157,9 +167,6 @@ tokio::spawn(async move {
      "parts": [{"type": "text", "text": "..."}]
    }
    ```
-3. `client.event.subscribe().await` — Subscribes to the typed event stream
-   (backed by the SDK's SSE connection to `GET /event`). The provider spawns
-   a reader task (see above).
 
 ### Event mapping
 
@@ -187,7 +194,9 @@ silently dropped — the stream continues.
 
 **Supported.** `resume_turn` extracts the last user message from the
 transcript (via `input.messages`) and sends a new prompt to the existing
-session using `client.session.prompt_async()`:
+session using `client.session.prompt_async()`. As with `start_turn`, the
+event subscription is established *before* the prompt is dispatched so
+early events are not lost:
 
 ```rust
 async fn resume_turn(&self, input: ResumeInput) -> Result<mpsc::Receiver<ProviderEvent>, ProviderError> {
@@ -195,10 +204,10 @@ async fn resume_turn(&self, input: ResumeInput) -> Result<mpsc::Receiver<Provide
     let session_id = input.session_id;
     let prompt = extract_last_user_message(&input.messages).unwrap_or("continue");
 
+    let rx = self.subscribe_and_spawn(&client, &session_id).await?;
     let body = self.build_prompt_body(&prompt, &self.config.model.as_deref().unwrap_or("default"));
     client.session.prompt_async(&session_id, &body).await?;
-
-    self.subscribe_and_spawn(&client, &session_id).await
+    Ok(rx)
 }
 ```
 
@@ -234,8 +243,10 @@ The transient server is created and shut down within the method.
 2. If no server is running, spawn via `opencode_sdk::create_opencode()` in
    `start()`
 3. `client.session.create()` — creates session via `POST /session`
-4. `client.session.prompt_async()` — sends prompt via `POST /session/{id}/prompt_async`
-5. `client.event.subscribe()` + `tokio::spawn` reader task on the event stream
+4. `client.event.subscribe()` + `tokio::spawn` reader task on the event
+   stream (established **before** the prompt is sent so early events
+   are not lost)
+5. `client.session.prompt_async()` — sends prompt via `POST /session/{id}/prompt_async`
 
 ### Abort
 
@@ -249,6 +260,15 @@ The transient server is created and shut down within the method.
 `cancellation.cancel()` (if running) + `server.shutdown().await` — sends
 SIGTERM to child process + waits for exit. The temp directory with
 `opencode.json` is cleaned up when `OpenCodeServer`'s `TempDir` is dropped.
+
+### Process-exit cleanup
+
+The `ofm` process installs Ctrl-C and SIGTERM handlers in `src/main.rs`.
+On shutdown, it drains `state.active_sessions` and calls
+`provider.shutdown().await` for each live provider. Each `OpenCodeSdkProvider`
+in turn calls `server.shutdown().await`, which kills the child `opencode serve`
+process group. Without this, the child processes outlive `ofm` and pile up as
+orphaned `opencode serve` instances on the host.
 
 ## Credential delegation
 
