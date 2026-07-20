@@ -55,7 +55,9 @@ impl OpenCodeSdkProvider {
     }
 
     fn build_prompt_body(&self, prompt: &str, model: &str) -> PromptBody {
-        let provider_id = self.extract_provider_id().unwrap_or_else(|| "default".to_string());
+        let provider_id = self
+            .extract_provider_id()
+            .unwrap_or_else(|| "default".to_string());
         PromptBody {
             message_id: None,
             model: Some(ModelRef {
@@ -77,7 +79,10 @@ impl OpenCodeSdkProvider {
         v.get("provider")?.as_object()?.keys().next().cloned()
     }
 
-    async fn start_server_common(&self, working_dir: &Path) -> Result<OpencodeClient, ProviderError> {
+    async fn start_server_common(
+        &self,
+        working_dir: &Path,
+    ) -> Result<OpencodeClient, ProviderError> {
         let server_config = self.build_server_config();
         let options = ServerOptions {
             working_dir: Some(working_dir.to_path_buf()),
@@ -98,7 +103,10 @@ impl OpenCodeSdkProvider {
         client: &OpencodeClient,
         session_id: &str,
     ) -> Result<mpsc::Receiver<ProviderEvent>, ProviderError> {
-        let event_stream = client.event.subscribe().await
+        let event_stream = client
+            .event
+            .subscribe()
+            .await
             .map_err(|e| ProviderError::Protocol(e.to_string()))?;
 
         let cancellation = event_stream.cancellation_handle();
@@ -109,23 +117,29 @@ impl OpenCodeSdkProvider {
 
         tx.send(ProviderEvent::SessionStart {
             session_id: session_id.to_string(),
-        }).await.map_err(|_| ProviderError::Protocol("channel closed".into()))?;
+        })
+        .await
+        .map_err(|_| ProviderError::Protocol("channel closed".into()))?;
 
         tokio::spawn(async move {
             let mut stream = event_stream;
             while let Some(result) = stream.next().await {
                 match result {
                     Ok(global) => {
-                        if let Some(provider_event) = map_sdk_event_to_provider_event(&global, &s_id) {
+                        if let Some(provider_event) =
+                            map_sdk_event_to_provider_event(&global, &s_id)
+                        {
                             if tx.send(provider_event).await.is_err() {
                                 break;
                             }
                         }
                     }
                     Err(e) => {
-                        let _ = tx.send(ProviderEvent::Error {
-                            error: e.to_string(),
-                        }).await;
+                        let _ = tx
+                            .send(ProviderEvent::Error {
+                                error: e.to_string(),
+                            })
+                            .await;
                         break;
                     }
                 }
@@ -151,40 +165,41 @@ fn deep_merge(base: &mut serde_json::Value, overlay: &serde_json::Value) {
     }
 }
 
-fn map_sdk_event_to_provider_event(global: &GlobalEvent, session_id: &str) -> Option<ProviderEvent> {
+fn map_sdk_event_to_provider_event(
+    global: &GlobalEvent,
+    session_id: &str,
+) -> Option<ProviderEvent> {
     match &global.payload {
-        Event::MessagePartUpdated(data) => {
-            match &data.part {
-                Part::Text(t) => Some(ProviderEvent::TextChunk {
-                    delta: data.delta.clone().unwrap_or_else(|| t.text.clone()),
+        Event::MessagePartUpdated(data) => match &data.part {
+            Part::Text(t) => Some(ProviderEvent::TextChunk {
+                delta: data.delta.clone().unwrap_or_else(|| t.text.clone()),
+            }),
+            Part::Reasoning(r) => Some(ProviderEvent::Thinking {
+                thinking: r.text.clone(),
+            }),
+            Part::Tool(tool_part) => match &tool_part.state {
+                ToolState::Running(_) => Some(ProviderEvent::ToolUse {
+                    tool_name: tool_part.tool.clone(),
+                    tool_use_id: Some(tool_part.call_id.clone()),
+                    input: tool_part.input.clone().unwrap_or(serde_json::Value::Null),
                 }),
-                Part::Reasoning(r) => Some(ProviderEvent::Thinking {
-                    thinking: r.text.clone(),
+                ToolState::Completed(state) => Some(ProviderEvent::ToolResult {
+                    tool_use_id: Some(tool_part.call_id.clone()),
+                    result: state.output.clone(),
                 }),
-                Part::Tool(tool_part) => {
-                    match &tool_part.state {
-                        ToolState::Running(_) => Some(ProviderEvent::ToolUse {
-                            tool_name: tool_part.tool.clone(),
-                            tool_use_id: Some(tool_part.call_id.clone()),
-                            input: tool_part.input.clone().unwrap_or(serde_json::Value::Null),
-                        }),
-                        ToolState::Completed(state) => Some(ProviderEvent::ToolResult {
-                            tool_use_id: Some(tool_part.call_id.clone()),
-                            result: state.output.clone(),
-                        }),
-                        ToolState::Error(state) => Some(ProviderEvent::Error {
-                            error: state.error.clone(),
-                        }),
-                        ToolState::Pending(_) => None,
-                    }
-                }
-                _ => None,
-            }
-        }
+                ToolState::Error(state) => Some(ProviderEvent::Error {
+                    error: state.error.clone(),
+                }),
+                ToolState::Pending(_) => None,
+            },
+            _ => None,
+        },
         Event::SessionStatus(data) => {
             if data.session_id == session_id {
                 if data.status.status_type == "error" {
-                    Some(ProviderEvent::Error { error: "session error".into() })
+                    Some(ProviderEvent::Error {
+                        error: "session error".into(),
+                    })
                 } else if data.status.status_type == "idle" {
                     Some(ProviderEvent::Done(serde_json::json!({})))
                 } else {
@@ -203,14 +218,14 @@ fn map_sdk_event_to_provider_event(global: &GlobalEvent, session_id: &str) -> Op
         }
         Event::SessionError(data) => {
             if data.session_id == session_id {
-                Some(ProviderEvent::Error { error: data.error.clone() })
+                Some(ProviderEvent::Error {
+                    error: data.error.clone(),
+                })
             } else {
                 None
             }
         }
-        Event::ServerConnected(_) => {
-            Some(ProviderEvent::Ready)
-        }
+        Event::ServerConnected(_) => Some(ProviderEvent::Ready),
         _ => None,
     }
 }
@@ -227,10 +242,16 @@ impl LlmProvider for OpenCodeSdkProvider {
             .await
             .map_err(|e| ProviderError::Protocol(e.to_string()))?;
 
-        let providers = client.config.providers().await
+        let providers = client
+            .config
+            .providers()
+            .await
             .map_err(|e| ProviderError::Protocol(e.to_string()))?;
 
-        server.shutdown().await.map_err(|e| ProviderError::Protocol(e.to_string()))?;
+        server
+            .shutdown()
+            .await
+            .map_err(|e| ProviderError::Protocol(e.to_string()))?;
 
         let mut models: Vec<String> = providers
             .into_iter()
@@ -250,16 +271,26 @@ impl LlmProvider for OpenCodeSdkProvider {
         &self,
         input: TurnInput,
     ) -> Result<mpsc::Receiver<ProviderEvent>, ProviderError> {
-        let client = self.client.lock().unwrap().clone()
+        let client = self
+            .client
+            .lock()
+            .unwrap()
+            .clone()
             .ok_or(ProviderError::NotStarted)?;
 
-        let session = client.session.create(&input.prompt).await
+        let session = client
+            .session
+            .create(&input.prompt)
+            .await
             .map_err(|e| ProviderError::Protocol(e.to_string()))?;
 
         *self.session_id.lock().unwrap() = Some(session.id.clone());
 
         let body = self.build_prompt_body(&input.prompt, &input.model);
-        client.session.prompt_async(&session.id, &body).await
+        client
+            .session
+            .prompt_async(&session.id, &body)
+            .await
             .map_err(|e| ProviderError::Protocol(e.to_string()))?;
 
         self.subscribe_and_spawn(&client, &session.id).await
@@ -269,7 +300,11 @@ impl LlmProvider for OpenCodeSdkProvider {
         &self,
         input: ResumeInput,
     ) -> Result<mpsc::Receiver<ProviderEvent>, ProviderError> {
-        let client = self.client.lock().unwrap().clone()
+        let client = self
+            .client
+            .lock()
+            .unwrap()
+            .clone()
             .ok_or(ProviderError::NotStarted)?;
 
         let session_id = input.session_id;
@@ -292,8 +327,12 @@ impl LlmProvider for OpenCodeSdkProvider {
             "continue".to_string()
         };
 
-        let body = self.build_prompt_body(&prompt, &self.config.model.as_deref().unwrap_or("default"));
-        client.session.prompt_async(&session_id, &body).await
+        let body =
+            self.build_prompt_body(&prompt, &self.config.model.as_deref().unwrap_or("default"));
+        client
+            .session
+            .prompt_async(&session_id, &body)
+            .await
             .map_err(|e| ProviderError::Protocol(e.to_string()))?;
 
         self.subscribe_and_spawn(&client, &session_id).await
@@ -343,7 +382,10 @@ impl LlmProvider for OpenCodeSdkProvider {
         }
         let server = self.server.lock().unwrap().take();
         if let Some(mut server) = server {
-            server.shutdown().await.map_err(|e| ProviderError::Protocol(e.to_string()))
+            server
+                .shutdown()
+                .await
+                .map_err(|e| ProviderError::Protocol(e.to_string()))
         } else {
             Ok(true)
         }
@@ -359,7 +401,9 @@ mod tests {
         let global = GlobalEvent {
             directory: "/tmp".into(),
             payload: Event::MessagePartUpdated(MessagePartUpdatedData {
-                part: Part::Text(TextPart { text: "Hello".into() }),
+                part: Part::Text(TextPart {
+                    text: "Hello".into(),
+                }),
                 delta: Some("Hello".into()),
             }),
         };
@@ -380,7 +424,9 @@ mod tests {
             }),
         };
         let event = map_sdk_event_to_provider_event(&global, "sess1");
-        assert!(matches!(event, Some(ProviderEvent::Thinking { thinking }) if thinking == "thinking..."));
+        assert!(
+            matches!(event, Some(ProviderEvent::Thinking { thinking }) if thinking == "thinking...")
+        );
     }
 
     #[test]
@@ -400,7 +446,9 @@ mod tests {
             }),
         };
         let event = map_sdk_event_to_provider_event(&global, "sess1");
-        assert!(matches!(event, Some(ProviderEvent::ToolUse { tool_name, .. }) if tool_name == "read"));
+        assert!(
+            matches!(event, Some(ProviderEvent::ToolUse { tool_name, .. }) if tool_name == "read")
+        );
     }
 
     #[test]
@@ -421,7 +469,9 @@ mod tests {
             }),
         };
         let event = map_sdk_event_to_provider_event(&global, "sess1");
-        assert!(matches!(event, Some(ProviderEvent::ToolResult { result, .. }) if result == "file content"));
+        assert!(
+            matches!(event, Some(ProviderEvent::ToolResult { result, .. }) if result == "file content")
+        );
     }
 
     #[test]
@@ -434,7 +484,9 @@ mod tests {
             }),
         };
         let event = map_sdk_event_to_provider_event(&global, "sess1");
-        assert!(matches!(event, Some(ProviderEvent::Error { error }) if error == "something went wrong"));
+        assert!(
+            matches!(event, Some(ProviderEvent::Error { error }) if error == "something went wrong")
+        );
     }
 
     #[test]
@@ -455,7 +507,9 @@ mod tests {
             directory: "/tmp".into(),
             payload: Event::SessionStatus(SessionStatusData {
                 session_id: "sess1".into(),
-                status: SessionStatusValue { status_type: "idle".into() },
+                status: SessionStatusValue {
+                    status_type: "idle".into(),
+                },
             }),
         };
         let event = map_sdk_event_to_provider_event(&global, "sess1");

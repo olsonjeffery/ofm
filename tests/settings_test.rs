@@ -197,7 +197,14 @@ async fn test_settings_config_body_crud() {
     let base_url = spawn_app(state, auth_layer).await;
 
     // Create
-    let resp = create_config(&base_url, &api_key, "test-cfg", r#"{"model": "gpt-4"}"#, "opencode").await;
+    let resp = create_config(
+        &base_url,
+        &api_key,
+        "test-cfg",
+        r#"{"model": "gpt-4"}"#,
+        "opencode",
+    )
+    .await;
     assert_eq!(resp.status(), 201);
     let body: serde_json::Value = resp.json().await.unwrap();
     let id = body["id"].as_str().unwrap().to_string();
@@ -254,7 +261,15 @@ async fn test_settings_config_body_not_found() {
     let fake_id = uuid::Uuid::new_v4().to_string();
 
     // Update non-existent
-    let resp = update_config(&base_url, &api_key, &fake_id, "nope", r#"{"model": "gpt-4"}"#, "opencode").await;
+    let resp = update_config(
+        &base_url,
+        &api_key,
+        &fake_id,
+        "nope",
+        r#"{"model": "gpt-4"}"#,
+        "opencode",
+    )
+    .await;
     assert_eq!(resp.status(), 404);
 
     // Delete non-existent
