@@ -417,11 +417,14 @@ async fn reset_agent_runs(
 
     tracing::info!(task_id = %task_id, "Resetting agent runs for task");
 
-    // Get conversation IDs for this task's agent runs
+    // Get conversation IDs for this task's agent runs — include ALL
+    // conversations (not just running ones) so that lazily-recreated
+    // providers (which may not have a corresponding running agent run)
+    // are also caught and shut down.
     let conv_ids: Vec<String> = state
         .db
         .query_raw(
-            "SELECT conversation_id FROM task_agent_runs WHERE task_id = $1 AND status = 'running' AND conversation_id IS NOT NULL",
+            "SELECT DISTINCT conversation_id FROM task_agent_runs WHERE task_id = $1 AND conversation_id IS NOT NULL",
             hiqlite::params!(task_id),
         )
         .await
@@ -439,22 +442,32 @@ async fn reset_agent_runs(
         "Found active sessions to reset"
     );
 
-    // Only clear sessions for this task's conversations
-    let mut providers_to_shutdown = Vec::new();
+    // Abort any in-flight turn on matching providers WITHOUT shutting down
+    // the underlying opencode server. This mirrors the reference
+    // implementation's `abortTurn` (see
+    // `spec/reference/server/services/providers/opencode/index.ts`): the
+    // server is persistent across Stop Agent / turn completion so the
+    // session_id stored in the DB remains valid for a subsequent resume.
+    // The server is only killed when the ofm process exits (see the
+    // signal handlers in `src/main.rs`).
     {
-        let mut sessions = state.active_sessions.lock().await;
+        let sessions = state.active_sessions.lock().await;
         for conv_id in &conv_ids {
-            if let Some(provider) = sessions.remove(conv_id) {
-                providers_to_shutdown.push(provider);
-                tracing::debug!(task_id = %task_id, conversation_id = %conv_id, "Removed session from active_sessions");
+            if let Some(provider) = sessions.get(conv_id) {
+                tracing::debug!(
+                    task_id = %task_id,
+                    conversation_id = %conv_id,
+                    "Aborting in-flight turn for Stop Agent"
+                );
+                if let Err(e) = provider.abort_turn().await {
+                    tracing::warn!(
+                        task_id = %task_id,
+                        conversation_id = %conv_id,
+                        error = %e,
+                        "Error aborting turn during reset"
+                    );
+                }
             }
-        }
-    }
-
-    // Shutdown the removed providers
-    for mut p in providers_to_shutdown {
-        if let Err(e) = p.shutdown().await {
-            tracing::warn!(task_id = %task_id, error = %e, "Error shutting down provider during reset");
         }
     }
 

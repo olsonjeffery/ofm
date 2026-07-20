@@ -32,6 +32,10 @@ pub async fn completion_handler(
     conversation_id: Uuid,
     active_sessions: &Arc<Mutex<HashMap<String, Box<dyn LlmProvider>>>>,
 ) -> Result<NextAction, ServerError> {
+    // Provider shutdown is deferred to process exit (see `src/main.rs`).
+    // `active_sessions` is retained in the signature for API stability and
+    // so callers can continue to pass the shared map.
+    let _ = active_sessions;
     let run = tasks::get_agent_run_by_conversation(client, &conversation_id)
         .await
         .map_err(internal_err)?;
@@ -44,15 +48,13 @@ pub async fn completion_handler(
         .await
         .map_err(internal_err)?;
 
-    if let Some(mut provider) = active_sessions
-        .lock()
-        .await
-        .remove(&conversation_id.to_string())
-    {
-        if let Err(e) = provider.shutdown().await {
-            tracing::warn!("Error shutting down provider for conversation {conversation_id}: {e}");
-        }
-    }
+    // Do NOT shut down the provider here. The opencode server is persistent
+    // across turn completion (mirrors the reference implementation's
+    // `OpenCodeServerPool` — see `spec/reference/server/services/providers/
+    // opencode/index.ts`). Keeping the provider in `active_sessions` lets a
+    // subsequent `send_message` resume the same `session_id` without
+    // surfacing a stale-session error. The server is reaped by the signal
+    // handlers in `src/main.rs` when ofm exits.
 
     let task = tasks::get_task(client, run.task_id)
         .await

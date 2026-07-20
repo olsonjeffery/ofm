@@ -43,19 +43,36 @@ let (client, server) = opencode_sdk::create_opencode(options).await?;
 ### Server lifecycle
 
 The `OpenCodeServer` struct (from the SDK) has a persistent lifecycle
-separate from individual turns:
+separate from individual turns. This mirrors the reference implementation's
+`OpenCodeServerPool` (see
+`spec/reference/server/services/providers/opencode/index.ts`): the opencode
+subprocess is **NOT** killed by Stop Agent or by turn completion. The
+session_id stored on the conversation row remains valid for a subsequent
+`resume_turn`. Servers are only reaped by the process-exit signal handlers
+in `src/main.rs` or by Drop when the `OpenCodeServer` handle falls out of
+scope (e.g. on `one_shot_prompt` / `get_models_list`).
 
 1. **`start()`** — Calls `opencode_sdk::create_opencode()` which spawns
    `opencode serve` on a random port, creates a temporary config directory,
    generates a server password, and waits for the health endpoint to return
-   200 before returning.
+   200 before returning. The provider is then stored in
+   `state.active_sessions` keyed by conversation id.
 2. **Per-turn** — Uses the `OpencodeClient` (returned from the same
    `create_opencode` call) to create sessions, send prompts, and subscribe to
    events.
-3. **`shutdown()`** — Calls `server.shutdown().await` which kills the child
-   process via `child.kill()` and waits for it to exit. The temp directory
-   is cleaned up when `OpenCodeServer`'s `TempDir` is dropped.
-4. **Transient mode** — For one-shot operations (`get_models_list`,
+3. **Stop Agent (`POST /agent_runs/reset`)** — Calls `provider.abort_turn()`
+   (cancel SSE listener + best-effort `session.abort`). The provider is
+   **NOT** removed from `active_sessions` and the opencode subprocess is
+   **NOT** killed, so `resume_turn` on the same session_id continues to
+   work.
+4. **Turn completion (`Done` event)** — `orchestration::completion_handler`
+   marks the run `completed` but does **NOT** call `provider.shutdown()` —
+   the server stays alive so the user can resume the conversation.
+5. **`shutdown()`** — Calls `server.shutdown().await` which kills the child
+   process via `child.kill()` and waits for it to exit. Only invoked by
+   process-exit cleanup in `src/main.rs` and the
+   "completed-normally=false" failure path in the broadcast task.
+6. **Transient mode** — For one-shot operations (`get_models_list`,
    `one_shot_prompt`), a temporary server+client pair is created, used, and
    shut down within the same method call. No persistent server is stored.
 

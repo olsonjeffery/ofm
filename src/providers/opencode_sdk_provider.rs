@@ -342,6 +342,14 @@ impl LlmProvider for OpenCodeSdkProvider {
             .clone()
             .ok_or(ProviderError::NotStarted)?;
 
+        // Mirror the reference implementation's `sendTurnMessage` (see
+        // `spec/reference/server/services/providers/opencode/index.ts`):
+        // resume reuses the existing `session_id` and re-issues
+        // `promptAsync` against it — `session.create` is NOT called. This
+        // works because the opencode server is persistent across Stop
+        // Agent / turn completion (the server is only shut down when ofm
+        // exits); if the server were killed, the session_id stored in the
+        // DB would be stale and resume would surface a server-side error.
         let session_id = input.session_id;
         *self.session_id.lock().unwrap() = Some(session_id.clone());
 
