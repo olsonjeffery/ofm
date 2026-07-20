@@ -450,6 +450,10 @@ async fn reset_agent_runs(
     // session_id stored in the DB remains valid for a subsequent resume.
     // The server is only killed when the ofm process exits (see the
     // signal handlers in `src/main.rs`).
+    //
+    // abort_turn is fast: it flips a cancellation flag and fires a
+    // best-effort HTTP POST. The lock is held briefly for the abort
+    // sequence only.
     {
         let sessions = state.active_sessions.lock().await;
         for conv_id in &conv_ids {
