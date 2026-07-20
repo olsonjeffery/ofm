@@ -1,8 +1,8 @@
 # Extra — Prompt and model customization
 
 Two independent customization layers sit on top of the provider abstraction.
-Neither is required; core ships fixed prompts and uses a coding harness
-(`oh-my-pi`, OpenCode). This extra
+Neither is required; core ships fixed prompts and uses the OpenCode coding
+harness. This extra
 makes both **configurable** — the *what an agent says* and the *what runs it*.
 
 > **Implementation status:** The harness-model config layer is **partially
@@ -130,11 +130,11 @@ actually hold credentials for.
 
 ### The model and effort namespaces
 
-`oh-my-pi` models the available models through its `models.yml` configuration. Each
+The OpenCode provider exposes available models through its configuration. Each
 model entry specifies its provider, model id, and supported features. The
-settings UI reads available models from `oh-my-pi`'s model catalog.
+settings UI reads available models from the provider's model catalog.
 
-Capabilities are compile-time constants (see [`../extra/harnesses/oh-my-pi.md`](../extra/harnesses/oh-my-pi.md)).
+Capabilities are compile-time constants (see [`../extra/harnesses/opencode.md`](../extra/harnesses/opencode.md)).
 This spec only picks the `(model, effort)`; capability guards are core.
 
 ### Resolution at run start — `loadAgentModelSettings(userId)`
@@ -148,11 +148,11 @@ a silent default**. `startAgentRun` then:
 1. Resolves the acting user (fails if there is none — there's no user to resolve
    settings for).
 2. Pulls `loadAgentModelSettings(userId)[agentType]` → `(model, effort)`.
-3. **Validates credentials up front** via `oh-my-pi`'s configuration mechanism
-   (`models.yml`), surfacing a typed error if the model's auth is not configured.
+3. **Validates credentials up front** via the provider's configuration
+   mechanism, surfacing a typed error if the model's auth is not configured.
 4. **Stamps `(model, effort)` onto the new `task_agent_runs` and
    `conversations` rows** before starting the turn, then passes them into
-   `oh-my-pi` as part of the turn input.
+   the OpenCode provider as part of the turn input.
 
 See `agentRunner.ts` around the `loadAgentModelSettings` call and the
 `conversationsDb.create(taskId, provider, model, effort)` line. Stamping the
@@ -160,8 +160,8 @@ conversation row is what makes the model **deterministic on resume**.
 
 ### The deterministic-model rule
 
-This is the load-bearing invariant, and it mirrors the core `oh-my-pi` integration
-contract: a turn **never runs on a defaulted or inferred model**. On start, the
+This is the load-bearing invariant, and it mirrors the core OpenCode provider
+integration contract: a turn **never runs on a defaulted or inferred model**. On start, the
 model comes from the user's setting; on resume, it comes from the stored
 conversation row, never re-derived. Any mismatch, an unseeded resuming user, a
 manual chat, or a programmatic resume falls back to the row's stored values.
@@ -173,8 +173,8 @@ Because resolution fails loud, every user must be seeded **before** they can run
 an agent. Two mechanisms:
 
 - **Seed on first configuration.** A user's first visit to the settings page
-  seeds default model selections for each agent type, sourced from `oh-my-pi`'s
-  available models.
+  seeds default model selections for each agent type, sourced from the
+  OpenCode provider's available models.
 - **Backfill.** Existing users without a settings row are seeded with sensible
   defaults on first access.
 
@@ -217,13 +217,13 @@ delete to revert) — see
       row per user) with strict load-time validation that **fails loud**, no
       silent default.
 - [ ] Run-start resolution: load the setting, validate model availability
-      through `oh-my-pi`'s configuration, stamp `(model, effort)` on the
+      through the OpenCode provider configuration, stamp `(model, effort)` on the
       run + conversation rows, pass them into the turn input.
 - [ ] Deterministic resume: read model off the stored row; never infer.
 - [ ] Seed-on-first-configuration: create default settings for a new user on
       first access so no unseeded user can trigger a run.
 - [ ] Settings UI: a Model/Effort picker per agent type, dropdowns scoped to
-      models available via `oh-my-pi`, and a prompt-editor surface.
+      models available via the OpenCode provider, and a prompt-editor surface.
 
 ## Reference map
 
@@ -241,14 +241,16 @@ delete to revert) — see
 
 ## Boundaries (not in this spec)
 
-- The direct `oh-my-pi` integration, the per-turn input shape `(model, effort, prompt)`
-  feeds, and the capability constants that gate `oh-my-pi`-specific features →
-  [`../extra/harnesses/oh-my-pi.md`](../extra/harnesses/oh-my-pi.md).
+- The direct OpenCode provider integration, the per-turn input shape
+  `(model, effort, prompt)` feeds, and the capability constants that gate
+  OpenCode-specific features →
+  [`../extra/harnesses/opencode.md`](../extra/harnesses/opencode.md).
 - Where per-user credentials come from and how `env` is built for the SDK, and
   the tech/non-tech role logic behind the planning-prompt split →
   [`./auth-and-multi-user.md`](./auth-and-multi-user.md).
-- Concrete `oh-my-pi` integration patterns (subprocess lifecycle, event mapping,
-  transcript mirroring, credential delegation) → [`./harnesses/oh-my-pi.md`](./harnesses/oh-my-pi.md).
+- Concrete OpenCode provider integration patterns (subprocess lifecycle, event
+  mapping, transcript mirroring, credential delegation) →
+  [`./harnesses/opencode.md`](./harnesses/opencode.md).
 - The `startAgentRun` entry point itself, chaining, and the run/conversation row
   lifecycle → [`../core/orchestration-loop.md`](../core/orchestration-loop.md).
 - The prompt *content* and the agents' behavioral contracts →

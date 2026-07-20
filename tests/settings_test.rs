@@ -197,13 +197,13 @@ async fn test_settings_config_body_crud() {
     let base_url = spawn_app(state, auth_layer).await;
 
     // Create
-    let resp = create_config(&base_url, &api_key, "test-cfg", "key: value", "oh-my-pi").await;
+    let resp = create_config(&base_url, &api_key, "test-cfg", r#"{"model": "gpt-4"}"#, "opencode").await;
     assert_eq!(resp.status(), 201);
     let body: serde_json::Value = resp.json().await.unwrap();
     let id = body["id"].as_str().unwrap().to_string();
     assert_eq!(body["name"], "test-cfg");
-    assert_eq!(body["config_body"], "key: value");
-    assert_eq!(body["harness"], "oh-my-pi");
+    assert_eq!(body["config_body"], r#"{"model": "gpt-4"}"#);
+    assert_eq!(body["harness"], "opencode");
 
     // List (verify created entry)
     let resp = list_configs(&base_url, &api_key).await;
@@ -254,7 +254,7 @@ async fn test_settings_config_body_not_found() {
     let fake_id = uuid::Uuid::new_v4().to_string();
 
     // Update non-existent
-    let resp = update_config(&base_url, &api_key, &fake_id, "nope", "key: val", "").await;
+    let resp = update_config(&base_url, &api_key, &fake_id, "nope", r#"{"model": "gpt-4"}"#, "opencode").await;
     assert_eq!(resp.status(), 404);
 
     // Delete non-existent
@@ -355,8 +355,8 @@ async fn test_settings_config_body_user_isolation() {
         &base_url,
         &user_a_key,
         "user-a-cfg",
-        "key: value",
-        "oh-my-pi",
+        r#"{"model": "gpt-4"}"#,
+        "opencode",
     )
     .await;
     assert_eq!(resp.status(), 201);
@@ -559,50 +559,13 @@ async fn test_settings_config_body_invalid_body_rejected() {
 
 #[tokio::test]
 async fn test_config_format_normalization() {
-    // Unit-test-level assertions via the service module
     use ofm::services::config_format;
-
-    // YAML in → to_yaml returns as-is
-    let yaml = "model: gpt-4\ntemperature: 0.7\n";
-    let result = config_format::to_yaml(yaml).unwrap();
-    assert_eq!(result, yaml);
-
-    // YAML in → to_json converts
-    let result = config_format::to_json(yaml).unwrap();
-    let parsed: serde_json::Value = serde_json::from_str(&result).unwrap();
-    assert_eq!(parsed["model"], "gpt-4");
-    assert_eq!(parsed["temperature"], 0.7);
 
     // JSON in → to_json returns as-is
     let json = r#"{"model":"gpt-4","temperature":0.7}"#;
     let result = config_format::to_json(json).unwrap();
     assert_eq!(result, json);
 
-    // JSON in → to_yaml converts
-    let result = config_format::to_yaml(json).unwrap();
-    assert!(result.contains("model: gpt-4"));
-    assert!(result.contains("temperature: 0.7"));
-
     // Invalid input → validate fails
     assert!(config_format::validate("{{{").is_err());
-}
-
-#[tokio::test]
-async fn test_config_format_detect() {
-    use ofm::services::config_format;
-
-    // JSON detected
-    assert_eq!(
-        config_format::detect_format(r#"{"a":1}"#),
-        Some(config_format::ConfigFormat::Json)
-    );
-
-    // YAML detected
-    assert_eq!(
-        config_format::detect_format("a: 1\nb: 2\n"),
-        Some(config_format::ConfigFormat::Yaml)
-    );
-
-    // Invalid → None
-    assert_eq!(config_format::detect_format("{{{"), None);
 }

@@ -6,8 +6,7 @@ use uuid::Uuid;
 
 use crate::db::schema::{AgentHarnessConfig, AgentType, ScopeType};
 use crate::providers::config::ProviderConfigDir;
-use crate::providers::oh_my_pi::provider::OhMyPiProvider;
-use crate::providers::opencode_provider::OpenCodeProvider;
+use crate::providers::opencode_sdk_provider::OpenCodeSdkProvider;
 use crate::providers::{HarnessConfig, LlmProvider, ProviderError};
 
 #[derive(Debug, Clone, serde::Serialize)]
@@ -20,14 +19,10 @@ pub struct AgentConfigStatus {
 
 pub async fn resolve_provider(
     config: &HarnessConfig,
-    omp_binary: &Path,
     config_root: &Path,
 ) -> Result<Box<dyn LlmProvider>, ProviderError> {
     match config.harness.as_str() {
-        "oh-my-pi" => OhMyPiProvider::new(config, omp_binary, config_root)
-            .await
-            .map(|p| Box::new(p) as Box<dyn LlmProvider>),
-        "opencode" => OpenCodeProvider::new(config, config_root)
+        "opencode" => OpenCodeSdkProvider::new(config, config_root)
             .await
             .map(|p| Box::new(p) as Box<dyn LlmProvider>),
         other => Err(ProviderError::Protocol(format!("unknown harness: {other}"))),
@@ -143,7 +138,7 @@ pub async fn get_models_for_config(
         effort: None,
         scope: ScopeType::Project,
     };
-    let provider = resolve_provider(&config, Path::new("omp"), config_root).await?;
+    let provider = resolve_provider(&config, config_root).await?;
     provider.get_models_list().await
 }
 
@@ -208,8 +203,8 @@ mod tests {
                 hiqlite::params!(
                     &id1,
                     agent_type.to_string(),
-                    "oh-my-pi",
-                    "global.yaml",
+                    "opencode",
+                    "global.json",
                     ScopeType::Global.to_string()
                 ),
             )
@@ -226,7 +221,7 @@ mod tests {
         let result = resolve_harness_config(&client, &agent_type, None, None)
             .await
             .unwrap();
-        assert_eq!(result.harness, "oh-my-pi");
+        assert_eq!(result.harness, "opencode");
 
         let user_id = Uuid::new_v4();
         let id2 = Uuid::new_v4().to_string();
@@ -289,8 +284,8 @@ mod tests {
                 hiqlite::params!(
                     Uuid::new_v4().to_string(),
                     agent_type.to_string(),
-                    "oh-my-pi",
-                    "user-config.yaml",
+                    "opencode",
+                    "user-config.json",
                     ScopeType::User.to_string(),
                     user_id.to_string(),
                     "gpt-4",
@@ -325,7 +320,7 @@ mod tests {
         let result = resolve_harness_config(&client, &agent_type, Some(&user_id), None)
             .await
             .unwrap();
-        assert_eq!(result.harness, "oh-my-pi");
+        assert_eq!(result.harness, "opencode");
         assert_eq!(result.model.as_deref(), Some("gpt-4"));
         assert_eq!(result.scope, ScopeType::User);
 
@@ -364,8 +359,8 @@ mod tests {
                 hiqlite::params!(
                     Uuid::new_v4().to_string(),
                     agent_type.to_string(),
-                    "oh-my-pi",
-                    "test.yaml",
+                    "opencode",
+                    "test.json",
                     ScopeType::Global.to_string(),
                     &now,
                     &now

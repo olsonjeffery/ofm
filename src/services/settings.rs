@@ -103,13 +103,10 @@ where
 {
     let id_str = id.to_string();
     let cfg_dir = ProviderConfigDir::new(config_root);
-    for ext in &["yaml", "yml", "json"] {
-        let filename = format!("{}.{}", id_str, ext);
-        if cfg_dir.config_path(&filename).exists() {
-            if let Err(e) = f(&filename) {
-                tracing::warn!("Failed to update config file '{}': {e:?}", filename);
-            }
-            break;
+    let filename = format!("{}.json", id_str);
+    if cfg_dir.config_path(&filename).exists() {
+        if let Err(e) = f(&filename) {
+            tracing::warn!("Failed to update config file '{}': {e:?}", filename);
         }
     }
 }
@@ -190,12 +187,9 @@ pub async fn get_agent_models(
 }
 
 fn parse_model_config_id(provider_config_ref: &str) -> Option<String> {
-    // provider_config_ref is stored as "{uuid}.{yaml|json}"
+    // provider_config_ref is stored as "{uuid}.json"
     // Strip the extension to get the UUID back
-    let stripped = provider_config_ref
-        .strip_suffix(".yaml")
-        .or_else(|| provider_config_ref.strip_suffix(".yml"))
-        .or_else(|| provider_config_ref.strip_suffix(".json"))?;
+    let stripped = provider_config_ref.strip_suffix(".json")?;
     // Validate it's a UUID
     Uuid::parse_str(stripped).ok()?;
     Some(stripped.to_string())
@@ -216,12 +210,7 @@ pub async fn upsert_agent_models(
             match Uuid::parse_str(cfg_id) {
                 Ok(uuid) => match get_model_config(client, user_id, uuid).await {
                     Ok(model_cfg) => {
-                        let ext = if model_cfg.harness == "oh-my-pi" {
-                            "yaml"
-                        } else {
-                            "json"
-                        };
-                        let filename = format!("{}.{}", model_cfg.id, ext);
+                        let filename = format!("{}.json", model_cfg.id);
                         let cfg_dir = ProviderConfigDir::new(config_root);
                         if let Err(e) =
                             cfg_dir.write_provider_config(&filename, &model_cfg.config_body)

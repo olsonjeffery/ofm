@@ -136,7 +136,7 @@ document.addEventListener('DOMContentLoaded', function() {
             })
             .then(function() {
                 document.getElementById('new-config-name').value = '';
-                document.getElementById('new-config-harness').value = 'oh-my-pi';
+                document.getElementById('new-config-harness').value = 'opencode';
                 document.getElementById('new-config-body').value = '';
                 loadConfigList();
             })

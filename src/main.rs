@@ -11,6 +11,7 @@ mod config;
 mod db;
 mod logging;
 
+mod opencode_sdk;
 mod orchestration;
 mod providers;
 mod rauthy;

@@ -338,7 +338,6 @@ async fn send_message(
             let config_root = PathBuf::from(&state.config_root);
             let mut provider = registry::resolve_provider(
                 &harness_config,
-                std::path::Path::new("omp"),
                 &config_root,
             )
             .await

@@ -131,7 +131,7 @@ async fn post_create_agent_run(
     );
 
     // Start and store provider, then begin turn
-    match registry::resolve_provider(&harness_config, std::path::Path::new("omp"), &config_root)
+    match registry::resolve_provider(&harness_config, &config_root)
         .await
     {
         Ok(mut provider) => {

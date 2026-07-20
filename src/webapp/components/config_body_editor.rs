@@ -4,7 +4,7 @@ use leptos::prelude::*;
 pub fn ConfigBodyEditor() -> impl IntoView {
     view! {
         <div id="config-body-editor">
-            <p>"Manage your model configuration entries below. Each entry stores a named YAML or JSON configuration body."</p>
+            <p>"Manage your model configuration entries below. Each entry stores a named JSON configuration body."</p>
             <div class="config-list" id="config-list">
                 <p>"Loading..."</p>
             </div>
@@ -22,16 +22,15 @@ pub fn ConfigBodyEditor() -> impl IntoView {
                     <div class="control">
                         <div class="select">
                             <select id="new-config-harness">
-                                <option value="oh-my-pi">oh-my-pi</option>
                                 <option value="opencode">opencode</option>
                             </select>
                         </div>
                     </div>
                 </div>
                 <div class="field">
-                    <label class="label" for="new-config-body">"Config Body (YAML or JSON)"</label>
+                    <label class="label" for="new-config-body">"Config Body (JSON)"</label>
                     <div class="control">
-                        <textarea class="textarea" id="new-config-body" rows="8" placeholder="Paste YAML or JSON configuration here..."></textarea>
+                        <textarea class="textarea" id="new-config-body" rows="8" placeholder="Paste JSON configuration here..."></textarea>
                     </div>
                 </div>
                 <button class="button is-primary" id="btn-add-config">
@@ -61,16 +60,15 @@ pub fn ConfigBodyEditor() -> impl IntoView {
                         <div class="control">
                             <div class="select">
                                 <select id="edit-config-harness">
-                                    <option value="oh-my-pi">oh-my-pi</option>
                                     <option value="opencode">opencode</option>
                                 </select>
                             </div>
                         </div>
                     </div>
                     <div class="field">
-                        <label class="label" for="edit-config-body">"Config Body (YAML or JSON)"</label>
+                        <label class="label" for="edit-config-body">"Config Body (JSON)"</label>
                         <div class="control">
-                            <textarea class="textarea" id="edit-config-body" rows="8" placeholder="Paste YAML or JSON configuration here..."></textarea>
+                            <textarea class="textarea" id="edit-config-body" rows="8" placeholder="Paste JSON configuration here..."></textarea>
                         </div>
                     </div>
                 </section>

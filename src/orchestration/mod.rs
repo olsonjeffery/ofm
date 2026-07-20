@@ -175,8 +175,8 @@ mod tests {
                 hiqlite::params!(
                     uuid::Uuid::new_v4().to_string(),
                     "review",
-                    "oh-my-pi",
-                    "test.yaml",
+                    "opencode",
+                    "test.json",
                     "global",
                     "gpt-4",
                     "balanced",

@@ -1,4 +1,4 @@
-# OMP Subprocess Integration Notes for AI Agents
+# Subprocess Integration Notes for AI Agents
 
 ## Threading
 
@@ -7,10 +7,9 @@
   tracking, test flakiness, and runtime shutdown.
 - Prefer `tokio::spawn` for lightweight async tasks that run on the tokio
   runtime's worker threads.
-- When blocking I/O is unavoidable (e.g. reading from a PTY), use
+- When blocking I/O is unavoidable, use
   `tokio::task::spawn_blocking`. The blocking task reads from the I/O source
-  and sends events through an `mpsc::Sender` via `blocking_send`. See
-   `spawn_reader` in `src/providers/oh_my_pi/mod.rs` for a concrete example.
+  and sends events through an `mpsc::Sender` via `blocking_send`.
 
 ## UI Conventions
 

@@ -1,6 +1,5 @@
 pub mod config;
-pub mod oh_my_pi;
-pub mod opencode_provider;
+pub mod opencode_sdk_provider;
 pub mod registry;
 pub mod types;
 
@@ -75,8 +74,7 @@ pub async fn generate_conversation_title(
         "Generate a 1-3 word title summarizing this message. Output ONLY the title, nothing else. What follows is context for creating the title: {truncated} {RESPONSE_FOLLOWS_TOKEN}"
     );
 
-    let binary_path = std::path::Path::new("omp");
-    let provider = match registry::resolve_provider(harness_config, binary_path, config_root).await
+    let provider = match registry::resolve_provider(harness_config, config_root).await
     {
         Ok(p) => p,
         Err(e) => {

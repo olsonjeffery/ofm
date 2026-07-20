@@ -59,13 +59,11 @@ impl ProviderConfigDir {
         } else {
             raw_snippet
         };
-        let harness = if name.ends_with(".yaml") || name.ends_with(".yml") {
-            "oh-my-pi"
-        } else if name.ends_with(".json") {
+        let harness = if name.ends_with(".json") {
             "opencode"
         } else {
             return Err(ProviderError::Config(format!(
-                "unknown config type for '{name}': expected .json or .yaml/.yml extension"
+                "unknown config type for '{name}': expected .json extension"
             )));
         };
         Ok(ProviderConfig {
@@ -94,7 +92,6 @@ impl ProviderConfigDir {
 pub fn merge_configs(base: &str, snippet: &ProviderConfig) -> Result<String, ProviderError> {
     match snippet.harness.as_str() {
         "opencode" => merge_json_configs(base, &snippet.raw_snippet),
-        "oh-my-pi" => merge_yaml_configs(base, &snippet.raw_snippet),
         other => Err(ProviderError::Config(format!(
             "unsupported harness for config merge: {other}"
         ))),
@@ -117,36 +114,12 @@ fn merge_json_configs(base: &str, overlay: &str) -> Result<String, ProviderError
     serde_json::to_string_pretty(&base_val).map_err(|e| ProviderError::Config(e.to_string()))
 }
 
-fn merge_yaml_configs(base: &str, overlay: &str) -> Result<String, ProviderError> {
-    let mut base_val: serde_yaml::Value =
-        serde_yaml::from_str(base).map_err(|e| ProviderError::Config(e.to_string()))?;
-    let overlay_val: serde_yaml::Value =
-        serde_yaml::from_str(overlay).map_err(|e| ProviderError::Config(e.to_string()))?;
-    deep_merge_yaml(&mut base_val, &overlay_val);
-    serde_yaml::to_string(&base_val).map_err(|e| ProviderError::Config(e.to_string()))
-}
-
 fn deep_merge(base: &mut serde_json::Value, overlay: &serde_json::Value) {
     match (base, overlay) {
         (serde_json::Value::Object(base_map), serde_json::Value::Object(overlay_map)) => {
             for (key, val) in overlay_map {
                 if base_map.contains_key(key) {
                     deep_merge(&mut base_map[key], val);
-                } else {
-                    base_map.insert(key.clone(), val.clone());
-                }
-            }
-        }
-        (base, overlay) => *base = overlay.clone(),
-    }
-}
-
-fn deep_merge_yaml(base: &mut serde_yaml::Value, overlay: &serde_yaml::Value) {
-    match (base, overlay) {
-        (serde_yaml::Value::Mapping(base_map), serde_yaml::Value::Mapping(overlay_map)) => {
-            for (key, val) in overlay_map {
-                if base_map.contains_key(key) {
-                    deep_merge_yaml(&mut base_map[key], val);
                 } else {
                     base_map.insert(key.clone(), val.clone());
                 }
@@ -204,34 +177,6 @@ mod tests {
     }
 
     #[test]
-    fn test_merge_yaml_simple() {
-        let base = "key1: val1\nkey2: val2\n";
-        let snippet = ProviderConfig {
-            harness: "oh-my-pi".into(),
-            config_ref: "test.yaml".into(),
-            raw_snippet: "key2: overridden\n".into(),
-        };
-        let result = merge_configs(base, &snippet).unwrap();
-        assert!(result.contains("val1"));
-        assert!(result.contains("overridden"));
-    }
-
-    #[test]
-    fn test_merge_yaml_nested() {
-        let base = "outer:\n  inner1: a\n  inner2: b\n";
-        let snippet = ProviderConfig {
-            harness: "oh-my-pi".into(),
-            config_ref: "test.yaml".into(),
-            raw_snippet: "outer:\n  inner2: c\n  inner3: d\n".into(),
-        };
-        let result = merge_configs(base, &snippet).unwrap();
-        let v: serde_yaml::Value = serde_yaml::from_str(&result).unwrap();
-        assert_eq!(v["outer"]["inner1"].as_str().unwrap(), "a");
-        assert_eq!(v["outer"]["inner2"].as_str().unwrap(), "c");
-        assert_eq!(v["outer"]["inner3"].as_str().unwrap(), "d");
-    }
-
-    #[test]
     fn test_provider_config_dir_list_and_load() {
         let tmp = TempDir::new().unwrap();
         let cfg_dir = ProviderConfigDir::new(tmp.path());
@@ -239,11 +184,8 @@ mod tests {
         cfg_dir
             .write_provider_config("test.json", r#"{"model": "claude-3"}"#)
             .unwrap();
-        cfg_dir
-            .write_provider_config("test.yaml", "model: gpt-4\n")
-            .unwrap();
         let configs = cfg_dir.list_configs().unwrap();
-        assert_eq!(configs.len(), 2);
+        assert_eq!(configs.len(), 1);
         let loaded = cfg_dir.load_provider_config("test.json").unwrap();
         assert_eq!(loaded.harness, "opencode");
         assert!(loaded.raw_snippet.contains("claude-3"));
