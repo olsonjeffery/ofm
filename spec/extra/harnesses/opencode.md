@@ -52,9 +52,9 @@ separate from individual turns:
 2. **Per-turn** — Uses the `OpencodeClient` (returned from the same
    `create_opencode` call) to create sessions, send prompts, and subscribe to
    events.
-3. **`shutdown()`** — Calls `server.shutdown().await` which sends SIGTERM to
-   the child process and waits for it to exit. The temp directory is cleaned
-   up when `OpenCodeServer`'s `TempDir` is dropped.
+3. **`shutdown()`** — Calls `server.shutdown().await` which kills the child
+   process via `child.kill()` and waits for it to exit. The temp directory
+   is cleaned up when `OpenCodeServer`'s `TempDir` is dropped.
 4. **Transient mode** — For one-shot operations (`get_models_list`,
    `one_shot_prompt`), a temporary server+client pair is created, used, and
    shut down within the same method call. No persistent server is stored.
@@ -257,9 +257,13 @@ The transient server is created and shut down within the method.
 
 ### Shutdown
 
-`cancellation.cancel()` (if running) + `server.shutdown().await` — sends
-SIGTERM to child process + waits for exit. The temp directory with
-`opencode.json` is cleaned up when `OpenCodeServer`'s `TempDir` is dropped.
+`cancellation.cancel()` (if running) + `server.shutdown().await` — kills the
+child process via `child.kill()` + reaps it with `child.wait()`. The temp
+directory with `opencode.json` is cleaned up when `OpenCodeServer`'s
+`TempDir` is dropped. On unix, the child is spawned in its own process
+group (`process_group(0)`) so it survives Ctrl-C delivered to the ofm
+process group; the signal handlers in `main.rs` ensure `shutdown()` is
+called before ofm exits.
 
 ### Process-exit cleanup
 

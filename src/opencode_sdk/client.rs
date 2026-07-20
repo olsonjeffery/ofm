@@ -687,7 +687,7 @@ mod tests {
         let (tx, rx) = tokio::sync::oneshot::channel();
         let rt = tokio::runtime::Runtime::new().unwrap();
         rt.block_on(async {
-            let body = "data: {\"directory\":\"/tmp\",\"payload\":{\"type\":\"session.idle\",\"properties\":{\"sessionID\":\"s1\"}}}\n\ndata: {\"directory\":\"/tmp\",\"payload\":{\"type\":\"session.status\",\"properties\":{\"sessionID\":\"s1\",\"status\":{\"type\":\"idle\"}}}}\n";
+            let body = "data: {\"id\":\"evt_1\",\"type\":\"session.idle\",\"properties\":{\"sessionID\":\"s1\"}}\n\ndata: {\"id\":\"evt_2\",\"type\":\"session.status\",\"properties\":{\"sessionID\":\"s1\",\"status\":{\"type\":\"idle\"}}}\n";
             let server = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
             let port = server.local_addr().unwrap().port();
             let _ = tx.send(port);
@@ -735,8 +735,8 @@ mod tests {
                 let event = event.unwrap();
                 count += 1;
                 match &event.payload {
-                    Event::SessionIdle(_) => assert_eq!(event.directory, "/tmp"),
-                    Event::SessionStatus(_) => assert_eq!(event.directory, "/tmp"),
+                    Event::SessionIdle(_) => assert!(event.id.is_some()),
+                    Event::SessionStatus(_) => assert!(event.id.is_some()),
                     _ => {}
                 }
                 if count == 2 {
@@ -750,7 +750,7 @@ mod tests {
     #[test]
     fn test_opencode_sdk_sse_comment_line_ignored() {
         let mut buf = Vec::new();
-        buf.extend_from_slice(b":comment\ndata: {\"directory\":\"/tmp\",\"payload\":{\"type\":\"session.idle\",\"properties\":{\"sessionID\":\"s1\"}}}\n");
+        buf.extend_from_slice(b":comment\ndata: {\"id\":\"evt_1\",\"type\":\"session.idle\",\"properties\":{\"sessionID\":\"s1\"}}\n");
         let (events, _) = parse_sse_lines(&mut buf);
         assert_eq!(events.len(), 1);
         assert!(matches!(events[0].payload, Event::SessionIdle(_)));
@@ -775,7 +775,7 @@ mod tests {
     #[test]
     fn test_opencode_sdk_sse_retry_field_parsed() {
         let mut buf = Vec::new();
-        buf.extend_from_slice(b"retry: 5000\ndata: {\"directory\":\"/tmp\",\"payload\":{\"type\":\"session.idle\",\"properties\":{\"sessionID\":\"s1\"}}}\n");
+        buf.extend_from_slice(b"retry: 5000\ndata: {\"id\":\"evt_1\",\"type\":\"session.idle\",\"properties\":{\"sessionID\":\"s1\"}}\n");
         let (events, retry) = parse_sse_lines(&mut buf);
         assert_eq!(events.len(), 1);
         assert_eq!(retry, Some(Duration::from_millis(5000)));

@@ -305,7 +305,8 @@ mod tests {
     #[test]
     fn test_opencode_sdk_phase_event_stream_matches_session() {
         let global = GlobalEvent {
-            directory: "/tmp".into(),
+            id: None,
+
             payload: Event::SessionIdle(SessionIdData {
                 session_id: "sess1".into(),
             }),
@@ -317,7 +318,8 @@ mod tests {
     #[test]
     fn test_opencode_sdk_phase_event_stream_is_terminal() {
         let idle = GlobalEvent {
-            directory: "/tmp".into(),
+            id: None,
+
             payload: Event::SessionIdle(SessionIdData {
                 session_id: "sess1".into(),
             }),
@@ -326,7 +328,8 @@ mod tests {
         assert!(!PhaseEventStream::is_terminal(&idle, "sess2"));
 
         let error = GlobalEvent {
-            directory: "/tmp".into(),
+            id: None,
+
             payload: Event::SessionError(SessionErrorData {
                 session_id: "sess1".into(),
                 error: "err".into(),
@@ -335,7 +338,8 @@ mod tests {
         assert!(PhaseEventStream::is_terminal(&error, "sess1"));
 
         let status = GlobalEvent {
-            directory: "/tmp".into(),
+            id: None,
+
             payload: Event::SessionStatus(SessionStatusData {
                 session_id: "sess1".into(),
                 status: SessionStatusValue {

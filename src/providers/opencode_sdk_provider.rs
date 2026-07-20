@@ -240,7 +240,7 @@ fn map_sdk_event_to_provider_event(
         Event::SessionError(data) => {
             if data.session_id == session_id {
                 Some(ProviderEvent::Error {
-                    error: data.error.clone(),
+                    error: data.error_message(),
                 })
             } else {
                 None
@@ -445,7 +445,8 @@ mod tests {
     #[test]
     fn test_event_mapping_text_chunk() {
         let global = GlobalEvent {
-            directory: "/tmp".into(),
+            id: None,
+
             payload: Event::MessagePartUpdated(MessagePartUpdatedData {
                 part: Part::Text(TextPart {
                     text: "Hello".into(),
@@ -460,7 +461,8 @@ mod tests {
     #[test]
     fn test_event_mapping_thinking() {
         let global = GlobalEvent {
-            directory: "/tmp".into(),
+            id: None,
+
             payload: Event::MessagePartUpdated(MessagePartUpdatedData {
                 part: Part::Reasoning(ReasoningPart {
                     text: "thinking...".into(),
@@ -478,7 +480,8 @@ mod tests {
     #[test]
     fn test_event_mapping_tool_use() {
         let global = GlobalEvent {
-            directory: "/tmp".into(),
+            id: None,
+
             payload: Event::MessagePartUpdated(MessagePartUpdatedData {
                 part: Part::Tool(ToolPart {
                     tool: "read".into(),
@@ -500,7 +503,8 @@ mod tests {
     #[test]
     fn test_event_mapping_tool_result() {
         let global = GlobalEvent {
-            directory: "/tmp".into(),
+            id: None,
+
             payload: Event::MessagePartUpdated(MessagePartUpdatedData {
                 part: Part::Tool(ToolPart {
                     tool: "read".into(),
@@ -523,10 +527,10 @@ mod tests {
     #[test]
     fn test_event_mapping_session_error() {
         let global = GlobalEvent {
-            directory: "/tmp".into(),
+            id: None,
             payload: Event::SessionError(SessionErrorData {
                 session_id: "sess1".into(),
-                error: "something went wrong".into(),
+                error: serde_json::json!("something went wrong"),
             }),
         };
         let event = map_sdk_event_to_provider_event(&global, "sess1");
@@ -538,7 +542,8 @@ mod tests {
     #[test]
     fn test_event_mapping_session_idle_done() {
         let global = GlobalEvent {
-            directory: "/tmp".into(),
+            id: None,
+
             payload: Event::SessionIdle(SessionIdData {
                 session_id: "sess1".into(),
             }),
@@ -550,7 +555,8 @@ mod tests {
     #[test]
     fn test_event_mapping_session_status_idle_done() {
         let global = GlobalEvent {
-            directory: "/tmp".into(),
+            id: None,
+
             payload: Event::SessionStatus(SessionStatusData {
                 session_id: "sess1".into(),
                 status: SessionStatusValue {
@@ -565,7 +571,8 @@ mod tests {
     #[test]
     fn test_event_mapping_server_connected_ready() {
         let global = GlobalEvent {
-            directory: "/tmp".into(),
+            id: None,
+
             payload: Event::ServerConnected(ServerConnectedData {
                 version: None,
                 config: None,
@@ -578,7 +585,8 @@ mod tests {
     #[test]
     fn test_event_mapping_wrong_session_filtered() {
         let global = GlobalEvent {
-            directory: "/tmp".into(),
+            id: None,
+
             payload: Event::SessionIdle(SessionIdData {
                 session_id: "other-session".into(),
             }),
