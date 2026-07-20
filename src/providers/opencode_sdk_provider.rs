@@ -328,7 +328,7 @@ impl LlmProvider for OpenCodeSdkProvider {
         };
 
         let body =
-            self.build_prompt_body(&prompt, &self.config.model.as_deref().unwrap_or("default"));
+            self.build_prompt_body(&prompt, self.config.model.as_deref().unwrap_or("default"));
         client
             .session
             .prompt_async(&session_id, &body)
