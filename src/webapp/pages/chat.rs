@@ -49,6 +49,8 @@ document.addEventListener('DOMContentLoaded', function() {{
     }}
     window.scrollToBottom = scrollToBottom;
     scrollToBottom();
+    // Periodic check to ensure pill visibility stays correct
+    setInterval(updateJumpPill, 2000);
 
     // Stop agent
     window.stopAgent = function() {{
@@ -86,6 +88,8 @@ document.addEventListener('DOMContentLoaded', function() {{
             if (msg.type === 'event') {{
                 var convId = msg.payload && msg.payload.conversation_id;
                 if (convId && convId !== currentConversationId) return;
+                // Any event for this conversation means the agent is active
+                setProcessing(true);
                 var container = document.getElementById('message-stream');
                 if (container) {{
                     var eventHtml = renderServerEvent(msg);
@@ -159,7 +163,9 @@ document.addEventListener('DOMContentLoaded', function() {{
                 }}
                 return '';
             case 'context_usage': return '<div class="notification is-light is-small">' + escapeHtml(JSON.stringify(msg.payload.usage || {{}})) + '</div>';
-            case 'error': return '<div class="notification is-danger is-light">' + escapeHtml(msg.payload.error || '') + '</div>';
+            case 'error':
+                setProcessing(false);
+                return '<div class="notification is-danger is-light">' + escapeHtml(msg.payload.error || '') + '</div>';
             case 'question_asked':
                 setProcessing(false);
                 var questions = msg.payload.questions || [];

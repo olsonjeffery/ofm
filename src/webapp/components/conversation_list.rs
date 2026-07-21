@@ -12,14 +12,8 @@ fn agent_icon(agent_type: &AgentType) -> &'static str {
     }
 }
 
-fn run_status_class(status: &crate::db::schema::RunStatus) -> &'static str {
-    match status {
-        crate::db::schema::RunStatus::Pending => "is-light",
-        crate::db::schema::RunStatus::Running => "is-info",
-        crate::db::schema::RunStatus::Completed => "is-success",
-        crate::db::schema::RunStatus::Failed => "is-danger",
-        crate::db::schema::RunStatus::Blocked => "is-warning",
-    }
+fn run_status_class(_status: &crate::db::schema::RunStatus) -> &'static str {
+    "is-light"
 }
 
 fn run_status_label(status: &crate::db::schema::RunStatus) -> &'static str {
@@ -81,26 +75,26 @@ pub fn ConversationList(
                         let active_style = if is_active { "border-color:var(--bulma-primary)" } else { "" };
 
                         view! {
-                            <div class="box is-info is-light" style={format!("padding:0.75rem;margin-bottom:0.25rem;cursor:pointer;{}", active_style)}
+                            <div class="box is-info is-light" style={format!("padding:0.75rem;margin-bottom:0.25rem;cursor:pointer;overflow-wrap:break-word;word-break:break-word;{}", active_style)}
                                 data-conversation-id={conv_id.to_string()}
                                 onclick="window.handleConversationClick(event)"
                             >
                                 <div class="level is-mobile" style="margin-bottom:0">
-                                    <div class="level-left" style="display:flex;align-items:center;gap:0.5rem;min-width:0">
-                                        <span class="icon has-text-info">
+                                    <div class="level-left" style="display:flex;align-items:center;gap:0.5rem;min-width:0;flex-shrink:1;overflow-wrap:break-word;word-break:break-word">
+                                        <span class="icon has-text-info" style="flex-shrink:0">
                                             <i class={format!("mdi mdi-{}", icon)}></i>
                                         </span>
-                                        <div style="min-width:0">
-                                            <strong style="display:block;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:180px">{name}</strong>
+                                        <div style="min-width:0;overflow-wrap:break-word;word-break:break-word">
+                                            <strong style="overflow-wrap:break-word;word-break:break-word">{name}</strong>
                                             <div class="has-text-grey is-size-7">{cwr.conversation.model.clone()}</div>
                                         </div>
                                     </div>
-                                    <div class="level-right" style="display:flex;align-items:center;gap:0.25rem;flex-shrink:0">
+                                    <div class="level-right" style="display:flex;flex-direction:column;align-items:flex-end;gap:0.15rem;flex-shrink:0">
                                         {status.map(|s| view! {
                                             <span class={format!("tag {}", run_status_class(s))}>{run_status_label(s)}</span>
                                         })}
                                         <small class="has-text-grey conversation-date" data-conv-id={conv_id.to_string()}
-                                               style="white-space:nowrap;margin-left:0.25rem">
+                                               style="white-space:nowrap;font-size:0.65rem">
                                             {date_str}
                                         </small>
                                     </div>
@@ -170,7 +164,7 @@ mod tests {
         assert!(html.contains("level-right"));
         assert!(html.contains("box is-info is-light"));
         assert!(html.contains("Completed"));
-        assert!(html.contains("is-success"));
+        assert!(html.contains("is-light"));
     }
 
     #[test]
