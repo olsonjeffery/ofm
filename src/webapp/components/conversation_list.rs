@@ -12,8 +12,14 @@ fn agent_icon(agent_type: &AgentType) -> &'static str {
     }
 }
 
-fn run_status_class(_status: &crate::db::schema::RunStatus) -> &'static str {
-    "is-light"
+fn run_status_class(status: &crate::db::schema::RunStatus) -> &'static str {
+    match status {
+        crate::db::schema::RunStatus::Pending => "is-light",
+        crate::db::schema::RunStatus::Running => "is-info is-light",
+        crate::db::schema::RunStatus::Completed => "is-success is-light",
+        crate::db::schema::RunStatus::Failed => "is-danger is-light",
+        crate::db::schema::RunStatus::Blocked => "is-warning is-light",
+    }
 }
 
 fn run_status_label(status: &crate::db::schema::RunStatus) -> &'static str {
