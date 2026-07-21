@@ -14,7 +14,12 @@
 ## UI Conventions
 
 - Content containers use Bulma `.box` for block-level content, `.card` for sub-units / grid items (e.g., kanban boards).
+- buttons styled with bulma palette (e.g. `is-primary`, `is-danger`, etc) but without `is-light` should have white text
+for their content in the light theme
 - Icons use MDI via `@mdi/font` CDN, applied with Bulma's `.icon` wrapper pattern.
+- prefer freestanding components for webapp features with complex data/logic, even if used only once
+  - reusability is a future option
+  - separation of concerns is desirable
 
 ## Environment Variables
 
@@ -58,7 +63,7 @@ Always specify `--browser=chromium` when opening a browser session (the default
 export PATH="$HOME/.npm-global/bin:$PATH"
 export PLAYWRIGHT_BROWSERS_PATH="$HOME/.cache/ms-playwright"
 
-playwright-cli open --browser=chromium http://localhost:3205
+playwright-cli open --browser=chromium http://localhost:{testing-ofm-port}
 playwright-cli snapshot
 playwright-cli close
 ```
@@ -72,7 +77,7 @@ To start an isolated server for end-to-end testing:
 
 ```bash
 # Pick a random port for ofm (avoid conflicts with other worktrees)
-OFM_PORT=3205 \
+OFM_PORT={testing-ofm-port} \
   OFM_FOOTPRINT="$PWD/.ofm" \
   OFM_RAUTHY_ENABLED=true \
   cargo run
@@ -83,16 +88,14 @@ On first run, ofm will:
 2. Print the admin credentials — note these down
    - **Username:** `admin@localhost`
    - **Password:** printed in the startup logs (search for "admin password")
-3. Serve the webapp at `http://localhost:3205`
+3. Serve the webapp at `http://localhost:{testing-ofm-port}`
 4. All data lives under `$PWD/.ofm` — deleting the worktree cleans it up
 
 The isolated footprint (`$PWD/.ofm`) prevents interference between worktrees.
 The `.ofm` directory is gitignored so it won't accidentally be committed.
 
-**If you forget the admin password**, check the rauthy config file:
-`$PWD/.ofm/rauthy/rauthy.cfg` — the hash is in there, but you can also
-delete `$PWD/.ofm/rauthy` and restart to trigger a fresh install with a
-new password.
+**If you forget the admin password**, you will need to delete your test
+`OFM_FOOTPRINT` and start with a fresh server
 
 > 💡**Resetting `ofm`**: The `.ofm` footprint can be deleted then recreated (by
 > restarting `ofm`) between testing phases, if a reset of `ofm` state is desired,
