@@ -13,17 +13,20 @@ fn esc(s: &str) -> String {
 }
 
 fn maybe_collapse(content: &str, html_id: &str) -> String {
-    if content.len() <= 400 {
+    if content.len() <= 200 {
         esc(content)
     } else {
         format!(
-            r##"<span id="preview-{}">{}</span><a href="#" id="btn-{}" class="show-more-btn" onclick="toggleShowMore('{}');return false">show more</a><span id="full-{}" style="display:none">{}</span>"##,
+            r##"<span id="preview-{}">{}</span>
+                <span id="full-{}" style="display:none">{}</span>
+                <a href="#" id="btn-{}" class="show-more-btn" onclick="toggleShowMore('{}');return false">show more</a>
+            "##,
             esc(html_id),
-            esc(&content[..400]),
+            esc(&format!("{}…", &content[..200])),
+            esc(html_id),
+            esc(content),
             esc(html_id),
             esc(html_id),
-            esc(html_id),
-            esc(content)
         )
     }
 }
@@ -89,7 +92,7 @@ fn render_event(event: &ProviderEvent) -> String {
             let id = next_id();
             let content = maybe_collapse(thinking, &id);
             format!(
-                r#"<div class="message-thinking"><span class="icon"><i class="mdi mdi-snowflake-outline"></i></span>{}</div>"#,
+                r#"<div class="message-thinking"><span class="icon"><i class="mdi mdi-head-snowflake-outline"></i></span>{}</div>"#,
                 content
             )
         }
@@ -110,7 +113,7 @@ fn render_event(event: &ProviderEvent) -> String {
         ProviderEvent::SessionStart { .. } => String::new(),
         ProviderEvent::UserText { text } => {
             format!(
-                r#"<content class="content message-user">{}</content>"#,
+                r#"<content class="content message-user" style="max-width:33%">{}</content>"#,
                 esc(text)
             )
         }

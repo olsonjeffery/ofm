@@ -140,6 +140,7 @@ a.box:active {
 /* ===== Message stream content type styling ===== */
 .message-model {
     font-weight: 600;
+    margin-bottom:1.5em;
 }
 
 .message-thinking {
@@ -147,18 +148,22 @@ a.box:active {
     color: var(--bulma-purple);
     border: 1px solid var(--bulma-purple);
     border-radius: 6px;
+    border-bottom-left-radius: 0px;
     padding: 0.75rem;
+    margin-bottom:1.5em;
 }
 .message-thinking .icon {
     color: var(--bulma-purple);
 }
 
 .message-tool {
-    background: var(--bulma-grey-light);
-    color: var(--bulma-grey);
+    background: var(--bulma-white-bis);
+    color: var(--bulma-grey-darker);
     border: 1px solid var(--bulma-grey);
     border-radius: 6px;
+    border-bottom-left-radius: 0px;
     padding: 0.75rem;
+    margin-bottom:1.5em;
 }
 .message-tool .icon {
     color: var(--bulma-grey);
@@ -167,12 +172,14 @@ a.box:active {
 .message-user {
     background: #1565c0;
     color: #fff;
-    max-width: 33%;
+    max-width: 45%;
     margin-left: auto;
     display: block;
     padding: 0.75rem;
     border-radius: 6px;
+    border-bottom-right-radius: 0px;
     white-space: pre-wrap;
+    margin-bottom:1.5em;
 }
 
 .show-more-btn {

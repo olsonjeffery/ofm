@@ -175,7 +175,7 @@ document.addEventListener('DOMContentLoaded', function() {{
                 renderedFingerprints.add(thinkFp);
                 var tid = nextCollapseId();
                 var tcontent = maybeCollapse(evt.thinking, tid);
-                return '<div class="message-thinking"><span class="icon"><i class="mdi mdi-snowflake-outline"></i></span>' + tcontent + '</div>';
+                return '<div class="message-thinking"><span class="icon"><i class="mdi mdi-head-snowflake-outline"></i></span>' + tcontent + '</div>';
             case 'thinking_chunk': return '';
             case 'context_usage': return '<div class="notification is-light is-small">' + escapeHtml(JSON.stringify(evt.usage)) + '</div>';
             case 'error': return '<div class="notification is-danger is-light">' + escapeHtml(evt.error) + '</div>';
@@ -235,7 +235,7 @@ document.addEventListener('DOMContentLoaded', function() {{
                 renderedFingerprints.add(thinkFp);
                 var tid = nextCollapseId();
                 var tcontent = maybeCollapse(msg.payload.thinking || '', tid);
-                return '<div class="message-thinking"><span class="icon"><i class="mdi mdi-snowflake-outline"></i></span>' + tcontent + '</div>';
+                return '<div class="message-thinking"><span class="icon"><i class="mdi mdi-head-snowflake-outline"></i></span>' + tcontent + '</div>';
             case 'thinking_chunk': return '';
             case 'context_usage': return '<div class="notification is-light is-small">' + escapeHtml(JSON.stringify(msg.payload.usage || {{}})) + '</div>';
             case 'error':
