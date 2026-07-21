@@ -30,13 +30,16 @@ document.addEventListener('DOMContentLoaded', function() {{
         setProcessing({processing_init});
     }}
 
+    function updateJumpPill() {{
+        if (!jumpPill || !streamContainer) return;
+        var threshold = 50;
+        isAtBottom = (streamContainer.scrollHeight - streamContainer.scrollTop - streamContainer.clientHeight) < threshold;
+        jumpPill.style.display = isAtBottom ? 'none' : 'block';
+    }}
+
     // Scroll management
     if (streamContainer) {{
-        streamContainer.addEventListener('scroll', function() {{
-            var threshold = 50;
-            isAtBottom = (streamContainer.scrollHeight - streamContainer.scrollTop - streamContainer.clientHeight) < threshold;
-            if (jumpPill) jumpPill.style.display = isAtBottom ? 'none' : 'block';
-        }});
+        streamContainer.addEventListener('scroll', updateJumpPill);
     }}
 
     function scrollToBottom() {{
@@ -89,6 +92,7 @@ document.addEventListener('DOMContentLoaded', function() {{
                     if (eventHtml) {{
                         container.insertAdjacentHTML('beforeend', eventHtml);
                         if (isAtBottom) {{ scrollToBottom(); }}
+                        else {{ updateJumpPill(); }}
                     }}
                 }}
             }}

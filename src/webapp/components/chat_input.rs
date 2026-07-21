@@ -11,14 +11,14 @@ pub fn ChatInput(
 
     view! {
         <form id="chat-form" data-task-id={task_id_str}
-              style="display:flex;gap:0.5rem;align-items:flex-start">
+              style="display:flex;gap:0.5rem;align-items:flex-start;width:100%">
             <textarea
                 class="textarea"
                 id="chat-message-input"
                 placeholder="Type your message..."
                 rows="2"
                 disabled=disabled
-                style="flex:1"
+                style="flex:1;min-width:0"
             ></textarea>
             <button
                 class="button is-primary"
