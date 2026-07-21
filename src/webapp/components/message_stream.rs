@@ -68,7 +68,7 @@ fn maybe_collapse(content: &str, html_id: &str) -> String {
                 <a href="#" id="btn-{}" class="show-more-btn" onclick="toggleShowMoreLines('{}', {});return false">show {} more lines</a>
             "##,
             esc(html_id),
-            esc(&format!("{}…", &truncated_content)),
+            esc(&format!("{}…", truncated_content)),
             esc(html_id),
             esc(content),
             esc(html_id),
