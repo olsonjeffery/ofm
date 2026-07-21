@@ -52,10 +52,10 @@ NOTE: DO NOT RESTORE `ofm agent` INSTRUCTIONS IN CODE; DO NOT IMPLEMENT IT
 
 | Agent | Does | Signals "done" by (completion handler) |
 |---|---|---|
-| **planning** (`planification`) | Turns the task doc + original request into a structured plan, written back into the doc. Touches nothing but the doc. | Running `complete-plan.ts` (`bottega`) OR `ofm agent complete-plan <task-id>` → sets `planification_complete`. |
+| **planning** (`planification`) | Turns the task doc + original request into a structured plan, written back into the doc. Touches nothing but the doc. | Running `complete-plan.ts` (`bottega`) OR call OFM complete-pan agent endpoint → sets `planification_complete`. |
 | **implementation** | Implements the unchecked to-do items from the plan, inside the worktree. | Ending its turn. No script — completion is implicit. |
-| **review** | Verifies the implementation against the plan, runs tests, and decides READY / NEEDS_WORK / BLOCKED. | READY → `complete-workflow.ts` (`bottega`) OR `ofm agent complete-workflow <task-id>` (sets `workflow_complete`). BLOCKED → `block-workflow.ts` (`bottega`) OR `ofm agent block-workflow <task-id>` (sets `workflow_blocked`). NEEDS_WORK → no script, just ends. |
-| **PR** (`pr`) | Opens the pull request, drives CI to green, resolves conflicts. Terminal. | Running `complete-pr.ts` (`bottega`) OR `ofm agent complete-pr` → sets `pr_agent_complete`. |
+| **review** | Verifies the implementation against the plan, runs tests, and decides READY / NEEDS_WORK / BLOCKED. | READY → `complete-workflow.ts` (`bottega`) OR call OFM complete-workflow agent endpoint (sets `workflow_complete`). BLOCKED → `block-workflow.ts` (`bottega`) OR call OFM block-workflow agent endpoint (sets `workflow_blocked`). NEEDS_WORK → no script, just ends. |
+| **PR** (`pr`) | Opens the pull request, drives CI to green, resolves conflicts. Terminal. | Running `complete-pr.ts` (`bottega`) OR call OFM complete-pr agent endpoint → sets `pr_agent_complete`. |
 
 The agent-type enum in the schema also contains `refinement` and `yolo`. Those
 are **extras** ([`refinement-agent.md`](../extra/refinement-agent.md),
@@ -144,19 +144,21 @@ NOTE: DO NOT RESTORE `ofm agent` INSTRUCTIONS IN CODE; DO NOT IMPLEMENT IT
 
 | Script | Flag set | Run by |
 |---|---|---|
-| [`reference/scripts/complete-plan.ts`](../reference/scripts/complete-plan.ts) (`bottega`) OR `ofm agent complete-plan <task-id>` | `planification_complete` | planning agent |
-| [`reference/scripts/complete-workflow.ts`](../reference/scripts/complete-workflow.ts) (`bottega`) OR `ofm agent complete-workflow <task-id>` | `workflow_complete` | review agent, on READY |
-| [`reference/scripts/block-workflow.ts`](../reference/scripts/block-workflow.ts) (`bottega`) OR `ofm agent block-workflow <task-id>` | `workflow_blocked` | review agent, on BLOCKED |
-| [`reference/scripts/complete-pr.ts`](../reference/scripts/complete-pr.ts) (`bottega`) OR `ofm agent complete-pr <task-id>` | `pr_agent_complete` | PR agent |
+| [`reference/scripts/complete-plan.ts`](../reference/scripts/complete-plan.ts) (`bottega`) OR call OFM complete-plan agent endpoint | `planification_complete` | planning agent |
+| [`reference/scripts/complete-workflow.ts`](../reference/scripts/complete-workflow.ts) (`bottega`) OR call OFM complete-workflow agent endpoint | `workflow_complete` | review agent, on READY |
+| [`reference/scripts/block-workflow.ts`](../reference/scripts/block-workflow.ts) (`bottega`) OR call OFM block-workflow agent endpoint | `workflow_blocked` | review agent, on BLOCKED |
+| [`reference/scripts/complete-pr.ts`](../reference/scripts/complete-pr.ts) (`bottega`) OR call OFM complete-pr agent endpoint | `pr_agent_complete` | PR agent |
 
 NOTE: DO NOT RESTORE `ofm agent` INSTRUCTIONS IN CODE; DO NOT IMPLEMENT IT
 
 Each script is tiny: validate the task id, flip one boolean, exit. They run
 inside the agent's own sandbox (`bottega`; the agent has shell access) OR
-via the `ofm agent <action> <task-id>` command against the same
-database the server uses. Build them as standalone entry points in `ofm`
-an agent can invoke as `ofm agent <action> <task-id>`; the agent should
-have access to the `ofm` bin.
+via calling the agent_flags endpoints (and the instance of `ofm` hosting their
+conversation; ofm PID + PORT should be a part of the agent prompt) using the API key issued to the
+conversation agent on a task-by-task basis (API key is minted when
+task is created; is deleted when task is completed or delteted) command against the same
+database the server uses. Phase agent conversations are empowered to invoke
+the endpoints directly to set flags on the task.
 
 The payoff: the orchestrator stays dumb and robust. It does not need to
 understand what an agent decided — it only reads four booleans.
@@ -248,7 +250,7 @@ NOTE: DO NOT RESTORE `ofm agent` INSTRUCTIONS IN CODE; DO NOT IMPLEMENT IT
       chained starts. See `src/server/routes/agent_runs.rs` (`post_create_agent_run`).
 - [x] A completion handler wired as the streaming on-complete hook, implementing
       the transitions above. See `src/orchestration/mod.rs` (`completion_handler`).
-- [ ] The four signalling actions under `ofm agent ...`
+- [ ] The four signalling actions under related to OFM agent endpoints that a conversation can call
       See `src/server/routes/agent_flags.rs`.
 - [x] The "one running agent per task" guard (manual 409 + pre-chain re-check).
       See `src/orchestration/guards.rs`.
@@ -282,5 +284,3 @@ NOTE: DO NOT RESTORE `ofm agent` INSTRUCTIONS IN CODE; DO NOT IMPLEMENT IT
 - The refinement step, YOLO single-agent mode, model/effort selection, the
   non-technical auto-advance, the task-authoring board, and webhook re-trigger →
   the corresponding `extra/` specs.
-
-
