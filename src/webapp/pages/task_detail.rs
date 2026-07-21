@@ -143,7 +143,7 @@ pub fn TaskDetailPage(
             </div>
 
             <div class="columns">
-                <div class="column is-one-fifth" style="border-right:1px solid #ddd;max-width:320px">
+                <div class="column is-one-quarter">
                     <div class="level is-mobile" style="margin-bottom:0.5rem">
                         <div class="level-left">
                             <h2 class="title is-5">"Conversations "</h2>

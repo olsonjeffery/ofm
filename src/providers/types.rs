@@ -36,11 +36,15 @@ pub enum ProviderEvent {
         #[serde(default)]
         tool_use_id: Option<String>,
         input: serde_json::Value,
+        #[serde(default)]
+        message_id: Option<String>,
     },
     ToolResult {
         #[serde(default)]
         tool_use_id: Option<String>,
         result: String,
+        #[serde(default)]
+        message_id: Option<String>,
     },
     Thinking {
         thinking: String,
@@ -157,22 +161,26 @@ impl ProviderEvent {
                 tool_name,
                 tool_use_id,
                 input,
+                message_id,
             } => (
                 "tool_use".to_string(),
                 serde_json::json!({
                     "tool_name": tool_name,
                     "tool_use_id": tool_use_id,
                     "input": input,
+                    "message_id": message_id,
                 }),
             ),
             ProviderEvent::ToolResult {
                 tool_use_id,
                 result,
+                message_id,
             } => (
                 "tool_result".to_string(),
                 serde_json::json!({
                     "tool_use_id": tool_use_id,
                     "result": result,
+                    "message_id": message_id,
                 }),
             ),
             ProviderEvent::Thinking { thinking } => (
