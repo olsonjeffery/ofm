@@ -284,9 +284,9 @@ pub fn ChatPage(
                 </div>
                 <div class="chat-input-wrapper" style="position:relative">
                     <div id="jump-to-newest-pill"
-                         style="display:none;position:absolute;bottom:100%;left:50%;transform:translateX(-50%);z-index:10;
+                         style="display:none;position:absolute;bottom:75%;left:50%;transform:translateX(-50%);z-index:10;
                                 background:#3273dc;color:#fff;border-radius:2rem;padding:0.25rem 0.75rem;cursor:pointer;
-                                box-shadow:0 2px 6px rgba(0,0,0,0.2);font-size:0.75rem;white-space:nowrap;width:auto"
+                                box-shadow:0 2px 6px rgba(0,0,0,0.2);font-size:1.75rem;white-space:nowrap;width:auto"
                          onclick="window.scrollToBottom()">
                         "Jump to newest"
                         <span class="icon is-small"><i class="mdi mdi-arrow-down-thick"></i></span>
