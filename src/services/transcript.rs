@@ -96,10 +96,12 @@ mod tests {
                 tool_name: "read".into(),
                 tool_use_id: Some("id1".into()),
                 input: serde_json::json!({"path": "/tmp"}),
+                message_id: None,
             },
             ProviderEvent::ToolResult {
                 tool_use_id: Some("id1".into()),
                 result: "ok".into(),
+                message_id: None,
             },
             ProviderEvent::Thinking {
                 thinking: "hmm".into(),

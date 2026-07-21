@@ -216,19 +216,31 @@ fn map_sdk_event_to_provider_event(
             Part::Text(t) => Some(ProviderEvent::TextChunk {
                 delta: data.delta.clone().unwrap_or_else(|| t.text.clone()),
             }),
-            Part::Reasoning(r) => Some(ProviderEvent::Thinking {
-                thinking: r.text.clone(),
-            }),
+            Part::Reasoning(r) => {
+                let text = r.text.trim().to_string();
+                if text.is_empty() {
+                    return None;
+                }
+                Some(ProviderEvent::Thinking { thinking: text })
+            }
             Part::Tool(tool_part) => match &tool_part.state {
                 ToolState::Running(_) => Some(ProviderEvent::ToolUse {
                     tool_name: tool_part.tool.clone(),
                     tool_use_id: Some(tool_part.call_id.clone()),
                     input: tool_part.input.clone().unwrap_or(serde_json::Value::Null),
+                    message_id: data.message_id.clone(),
                 }),
-                ToolState::Completed(state) => Some(ProviderEvent::ToolResult {
-                    tool_use_id: Some(tool_part.call_id.clone()),
-                    result: state.output.clone(),
-                }),
+                ToolState::Completed(state) => {
+                    let output = state.output.trim().to_string();
+                    if output == "null" || output.is_empty() {
+                        return None;
+                    }
+                    Some(ProviderEvent::ToolResult {
+                        tool_use_id: Some(tool_part.call_id.clone()),
+                        result: output,
+                        message_id: data.message_id.clone(),
+                    })
+                }
                 ToolState::Error(state) => Some(ProviderEvent::Error {
                     error: state.error.clone(),
                 }),
@@ -497,6 +509,7 @@ mod tests {
                     text: "Hello".into(),
                 }),
                 delta: Some("Hello".into()),
+                message_id: None,
             }),
         };
         let event = map_sdk_event_to_provider_event(&global, "sess1");
@@ -514,6 +527,7 @@ mod tests {
                     signature: None,
                 }),
                 delta: Some("thinking...".into()),
+                message_id: None,
             }),
         };
         let event = map_sdk_event_to_provider_event(&global, "sess1");
@@ -537,6 +551,7 @@ mod tests {
                     input: Some(serde_json::json!({"path": "/tmp"})),
                 }),
                 delta: None,
+                message_id: None,
             }),
         };
         let event = map_sdk_event_to_provider_event(&global, "sess1");
@@ -561,6 +576,7 @@ mod tests {
                     input: Some(serde_json::json!({"path": "/tmp"})),
                 }),
                 delta: None,
+                message_id: None,
             }),
         };
         let event = map_sdk_event_to_provider_event(&global, "sess1");

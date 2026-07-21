@@ -103,6 +103,8 @@ pub struct MessagePartUpdatedData {
     pub part: Part,
     #[serde(default)]
     pub delta: Option<String>,
+    #[serde(rename = "messageID", default)]
+    pub message_id: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

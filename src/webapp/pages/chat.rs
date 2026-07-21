@@ -55,7 +55,7 @@ document.addEventListener('DOMContentLoaded', function() {{
     // Dedup state trackers
     var collapseCounter = 0;
     var renderedFingerprints = new Set();
-    var renderedToolCalls = {{}};
+    var renderedMessageIds = {{}};
 
     // Stop agent
     window.stopAgent = function() {{
@@ -97,9 +97,10 @@ document.addEventListener('DOMContentLoaded', function() {{
                 setProcessing(true);
                 var container = document.getElementById('message-stream');
                 if (container) {{
-                    // tool_result dedup: merge into existing tool_use entry
-                    if (msg.event_type === 'tool_result' && msg.payload.tool_use_id && renderedToolCalls[msg.payload.tool_use_id]) {{
-                        updateToolCallResult(msg.payload);
+                    // dedup by message_id: merge into existing entry
+                    var dedupKey = msg.payload.message_id || msg.payload.tool_use_id || '';
+                    if (dedupKey && renderedMessageIds[dedupKey]) {{
+                        updateToolCallContent(dedupKey, msg);
                         if (isAtBottom) {{ scrollToBottom(); }}
                         else {{ updateJumpPill(); }}
                         return;
@@ -107,6 +108,9 @@ document.addEventListener('DOMContentLoaded', function() {{
                     var eventHtml = renderServerEvent(msg);
                     if (eventHtml) {{
                         container.insertAdjacentHTML('beforeend', eventHtml);
+                        // Track message_id / tool_use_id for future dedup
+                        var dk = msg.payload.message_id || msg.payload.tool_use_id || '';
+                        if (dk) renderedMessageIds[dk] = container.lastElementChild;
                         if (isAtBottom) {{ scrollToBottom(); }}
                         else {{ updateJumpPill(); }}
                     }}
@@ -147,6 +151,7 @@ document.addEventListener('DOMContentLoaded', function() {{
     function renderEvent(evt) {{
         switch (evt.type) {{
             case 'text':
+                if (!evt.text || !evt.text.trim()) return '';
                 var textFp = 'text:' + evt.text;
                 if (renderedFingerprints.has(textFp)) return '';
                 renderedFingerprints.add(textFp);
@@ -160,16 +165,16 @@ document.addEventListener('DOMContentLoaded', function() {{
                 return userMsgHtml(evt.text);
             case 'text_chunk': return '';
             case 'tool_use':
-                var toolId = evt.tool_use_id || '';
-                if (toolId && renderedToolCalls[toolId]) return '';
-                if (toolId) renderedToolCalls[toolId] = true;
-                return renderToolUse({{ tool_name: evt.tool_name, tool_use_id: toolId, input: evt.input }});
+                var dedupKey = evt.message_id || evt.tool_use_id || '';
+                if (dedupKey && renderedMessageIds[dedupKey]) return '';
+                return renderToolUse({{ tool_name: evt.tool_name, tool_use_id: evt.tool_use_id, input: evt.input, message_id: evt.message_id }});
             case 'tool_result':
-                var toolRId = evt.tool_use_id || '';
-                if (toolRId && renderedToolCalls[toolRId]) return '';
-                if (toolRId) renderedToolCalls[toolRId] = true;
-                return renderToolResult({{ tool_use_id: toolRId, result: evt.result }});
+                if (!evt.result || evt.result.trim() === 'null' || !evt.result.trim()) return '';
+                var trKey = evt.message_id || evt.tool_use_id || '';
+                if (trKey && renderedMessageIds[trKey]) return '';
+                return renderToolResult({{ tool_use_id: evt.tool_use_id, result: evt.result, message_id: evt.message_id }});
             case 'thinking':
+                if (!evt.thinking || !evt.thinking.trim()) return '';
                 var thinkFp = 'thinking:' + evt.thinking;
                 if (renderedFingerprints.has(thinkFp)) return '';
                 renderedFingerprints.add(thinkFp);
@@ -212,6 +217,7 @@ document.addEventListener('DOMContentLoaded', function() {{
                 renderedFingerprints.add(utFp);
                 return userMsgHtml(msg.payload.text || '');
             case 'text':
+                if (!msg.payload.text || !msg.payload.text.trim()) return '';
                 var textFp = 'text:' + (msg.payload.text || '');
                 if (renderedFingerprints.has(textFp)) return '';
                 renderedFingerprints.add(textFp);
@@ -220,16 +226,16 @@ document.addEventListener('DOMContentLoaded', function() {{
                 return '<div class="message-model"><div class="content">' + content + '</div></div>';
             case 'text_chunk': return '';
             case 'tool_use':
-                var tId = msg.payload.tool_use_id || '';
-                if (tId && renderedToolCalls[tId]) return '';
-                if (tId) renderedToolCalls[tId] = true;
+                var dedupKey = msg.payload.message_id || msg.payload.tool_use_id || '';
+                if (dedupKey && renderedMessageIds[dedupKey]) return '';
                 return renderToolUse(msg.payload);
             case 'tool_result':
-                var trId = msg.payload.tool_use_id || '';
-                if (trId && renderedToolCalls[trId]) return '';
-                if (trId) renderedToolCalls[trId] = true;
+                if (!msg.payload.result || msg.payload.result.trim() === 'null' || !msg.payload.result.trim()) return '';
+                var trKey = msg.payload.message_id || msg.payload.tool_use_id || '';
+                if (trKey && renderedMessageIds[trKey]) return '';
                 return renderToolResult(msg.payload);
             case 'thinking':
+                if (!msg.payload.thinking || !msg.payload.thinking.trim()) return '';
                 var thinkFp = 'thinking:' + (msg.payload.thinking || '');
                 if (renderedFingerprints.has(thinkFp)) return '';
                 renderedFingerprints.add(thinkFp);
@@ -263,40 +269,55 @@ document.addEventListener('DOMContentLoaded', function() {{
         }}
     }}
 
-    function updateToolCallResult(payload) {{
-        var toolId = escapeHtml(payload.tool_use_id || '');
-        var el = document.querySelector('.message-tool[data-tool-use-id="' + toolId + '"]');
-        if (!el) return;
-        var contentDiv = el.querySelector('.tool-content');
-        if (contentDiv) {{
-            var result = payload.result || '';
-            var collapseId = toolId;
-            var resultContent = maybeCollapse(result, collapseId);
-            contentDiv.innerHTML += '<hr>' + resultContent;
+    function updateToolCallContent(dedupKey, msg) {{
+        var el = renderedMessageIds[dedupKey];
+        if (!el || !el.querySelector) return;
+        var pre = el.querySelector('pre');
+        if (!pre) return;
+        var existingContent = pre.innerHTML;
+        var newContent = '';
+        if (msg.event_type === 'tool_result') {{
+            if (!msg.payload.result || msg.payload.result.trim() === 'null' || !msg.payload.result.trim()) return;
+            var collapseId = dedupKey;
+            var resultContent = maybeCollapse(msg.payload.result, collapseId);
+            newContent = existingContent + '<hr>' + resultContent;
+        }} else if (msg.event_type === 'tool_use') {{
+            var inputStr = JSON.stringify(msg.payload.input, null, 2);
+            var collapseId = dedupKey;
+            var inputContent = maybeCollapse(inputStr, collapseId);
+            newContent = inputContent;
         }}
+        if (newContent) pre.innerHTML = newContent;
     }}
 
     function renderToolUse(payload) {{
         var toolName = escapeHtml(payload.tool_name || 'unknown');
         var toolId = escapeHtml(payload.tool_use_id || '');
+        var msgId = escapeHtml(payload.message_id || '');
         var inputStr = JSON.stringify(payload.input, null, 2);
-        var collapseId = toolId || nextCollapseId();
+        var collapseId = toolId || msgId || nextCollapseId();
         var inputContent = maybeCollapse(inputStr, collapseId);
-        var dataAttr = toolId ? ' data-tool-use-id="' + toolId + '"' : '';
-        return '<div class="message-tool"' + dataAttr + '>' +
+        var dataAttrs = '';
+        if (toolId) dataAttrs += ' data-tool-use-id="' + toolId + '"';
+        if (msgId) dataAttrs += ' data-message-id="' + msgId + '"';
+        return '<div class="message-tool"' + dataAttrs + '>' +
             '<span class="icon"><i class="mdi mdi-cog-outline"></i></span> <code>' + toolName + '</code>' +
-            '<div class="tool-content" style="white-space:pre-wrap;word-break:break-word;overflow-wrap:break-word;max-width:100%">' + inputContent + '</div></div>';
+            '<pre>' + inputContent + '</pre></div>';
     }}
 
     function renderToolResult(payload) {{
         var toolId = escapeHtml(payload.tool_use_id || '');
+        var msgId = escapeHtml(payload.message_id || '');
+        if (!payload.result || payload.result.trim() === 'null' || !payload.result.trim()) return '';
         var result = payload.result || '';
-        var collapseId = toolId || nextCollapseId();
+        var collapseId = toolId || msgId || nextCollapseId();
         var resultContent = maybeCollapse(result, collapseId);
-        var dataAttr = toolId ? ' data-tool-use-id="' + toolId + '"' : '';
-        return '<div class="message-tool"' + dataAttr + '>' +
+        var dataAttrs = '';
+        if (toolId) dataAttrs += ' data-tool-use-id="' + toolId + '"';
+        if (msgId) dataAttrs += ' data-message-id="' + msgId + '"';
+        return '<div class="message-tool"' + dataAttrs + '>' +
             '<span class="icon"><i class="mdi mdi-cog-outline"></i></span>' +
-            '<div class="tool-content" style="white-space:pre-wrap;word-break:break-word;overflow-wrap:break-word;max-width:100%">' + resultContent + '</div></div>';
+            '<pre>' + resultContent + '</pre></div>';
     }}
 
     function escapeHtml(str) {{

@@ -12,6 +12,48 @@ fn esc(s: &str) -> String {
     html_escape::encode_text(s).to_string()
 }
 
+fn render_markdown(text: &str) -> String {
+    let parser = pulldown_cmark::Parser::new(text);
+    let mut html = String::new();
+    pulldown_cmark::html::push_html(&mut html, parser);
+    ammonia::Builder::default()
+        .add_tags(&[
+            "h1",
+            "h2",
+            "h3",
+            "h4",
+            "h5",
+            "h6",
+            "p",
+            "br",
+            "hr",
+            "ul",
+            "ol",
+            "li",
+            "blockquote",
+            "pre",
+            "code",
+            "table",
+            "thead",
+            "tbody",
+            "tr",
+            "th",
+            "td",
+            "a",
+            "strong",
+            "em",
+            "del",
+            "ins",
+            "sub",
+            "sup",
+            "img",
+        ])
+        .add_tag_attributes("a", &["href"])
+        .add_tag_attributes("img", &["src", "alt", "title"])
+        .clean(&html)
+        .to_string()
+}
+
 fn maybe_collapse(content: &str, html_id: &str) -> String {
     if content.len() <= 200 {
         esc(content)
@@ -31,11 +73,30 @@ fn maybe_collapse(content: &str, html_id: &str) -> String {
     }
 }
 
+fn maybe_collapse_md(content: &str, html_id: &str) -> String {
+    if content.len() <= 400 {
+        render_markdown(content)
+    } else {
+        format!(
+            r##"<span id="preview-{}">{}</span><a href="#" id="btn-{}" class="show-more-btn" onclick="toggleShowMore('{}');return false">show more</a><span id="full-{}" style="display:none">{}</span>"##,
+            esc(html_id),
+            render_markdown(&content[..400]),
+            esc(html_id),
+            esc(html_id),
+            esc(html_id),
+            render_markdown(content)
+        )
+    }
+}
+
 fn render_event(event: &ProviderEvent) -> String {
     match event {
         ProviderEvent::Text { text } => {
+            if text.trim().is_empty() {
+                return String::new();
+            }
             let id = next_id();
-            let content = maybe_collapse(text, &id);
+            let content = maybe_collapse_md(text, &id);
             format!(
                 r#"<div class="message-model"><div class="content">{}</div></div>"#,
                 content
@@ -46,6 +107,7 @@ fn render_event(event: &ProviderEvent) -> String {
             tool_name,
             tool_use_id,
             input,
+            message_id,
         } => {
             let input_str = serde_json::to_string_pretty(input).unwrap_or_default();
             let id_str = tool_use_id.as_deref().unwrap_or("");
@@ -55,14 +117,18 @@ fn render_event(event: &ProviderEvent) -> String {
                 id_str.to_string()
             };
             let content = maybe_collapse(&input_str, &collapse_id);
-            let data_attr = if !id_str.is_empty() {
-                format!(r#" data-tool-use-id="{}""#, esc(id_str))
-            } else {
-                String::new()
-            };
+            let mut data_attrs = String::new();
+            if !id_str.is_empty() {
+                data_attrs.push_str(&format!(r#" data-tool-use-id="{}""#, esc(id_str)));
+            }
+            if let Some(mid) = message_id {
+                if !mid.is_empty() {
+                    data_attrs.push_str(&format!(r#" data-message-id="{}""#, esc(mid)));
+                }
+            }
             format!(
-                r#"<div class="message-tool"{}><span class="icon"><i class="mdi mdi-cog-outline"></i></span> <code>{}</code><div class="tool-content" style="white-space:pre-wrap;word-break:break-word;overflow-wrap:break-word;max-width:100%">{}</div></div>"#,
-                data_attr,
+                r#"<div class="message-tool"{}><span class="icon"><i class="mdi mdi-cog-outline"></i></span> <code>{}</code><pre>{}</pre></div>"#,
+                data_attrs,
                 esc(tool_name),
                 content
             )
@@ -70,7 +136,11 @@ fn render_event(event: &ProviderEvent) -> String {
         ProviderEvent::ToolResult {
             tool_use_id,
             result,
+            message_id,
         } => {
+            if result.trim().is_empty() || result.trim() == "null" {
+                return String::new();
+            }
             let id_str = tool_use_id.as_deref().unwrap_or("");
             let collapse_id = if id_str.is_empty() {
                 next_id()
@@ -78,19 +148,27 @@ fn render_event(event: &ProviderEvent) -> String {
                 id_str.to_string()
             };
             let content = maybe_collapse(result, &collapse_id);
-            let data_attr = if !id_str.is_empty() {
-                format!(r#" data-tool-use-id="{}""#, esc(id_str))
-            } else {
-                String::new()
-            };
+            let mut data_attrs = String::new();
+            if !id_str.is_empty() {
+                data_attrs.push_str(&format!(r#" data-tool-use-id="{}""#, esc(id_str)));
+            }
+            if let Some(mid) = message_id {
+                if !mid.is_empty() {
+                    data_attrs.push_str(&format!(r#" data-message-id="{}""#, esc(mid)));
+                }
+            }
             format!(
-                r#"<div class="message-tool"{}><span class="icon"><i class="mdi mdi-cog-outline"></i></span><div class="tool-content" style="white-space:pre-wrap;word-break:break-word;overflow-wrap:break-word;max-width:100%">{}</div></div>"#,
-                data_attr, content
+                r#"<div class="message-tool"{}><span class="icon"><i class="mdi mdi-cog-outline"></i></span><pre>{}</pre></div>"#,
+                data_attrs, content
             )
         }
         ProviderEvent::Thinking { thinking } => {
+            let trimmed = thinking.trim();
+            if trimmed.is_empty() {
+                return String::new();
+            }
             let id = next_id();
-            let content = maybe_collapse(thinking, &id);
+            let content = maybe_collapse_md(trimmed, &id);
             format!(
                 r#"<div class="message-thinking"><span class="icon"><i class="mdi mdi-head-snowflake-outline"></i></span>{}</div>"#,
                 content
@@ -114,7 +192,7 @@ fn render_event(event: &ProviderEvent) -> String {
         ProviderEvent::UserText { text } => {
             format!(
                 r#"<content class="content message-user" style="max-width:33%">{}</content>"#,
-                esc(text)
+                esc(&render_markdown(text)),
             )
         }
         ProviderEvent::Ready => String::new(),
@@ -122,11 +200,11 @@ fn render_event(event: &ProviderEvent) -> String {
         ProviderEvent::AvailableCommandsUpdate(_) => String::new(),
         ProviderEvent::Response(data) => {
             let txt = data.as_str().unwrap_or("");
-            if txt.is_empty() {
+            if txt.trim().is_empty() {
                 String::new()
             } else {
                 let id = next_id();
-                let content = maybe_collapse(txt, &id);
+                let content = maybe_collapse_md(txt, &id);
                 format!(
                     r#"<div class="message-model"><div class="content">{}</div></div>"#,
                     content
@@ -189,6 +267,7 @@ mod tests {
             tool_name: "read".into(),
             tool_use_id: Some("id1".into()),
             input: serde_json::json!({"path": "/tmp"}),
+            message_id: None,
         }];
         let html = leptos::view! { <MessageStream messages=messages /> }.to_html();
         assert!(html.contains("read"));
@@ -204,6 +283,7 @@ mod tests {
         let messages = vec![ProviderEvent::ToolResult {
             tool_use_id: Some("id1".into()),
             result: "ok".into(),
+            message_id: None,
         }];
         let html = leptos::view! { <MessageStream messages=messages /> }.to_html();
         assert!(html.contains("ok"));
@@ -286,6 +366,61 @@ mod tests {
         let html = leptos::view! { <MessageStream messages=messages /> }.to_html();
         assert!(html.contains("message-user"));
         assert!(!html.contains("background:#1565c0"));
+    }
+
+    #[test]
+    fn test_message_stream_tool_result_suppresses_null() {
+        let messages = vec![ProviderEvent::ToolResult {
+            tool_use_id: Some("id1".into()),
+            result: "null".into(),
+            message_id: None,
+        }];
+        let html = leptos::view! { <MessageStream messages=messages /> }.to_html();
+        assert!(!html.contains("pre"));
+    }
+
+    #[test]
+    fn test_message_stream_tool_result_suppresses_empty() {
+        let messages = vec![ProviderEvent::ToolResult {
+            tool_use_id: Some("id1".into()),
+            result: "".into(),
+            message_id: None,
+        }];
+        let html = leptos::view! { <MessageStream messages=messages /> }.to_html();
+        assert!(!html.contains("pre"));
+    }
+
+    #[test]
+    fn test_message_stream_thinking_suppresses_empty() {
+        let messages = vec![ProviderEvent::Thinking {
+            thinking: "   ".into(),
+        }];
+        let html = leptos::view! { <MessageStream messages=messages /> }.to_html();
+        assert!(!html.contains("message-thinking"));
+    }
+
+    #[test]
+    fn test_message_stream_tool_use_has_data_message_id() {
+        let messages = vec![ProviderEvent::ToolUse {
+            tool_name: "read".into(),
+            tool_use_id: Some("id1".into()),
+            input: serde_json::json!({"path": "/tmp"}),
+            message_id: Some("msg123".into()),
+        }];
+        let html = leptos::view! { <MessageStream messages=messages /> }.to_html();
+        assert!(html.contains(r#"data-message-id="msg123""#));
+    }
+
+    #[test]
+    fn test_message_stream_renders_tool_use_as_pre() {
+        let messages = vec![ProviderEvent::ToolUse {
+            tool_name: "read".into(),
+            tool_use_id: Some("id1".into()),
+            input: serde_json::json!({"path": "/tmp"}),
+            message_id: None,
+        }];
+        let html = leptos::view! { <MessageStream messages=messages /> }.to_html();
+        assert!(html.contains("<pre>"));
     }
 }
 
