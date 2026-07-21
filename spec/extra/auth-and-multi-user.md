@@ -97,9 +97,26 @@ The system supports two modes:
   local `id`. They are never exposed to client-side JS.
 - **Session cookies** are encrypted, httpOnly, and secure in production. They
   carry the user's local ID and a session identifier.
+- **Session expiry** uses `SESSION_DURATION` (30 days) rather than the OIDC
+  access token's lifetime. On every successful token refresh, the session's
+  `expires_at` is reset to `now + SESSION_DURATION`, keeping the session alive
+  as long as the user returns within the 30-day window.
 - **Access tokens** are short-lived (typ. 5–15 min, controlled by the OIDC
   provider). They are held in a JS variable in the leptos client and sent on
   every API request.
+- **Token refresh** always attempts the OIDC provider's token endpoint — the
+  provider, not the local `expires_at` column, is the authority on whether the
+  refresh token is still valid. The `expires_at` gate that previously
+  short-circuited refreshes on past-expiry sessions has been removed.
+- **Startup session refresh**: on server startup, all stored sessions are
+  refreshed in background tasks. Each session's refresh token is presented to
+  the OIDC provider; valid sessions are extended by `SESSION_DURATION`, and
+  expired/revoked sessions are cleaned up. This means a server restart does not
+  force all users to re-authenticate.
+- **Auto-login on page load**: the runtime JS calls `POST /api/auth/refresh` on
+  every page load. If the refresh succeeds and the user is on the login or
+  callback page, they are automatically redirected to `/webapp/`. This provides
+  seamless re-authentication for returning users.
 - **Logout** revokes the refresh token at the provider (if the provider
   supports revocation), clears the server-side session, and drops the cookie.
 
