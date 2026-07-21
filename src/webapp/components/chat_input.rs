@@ -21,10 +21,10 @@ pub fn ChatInput(
                 style="flex:1;min-width:0"
             ></textarea>
             <button
-                class="button is-primary has-text-white"
+                class="button is-primary has-text-white is-medium"
                 id="chat-send-btn"
                 disabled=disabled
-                style="height:auto;align-self:stretch;display:flex;flex-direction:column;justify-content:flex-end;padding-bottom:0.5rem;padding-top:0.5rem"
+                style="height:auto;align-self:stretch;display:flex;flex-direction:column;justify-content:flex-end;padding-bottom:0.5rem;padding-top:0.5rem;writing-mode:sideways-lr;"
             >
                 "Send"
             </button>
