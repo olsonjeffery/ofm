@@ -34,12 +34,38 @@ fn render_event(event: &ProviderEvent) -> String {
             tool_use_id,
             result,
         } => {
-            let id_str = tool_use_id.as_deref().unwrap_or("");
-            format!(
-                r#"<div class="card"><div class="card-content"><span class="tag is-success is-light">result</span> <code>{}</code><pre style="white-space:pre-wrap;word-break:break-word;overflow-wrap:break-word;max-width:100%">{}</pre></div></div>"#,
-                esc(id_str),
-                esc(result)
-            )
+            let id_str = tool_use_id.as_deref().unwrap_or("").to_string();
+            let has_id = !id_str.is_empty();
+            let truncated = has_id && result.len() > 100;
+            if truncated {
+                let preview = format!(
+                    r#"<pre class="tool-result-preview" id="result-preview-{}" style="white-space:pre-wrap;word-break:break-word;overflow-wrap:break-word;max-width:100%">{}</pre>"#,
+                    esc(&id_str),
+                    esc(&result[..100])
+                );
+                let extra = format!(
+                    r##"<a href="#" class="toggle-result" data-tool-id="{}" onclick="toggleResult(this);return false">show more</a>"##,
+                    esc(&id_str)
+                );
+                let full = format!(
+                    r#"<div class="tool-result-full" id="result-full-{}" style="display:none"><pre style="white-space:pre-wrap;word-break:break-word;overflow-wrap:break-word;max-width:100%">{}</pre></div>"#,
+                    esc(&id_str),
+                    esc(result)
+                );
+                format!(
+                    r#"<div class="card"><div class="card-content"><span class="tag is-success is-light">result</span> <code>{}</code>{}{}{}</div></div>"#,
+                    esc(&id_str),
+                    preview,
+                    extra,
+                    full
+                )
+            } else {
+                format!(
+                    r#"<div class="card"><div class="card-content"><span class="tag is-success is-light">result</span> <code>{}</code><pre style="white-space:pre-wrap;word-break:break-word;overflow-wrap:break-word;max-width:100%">{}</pre></div></div>"#,
+                    esc(&id_str),
+                    esc(result)
+                )
+            }
         }
         ProviderEvent::Thinking { thinking } => {
             format!(
