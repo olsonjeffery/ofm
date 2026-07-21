@@ -296,6 +296,45 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     };
     tracing::info!("Auth middleware: enabled");
 
+    // Refresh all stored sessions on startup
+    if let Some(ref oidc) = state.oidc_provider {
+        let db = state.db.clone();
+        let oidc = oidc.clone();
+        tokio::spawn(async move {
+            let mut rows = match db
+                .query_raw("SELECT * FROM sessions", hiqlite::params!())
+                .await
+            {
+                Ok(rows) => rows,
+                Err(e) => {
+                    tracing::warn!("Startup session refresh: failed to query sessions: {e}");
+                    return;
+                }
+            };
+            let sessions: Vec<crate::db::schema::SessionDb> = rows
+                .iter_mut()
+                .map(|row| crate::db::schema::SessionDb::from(&mut *row))
+                .collect();
+            let count = sessions.len();
+            for session in sessions {
+                let db = db.clone();
+                let oidc = oidc.clone();
+                tokio::spawn(async move {
+                    match crate::services::auth::refresh_access_token(&db, &oidc, session.id).await
+                    {
+                        Ok(_) => {
+                            tracing::info!("Startup refresh succeeded for session {}", session.id)
+                        }
+                        Err(e) => {
+                            tracing::info!("Startup refresh for session {}: {e:?}", session.id);
+                        }
+                    }
+                });
+            }
+            tracing::info!("Startup session refresh: {count} sessions processed");
+        });
+    }
+
     // Server
     let app = server::router(state, auth_layer);
     let addr = format!("{}:{}", cfg.hostname, cfg.port);

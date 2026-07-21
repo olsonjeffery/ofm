@@ -260,6 +260,9 @@ pub fn global_runtime_script() -> String {
         .then(function(data) {
             if (data && data.access_token) {
                 window.__ACCESS_TOKEN__ = data.access_token;
+                if (window.location.pathname === '/webapp/login' || window.location.pathname === '/webapp/callback') {
+                    window.location.href = '/webapp/';
+                }
             }
         })
         .catch(function() {});
