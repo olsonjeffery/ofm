@@ -8,8 +8,7 @@ the ofm crate itself — to interact with the opencode HTTP API and manage
 opencode server processes.
 
 This is a clean-room implementation that is **not** influenced by the existing
-`LlmProvider` trait, `OhMyPiProvider`, or `OpenCodeProvider`. It lives in its
-own root module at `src/opencode_sdk/`.
+`LlmProvider` trait. It lives in its own root module at `src/opencode_sdk/`.
 
 ## Module Structure
 
@@ -342,7 +341,7 @@ cargo test -- opencode_sdk
    matching the existing pattern in the ofm codebase.
 
 5. **Clean-room implementation** — completely independent of the existing
-   `LlmProvider` trait, `OpenCodeProvider`, and `OhMyPiProvider`.
+   `LlmProvider` trait.
 
 6. **Process cleanup** — `shutdown()` kills the process group, kills
    grandchild processes via `ps --ppid`, and probes the port to confirm

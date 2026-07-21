@@ -15,7 +15,7 @@ struct TestApp {
     addr: String,
     _handle: tokio::task::JoinHandle<()>,
     db: Client,
-    project_id: i64,
+    _project_id: i64,
     task_id: i64,
 }
 
@@ -88,7 +88,7 @@ async fn setup_app() -> TestApp {
         addr,
         _handle: handle,
         db: client,
-        project_id,
+        _project_id: project_id,
         task_id,
     }
 }

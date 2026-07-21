@@ -21,9 +21,8 @@ ofm/
 │   │       ├── conversation_list.rs  # Conversation sidebar (Phase 5)
 │   │       ├── message_stream.rs     # Streaming event display (Phase 5)
 │   │       ├── chat_input.rs         # Manual message input (Phase 5)
-│   ├── providers/oh_my_pi/ # oh-my-pi: PTY spawn/reader, session management
 │   ├── orchestration/   # State machine, guards, recovery, completion
-│   ├── providers/       # LlmProvider trait, oh-my-pi/opencode providers
+│   ├── providers/       # LlmProvider trait, opencode_sdk-driven provider
 │   ├── agents/          # Prompt builders (planning, impl, review, PR)
 │   ├── services/        # Auth, projects, tasks, settings, session, transcript
 │   ├── archive/         # Task doc I/O, context prompt
@@ -73,7 +72,6 @@ The workspace has a single member crate (`ofm` binary) defined inline.
 | leptos_styling | 0.3 | Style sheet macro for Leptos |
 | pulldown-cmark | 0.13 | Markdown-to-HTML rendering |
 | ammonia | 4 | HTML sanitization |
-| portable-pty | 0.9 | Cross-platform PTY spawn for omp subprocess |
 | clap | 4 | CLI argument parsing |
 | serde | 1 (derive) | Serialization/deserialization |
 | serde_json | 1 | JSON support |
@@ -105,7 +103,7 @@ The workspace has a single member crate (`ofm` binary) defined inline.
 4. **Rauthy**: If `OFM_RAUTHY_ENABLED`, spawn rauthy as a Docker container via `tokio::process::Command`, wait for health, configure reverse proxy at `/auth`. The container runs with the host user's UID via Docker's `--user` flag so files in the rauthy data directory are owned by the host user and cleanup does not require root.
 5. **Server**: Start axum HTTP server with WebSocket support on configured `OFM_HOSTNAME:OFM_PORT`.
 6. **WebSocket**: Accept connections, manage task subscriptions, stream agent events.
-7. **oh-my-pi sessions**: Spawn `omp --mode rpc` subprocesses per turn, manage PTY lifecycle, stream events.
+7. **OpenCode provider sessions**: Spawn `opencode serve` subprocesses per turn, manage lifecycle, stream events.
 8. **Shutdown**: Graceful shutdown — stop accepting connections, kill subprocesses, stop rauthy, close DB.
 
 ## WebSocket Real-Time Bus
@@ -117,7 +115,7 @@ The server maintains a WebSocket hub for live UI updates. Clients subscribe to p
 The chat view (`/webapp/projects/{project_id}/tasks/{task_id}/chat`) provides a real-time conversation interface:
 
 - **Event broadcasting**: When `post_create_agent_run` starts an agent turn, it calls `provider.start_turn(input)` which returns an `mpsc::Receiver<ProviderEvent>`. A background task reads events, persists them via `transcript::persist_event()`, maps `ProviderEvent` → `ServerMessage::Event`, and broadcasts via `ws_bus` under the task's `WsTopic`. On `Done`, it calls `completion_handler` to advance the state machine.
-- **Provider-agnostic**: The broadcast task consumes `mpsc::Receiver<ProviderEvent>`, staying completely trait-agnostic. Both `OhMyPiProvider` and `OpenCodeProvider` work identically.
+- **Provider-agnostic**: The broadcast task consumes `mpsc::Receiver<ProviderEvent>`, staying completely trait-agnostic. `OpenCodeSdkProvider` is the sole built-in provider.
 - **Manual chat**: `POST /api/tasks/{task_id}/conversations/{id}/messages` — persists the user message, loads the transcript, calls `provider.resume_turn()`, and spawns a broadcast task for the response events.
 - **Orchestrator phase skip**: When a phase's agent config is missing (no model configured), `post_create_agent_run` creates a `Blocked` run and returns immediately. `next_agent()` checks config statuses before returning `StartAgent`, skipping unconfigured phases.
 - **Chat API**: `GET /api/tasks/{task_id}/conversations` lists conversations with their associated runs; `GET /api/tasks/{task_id}/conversations/{id}` returns a conversation with its full message transcript.
@@ -161,13 +159,6 @@ Configuration is loaded from YAML files with environment variable overlay:
 - **`AuthLayer` Tower middleware** for request authentication (JWT via JWKS, API key hash lookup)
 - **`spawn_blocking`** for blocking I/O operations (PTY reads), sending events through `mpsc::Sender::blocking_send`
 
-## Subprocess Invocation
-
-The `omp` (oh-my-pi) binary is invoked as `omp --mode rpc` — the `--mode` flag
-with value `rpc` is the correct CLI form. Do NOT use the positional `omp rpc`
-form — that is incorrect. The spawn call in `src/providers/oh_my_pi/mod.rs` is the single
-source of truth: `cmd.arg("--mode").arg("rpc")`.
-
 ## Design Decisions
 
 - **hiqlite over rusqlite**: hiqlite provides an async, Raft-capable SQLite database with built-in durability via WAL + auto-heal crash recovery. Single-node deployment eliminates the Mutex bottleneck in axum handlers.
@@ -176,5 +167,5 @@ source of truth: `cmd.arg("--mode").arg("rpc")`.
 - **Raw SQL DDL over migration framework**: DDL is wrapped in a simple `_migrations` tracking table, keeping the migration system self-contained.
 - **WebSocket for live UI**: Real-time updates via WebSocket subscriptions instead of polling, enabling live agent-streaming and board state updates.
 - **Leptos Islands over SPA**: Server-side rendered islands reduce client JS bundle and simplify auth (SSR handlers share server-side auth context without a separate token refresh for the SPA shell).
-- **Dual harness**: Both `oh-my-pi` and `opencode` are first-class peers behind the `LlmProvider` trait abstraction.
+- **Single harness**: `opencode` is the built-in provider behind the `LlmProvider` trait abstraction, backed by the `opencode_sdk` submodule.
 - **Footprint-derived paths**: `OFM_FOOTPRINT` is the single root for all data directories, eliminating the env-var explosion of `OFM_DB_PATH`, `OFM_ARCHIVE_ROOT`, `OFM_CONFIG`.

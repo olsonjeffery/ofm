@@ -2,9 +2,11 @@ use std::time::Duration;
 
 use futures_util::StreamExt;
 use ofm::opencode_sdk::{
-    self, create_opencode_server, one_shot,
+    self,
+    conversation::{one_shot, OneShotConfig, PhaseConfig, UnstructuredConversation},
+    create_opencode_server,
     types::{Event, ModelRef, PartInput, PromptBody, TextPartInput},
-    OneShotConfig, PhaseConfig, ServerOptions, UnstructuredConversation,
+    ServerOptions,
 };
 
 /// Max time to wait for SSE events from the server. If no events arrive in this
@@ -16,7 +18,7 @@ const SSE_TIMEOUT: Duration = Duration::from_secs(15);
 /// or until the timeout fires. Returns true if at least one event was received.
 async fn consume_until_idle(
     stream: &mut (impl futures_util::Stream<
-        Item = Result<ofm::opencode_sdk::types::GlobalEvent, ofm::opencode_sdk::SdkError>,
+        Item = Result<opencode_sdk::types::GlobalEvent, opencode_sdk::SdkError>,
     > + Unpin),
     session_id: &str,
 ) -> bool {
@@ -350,7 +352,7 @@ async fn test_opencode_sdk_phase_based_conversation() {
         cwd: None,
     };
 
-    let conv = ofm::opencode_sdk::PhaseConversation::start(opts, &config)
+    let conv = opencode_sdk::conversation::PhaseConversation::start(opts, &config)
         .await
         .unwrap();
     assert!(!conv.session_id().is_empty());

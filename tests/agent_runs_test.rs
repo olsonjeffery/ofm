@@ -7,6 +7,7 @@ use ofm::server::ws::bus::BroadcastBus;
 
 use std::collections::HashMap;
 use std::sync::Arc;
+use std::time::Duration;
 use tempfile::TempDir;
 use tokio::sync::Mutex;
 use uuid::Uuid;
@@ -39,6 +40,15 @@ async fn setup_app() -> TestApp {
     let user_id = db::ensure_default_user(&client).await.unwrap();
 
     // Seed a harness config so config checks pass (Phase 3 feature)
+    let config_root = db_dir.path();
+    let provider_configs_dir = config_root.join("provider-configs");
+    std::fs::create_dir_all(&provider_configs_dir).unwrap();
+    std::fs::write(
+        provider_configs_dir.join("test-config.json"),
+        r#"{"provider": {"test": {"apiKey": "test"}}}"#,
+    )
+    .unwrap();
+
     let now = chrono::Utc::now().naive_utc().to_string();
     client
         .execute(
@@ -46,8 +56,8 @@ async fn setup_app() -> TestApp {
             hiqlite::params!(
                 Uuid::new_v4().to_string(),
                 "implementation",
-                "oh-my-pi",
-                "test-config.yaml",
+                "opencode",
+                "test-config.json",
                 "global",
                 "gpt-4",
                 "balanced",
@@ -260,6 +270,7 @@ async fn test_stop_agent_runs_marks_running_as_failed() {
         .await
         .unwrap();
     assert_eq!(resp.status(), 200);
+    let _ = tokio::time::sleep(Duration::from_secs(5)).await;
 
     // Verify the run is now marked as failed
     let resp = client()

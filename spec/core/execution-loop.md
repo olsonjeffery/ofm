@@ -126,9 +126,7 @@ keeps the loop dumb and reliable (see
 > a nicety, not load-bearing — skip it if your harness has no browser-driving
 > MCP.
 
-For `ofm`:
 
-> **`oh-my-pi` can handle this through the `npm:pi-playwright` package
 
 ## Reference map
 

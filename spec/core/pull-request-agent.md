@@ -40,7 +40,7 @@ below. See `generatePrAgentMessage` / `buildPrCreateOrVerifyBlock` in
 
 ## The procedure
 
-> **For `ofm`: Determine if harnesses' (`oh-my-pi`, OpenCode) git/github support is sufficient to
+> **For `ofm`: Determine if the OpenCode provider's git/github support is sufficient to
 > replace `bottega`'s dependency on the `gh` cli tool
 
 1. **Create or verify the PR.**
@@ -83,7 +83,7 @@ allows multiple options for how to close the PR (merge vs squash, etc)
 
 ## The git surface it relies on
 
-> **NOTE for `ofm`: `oh-my-pi` has its own github tool; it should be evaluated
+> **NOTE for `ofm`: The OpenCode provider has its own github tool; it should be evaluated
 to confirm that the `gh` dependency is unneeded**
 
 The agent works through the `gh` CLI and git inside the worktree, so its sandbox
@@ -105,7 +105,7 @@ not.
       conflict resolution, and the completion call — all bounded.
       → `templates/pr.md`, `src/agents/pull_request.rs`
 - [ ] Server helpers: detect existing PR + URL, create PR, commit/push, wrapping
-      git + `gh` (`bottega`) OR `oh-my-pi`'s `github` tool (`ofm`).
+      git + `gh` (`bottega`) or the OpenCode provider's `github` tool (`ofm`).
 - [x] A completion script that sets `pr_agent_complete`.
       → `src/server/routes/agent_flags.rs` (complete_pr handler)
 - [ ] Compute the PR status at run start and pass it into the prompt.

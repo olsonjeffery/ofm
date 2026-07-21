@@ -14,7 +14,7 @@
 This is the engine. Everything else in `core/` exists to serve the state
 machine described here.
 
-> NOTE: [`oh-my-pi`](https://omp.sh) is the primary coding harness.
+> NOTE: OpenCode is the built-in coding harness.
 
 ## What it delivers
 
@@ -34,12 +34,12 @@ job is to decide, each time an agent finishes, what should happen next.
 - **Task** — a unit of work backed by a markdown document and an isolated git
   worktree. See [`task-and-workspace.md`](./task-and-workspace.md).
 - **Agent** — a role (planning, implementation, review, PR) expressed as a
-  prompt run on a coding harness (e.g. `oh-my-pi`, OpenCode)
+  prompt run on the OpenCode coding harness
 - **Agent run** — one execution of one agent against one task: a row in
   `task_agent_runs`, linked to a conversation.
-- **Conversation** — one streaming session with a harness (`oh-my-pi`, OpenCode); how an agent run
+- **Conversation** — one streaming session with the OpenCode harness; how an agent run
   actually executes and persists its transcript. See
-  [`oh-my-pi.md`](../extra/harnesses/oh-my-pi.md) and [`opencode.md`](../extra/harnesses/opencode.md).
+  [`opencode.md`](../extra/harnesses/opencode.md).
 - **Workflow flags** — booleans on the task row that gate the loop. They are the
   orchestrator's entire memory of "where are we."
 
@@ -60,8 +60,6 @@ NOTE: DO NOT RESTORE `ofm agent` INSTRUCTIONS IN CODE; DO NOT IMPLEMENT IT
 The agent-type enum in the schema also contains `refinement` and `yolo`. Those
 are **extras** ([`refinement-agent.md`](../extra/refinement-agent.md),
 [`yolo-mode.md`](../extra/yolo-mode.md)). Core uses only the four above.
-
-Map all of these onto [`oh-my-pi`][4] subagents
 
 ## The state machine
 
@@ -234,7 +232,7 @@ One function, in order (study
 
 The model and credential resolution that step 6 depends on are an
 extra ([`prompt-and-model-customization.md`](../extra/prompt-and-model-customization.md)).
-The direct harness integration that step calls is in [`oh-my-pi.md`](../extra/harnesses/oh-my-pi.md) and [`opencode.md`](../extra/harnesses/opencode.md).
+The direct harness integration that step calls is in [`opencode.md`](../extra/harnesses/opencode.md).
 
 ## Build checklist
 
@@ -280,9 +278,9 @@ NOTE: DO NOT RESTORE `ofm agent` INSTRUCTIONS IN CODE; DO NOT IMPLEMENT IT
   [`planning-agent.md`](./planning-agent.md),
   [`execution-loop.md`](./execution-loop.md).
 - How a turn actually streams and persists its transcript →
-  [`oh-my-pi.md`](../extra/harnesses/oh-my-pi.md) and [`opencode.md`](../extra/harnesses/opencode.md).
+  [`opencode.md`](../extra/harnesses/opencode.md).
 - The refinement step, YOLO single-agent mode, model/effort selection, the
   non-technical auto-advance, the task-authoring board, and webhook re-trigger →
   the corresponding `extra/` specs.
 
-[4]: https://omp.sh/docs/subagents
+

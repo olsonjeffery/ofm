@@ -33,9 +33,6 @@ tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 tower-http = { version = "0.7", features = ["fs"] }
 
-# oh-my-pi (omp) subprocess integration
-portable-pty = "0.9"
-
 # CLI
 clap = { version = "4", features = ["derive"] }
 

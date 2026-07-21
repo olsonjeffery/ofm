@@ -286,6 +286,7 @@ impl EventApi {
                 url: self.0.url("/event"),
                 auth_header: self.0.auth_header(),
             }),
+            reconnect_fut: None,
             cancellation: Arc::new(AtomicBool::new(false)),
         })
     }
@@ -318,6 +319,7 @@ impl EventStreamCancellation {
 }
 
 type SseByteStream = Pin<Box<dyn Stream<Item = Result<Bytes, reqwest::Error>> + Send>>;
+type ReconnectFut = Pin<Box<dyn Future<Output = Result<reqwest::Response, reqwest::Error>> + Send>>;
 
 pub struct EventStream {
     stream: Option<SseByteStream>,
@@ -328,6 +330,7 @@ pub struct EventStream {
     retry_count: u32,
     sleep: Option<Pin<Box<tokio::time::Sleep>>>,
     reconnect: Option<EventStreamReconnect>,
+    reconnect_fut: Option<ReconnectFut>,
     cancellation: Arc<AtomicBool>,
 }
 
@@ -398,17 +401,62 @@ impl Stream for EventStream {
                 match sleep.as_mut().poll(cx) {
                     Poll::Ready(()) => {
                         self.sleep = None;
-                        // Attempt reconnect
-                        match self.try_reconnect() {
-                            Ok(()) => continue,
-                            Err(SdkError::Timeout) => {
-                                if self.cancellation.load(Ordering::SeqCst) {
-                                    return Poll::Ready(None);
-                                }
-                                continue;
-                            }
-                            Err(e) => return Poll::Ready(Some(Err(e))),
+                        // Kick off a reconnect request future (if we have a
+                        // reconnect config). The future is polled below on
+                        // subsequent invocations of poll_next. We avoid
+                        // Handle::block_on here because it panics when called
+                        // from within the async runtime that owns this stream.
+                        if self.reconnect.is_some() && self.reconnect_fut.is_none() {
+                            let reconnect = self.reconnect.clone().unwrap();
+                            self.reconnect_fut = Some(Box::pin(async move {
+                                reconnect
+                                    .http_client
+                                    .get(&reconnect.url)
+                                    .header("Authorization", &reconnect.auth_header)
+                                    .send()
+                                    .await
+                            }));
                         }
+                        // Fall through to the reconnect_fut handling below.
+                    }
+                    Poll::Pending => return Poll::Pending,
+                }
+            }
+
+            // Poll an in-flight reconnect request, if any.
+            if let Some(reconnect_fut) = self.reconnect_fut.as_mut() {
+                match reconnect_fut.as_mut().poll(cx) {
+                    Poll::Ready(Ok(resp)) => {
+                        self.reconnect_fut = None;
+                        if resp.status().is_success() {
+                            self.stream = Some(Box::pin(resp.bytes_stream()));
+                            continue;
+                        } else {
+                            let status = resp.status();
+                            return Poll::Ready(Some(Err(SdkError::Protocol(format!(
+                                "reconnect failed with status {status}"
+                            )))));
+                        }
+                    }
+                    Poll::Ready(Err(e)) => {
+                        self.reconnect_fut = None;
+                        if e.is_timeout() || e.is_connect() {
+                            if self.cancellation.load(Ordering::SeqCst) {
+                                return Poll::Ready(None);
+                            }
+                            // Treat transient connect failure as a retryable
+                            // timeout: schedule another sleep if retries are
+                            // still available, otherwise end the stream.
+                            if self.retry_count < self.max_retries {
+                                self.retry_count += 1;
+                                let delay = self.retry_delay;
+                                self.sleep = Some(Box::pin(tokio::time::sleep(delay)));
+                                cx.waker().wake_by_ref();
+                                return Poll::Pending;
+                            }
+                            return Poll::Ready(None);
+                        }
+                        return Poll::Ready(Some(Err(SdkError::Http(e))));
                     }
                     Poll::Pending => return Poll::Pending,
                 }
@@ -450,45 +498,6 @@ impl Stream for EventStream {
                         return Poll::Pending;
                     }
                     return Poll::Ready(None);
-                }
-            }
-        }
-    }
-}
-
-impl EventStream {
-    fn try_reconnect(&mut self) -> Result<(), SdkError> {
-        let reconnect = match &self.reconnect {
-            Some(r) => r.clone(),
-            None => return Err(SdkError::Protocol("no reconnect info".into())),
-        };
-
-        let rt = tokio::runtime::Handle::current();
-        let resp = rt.block_on(async {
-            reconnect
-                .http_client
-                .get(&reconnect.url)
-                .header("Authorization", &reconnect.auth_header)
-                .send()
-                .await
-        });
-
-        match resp {
-            Ok(resp) if resp.status().is_success() => {
-                self.stream = Some(Box::pin(resp.bytes_stream()));
-                Ok(())
-            }
-            Ok(resp) => {
-                let status = resp.status();
-                Err(SdkError::Protocol(format!(
-                    "reconnect failed with status {status}"
-                )))
-            }
-            Err(e) => {
-                if e.is_timeout() || e.is_connect() {
-                    Err(SdkError::Timeout)
-                } else {
-                    Err(SdkError::Http(e))
                 }
             }
         }
@@ -677,7 +686,7 @@ mod tests {
         let (tx, rx) = tokio::sync::oneshot::channel();
         let rt = tokio::runtime::Runtime::new().unwrap();
         rt.block_on(async {
-            let body = "data: {\"directory\":\"/tmp\",\"payload\":{\"type\":\"session.idle\",\"properties\":{\"sessionID\":\"s1\"}}}\n\ndata: {\"directory\":\"/tmp\",\"payload\":{\"type\":\"session.status\",\"properties\":{\"sessionID\":\"s1\",\"status\":{\"type\":\"idle\"}}}}\n";
+            let body = "data: {\"id\":\"evt_1\",\"type\":\"session.idle\",\"properties\":{\"sessionID\":\"s1\"}}\n\ndata: {\"id\":\"evt_2\",\"type\":\"session.status\",\"properties\":{\"sessionID\":\"s1\",\"status\":{\"type\":\"idle\"}}}\n";
             let server = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
             let port = server.local_addr().unwrap().port();
             let _ = tx.send(port);
@@ -715,6 +724,7 @@ mod tests {
                 retry_count: 0,
                 sleep: None,
                 reconnect: None,
+                reconnect_fut: None,
                 cancellation: Arc::new(AtomicBool::new(false)),
             };
 
@@ -724,8 +734,8 @@ mod tests {
                 let event = event.unwrap();
                 count += 1;
                 match &event.payload {
-                    Event::SessionIdle(_) => assert_eq!(event.directory, "/tmp"),
-                    Event::SessionStatus(_) => assert_eq!(event.directory, "/tmp"),
+                    Event::SessionIdle(_) => assert!(event.id.is_some()),
+                    Event::SessionStatus(_) => assert!(event.id.is_some()),
                     _ => {}
                 }
                 if count == 2 {
@@ -739,7 +749,7 @@ mod tests {
     #[test]
     fn test_opencode_sdk_sse_comment_line_ignored() {
         let mut buf = Vec::new();
-        buf.extend_from_slice(b":comment\ndata: {\"directory\":\"/tmp\",\"payload\":{\"type\":\"session.idle\",\"properties\":{\"sessionID\":\"s1\"}}}\n");
+        buf.extend_from_slice(b":comment\ndata: {\"id\":\"evt_1\",\"type\":\"session.idle\",\"properties\":{\"sessionID\":\"s1\"}}\n");
         let (events, _) = parse_sse_lines(&mut buf);
         assert_eq!(events.len(), 1);
         assert!(matches!(events[0].payload, Event::SessionIdle(_)));
@@ -764,7 +774,7 @@ mod tests {
     #[test]
     fn test_opencode_sdk_sse_retry_field_parsed() {
         let mut buf = Vec::new();
-        buf.extend_from_slice(b"retry: 5000\ndata: {\"directory\":\"/tmp\",\"payload\":{\"type\":\"session.idle\",\"properties\":{\"sessionID\":\"s1\"}}}\n");
+        buf.extend_from_slice(b"retry: 5000\ndata: {\"id\":\"evt_1\",\"type\":\"session.idle\",\"properties\":{\"sessionID\":\"s1\"}}\n");
         let (events, retry) = parse_sse_lines(&mut buf);
         assert_eq!(events.len(), 1);
         assert_eq!(retry, Some(Duration::from_millis(5000)));

@@ -11,6 +11,7 @@ mod config;
 mod db;
 mod logging;
 
+mod opencode_sdk;
 mod orchestration;
 mod providers;
 mod rauthy;
@@ -297,12 +298,82 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     tracing::info!("Auth middleware: enabled");
 
     // Server
-    let app = server::router(state, auth_layer);
+    let app = server::router(state.clone(), auth_layer);
     let addr = format!("{}:{}", cfg.hostname, cfg.port);
     tracing::info!("Starting server on {}", addr);
 
+    // Start the opencode server pool's idle reaper. Servers unused for
+    // 15 minutes are SIGKILLed; the reaper wakes every 60 seconds. See
+    // `src/opencode_sdk/pool.rs` for the full pool design (per-user
+    // keying, LRU eviction, credential invalidation, process-exit
+    // cleanup). This matches the reference implementation's
+    // `OpenCodeServerPool` (see
+    // `spec/reference/server/services/openCodeServerPool.ts`).
+    opencode_sdk::pool::OpenCodeServerPool::start_reaper(
+        std::time::Duration::from_secs(15 * 60),
+        std::time::Duration::from_secs(60),
+    );
+    tracing::info!("opencode server pool idle reaper started (idle=15m, interval=60s)");
+
     let listener = tokio::net::TcpListener::bind(&addr).await?;
-    axum::serve(listener, app).await?;
+    let server_handle = tokio::spawn(async move {
+        if let Err(e) = axum::serve(listener, app).await {
+            tracing::error!("Server error: {e}");
+        }
+    });
+
+    // Install signal handlers so that on Ctrl-C / SIGTERM we shut down any
+    // spawned opencode subprocesses before the ofm process exits. Without
+    // this, the child `opencode serve` processes outlive ofm and pile up as
+    // leaked orphans on the host.
+    let shutdown = async move {
+        let ctrl_c = async {
+            tokio::signal::ctrl_c()
+                .await
+                .expect("failed to install Ctrl-C handler");
+        };
+
+        #[cfg(unix)]
+        let terminate = async {
+            tokio::signal::unix::signal(tokio::signal::unix::SignalKind::terminate())
+                .expect("failed to install SIGTERM handler")
+                .recv()
+                .await;
+        };
+
+        #[cfg(not(unix))]
+        let terminate = std::future::pending::<()>();
+
+        tokio::select! {
+            _ = ctrl_c => tracing::info!("Ctrl-C received, shutting down"),
+            _ = terminate => tracing::info!("SIGTERM received, shutting down"),
+        }
+    };
+
+    tokio::select! {
+        _ = shutdown => {
+            tracing::info!("Shutdown signal received, cleaning up subprocesses");
+        }
+        _ = server_handle => {
+            tracing::info!("Server task exited");
+        }
+    }
+
+    // Process-exit cleanup. Tear down the per-user opencode server pool —
+    // each entry owns a child `opencode serve` subprocess that would
+    // otherwise outlive ofm. Providers in `active_sessions` only hold
+    // borrowed client handles (cheap `Arc` clones); their `shutdown()` is
+    // a noop that doesn't kill any subprocess. The pool is the sole
+    // owner of the server processes.
+    tracing::info!("Shutting down opencode server pool");
+    opencode_sdk::pool::OpenCodeServerPool::instance()
+        .shutdown_all()
+        .await;
+
+    // Clear `active_sessions` so any in-flight broadcast tasks see their
+    // channel close. The providers themselves hold no subprocesses.
+    state.active_sessions.lock().await.clear();
+    tracing::info!("All provider sessions cleared. Exiting.");
 
     Ok(())
 }
