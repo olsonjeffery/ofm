@@ -534,7 +534,7 @@ async fn test_webapp_task_detail_page_404() {
 }
 
 #[tokio::test]
-async fn test_webapp_chat_page() {
+async fn test_webapp_chat_page_no_conversations_renders_empty() {
     let (state, auth_layer, _tmp) = make_state().await;
     let user_id = state.default_user_id;
     let db = state.db.clone();
@@ -573,8 +573,120 @@ async fn test_webapp_chat_page() {
     let body = resp.text().await.unwrap();
     assert!(body.contains("Chat Task"));
     assert!(body.contains("Chat"));
-    assert!(body.contains("Conversations"));
+    assert!(!body.contains("Conversations"), "sidebar should not appear");
     assert!(body.contains("chat-footer"));
+}
+
+#[tokio::test]
+async fn test_webapp_chat_page_with_conversation_url() {
+    let (state, auth_layer, _tmp) = make_state().await;
+    let user_id = state.default_user_id;
+    let db = state.db.clone();
+    let app = server::router(state, auth_layer);
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let addr = listener.local_addr().unwrap();
+
+    tokio::spawn(async move {
+        axum::serve(listener, app).await.unwrap();
+    });
+
+    let project_id = int64_id();
+    let task_id = int64_id();
+    let conv_id = Uuid::new_v4();
+    let now = chrono::Utc::now().naive_utc().to_string();
+    db.execute(
+        "INSERT INTO projects (id, user_id, name, repo_folder_path, created_at) VALUES ($1, $2, $3, $4, $5)",
+        hiqlite::params!(project_id, user_id.to_string(), "Chat Conv Test", "/tmp/test", &now),
+    )
+    .await
+    .unwrap();
+    db.execute(
+        "INSERT INTO tasks (id, project_id, user_id, title, status, created_at) VALUES ($1, $2, $3, $4, $5, $6)",
+        hiqlite::params!(task_id, project_id, user_id.to_string(), "Chat Task With Conv", "pending", &now),
+    )
+    .await
+    .unwrap();
+    db.execute(
+        "INSERT INTO conversations (id, task_id, provider_session_id, model, effort, created_at) VALUES ($1, $2, $3, $4, $5, $6)",
+        hiqlite::params!(conv_id.to_string(), task_id, "sess-1", "gpt-4", "balanced", &now),
+    )
+    .await
+    .unwrap();
+
+    let url = format!(
+        "http://{}/webapp/projects/{}/tasks/{}/chat/{}",
+        addr, project_id, task_id, conv_id
+    );
+    let client = reqwest::Client::new();
+    let resp = client.get(&url).send().await.unwrap();
+
+    assert_eq!(resp.status(), 200);
+    let body = resp.text().await.unwrap();
+    assert!(body.contains("Chat Task With Conv"));
+    assert!(body.contains("chat-footer"));
+    assert!(body.contains(&conv_id.to_string()));
+    assert!(
+        !body.contains("is-one-quarter"),
+        "sidebar should be removed"
+    );
+}
+
+#[tokio::test]
+async fn test_webapp_chat_redirects_to_conversation_when_exists() {
+    let (state, auth_layer, _tmp) = make_state().await;
+    let user_id = state.default_user_id;
+    let db = state.db.clone();
+    let app = server::router(state, auth_layer);
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let addr = listener.local_addr().unwrap();
+
+    tokio::spawn(async move {
+        axum::serve(listener, app).await.unwrap();
+    });
+
+    let project_id = int64_id();
+    let task_id = int64_id();
+    let conv_id = Uuid::new_v4();
+    let now = chrono::Utc::now().naive_utc().to_string();
+    db.execute(
+        "INSERT INTO projects (id, user_id, name, repo_folder_path, created_at) VALUES ($1, $2, $3, $4, $5)",
+        hiqlite::params!(project_id, user_id.to_string(), "Chat Redirect Test", "/tmp/test", &now),
+    )
+    .await
+    .unwrap();
+    db.execute(
+        "INSERT INTO tasks (id, project_id, user_id, title, status, created_at) VALUES ($1, $2, $3, $4, $5, $6)",
+        hiqlite::params!(task_id, project_id, user_id.to_string(), "Redirect Task", "pending", &now),
+    )
+    .await
+    .unwrap();
+    db.execute(
+        "INSERT INTO conversations (id, task_id, provider_session_id, model, effort, created_at) VALUES ($1, $2, $3, $4, $5, $6)",
+        hiqlite::params!(conv_id.to_string(), task_id, "sess-1", "gpt-4", "balanced", &now),
+    )
+    .await
+    .unwrap();
+
+    let url = format!(
+        "http://{}/webapp/projects/{}/tasks/{}/chat",
+        addr, project_id, task_id
+    );
+    let client = reqwest::Client::builder()
+        .redirect(reqwest::redirect::Policy::none())
+        .build()
+        .unwrap();
+    let resp = client.get(&url).send().await.unwrap();
+
+    assert_eq!(resp.status(), 200);
+    let body = resp.text().await.unwrap();
+    let expected_url = format!(
+        "/webapp/projects/{}/tasks/{}/chat/{}",
+        project_id, task_id, conv_id
+    );
+    assert!(
+        body.contains(&expected_url),
+        "expected redirect to conversation URL, got body containing: {body}"
+    );
 }
 
 #[tokio::test]

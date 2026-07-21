@@ -143,7 +143,7 @@ pub fn TaskDetailPage(
             </div>
 
             <div class="columns">
-                <div class="column is-one-quarter" style="border-right:1px solid #ddd">
+                <div class="column is-one-fifth" style="border-right:1px solid #ddd;max-width:320px">
                     <div class="level is-mobile" style="margin-bottom:0.5rem">
                         <div class="level-left">
                             <h2 class="title is-5">"Conversations "</h2>
@@ -353,16 +353,31 @@ pub fn TaskDetailPage(
                     var card=e.target.closest('[data-conversation-id]');
                     if(!card)return;
                     var convId=card.getAttribute('data-conversation-id');
-                    var projectLink=document.querySelector('.breadcrumb a[href*="/projects/"]');
-                    if(projectLink){
-                        var href=projectLink.getAttribute('href');
-                        var match=href.match(/\/projects\/(\d+)/);
-                        if(match){
-                            var projectId=match[1];
-                            window.location.href='/webapp/projects/'+projectId+'/tasks/'+taskId+'/chat';
-                        }
+                    if(projectId&&taskId&&convId){
+                        window.location.href='/webapp/projects/'+projectId+'/tasks/'+taskId+'/chat/'+convId;
                     }
                 };
+
+                // WS subscription for conversation timestamp updates
+                if(window.OfmWS&&taskId){
+                    window.OfmWS.subscribe({kind:'task',id:parseInt(taskId)},function(msg){
+                        if(msg.type==='event'&&msg.payload&&msg.payload.conversation_id){
+                            var convId=msg.payload.conversation_id;
+                            var dateEl=document.querySelector('.conversation-date[data-conv-id="'+convId+'"]');
+                            if(dateEl){
+                                var now=new Date();
+                                var months=['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+                                var h=now.getHours().toString().padStart(2,'0');
+                                var m=now.getMinutes().toString().padStart(2,'0');
+                                dateEl.textContent=months[now.getMonth()]+' '+now.getDate()+', '+h+':'+m;
+                                dateEl.classList.remove('is-pulsed');
+                                void dateEl.offsetWidth;
+                                dateEl.classList.add('is-pulsed');
+                                setTimeout(function(){dateEl.classList.remove('is-pulsed');},3000);
+                            }
+                        }
+                    });
+                }
                 function showMessage(msg){
                     var existing=document.getElementById('agent-message');
                     if(existing)existing.remove();
