@@ -12,25 +12,22 @@ pub fn ChatInput(
     view! {
         <div class="chat-input" style="border-top:1px solid #ddd;padding:1rem;background:#fff">
             <form id="chat-form" data-task-id={task_id_str}>
-                <div class="field has-addons">
-                    <div class="control is-expanded">
-                        <textarea
-                            class="textarea"
-                            id="chat-message-input"
-                            placeholder="Type your message..."
-                            rows="2"
-                            disabled=disabled
-                        ></textarea>
-                    </div>
-                    <div class="control">
-                        <button
-                            class="button is-primary"
-                            id="chat-send-btn"
-                            disabled=disabled
-                        >
-                            "Send"
-                        </button>
-                    </div>
+                <textarea
+                    class="textarea"
+                    id="chat-message-input"
+                    placeholder="Type your message..."
+                    rows="2"
+                    disabled=disabled
+                    style="width:100%;margin-bottom:0.5rem"
+                ></textarea>
+                <div style="display:flex;justify-content:flex-end">
+                    <button
+                        class="button is-primary"
+                        id="chat-send-btn"
+                        disabled=disabled
+                    >
+                        "Send"
+                    </button>
                 </div>
             </form>
         </div>
@@ -55,6 +52,10 @@ mod tests {
         assert!(html.contains("Send"));
         assert!(html.contains("chat-form"));
         assert!(html.contains("data-task-id=\"42\""));
+        assert!(
+            !html.contains("has-addons"),
+            "has-addons class should be removed"
+        );
     }
 
     #[test]

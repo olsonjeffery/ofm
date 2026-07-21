@@ -353,16 +353,26 @@ pub fn TaskDetailPage(
                     var card=e.target.closest('[data-conversation-id]');
                     if(!card)return;
                     var convId=card.getAttribute('data-conversation-id');
-                    var projectLink=document.querySelector('.breadcrumb a[href*="/projects/"]');
-                    if(projectLink){
-                        var href=projectLink.getAttribute('href');
-                        var match=href.match(/\/projects\/(\d+)/);
-                        if(match){
-                            var projectId=match[1];
-                            window.location.href='/webapp/projects/'+projectId+'/tasks/'+taskId+'/chat';
-                        }
+                    if(projectId&&taskId&&convId){
+                        window.location.href='/webapp/projects/'+projectId+'/tasks/'+taskId+'/chat/'+convId;
                     }
                 };
+
+                // WS subscription for conversation timestamp updates
+                if(window.OfmWS&&taskId){
+                    window.OfmWS.subscribe({kind:'task',id:parseInt(taskId)},function(msg){
+                        if(msg.type==='event'&&msg.payload&&msg.payload.conversation_id){
+                            var convId=msg.payload.conversation_id;
+                            var dateEl=document.querySelector('.conversation-date[data-conv-id="'+convId+'"]');
+                            if(dateEl){
+                                dateEl.textContent='Just now';
+                                dateEl.classList.remove('is-pulsed');
+                                void dateEl.offsetWidth;
+                                dateEl.classList.add('is-pulsed');
+                            }
+                        }
+                    });
+                }
                 function showMessage(msg){
                     var existing=document.getElementById('agent-message');
                     if(existing)existing.remove();

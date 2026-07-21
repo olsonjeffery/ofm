@@ -1,23 +1,14 @@
-use crate::db::schema::{ConversationWithRun, RunStatus};
+use crate::db::schema::{AgentType, ConversationWithRun};
 use leptos::prelude::*;
 
-fn run_status_class(status: &RunStatus) -> &'static str {
-    match status {
-        RunStatus::Pending => "is-light",
-        RunStatus::Running => "is-info",
-        RunStatus::Completed => "is-success",
-        RunStatus::Failed => "is-danger",
-        RunStatus::Blocked => "is-warning",
-    }
-}
-
-fn run_status_label(status: &RunStatus) -> &'static str {
-    match status {
-        RunStatus::Pending => "Pending",
-        RunStatus::Running => "Running",
-        RunStatus::Completed => "Completed",
-        RunStatus::Failed => "Failed",
-        RunStatus::Blocked => "Blocked",
+fn agent_icon(agent_type: &AgentType) -> &'static str {
+    match agent_type {
+        AgentType::Planification => "clipboard-list-outline",
+        AgentType::Implementation => "code-tags",
+        AgentType::Refinement => "tune",
+        AgentType::Review => "eye-outline",
+        AgentType::Pr => "source-pull",
+        AgentType::Yolo => "rocket",
     }
 }
 
@@ -70,8 +61,8 @@ pub fn ConversationList(
                         let conv_id = cwr.conversation.id;
                         let is_active = active_id.map(|id| id == conv_id).unwrap_or(false);
                         let card_class = if is_active { "card is-active" } else { "card" };
-                        let agent_type_str = cwr.run.as_ref().map(|r| r.agent_type.to_string()).unwrap_or_default();
-                        let status = cwr.run.as_ref().map(|r| &r.status);
+                        let agent_type = cwr.run.as_ref().map(|r| &r.agent_type);
+                        let icon = agent_type.map(agent_icon).unwrap_or("chat-outline");
                         let raw_name = cwr.conversation.name.clone().unwrap_or_default();
                         let name = if is_valid_name(&raw_name) {
                             raw_name
@@ -81,29 +72,25 @@ pub fn ConversationList(
                         let date_str = format_conversation_date(&cwr.conversation.created_at);
 
                         view! {
-                            <div class={card_class} style="margin-bottom:0.5rem;cursor:pointer"
+                            <div class={card_class} style="padding:0.75rem;margin-bottom:0.25rem;cursor:pointer"
                                 data-conversation-id={conv_id.to_string()}
                                 onclick="window.handleConversationClick(event)"
                             >
-                                <div class="card-content" style="padding:0.5rem">
-                                    <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:0.5rem">
-                                        <small style="flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap"><strong>{name}</strong></small>
-                                        <div style="flex-shrink:0">
-                                            {if let Some(s) = status {
-                                                view! { <span class={format!("tag is-small {}", run_status_class(s))}>{run_status_label(s)}</span> }.into_any()
-                                            } else {
-                                                view! { <span class="tag is-small is-light">"Unknown"</span> }.into_any()
-                                            }}
+                                <div class="level is-mobile" style="margin-bottom:0">
+                                    <div class="level-left" style="display:flex;align-items:center;gap:0.5rem">
+                                        <span class="icon has-text-info">
+                                            <i class={format!("mdi mdi-{}", icon)}></i>
+                                        </span>
+                                        <div>
+                                            <strong>{name}</strong>
+                                            <div class="has-text-grey is-size-7">{cwr.conversation.model.clone()}</div>
                                         </div>
                                     </div>
-                                    <small class="has-text-grey">
-                                        {agent_type_str}
-                                        {if !date_str.is_empty() {
-                                            view! { <span>{format!(" \u{00B7} {}", date_str)}</span> }.into_any()
-                                        } else {
-                                            ().into_any()
-                                        }}
-                                    </small>
+                                    <div class="level-right">
+                                        <small class="has-text-grey conversation-date" data-conv-id={conv_id.to_string()}>
+                                            {date_str}
+                                        </small>
+                                    </div>
                                 </div>
                             </div>
                         }
@@ -117,7 +104,7 @@ pub fn ConversationList(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::db::schema::{AgentType, Conversation, RunStatus, TaskAgentRun};
+    use crate::db::schema::{Conversation, RunStatus, TaskAgentRun};
     use chrono::NaiveDateTime;
 
     fn make_conversation(id: uuid::Uuid, name: &str) -> Conversation {
@@ -133,11 +120,11 @@ mod tests {
         }
     }
 
-    fn make_run(conv_id: uuid::Uuid) -> TaskAgentRun {
+    fn make_run(conv_id: uuid::Uuid, agent_type: AgentType) -> TaskAgentRun {
         TaskAgentRun {
             id: uuid::Uuid::new_v4(),
             task_id: 1,
-            agent_type: AgentType::Implementation,
+            agent_type,
             status: RunStatus::Completed,
             conversation_id: Some(conv_id),
             created_at: NaiveDateTime::parse_from_str("2024-06-01 12:00:00", "%Y-%m-%d %H:%M:%S")
@@ -158,11 +145,27 @@ mod tests {
         let conv_id = uuid::Uuid::new_v4();
         let convs = vec![ConversationWithRun {
             conversation: make_conversation(conv_id, "Test Chat"),
-            run: Some(make_run(conv_id)),
+            run: Some(make_run(conv_id, AgentType::Implementation)),
         }];
         let html =
             leptos::view! { <ConversationList conversations=convs active_id=None /> }.to_html();
         assert!(html.contains("Test Chat"));
-        assert!(html.contains("Completed"));
+        assert!(html.contains("gpt-4"));
+        assert!(html.contains("data-conv-id"));
+        assert!(html.contains("mdi-code-tags"));
+        assert!(html.contains("level-left"));
+        assert!(html.contains("level-right"));
+    }
+
+    #[test]
+    fn test_conversation_list_default_icon_no_run() {
+        let conv_id = uuid::Uuid::new_v4();
+        let convs = vec![ConversationWithRun {
+            conversation: make_conversation(conv_id, "No Run Chat"),
+            run: None,
+        }];
+        let html =
+            leptos::view! { <ConversationList conversations=convs active_id=None /> }.to_html();
+        assert!(html.contains("mdi-chat-outline"));
     }
 }
