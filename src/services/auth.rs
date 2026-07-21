@@ -123,8 +123,6 @@ pub async fn handle_callback(
         .unwrap_or("")
         .to_string();
     let id_token = token_data["id_token"].as_str().map(|s| s.to_string());
-    let expires_in = token_data["expires_in"].as_i64().unwrap_or(3600);
-
     let (sub, username) = {
         let id_token = id_token.as_ref().ok_or_else(|| {
             ServerError::Internal("No id_token returned from provider; cannot authenticate".into())
@@ -159,9 +157,7 @@ pub async fn handle_callback(
     };
 
     let now = chrono::Utc::now().format("%Y-%m-%d %H:%M:%S").to_string();
-    let expires_at = (chrono::Utc::now() + chrono::Duration::seconds(expires_in as i64))
-        .format("%Y-%m-%d %H:%M:%S")
-        .to_string();
+    let expires_at = session_expires_at();
 
     let existing_user = find_user_by_oidc_sub(db, &sub).await?;
     let user_token_version = existing_user.as_ref().map(|u| u.token_version).unwrap_or(0);
@@ -185,11 +181,10 @@ pub async fn handle_callback(
         (id, false)
     };
 
-    let id_token_val = token_data["id_token"].as_str().map(|s| s.to_string());
     let session_id = Uuid::new_v4();
     db.execute(
         "INSERT INTO sessions (id, user_id, refresh_token, id_token, expires_at, created_at, token_version) VALUES ($1, $2, $3, $4, $5, $6, $7)",
-        hiqlite::params!(session_id.to_string(), user_id.to_string(), refresh_token, id_token_val, expires_at, now, user_token_version),
+        hiqlite::params!(session_id.to_string(), user_id.to_string(), refresh_token, id_token, expires_at, now, user_token_version),
     )
     .await
     .map_err(|e| ServerError::Internal(e.to_string()))?;
@@ -208,11 +203,6 @@ pub async fn refresh_access_token(
     let session = find_session(db, session_id)
         .await?
         .ok_or_else(|| ServerError::BadRequest("session not found or expired".into()))?;
-
-    let now = chrono::Utc::now().format("%Y-%m-%d %H:%M:%S").to_string();
-    if session.expires_at < now {
-        return Err(ServerError::BadRequest("session expired".into()));
-    }
 
     let refresh_body = format!(
         "grant_type=refresh_token&refresh_token={}&client_id={}{}",
@@ -246,6 +236,12 @@ pub async fn refresh_access_token(
             .await
             .map_err(|e| ServerError::Internal(e.to_string()))?;
         }
+        if error == "JwtToken" {
+            tracing::warn!("Token refresh rejected (transient): {error}");
+            return Err(ServerError::BadRequest(format!(
+                "token refresh rejected: {error}"
+            )));
+        }
         return Err(ServerError::Internal(format!(
             "token refresh rejected: {error}"
         )));
@@ -256,10 +252,7 @@ pub async fn refresh_access_token(
         .ok_or_else(|| ServerError::Internal("missing access_token".into()))?
         .to_string();
     let new_refresh_token = data["refresh_token"].as_str().unwrap_or("").to_string();
-    let expires_in = data["expires_in"].as_i64().unwrap_or(3600);
-    let new_expires_at = (chrono::Utc::now() + chrono::Duration::seconds(expires_in))
-        .format("%Y-%m-%d %H:%M:%S")
-        .to_string();
+    let new_expires_at = session_expires_at();
 
     db.execute(
         "UPDATE sessions SET refresh_token = $1, expires_at = $2 WHERE id = $3",
@@ -479,6 +472,12 @@ fn decode_jwt_payload(token: &str) -> Result<serde_json::Value, String> {
 
 pub fn urlencoding(s: &str) -> String {
     url::form_urlencoded::byte_serialize(s.as_bytes()).collect()
+}
+
+fn session_expires_at() -> String {
+    (chrono::Utc::now() + chrono::Duration::seconds(SESSION_DURATION.as_secs() as i64))
+        .format("%Y-%m-%d %H:%M:%S")
+        .to_string()
 }
 
 fn client_secret_param(client_secret: &Option<String>) -> String {
@@ -795,5 +794,104 @@ mod tests {
         assert_eq!(user.git_email, Some("jane@example.com".into()));
         assert!(user.is_technical);
         assert!(user.has_completed_onboarding);
+    }
+
+    #[test]
+    fn test_session_duration_is_30_days() {
+        assert_eq!(SESSION_DURATION.as_secs(), 30 * 24 * 3600);
+    }
+
+    #[tokio::test]
+    async fn test_refresh_access_token_passes_expired_session_gate() {
+        let (client, _tmp) = create_test_db().await;
+        let user_id = uuid::Uuid::new_v4();
+        let session_id = uuid::Uuid::new_v4();
+        let now = chrono::Utc::now().format("%Y-%m-%d %H:%M:%S").to_string();
+        let past = (chrono::Utc::now() - chrono::Duration::hours(1))
+            .format("%Y-%m-%d %H:%M:%S")
+            .to_string();
+
+        client
+            .execute(
+                "INSERT INTO users (id, username, oidc_subject, is_active, created_at, has_completed_onboarding, is_technical) VALUES ($1, $2, $3, 1, $4, 1, 0)",
+                hiqlite::params!(user_id.to_string(), "gatetest", "gate-sub", now.clone()),
+            )
+            .await
+            .unwrap();
+        client
+            .execute(
+                "INSERT INTO sessions (id, user_id, refresh_token, expires_at, created_at) VALUES ($1, $2, $3, $4, $5)",
+                hiqlite::params!(session_id.to_string(), user_id.to_string(), "test-refresh-token", past, now),
+            )
+            .await
+            .unwrap();
+
+        let oidc = OidcEndpoints {
+            authorization_endpoint: "http://127.0.0.1:1/auth".into(),
+            token_endpoint: "http://127.0.0.1:1/token".into(),
+            end_session_endpoint: None,
+            revocation_endpoint: None,
+            client_id: "test".into(),
+            client_secret: None,
+            redirect_uri: "http://127.0.0.1:1/callback".into(),
+            jwks_cache: None,
+            jwks_issuer: None,
+        };
+
+        let result = refresh_access_token(&client, &oidc, session_id).await;
+        if let Err(ServerError::BadRequest(msg)) = result {
+            assert!(
+                !msg.contains("session expired"),
+                "should not get 'session expired' — the gate was removed: {msg}"
+            );
+        }
+    }
+
+    #[tokio::test]
+    async fn test_jwttoken_error_does_not_delete_session() {
+        let (client, _tmp) = create_test_db().await;
+        let user_id = uuid::Uuid::new_v4();
+        let session_id = uuid::Uuid::new_v4();
+        let now = chrono::Utc::now().format("%Y-%m-%d %H:%M:%S").to_string();
+        let future = (chrono::Utc::now() + chrono::Duration::days(30))
+            .format("%Y-%m-%d %H:%M:%S")
+            .to_string();
+
+        client
+            .execute(
+                "INSERT INTO users (id, username, oidc_subject, is_active, created_at, has_completed_onboarding, is_technical) VALUES ($1, $2, $3, 1, $4, 1, 0)",
+                hiqlite::params!(user_id.to_string(), "jwttest", "jwt-sub", now.clone()),
+            )
+            .await
+            .unwrap();
+        client
+            .execute(
+                "INSERT INTO sessions (id, user_id, refresh_token, expires_at, created_at) VALUES ($1, $2, $3, $4, $5)",
+                hiqlite::params!(session_id.to_string(), user_id.to_string(), "test-refresh-token", future, now),
+            )
+            .await
+            .unwrap();
+
+        let oidc = OidcEndpoints {
+            authorization_endpoint: "http://127.0.0.1:1/auth".into(),
+            token_endpoint: "http://127.0.0.1:1/token".into(),
+            end_session_endpoint: None,
+            revocation_endpoint: None,
+            client_id: "test".into(),
+            client_secret: None,
+            redirect_uri: "http://127.0.0.1:1/callback".into(),
+            jwks_cache: None,
+            jwks_issuer: None,
+        };
+
+        let result = refresh_access_token(&client, &oidc, session_id).await;
+        assert!(result.is_err(), "should fail without OIDC provider");
+
+        // Verify the session still exists (JwtToken or any network error should not delete it)
+        let session = find_session(&client, session_id).await.unwrap();
+        assert!(
+            session.is_some(),
+            "session should not be deleted on transient errors"
+        );
     }
 }
