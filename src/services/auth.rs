@@ -840,14 +840,11 @@ mod tests {
         };
 
         let result = refresh_access_token(&client, &oidc, session_id).await;
-        match result {
-            Err(ServerError::BadRequest(msg)) => {
-                assert!(
-                    !msg.contains("session expired"),
-                    "should not get 'session expired' — the gate was removed: {msg}"
-                );
-            }
-            _ => {}
+        if let Err(ServerError::BadRequest(msg)) = result {
+            assert!(
+                !msg.contains("session expired"),
+                "should not get 'session expired' — the gate was removed: {msg}"
+            );
         }
     }
 
