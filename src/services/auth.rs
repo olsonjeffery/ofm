@@ -157,10 +157,7 @@ pub async fn handle_callback(
     };
 
     let now = chrono::Utc::now().format("%Y-%m-%d %H:%M:%S").to_string();
-    let expires_at = (chrono::Utc::now()
-        + chrono::Duration::seconds(SESSION_DURATION.as_secs() as i64))
-    .format("%Y-%m-%d %H:%M:%S")
-    .to_string();
+    let expires_at = session_expires_at();
 
     let existing_user = find_user_by_oidc_sub(db, &sub).await?;
     let user_token_version = existing_user.as_ref().map(|u| u.token_version).unwrap_or(0);
@@ -184,11 +181,10 @@ pub async fn handle_callback(
         (id, false)
     };
 
-    let id_token_val = token_data["id_token"].as_str().map(|s| s.to_string());
     let session_id = Uuid::new_v4();
     db.execute(
         "INSERT INTO sessions (id, user_id, refresh_token, id_token, expires_at, created_at, token_version) VALUES ($1, $2, $3, $4, $5, $6, $7)",
-        hiqlite::params!(session_id.to_string(), user_id.to_string(), refresh_token, id_token_val, expires_at, now, user_token_version),
+        hiqlite::params!(session_id.to_string(), user_id.to_string(), refresh_token, id_token, expires_at, now, user_token_version),
     )
     .await
     .map_err(|e| ServerError::Internal(e.to_string()))?;
@@ -256,10 +252,7 @@ pub async fn refresh_access_token(
         .ok_or_else(|| ServerError::Internal("missing access_token".into()))?
         .to_string();
     let new_refresh_token = data["refresh_token"].as_str().unwrap_or("").to_string();
-    let new_expires_at = (chrono::Utc::now()
-        + chrono::Duration::seconds(SESSION_DURATION.as_secs() as i64))
-    .format("%Y-%m-%d %H:%M:%S")
-    .to_string();
+    let new_expires_at = session_expires_at();
 
     db.execute(
         "UPDATE sessions SET refresh_token = $1, expires_at = $2 WHERE id = $3",
@@ -479,6 +472,12 @@ fn decode_jwt_payload(token: &str) -> Result<serde_json::Value, String> {
 
 pub fn urlencoding(s: &str) -> String {
     url::form_urlencoded::byte_serialize(s.as_bytes()).collect()
+}
+
+fn session_expires_at() -> String {
+    (chrono::Utc::now() + chrono::Duration::seconds(SESSION_DURATION.as_secs() as i64))
+        .format("%Y-%m-%d %H:%M:%S")
+        .to_string()
 }
 
 fn client_secret_param(client_secret: &Option<String>) -> String {
