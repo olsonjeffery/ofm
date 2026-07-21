@@ -363,7 +363,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     // each entry owns a child `opencode serve` subprocess that would
     // otherwise outlive ofm. Providers in `active_sessions` only hold
     // borrowed client handles (cheap `Arc` clones); their `shutdown()` is
-    // a noop that doesn't kill any subprocess. The pool is the唯一
+    // a noop that doesn't kill any subprocess. The pool is the sole
     // owner of the server processes.
     tracing::info!("Shutting down opencode server pool");
     opencode_sdk::pool::OpenCodeServerPool::instance()
