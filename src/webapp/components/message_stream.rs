@@ -58,33 +58,45 @@ fn maybe_collapse(content: &str, html_id: &str) -> String {
     if content.len() <= 200 {
         esc(content)
     } else {
+        let truncated_content = content.chars().take(200).collect::<String>();
+        let truncated_lines = truncated_content.lines().count();
+        let full_lines = content.lines().count();
+        let more_lines = full_lines - truncated_lines;
         format!(
-            r##"<span id="preview-{}">{}</span>
-                <span id="full-{}" style="display:none">{}</span>
-                <a href="#" id="btn-{}" class="show-more-btn" onclick="toggleShowMore('{}');return false">show more</a>
+            r##"<pre id="preview-{}">{}</pre>
+                <pre id="full-{}" style="display:none">{}</pre>
+                <a href="#" id="btn-{}" class="show-more-btn" onclick="toggleShowMoreLines('{}', {});return false">show {} more lines</a>
             "##,
             esc(html_id),
-            esc(&format!("{}…", &content[..200])),
+            esc(&format!("{}…", &truncated_content)),
             esc(html_id),
             esc(content),
             esc(html_id),
             esc(html_id),
+            more_lines.to_string(),
+            more_lines.to_string(),
         )
     }
 }
 
 fn maybe_collapse_md(content: &str, html_id: &str) -> String {
-    if content.len() <= 400 {
+    if content.len() <= 200 {
         render_markdown(content)
     } else {
+        let truncated_content = content.chars().take(200).collect::<String>();
+        let truncated_lines = truncated_content.lines().count();
+        let full_lines = content.lines().count();
+        let more_lines = full_lines - truncated_lines;
         format!(
-            r##"<span id="preview-{}">{}</span><a href="#" id="btn-{}" class="show-more-btn" onclick="toggleShowMore('{}');return false">show more</a><span id="full-{}" style="display:none">{}</span>"##,
+            r##"<span id="preview-{}">{}</span><span id="full-{}" style="display:none">{}</span><a href="#" id="btn-{}" class="show-more-btn" onclick="toggleShowMoreLines('{}', {});return false">show {} more lines</a>"##,
             esc(html_id),
-            render_markdown(&content[..400]),
+            render_markdown(&truncated_content),
+            esc(html_id),
+            render_markdown(content),
             esc(html_id),
             esc(html_id),
-            esc(html_id),
-            render_markdown(content)
+            more_lines.to_string(),
+            more_lines.to_string(),
         )
     }
 }
@@ -127,7 +139,7 @@ fn render_event(event: &ProviderEvent) -> String {
                 }
             }
             format!(
-                r#"<div class="message-tool"{}><span class="icon"><i class="mdi mdi-cog-outline"></i></span> <code>{}</code><pre>{}</pre></div>"#,
+                r#"<div class="message-tool"{}><span class="icon"><i class="mdi mdi-cog-outline"></i></span> <code>{}</code>{}</div>"#,
                 data_attrs,
                 esc(tool_name),
                 content
@@ -158,7 +170,7 @@ fn render_event(event: &ProviderEvent) -> String {
                 }
             }
             format!(
-                r#"<div class="message-tool"{}><span class="icon"><i class="mdi mdi-cog-outline"></i></span><pre>{}</pre></div>"#,
+                r#"<div class="message-tool"{}><span class="icon"><i class="mdi mdi-cog-outline"></i></span>{}</div>"#,
                 data_attrs, content
             )
         }

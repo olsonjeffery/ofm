@@ -136,6 +136,17 @@ document.addEventListener('DOMContentLoaded', function() {{
         return '<content class="content message-user">' + escapeHtml(text) + '</content>';
     }}
 
+    window.toggleShowMoreLines = function(id, linesCount) {{
+        var preview = document.getElementById('preview-' + id);
+        var full = document.getElementById('full-' + id);
+        var btn = document.getElementById('btn-' + id);
+        if (preview && full && btn) {{
+            var isHidden = full.style.display === 'none';
+            full.style.display = isHidden ? 'block' : 'none';
+            preview.style.display = isHidden ? 'none' : 'inline';
+            btn.textContent = isHidden ? 'show less' : 'show ' + linesCount + ' more lines';
+        }}
+    }};
     window.toggleShowMore = function(id) {{
         var preview = document.getElementById('preview-' + id);
         var full = document.getElementById('full-' + id);
