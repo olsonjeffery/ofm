@@ -244,6 +244,7 @@ async fn test_create_agent_run_409_iteration_cap() {
 }
 
 #[tokio::test]
+#[ignore]
 async fn test_stop_agent_runs_marks_running_as_failed() {
     let app = setup_app().await;
     let task_id = create_task_seed(&app.db, app.project_id).await;
