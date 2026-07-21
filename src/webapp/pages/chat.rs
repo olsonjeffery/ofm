@@ -52,6 +52,11 @@ document.addEventListener('DOMContentLoaded', function() {{
     // Periodic check to ensure pill visibility stays correct
     setInterval(updateJumpPill, 2000);
 
+    // Dedup state trackers
+    var collapseCounter = 0;
+    var renderedFingerprints = new Set();
+    var renderedToolCalls = {{}};
+
     // Stop agent
     window.stopAgent = function() {{
         if (!taskId) return;
@@ -92,6 +97,13 @@ document.addEventListener('DOMContentLoaded', function() {{
                 setProcessing(true);
                 var container = document.getElementById('message-stream');
                 if (container) {{
+                    // tool_result dedup: merge into existing tool_use entry
+                    if (msg.event_type === 'tool_result' && msg.payload.tool_use_id && renderedToolCalls[msg.payload.tool_use_id]) {{
+                        updateToolCallResult(msg.payload);
+                        if (isAtBottom) {{ scrollToBottom(); }}
+                        else {{ updateJumpPill(); }}
+                        return;
+                    }}
                     var eventHtml = renderServerEvent(msg);
                     if (eventHtml) {{
                         container.insertAdjacentHTML('beforeend', eventHtml);
@@ -103,19 +115,68 @@ document.addEventListener('DOMContentLoaded', function() {{
         }});
     }}
 
-    function userMsgHtml(text) {{
-        return '<content class="content message-user" style="display:block;background:#1565c0;color:#fff;padding:0.75rem;border-radius:6px;white-space:pre-wrap;max-width:33%;margin-left:auto">' + escapeHtml(text) + '</content>';
+    function nextCollapseId() {{
+        return 'c' + (collapseCounter++);
     }}
+
+    function maybeCollapse(content, id) {{
+        if (content.length <= 400) {{
+            return escapeHtml(content);
+        }}
+        return '<span id="preview-' + id + '">' + escapeHtml(content.substring(0, 400)) + '</span>' +
+               '<a href="#" id="btn-' + id + '" class="show-more-btn" onclick="toggleShowMore(\'' + id + '\');return false">show more</a>' +
+               '<span id="full-' + id + '" style="display:none">' + escapeHtml(content) + '</span>';
+    }}
+
+    function userMsgHtml(text) {{
+        return '<content class="content message-user">' + escapeHtml(text) + '</content>';
+    }}
+
+    window.toggleShowMore = function(id) {{
+        var preview = document.getElementById('preview-' + id);
+        var full = document.getElementById('full-' + id);
+        var btn = document.getElementById('btn-' + id);
+        if (preview && full && btn) {{
+            var isHidden = full.style.display === 'none';
+            full.style.display = isHidden ? 'block' : 'none';
+            preview.style.display = isHidden ? 'none' : 'inline';
+            btn.textContent = isHidden ? 'show less' : 'show more';
+        }}
+    }};
 
     function renderEvent(evt) {{
         switch (evt.type) {{
-            case 'text': return '<div class="box message-text"><div class="content">' + escapeHtml(evt.text) + '</div></div>';
-            case 'user_text': return userMsgHtml(evt.text);
-            case 'text_chunk': return '<span class="message-chunk">' + escapeHtml(evt.delta) + '</span>';
-            case 'tool_use': return renderToolUse({{ tool_name: evt.tool_name, tool_use_id: evt.tool_use_id, input: evt.input }});
-            case 'tool_result': return renderToolResult({{ tool_use_id: evt.tool_use_id, result: evt.result }});
-            case 'thinking': return '<div class="box message-thinking"><em style="color:#888;">' + escapeHtml(evt.thinking) + '</em></div>';
-            case 'thinking_chunk': return '<span style="color:#888;font-style:italic;">' + escapeHtml(evt.delta) + '</span>';
+            case 'text':
+                var textFp = 'text:' + evt.text;
+                if (renderedFingerprints.has(textFp)) return '';
+                renderedFingerprints.add(textFp);
+                var id = nextCollapseId();
+                var content = maybeCollapse(evt.text, id);
+                return '<div class="message-model"><div class="content">' + content + '</div></div>';
+            case 'user_text':
+                var utFp = 'user_text:' + evt.text;
+                if (renderedFingerprints.has(utFp)) return '';
+                renderedFingerprints.add(utFp);
+                return userMsgHtml(evt.text);
+            case 'text_chunk': return '';
+            case 'tool_use':
+                var toolId = evt.tool_use_id || '';
+                if (toolId && renderedToolCalls[toolId]) return '';
+                if (toolId) renderedToolCalls[toolId] = true;
+                return renderToolUse({{ tool_name: evt.tool_name, tool_use_id: toolId, input: evt.input }});
+            case 'tool_result':
+                var toolRId = evt.tool_use_id || '';
+                if (toolRId && renderedToolCalls[toolRId]) return '';
+                if (toolRId) renderedToolCalls[toolRId] = true;
+                return renderToolResult({{ tool_use_id: toolRId, result: evt.result }});
+            case 'thinking':
+                var thinkFp = 'thinking:' + evt.thinking;
+                if (renderedFingerprints.has(thinkFp)) return '';
+                renderedFingerprints.add(thinkFp);
+                var tid = nextCollapseId();
+                var tcontent = maybeCollapse(evt.thinking, tid);
+                return '<div class="message-thinking"><span class="icon"><i class="mdi mdi-snowflake-outline"></i></span>' + tcontent + '</div>';
+            case 'thinking_chunk': return '';
             case 'context_usage': return '<div class="notification is-light is-small">' + escapeHtml(JSON.stringify(evt.usage)) + '</div>';
             case 'error': return '<div class="notification is-danger is-light">' + escapeHtml(evt.error) + '</div>';
             case 'question_asked':
@@ -145,23 +206,37 @@ document.addEventListener('DOMContentLoaded', function() {{
             case 'start':
             case 'extension_ui_request':
             case 'available_commands_update': return '';
-            case 'user_text': return userMsgHtml(msg.payload.text || '');
-            case 'text': return '<div class="box message-text"><div class="content">' + escapeHtml(msg.payload.text || '') + '</div></div>';
-            case 'text_chunk':
-                if (msg.payload.delta) {{
-                    setProcessing(true);
-                    return '<span class="message-chunk">' + escapeHtml(msg.payload.delta) + '</span>';
-                }}
-                return '';
-            case 'tool_use': return renderToolUse(msg.payload);
-            case 'tool_result': return renderToolResult(msg.payload);
-            case 'thinking': return '<div class="box message-thinking"><em style="color:#888;">' + escapeHtml(msg.payload.thinking || '') + '</em></div>';
-            case 'thinking_chunk':
-                if (msg.payload.delta) {{
-                    setProcessing(true);
-                    return '<span style="color:#888;font-style:italic;">' + escapeHtml(msg.payload.delta) + '</span>';
-                }}
-                return '';
+            case 'user_text':
+                var utFp = 'user_text:' + (msg.payload.text || '');
+                if (renderedFingerprints.has(utFp)) return '';
+                renderedFingerprints.add(utFp);
+                return userMsgHtml(msg.payload.text || '');
+            case 'text':
+                var textFp = 'text:' + (msg.payload.text || '');
+                if (renderedFingerprints.has(textFp)) return '';
+                renderedFingerprints.add(textFp);
+                var id = nextCollapseId();
+                var content = maybeCollapse(msg.payload.text || '', id);
+                return '<div class="message-model"><div class="content">' + content + '</div></div>';
+            case 'text_chunk': return '';
+            case 'tool_use':
+                var tId = msg.payload.tool_use_id || '';
+                if (tId && renderedToolCalls[tId]) return '';
+                if (tId) renderedToolCalls[tId] = true;
+                return renderToolUse(msg.payload);
+            case 'tool_result':
+                var trId = msg.payload.tool_use_id || '';
+                if (trId && renderedToolCalls[trId]) return '';
+                if (trId) renderedToolCalls[trId] = true;
+                return renderToolResult(msg.payload);
+            case 'thinking':
+                var thinkFp = 'thinking:' + (msg.payload.thinking || '');
+                if (renderedFingerprints.has(thinkFp)) return '';
+                renderedFingerprints.add(thinkFp);
+                var tid = nextCollapseId();
+                var tcontent = maybeCollapse(msg.payload.thinking || '', tid);
+                return '<div class="message-thinking"><span class="icon"><i class="mdi mdi-snowflake-outline"></i></span>' + tcontent + '</div>';
+            case 'thinking_chunk': return '';
             case 'context_usage': return '<div class="notification is-light is-small">' + escapeHtml(JSON.stringify(msg.payload.usage || {{}})) + '</div>';
             case 'error':
                 setProcessing(false);
@@ -188,34 +263,41 @@ document.addEventListener('DOMContentLoaded', function() {{
         }}
     }}
 
+    function updateToolCallResult(payload) {{
+        var toolId = escapeHtml(payload.tool_use_id || '');
+        var el = document.querySelector('.message-tool[data-tool-use-id="' + toolId + '"]');
+        if (!el) return;
+        var contentDiv = el.querySelector('.tool-content');
+        if (contentDiv) {{
+            var result = payload.result || '';
+            var collapseId = toolId;
+            var resultContent = maybeCollapse(result, collapseId);
+            contentDiv.innerHTML += '<hr>' + resultContent;
+        }}
+    }}
+
     function renderToolUse(payload) {{
         var toolName = escapeHtml(payload.tool_name || 'unknown');
         var toolId = escapeHtml(payload.tool_use_id || '');
-        var inputStr = escapeHtml(JSON.stringify(payload.input, null, 2));
-        return '<div class="card"><div class="card-content"><span class="tag is-info is-light">' + toolName + '</span><code>' + toolId + '</code><div id="tool-input-' + toolId + '" class="tool-input-box" style="margin-top:0.25rem"><pre style="white-space:pre-wrap;word-break:break-word;overflow-wrap:break-word;max-width:100%">' + inputStr + '</pre></div></div></div>';
+        var inputStr = JSON.stringify(payload.input, null, 2);
+        var collapseId = toolId || nextCollapseId();
+        var inputContent = maybeCollapse(inputStr, collapseId);
+        var dataAttr = toolId ? ' data-tool-use-id="' + toolId + '"' : '';
+        return '<div class="message-tool"' + dataAttr + '>' +
+            '<span class="icon"><i class="mdi mdi-cog-outline"></i></span> <code>' + toolName + '</code>' +
+            '<div class="tool-content" style="white-space:pre-wrap;word-break:break-word;overflow-wrap:break-word;max-width:100%">' + inputContent + '</div></div>';
     }}
 
     function renderToolResult(payload) {{
         var toolId = escapeHtml(payload.tool_use_id || '');
         var result = payload.result || '';
-        var truncated = result.length > 100;
-        var displayText = truncated ? escapeHtml(result.substring(0, 100)) + '...' : escapeHtml(result);
-        var extra = truncated ? '<a href="#" class="toggle-result" data-tool-id="' + toolId + '" onclick="toggleResult(this);return false">show more</a>' : '';
-        var fullContent = truncated ? '<div class="tool-result-full" id="result-full-' + toolId + '" style="display:none"><pre style="white-space:pre-wrap;word-break:break-word;overflow-wrap:break-word;max-width:100%">' + escapeHtml(result) + '</pre></div>' : '';
-        return '<div class="card"><div class="card-content"><span class="tag is-success is-light">result</span><code>' + toolId + '</code><pre class="tool-result-preview" id="result-preview-' + toolId + '" style="white-space:pre-wrap;word-break:break-word;overflow-wrap:break-word;max-width:100%">' + displayText + '</pre>' + extra + fullContent + '</div></div>';
+        var collapseId = toolId || nextCollapseId();
+        var resultContent = maybeCollapse(result, collapseId);
+        var dataAttr = toolId ? ' data-tool-use-id="' + toolId + '"' : '';
+        return '<div class="message-tool"' + dataAttr + '>' +
+            '<span class="icon"><i class="mdi mdi-cog-outline"></i></span>' +
+            '<div class="tool-content" style="white-space:pre-wrap;word-break:break-word;overflow-wrap:break-word;max-width:100%">' + resultContent + '</div></div>';
     }}
-
-    window.toggleResult = function(el) {{
-        var toolId = el.getAttribute('data-tool-id');
-        var preview = document.getElementById('result-preview-' + toolId);
-        var full = document.getElementById('result-full-' + toolId);
-        if (preview && full) {{
-            var isHidden = full.style.display === 'none';
-            full.style.display = isHidden ? 'block' : 'none';
-            preview.style.display = isHidden ? 'none' : 'block';
-            el.textContent = isHidden ? 'show less' : 'show more';
-        }}
-    }};
 
     function escapeHtml(str) {{
         if (!str) return '';

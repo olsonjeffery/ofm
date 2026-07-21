@@ -232,6 +232,31 @@ break.
 | Context-usage UI | `reference/src/components/ChatInterface.tsx`, `reference/src/components/ContextDetailModal.tsx` |
 | Capability matrix (gates images + breakdown) | `reference/shared/providers/capabilities.ts` |
 
+## Message stream styling
+
+The conversation message stream applies distinct visual styling per content type, enforced via CSS classes in `src/webapp/styles/app.css` (both SSR and JS rendering paths produce identical HTML):
+
+| Content Type | CSS Class | Icon | Theme |
+|---|---|---|---|
+| Model statement | `.message-model` | None | Default text, semi-bold (600) |
+| Thinking | `.message-thinking` | `mdi-snowflake-outline` | Purple background/border/text |
+| Tool usage | `.message-tool` | `mdi-cog-outline` | Gray background/border/text |
+| User input | `.message-user` | None | Blue (#1565c0) background, white text, right-aligned, 33% max-width |
+
+**Show More/Less** — any box with content exceeding 400 characters renders in a collapsed state:
+- A truncated preview (first 400 chars) is shown by default.
+- A right-aligned `.show-more-btn` link toggles display of the full content via `toggleShowMore(id)`.
+- Clicking the button switches between "show more" and "show less" text.
+
+**Chunk suppression** — `TextChunk` and `ThinkingChunk` events are silently dropped in both SSR (`message_stream.rs` `render_event`) and JS (`renderEvent`/`renderServerEvent`) rendering paths. Only final `Text` / `Thinking` events appear in the stream.
+
+**Client-side deduplication** — JS in `chat.rs` maintains a `renderedFingerprints` Set and `renderedToolCalls` map:
+- `user_text`: keyed by `"user_text:" + text`, skipped if already rendered.
+- `text`: keyed by `"text:" + text`, skipped if duplicate.
+- `thinking`: keyed by `"thinking:" + thinking`, skipped if duplicate.
+- `tool_use`: keyed by `tool_use_id`, first render stores the entry; subsequent `tool_result` with same `tool_use_id` updates the existing DOM element in-place (merging result into the tool content div).
+- `tool_result` with no matching `tool_use_id` renders as a standalone `.message-tool` entry.
+
 ## Boundaries (not in this spec)
 
 - The conversation runtime that these hook into — streaming, transcript
