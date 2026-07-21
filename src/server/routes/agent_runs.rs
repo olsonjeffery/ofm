@@ -131,9 +131,7 @@ async fn post_create_agent_run(
     );
 
     // Start and store provider, then begin turn
-    match registry::resolve_provider(&harness_config, std::path::Path::new("omp"), &config_root)
-        .await
-    {
+    match registry::resolve_provider_for_user(&harness_config, &config_root, task.user_id).await {
         Ok(mut provider) => {
             let working_dir = std::path::Path::new("/tmp");
             match provider.start(working_dir).await {
@@ -324,14 +322,19 @@ async fn post_create_agent_run(
                                 }
 
                                 if !completed_normally.load(Ordering::SeqCst) {
-                                    // Remove provider from active_sessions and shut it down
-                                    let provider_to_shutdown = {
-                                        let mut sessions = active_sessions_for_guard.lock().await;
-                                        sessions.remove(&conversation_id.to_string())
-                                    };
-                                    if let Some(mut p) = provider_to_shutdown {
-                                        if let Err(e) = p.shutdown().await {
-                                            tracing::warn!(conversation_id = %conversation_id, "Error shutting down provider in broadcast cleanup: {e}");
+                                    // Abort the in-flight turn without killing the
+                                    // pooled opencode server. The provider stays in
+                                    // `active_sessions` so the user can resume
+                                    // the conversation; the underlying server is
+                                    // reaped by the idle-reaper or process-exit
+                                    // cleanup in `src/main.rs`.
+                                    {
+                                        let sessions = active_sessions_for_guard.lock().await;
+                                        if let Some(p) = sessions.get(&conversation_id.to_string())
+                                        {
+                                            if let Err(e) = p.abort_turn().await {
+                                                tracing::warn!(conversation_id = %conversation_id, "Error aborting provider in broadcast cleanup: {e}");
+                                            }
                                         }
                                     }
 
@@ -419,11 +422,14 @@ async fn reset_agent_runs(
 
     tracing::info!(task_id = %task_id, "Resetting agent runs for task");
 
-    // Get conversation IDs for this task's agent runs
+    // Get conversation IDs for this task's agent runs — include ALL
+    // conversations (not just running ones) so that lazily-recreated
+    // providers (which may not have a corresponding running agent run)
+    // are also caught and shut down.
     let conv_ids: Vec<String> = state
         .db
         .query_raw(
-            "SELECT conversation_id FROM task_agent_runs WHERE task_id = $1 AND status = 'running' AND conversation_id IS NOT NULL",
+            "SELECT DISTINCT conversation_id FROM task_agent_runs WHERE task_id = $1 AND conversation_id IS NOT NULL",
             hiqlite::params!(task_id),
         )
         .await
@@ -441,22 +447,36 @@ async fn reset_agent_runs(
         "Found active sessions to reset"
     );
 
-    // Only clear sessions for this task's conversations
-    let mut providers_to_shutdown = Vec::new();
+    // Abort any in-flight turn on matching providers WITHOUT shutting down
+    // the underlying opencode server. This mirrors the reference
+    // implementation's `abortTurn` (see
+    // `spec/reference/server/services/providers/opencode/index.ts`): the
+    // server is persistent across Stop Agent / turn completion so the
+    // session_id stored in the DB remains valid for a subsequent resume.
+    // The server is only killed when the ofm process exits (see the
+    // signal handlers in `src/main.rs`).
+    //
+    // abort_turn is fast: it flips a cancellation flag and fires a
+    // best-effort HTTP POST. The lock is held briefly for the abort
+    // sequence only.
     {
-        let mut sessions = state.active_sessions.lock().await;
+        let sessions = state.active_sessions.lock().await;
         for conv_id in &conv_ids {
-            if let Some(provider) = sessions.remove(conv_id) {
-                providers_to_shutdown.push(provider);
-                tracing::debug!(task_id = %task_id, conversation_id = %conv_id, "Removed session from active_sessions");
+            if let Some(provider) = sessions.get(conv_id) {
+                tracing::debug!(
+                    task_id = %task_id,
+                    conversation_id = %conv_id,
+                    "Aborting in-flight turn for Stop Agent"
+                );
+                if let Err(e) = provider.abort_turn().await {
+                    tracing::warn!(
+                        task_id = %task_id,
+                        conversation_id = %conv_id,
+                        error = %e,
+                        "Error aborting turn during reset"
+                    );
+                }
             }
-        }
-    }
-
-    // Shutdown the removed providers
-    for mut p in providers_to_shutdown {
-        if let Err(e) = p.shutdown().await {
-            tracing::warn!(task_id = %task_id, error = %e, "Error shutting down provider during reset");
         }
     }
 

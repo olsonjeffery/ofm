@@ -1,4 +1,3 @@
-use std::os::unix::process::CommandExt;
 use std::path::PathBuf;
 use std::time::Duration;
 
@@ -60,22 +59,14 @@ impl OpenCodeServer {
 
     pub async fn shutdown(&mut self) -> Result<bool, SdkError> {
         let pid = self.child.id();
+        // Close stdin to signal the process, then kill + wait to reap it.
         let _ = self.child.stdin.take();
         let _ = self.child.kill();
         let _ = self.child.wait();
 
-        let _ = std::process::Command::new("kill")
-            .arg("-9")
-            .arg(format!("-{}", pid))
-            .status();
-
-        let _ = std::process::Command::new("sh")
-            .arg("-c")
-            .arg(format!(
-                "ps --ppid {pid} -o pid= 2>/dev/null | xargs kill -9 2>/dev/null; true"
-            ))
-            .status();
-
+        // Port-probe to confirm the subprocess is no longer listening. This
+        // is a best-effort check — the port may be released slightly after
+        // wait() returns, so we use a short timeout.
         let addr = format!("{}:{}", self.hostname, self.port);
         let probe = tokio::time::timeout(
             Duration::from_millis(500),
@@ -114,14 +105,9 @@ impl OpenCodeServer {
 
 impl Drop for OpenCodeServer {
     fn drop(&mut self) {
-        let pid = self.child.id();
         let _ = self.child.stdin.take();
         let _ = self.child.kill();
         let _ = self.child.wait();
-        let _ = std::process::Command::new("kill")
-            .arg("-9")
-            .arg(format!("-{}", pid))
-            .status();
     }
 }
 
@@ -170,8 +156,16 @@ pub async fn create_opencode_server(options: ServerOptions) -> Result<OpenCodeSe
         .env("OPENCODE_CONFIG", &config_path)
         .env("OPENCODE_SERVER_PASSWORD", &password)
         .stdout(std::process::Stdio::null())
-        .stderr(std::process::Stdio::inherit())
-        .process_group(0);
+        .stderr(std::process::Stdio::inherit());
+
+    // Put the child in its own process group so it survives a Ctrl-C
+    // delivered to the ofm process group, and so we can clean it up
+    // independently.  This is a unix-only feature.
+    #[cfg(unix)]
+    {
+        use std::os::unix::process::CommandExt;
+        cmd.process_group(0);
+    }
     if let Some(dir) = &options.working_dir {
         cmd.current_dir(dir);
     }

@@ -17,10 +17,9 @@ pub async fn one_running_per_task(client: &Client, task_id: i64) -> Result<(), S
 
 pub fn iteration_cap(task: &Task) -> Result<(), ServerError> {
     if task.workflow_run_count >= MAX_WORKFLOW_RUNS {
-        Err(ServerError::Conflict("max iterations reached".into()))
-    } else {
-        Ok(())
+        return Err(ServerError::Conflict("max iterations reached".into()));
     }
+    Ok(())
 }
 
 #[cfg(test)]

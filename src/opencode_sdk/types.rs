@@ -1,10 +1,19 @@
 use serde::{Deserialize, Serialize};
 
 // ── Global Event ──────────────────────────────────────────────────────────
+//
+// The opencode server emits SSE events as flat JSON objects:
+//   {"id":"evt_...","type":"session.idle","properties":{"sessionID":"s1"}}
+//
+// The `id` is an SSE event identifier (optional, used for reconnection).
+// The `type` and `properties` fields are flattened into the `Event` enum
+// via serde's flatten attribute.
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct GlobalEvent {
-    pub directory: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub id: Option<String>,
+    #[serde(flatten)]
     pub payload: Event,
 }
 
@@ -158,7 +167,29 @@ pub struct SessionUpdatedData {
 pub struct SessionErrorData {
     #[serde(rename = "sessionID")]
     pub session_id: String,
-    pub error: String,
+    /// The opencode server sends this as a nested object
+    /// `{"name":"UnknownError","data":{"message":"..."}}` but some
+    /// older paths may send a plain string. We accept both.
+    pub error: serde_json::Value,
+}
+
+impl SessionErrorData {
+    /// Extract a human-readable error message from the `error` field,
+    /// handling both the nested-object and plain-string formats.
+    pub fn error_message(&self) -> String {
+        if let Some(s) = self.error.as_str() {
+            return s.to_string();
+        }
+        if let Some(data) = self.error.get("data") {
+            if let Some(msg) = data.get("message").and_then(|m| m.as_str()) {
+                return msg.to_string();
+            }
+        }
+        if let Some(name) = self.error.get("name").and_then(|n| n.as_str()) {
+            return name.to_string();
+        }
+        self.error.to_string()
+    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -260,7 +291,10 @@ pub struct UserMessage {
     pub id: String,
     #[serde(rename = "sessionID")]
     pub session_id: String,
-    pub time: String,
+    /// The opencode server sends `time` as `{"created": 1784579380826}`
+    /// but some older paths may send a plain string. Accept both.
+    #[serde(default)]
+    pub time: serde_json::Value,
     pub agent: String,
     #[serde(default)]
     pub model: Option<String>,
@@ -276,7 +310,10 @@ pub struct AssistantMessage {
     pub id: String,
     #[serde(rename = "sessionID")]
     pub session_id: String,
-    pub time: String,
+    /// The opencode server sends `time` as `{"created": 1784579380826}`
+    /// but some older paths may send a plain string. Accept both.
+    #[serde(default)]
+    pub time: serde_json::Value,
     #[serde(default)]
     pub error: Option<String>,
     #[serde(rename = "parentID")]
@@ -598,7 +635,15 @@ mod tests {
     use super::*;
 
     fn global_event(payload: &str) -> String {
-        format!(r#"{{"directory":"/tmp","payload":{payload}}}"#)
+        // The real opencode SSE format is a flat JSON object with `id`,
+        // `type`, and `properties` at the top level. We construct it by
+        // merging `payload` (which is already `{type, properties}`) with
+        // an `id` field.
+        let mut v: serde_json::Value = serde_json::from_str(payload).unwrap();
+        if let Some(obj) = v.as_object_mut() {
+            obj.insert("id".to_string(), serde_json::json!("evt_test"));
+        }
+        serde_json::to_string(&v).unwrap()
     }
 
     fn parse_event(json: &str) -> Event {
@@ -753,7 +798,7 @@ mod tests {
         match event {
             Event::SessionError(data) => {
                 assert_eq!(data.session_id, "sess1");
-                assert_eq!(data.error, "something went wrong");
+                assert_eq!(data.error_message(), "something went wrong");
             }
             _ => panic!("expected SessionError"),
         }
@@ -1390,15 +1435,15 @@ mod tests {
 
     #[test]
     fn test_opencode_sdk_global_event_roundtrip() {
-        let json = r#"{"directory":"/tmp","payload":{"type":"session.idle","properties":{"sessionID":"s1"}}}"#;
+        let json = r#"{"id":"evt_test","type":"session.idle","properties":{"sessionID":"s1"}}"#;
         let ge: GlobalEvent = serde_json::from_str(json).unwrap();
-        assert_eq!(ge.directory, "/tmp");
+        assert_eq!(ge.id.as_deref(), Some("evt_test"));
         match &ge.payload {
             Event::SessionIdle(data) => assert_eq!(data.session_id, "s1"),
             _ => panic!("expected SessionIdle"),
         }
         let re = serde_json::to_string(&ge).unwrap();
         let ge2: GlobalEvent = serde_json::from_str(&re).unwrap();
-        assert_eq!(ge2.directory, ge.directory);
+        assert_eq!(ge2.id, ge.id);
     }
 }

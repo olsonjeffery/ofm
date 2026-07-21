@@ -61,10 +61,9 @@ or needed user intervention to get a coding agent back on-track
 
 - All prompts can be changed on a global, per-project and/or per-user
 basis
-- A choice between [`oh-my-pi`][0] and [`opencode`][17] (two open-source, multi-provider
-capable coding agent harnesses) allows the user to use different approaches where
-warranted
-- The user _owns_ the local installations of the coding agents, so they can customize
+- The [`opencode`][17] open-source, multi-provider capable coding agent harness
+is the built-in provider
+- The user _owns_ the local installations of the coding agent, so they can customize
 then with whatever skills, safeguards, etc are appropriate for the user case or
 organizational requirements; This avenue of customization provides a positive feedback
 loop into the Capability attribute
@@ -238,16 +237,14 @@ to the specification) happen through refining & extending the [`ofm` spec][11].
 
 ### Vouching
 
-`ofm` uses the same **vouching** scheme as `oh-my-pi`. See [CONTRIBUTING.md](./CONTRIBUTING.md)
+`ofm` uses a **vouching** scheme for contributions. See [CONTRIBUTING.md](./CONTRIBUTING.md)
 for details.
 
-[0]: https://omp.sh
 [1]: https://ghuntley.com/loop/
 [2]: https://vdaubry/bottega
 [3]: https://www.leptos.dev/
 [4]: https://github.com/tokio-rs/axum
 [5]: https://github.com/sebadob/rauthy
-[6]: https://github.com/can1357/oh-my-pi/tree/main/packages/mnemopi
 [7]: https://rust-lang.org/
 [8]: https://systemd.io/
 [9]: https://github.com/vdaubry/bottega/blob/main/extra/auth-and-multi-user.md
@@ -256,7 +253,7 @@ for details.
 [12]: ./LICENSE
 [13]: https://github.com/vdaubry/bottega/blob/main/SPEC.md
 [14]: https://vdaubry.github.io/bottega-launch/
-[15]: https://omp.sh/docs/providers
+
 [16]: https://github.com/rtk-ai/rtk
 [17]: https://opencode.ai
 [18]: https://github.com/ZaxbyHub/opencode-swarm/

@@ -141,16 +141,9 @@ async fn list_provider_config_files(
         .map_err(|e| ServerError::Internal(e.to_string()))?;
     let files: Vec<ProviderConfigFile> = names
         .into_iter()
-        .map(|name| {
-            let harness = if name.ends_with(".yaml") || name.ends_with(".yml") {
-                "oh-my-pi"
-            } else {
-                "opencode"
-            };
-            ProviderConfigFile {
-                name,
-                harness: harness.to_string(),
-            }
+        .map(|name| ProviderConfigFile {
+            harness: "opencode".to_string(),
+            name,
         })
         .collect();
     Ok(Json(files))
