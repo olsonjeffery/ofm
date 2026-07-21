@@ -7,6 +7,7 @@ use ofm::server::ws::bus::BroadcastBus;
 
 use std::collections::HashMap;
 use std::sync::Arc;
+use std::time::Duration;
 use tempfile::TempDir;
 use tokio::sync::Mutex;
 use uuid::Uuid;
@@ -269,6 +270,7 @@ async fn test_stop_agent_runs_marks_running_as_failed() {
         .await
         .unwrap();
     assert_eq!(resp.status(), 200);
+    let _ = tokio::time::sleep(Duration::from_secs(5)).await;
 
     // Verify the run is now marked as failed
     let resp = client()
