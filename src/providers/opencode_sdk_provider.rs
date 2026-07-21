@@ -105,7 +105,9 @@ impl OpenCodeSdkProvider {
     /// Internal: spawn a transient server+client pair for one-shot
     /// operations (`get_models_list`, `one_shot_prompt`). The server is
     /// shut down within the caller; it does NOT participate in the pool.
-    async fn spawn_transient(&self) -> Result<(OpencodeClient, opencode_sdk::OpenCodeServer), ProviderError> {
+    async fn spawn_transient(
+        &self,
+    ) -> Result<(OpencodeClient, opencode_sdk::OpenCodeServer), ProviderError> {
         let server_config = self.build_server_config();
         let options = ServerOptions {
             config: Some(server_config),
@@ -408,7 +410,8 @@ impl LlmProvider for OpenCodeSdkProvider {
         // that fire immediately when the prompt is queued on the server.
         let rx = self.subscribe_and_spawn(&client, &session_id).await?;
 
-        let body = self.build_prompt_body(&prompt, self.config.model.as_deref().unwrap_or("default"));
+        let body =
+            self.build_prompt_body(&prompt, self.config.model.as_deref().unwrap_or("default"));
         tracing::info!(
             session_id = %session_id,
             "resume_turn: dispatching prompt_async"

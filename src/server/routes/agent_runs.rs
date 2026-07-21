@@ -330,7 +330,8 @@ async fn post_create_agent_run(
                                     // cleanup in `src/main.rs`.
                                     {
                                         let sessions = active_sessions_for_guard.lock().await;
-                                        if let Some(p) = sessions.get(&conversation_id.to_string()) {
+                                        if let Some(p) = sessions.get(&conversation_id.to_string())
+                                        {
                                             if let Err(e) = p.abort_turn().await {
                                                 tracing::warn!(conversation_id = %conversation_id, "Error aborting provider in broadcast cleanup: {e}");
                                             }

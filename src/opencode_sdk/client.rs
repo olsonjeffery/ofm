@@ -319,8 +319,7 @@ impl EventStreamCancellation {
 }
 
 type SseByteStream = Pin<Box<dyn Stream<Item = Result<Bytes, reqwest::Error>> + Send>>;
-type ReconnectFut =
-    Pin<Box<dyn Future<Output = Result<reqwest::Response, reqwest::Error>> + Send>>;
+type ReconnectFut = Pin<Box<dyn Future<Output = Result<reqwest::Response, reqwest::Error>> + Send>>;
 
 pub struct EventStream {
     stream: Option<SseByteStream>,

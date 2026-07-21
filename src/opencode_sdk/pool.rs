@@ -101,7 +101,9 @@ impl OpenCodeServerPool {
         if let Some(client) = pending_guard.as_ref() {
             return Ok(client.clone());
         }
-        let client = self.spawn_entry(user_id, harness_config, config_root).await?;
+        let client = self
+            .spawn_entry(user_id, harness_config, config_root)
+            .await?;
         *pending_guard = Some(client.clone());
         self.pending.lock().await.remove(&user_id);
         Ok(client)
@@ -163,8 +165,7 @@ impl OpenCodeServerPool {
     ) -> Result<OpencodeClient, crate::providers::ProviderError> {
         // Build the server config from the harness config's provider
         // snippet (loaded from disk by the provider at construction time).
-        let provider_config_dir =
-            crate::providers::config::ProviderConfigDir::new(config_root);
+        let provider_config_dir = crate::providers::config::ProviderConfigDir::new(config_root);
         let provider_cfg = provider_config_dir
             .load_provider_config(&harness_config.provider_config_ref)
             .map_err(|e| crate::providers::ProviderError::Config(e.to_string()))?;
@@ -194,8 +195,7 @@ impl OpenCodeServerPool {
     pub fn start_reaper(idle_timeout: Duration, reap_interval: Duration) {
         let pool = Self::instance();
         tokio::spawn(async move {
-            let mut ticker =
-                tokio::time::interval(reap_interval);
+            let mut ticker = tokio::time::interval(reap_interval);
             ticker.tick().await; // skip the first (immediate) tick
             loop {
                 ticker.tick().await;

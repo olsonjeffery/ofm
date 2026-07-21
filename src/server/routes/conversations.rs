@@ -340,9 +340,12 @@ async fn send_message(
             })?;
 
             let config_root = PathBuf::from(&state.config_root);
-            let mut provider = registry::resolve_provider_for_user(&harness_config, &config_root, task.user_id)
-                .await
-                .map_err(|e| ServerError::Internal(format!("Failed to resolve provider: {e}")))?;
+            let mut provider =
+                registry::resolve_provider_for_user(&harness_config, &config_root, task.user_id)
+                    .await
+                    .map_err(|e| {
+                        ServerError::Internal(format!("Failed to resolve provider: {e}"))
+                    })?;
 
             let worktree = tasks::get_worktree_by_task(&state.db, task_id).await.ok();
             let working_dir = worktree
