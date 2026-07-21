@@ -272,14 +272,18 @@ async fn send_message(
                 }
 
                 if !completed_normally.load(Ordering::SeqCst) {
-                    // Remove provider from active_sessions and shut it down
-                    let provider_to_shutdown = {
-                        let mut sessions = active_sessions_for_guard.lock().await;
-                        sessions.remove(&c_id.to_string())
-                    };
-                    if let Some(mut p) = provider_to_shutdown {
-                        if let Err(e) = p.shutdown().await {
-                            tracing::warn!(conversation_id = %c_id, "Error shutting down provider in broadcast cleanup: {e}");
+                    // Abort the in-flight turn without killing the pooled
+                    // opencode server. The provider stays in
+                    // `active_sessions` so the user can resume the
+                    // conversation; the underlying server is reaped by
+                    // the idle-reaper or process-exit cleanup in
+                    // `src/main.rs`.
+                    {
+                        let sessions = active_sessions_for_guard.lock().await;
+                        if let Some(p) = sessions.get(&c_id.to_string()) {
+                            if let Err(e) = p.abort_turn().await {
+                                tracing::warn!(conversation_id = %c_id, "Error aborting provider in broadcast cleanup: {e}");
+                            }
                         }
                     }
 
@@ -336,7 +340,7 @@ async fn send_message(
             })?;
 
             let config_root = PathBuf::from(&state.config_root);
-            let mut provider = registry::resolve_provider(&harness_config, &config_root)
+            let mut provider = registry::resolve_provider_for_user(&harness_config, &config_root, task.user_id)
                 .await
                 .map_err(|e| ServerError::Internal(format!("Failed to resolve provider: {e}")))?;
 

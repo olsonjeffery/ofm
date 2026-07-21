@@ -29,6 +29,24 @@ pub async fn resolve_provider(
     }
 }
 
+/// Resolve a provider and tag it with the calling user's id. The user_id
+/// is used by `OpenCodeSdkProvider` to key the per-user server pool
+/// (see `src/opencode_sdk/pool.rs`).
+pub async fn resolve_provider_for_user(
+    config: &HarnessConfig,
+    config_root: &Path,
+    user_id: Uuid,
+) -> Result<Box<dyn LlmProvider>, ProviderError> {
+    match config.harness.as_str() {
+        "opencode" => {
+            let p = OpenCodeSdkProvider::new(config, config_root).await?;
+            p.set_user_id(user_id);
+            Ok(Box::new(p) as Box<dyn LlmProvider>)
+        }
+        other => Err(ProviderError::Protocol(format!("unknown harness: {other}"))),
+    }
+}
+
 pub async fn resolve_harness_config(
     db: &Client,
     agent_type: &AgentType,

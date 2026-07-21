@@ -22,59 +22,88 @@ the sole built-in provider harness for `ofm`.
 
 ## Subprocess lifecycle
 
-### Spawning
+### Per-user server pool
 
-The provider delegates subprocess spawning to the SDK's
-`opencode_sdk::create_opencode()` function, which handles finding the
-`opencode` binary on `$PATH` via `which`, spawning it with `opencode serve`,
-and waiting for a healthy state before returning:
+The reference implementation (see
+`spec/reference/server/services/openCodeServerPool.ts`) pools opencode
+servers **per user** — every conversation for a user shares one
+`opencode serve` subprocess. This keeps the session_id stored on the
+conversation row valid across Stop Agent / turn completion / new
+turns, because the session lives on the shared server.
+
+`ofm` mirrors this design with [`OpenCodeServerPool`] in
+`src/opencode_sdk/pool.rs`. The pool is a process-wide singleton
+(accessed via `OpenCodeServerPool::instance()`) keyed by `user_id`. Each
+entry owns a running `opencode serve` subprocess and an `OpencodeClient`
+handle. Callers go through `get_or_spawn(user_id, harness_config,
+config_root)` — never spawn directly.
 
 ```rust
-let options = ServerOptions {
-    working_dir: Some(working_dir.to_path_buf()),
-    config: Some(server_config),
-    ..Default::default()
-};
-let (client, server) = opencode_sdk::create_opencode(options).await?;
-// server: OpenCodeServer  — manages child process + temp dir
-// client: OpencodeClient  — HTTP client to interact with the server
+let client = OpenCodeServerPool::instance()
+    .get_or_spawn(user_id, &harness_config, &config_root)
+    .await?;
+// client: OpencodeClient — cheap `Arc` clone, used for every
+// session-scoped operation. The underlying `OpenCodeServer` is owned by
+// the pool and persists across Stop Agent / turn completion.
 ```
 
-### Server lifecycle
+### Spawning (pooled)
 
-The `OpenCodeServer` struct (from the SDK) has a persistent lifecycle
-separate from individual turns. This mirrors the reference implementation's
-`OpenCodeServerPool` (see
-`spec/reference/server/services/providers/opencode/index.ts`): the opencode
-subprocess is **NOT** killed by Stop Agent or by turn completion. The
-session_id stored on the conversation row remains valid for a subsequent
-`resume_turn`. Servers are only reaped by the process-exit signal handlers
-in `src/main.rs` or by Drop when the `OpenCodeServer` handle falls out of
-scope (e.g. on `one_shot_prompt` / `get_models_list`).
+`OpenCodeServerPool::get_or_spawn` checks the pool first:
 
-1. **`start()`** — Calls `opencode_sdk::create_opencode()` which spawns
-   `opencode serve` on a random port, creates a temporary config directory,
-   generates a server password, and waits for the health endpoint to return
-   200 before returning. The provider is then stored in
-   `state.active_sessions` keyed by conversation id.
-2. **Per-turn** — Uses the `OpencodeClient` (returned from the same
-   `create_opencode` call) to create sessions, send prompts, and subscribe to
-   events.
-3. **Stop Agent (`POST /agent_runs/reset`)** — Calls `provider.abort_turn()`
-   (cancel SSE listener + best-effort `session.abort`). The provider is
-   **NOT** removed from `active_sessions` and the opencode subprocess is
-   **NOT** killed, so `resume_turn` on the same session_id continues to
-   work.
-4. **Turn completion (`Done` event)** — `orchestration::completion_handler`
-   marks the run `completed` but does **NOT** call `provider.shutdown()` —
-   the server stays alive so the user can resume the conversation.
-5. **`shutdown()`** — Calls `server.shutdown().await` which kills the child
-   process via `child.kill()` and waits for it to exit. Only invoked by
-   process-exit cleanup in `src/main.rs` and the
-   "completed-normally=false" failure path in the broadcast task.
-6. **Transient mode** — For one-shot operations (`get_models_list`,
-   `one_shot_prompt`), a temporary server+client pair is created, used, and
-   shut down within the same method call. No persistent server is stored.
+- **Existing entry** — bump `last_used_at` and return the cached client.
+- **Stale entry** — wait for the in-flight shutdown to finish, then
+  spawn fresh.
+- **No entry** — call `opencode_sdk::create_opencode()` which spawns
+  `opencode serve` on a random port with a temp config directory and a
+  generated password, then waits for `GET /global/health` to return 200
+  before returning.
+
+Concurrent `get_or_spawn` calls for the same user coalesce via a
+`pending` map keyed by `user_id` — only one spawn happens at a time.
+
+### Spawning (transient)
+
+One-shot operations (`get_models_list`, `one_shot_prompt`, title
+generation) spawn a fresh server+client pair via
+`OpenCodeSdkProvider::spawn_transient`, use it, and shut it down within
+the same method call. Transient servers do **NOT** participate in the
+pool — they're discarded on return.
+
+### Lifecycle phases
+
+1. **`LlmProvider::start()`** — Acquires a pooled client for the user
+   via `get_or_spawn`. Stores it on the provider. The server itself stays
+   in the pool.
+2. **`LlmProvider::start_turn` / `resume_turn`** — Use the borrowed
+   client to create sessions, send prompts, and subscribe to events.
+3. **Stop Agent (`POST /agent_runs/reset`)** — Calls
+   `provider.abort_turn()` (cancel SSE listener + best-effort
+   `session.abort`). The provider is **NOT** removed from
+   `active_sessions` and the pooled opencode subprocess is **NOT**
+   killed, so `resume_turn` on the same session_id continues to work.
+4. **Turn completion (`Done` event)** —
+   `orchestration::completion_handler` marks the run `completed` but
+   does **NOT** call `provider.shutdown()` — the server stays alive in
+   the pool so the user can resume the conversation.
+5. **`LlmProvider::shutdown()`** — Noop for the pooled provider: cancels
+   the in-flight event stream and drops the borrowed client handle. The
+   underlying `opencode serve` subprocess stays alive in the pool.
+6. **Idle reaping** — A background `tokio::spawn` task started in
+   `src/main.rs` wakes every 60 seconds and SIGKILLs pool entries whose
+   `last_used_at` is older than 15 minutes. Matches the reference's
+   `DEFAULT_IDLE_TIMEOUT_MS = 15 * 60 * 1000`.
+7. **Credential invalidation** — `OpenCodeServerPool::invalidate(user_id)`
+   removes the user's entry; `Drop` on the owned `OpenCodeServer` kills
+   the child. The next `get_or_spawn` spawns a fresh server. Called by
+   settings routes when the user's provider config changes (TODO:
+   wire this in once settings writes are verified end-to-end).
+8. **Process-exit cleanup** — `src/main.rs` installs `SIGTERM` /
+   `SIGINT` handlers that call
+   `OpenCodeServerPool::instance().shutdown_all()`. Every entry is
+   dropped, and each `OpenCodeServer`'s `Drop` implementation kills the
+   child subprocess. Matches the reference's `pool.shutdownAll()` on
+   signal.
 
 ### Health check
 
@@ -274,22 +303,25 @@ The transient server is created and shut down within the method.
 
 ### Shutdown
 
-`cancellation.cancel()` (if running) + `server.shutdown().await` — kills the
-child process via `child.kill()` + reaps it with `child.wait()`. The temp
-directory with `opencode.json` is cleaned up when `OpenCodeServer`'s
-`TempDir` is dropped. On unix, the child is spawned in its own process
-group (`process_group(0)`) so it survives Ctrl-C delivered to the ofm
-process group; the signal handlers in `main.rs` ensure `shutdown()` is
-called before ofm exits.
+`cancellation.cancel()` (if running) + drop the borrowed `OpencodeClient`
+handle. The pooled provider's `LlmProvider::shutdown()` is a **noop**
+with respect to subprocesses — it does NOT kill the `opencode serve`
+process, which stays alive in `OpenCodeServerPool`. The temp directory
+with `opencode.json` is cleaned up when the `OpenCodeServer`'s
+`TempDir` is dropped (only happens when the pool drops the entry on
+idle reap, invalidation, or `shutdown_all`).
 
 ### Process-exit cleanup
 
 The `ofm` process installs Ctrl-C and SIGTERM handlers in `src/main.rs`.
-On shutdown, it drains `state.active_sessions` and calls
-`provider.shutdown().await` for each live provider. Each `OpenCodeSdkProvider`
-in turn calls `server.shutdown().await`, which kills the child `opencode serve`
-process group. Without this, the child processes outlive `ofm` and pile up as
-orphaned `opencode serve` instances on the host.
+On shutdown, it calls
+`OpenCodeServerPool::instance().shutdown_all().await`, which drops every
+pool entry. Each entry's `OpenCodeServer::Drop` implementation kills the
+child subprocess via `child.kill()` + `child.wait()`. Without this, the
+child processes outlive `ofm` and pile up as orphaned `opencode serve`
+instances on the host. `state.active_sessions` is also cleared so any
+in-flight broadcast tasks see their channels close; the providers
+themselves hold no subprocesses (the pool owns them).
 
 ## Credential delegation
 

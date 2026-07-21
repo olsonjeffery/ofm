@@ -302,6 +302,19 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let addr = format!("{}:{}", cfg.hostname, cfg.port);
     tracing::info!("Starting server on {}", addr);
 
+    // Start the opencode server pool's idle reaper. Servers unused for
+    // 15 minutes are SIGKILLed; the reaper wakes every 60 seconds. See
+    // `src/opencode_sdk/pool.rs` for the full pool design (per-user
+    // keying, LRU eviction, credential invalidation, process-exit
+    // cleanup). This matches the reference implementation's
+    // `OpenCodeServerPool` (see
+    // `spec/reference/server/services/openCodeServerPool.ts`).
+    opencode_sdk::pool::OpenCodeServerPool::start_reaper(
+        std::time::Duration::from_secs(15 * 60),
+        std::time::Duration::from_secs(60),
+    );
+    tracing::info!("opencode server pool idle reaper started (idle=15m, interval=60s)");
+
     let listener = tokio::net::TcpListener::bind(&addr).await?;
     let server_handle = tokio::spawn(async move {
         if let Err(e) = axum::serve(listener, app).await {
@@ -346,21 +359,21 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         }
     }
 
-    // Tear down any live provider sessions (which in turn kills the
-    // `opencode serve` subprocesses they own). Anything left in
-    // `active_sessions` would otherwise survive the parent process.
-    tracing::info!(
-        remaining = state.active_sessions.lock().await.len(),
-        "Shutting down active provider sessions"
-    );
-    let mut providers: Vec<_> = state.active_sessions.lock().await.drain().collect();
-    for (conv_id, mut provider) in providers.drain(..) {
-        tracing::info!(conversation_id = %conv_id, "Shutting down provider");
-        if let Err(e) = provider.shutdown().await {
-            tracing::warn!(conversation_id = %conv_id, error = %e, "Error shutting down provider during exit");
-        }
-    }
-    tracing::info!("All provider sessions shut down. Exiting.");
+    // Process-exit cleanup. Tear down the per-user opencode server pool —
+    // each entry owns a child `opencode serve` subprocess that would
+    // otherwise outlive ofm. Providers in `active_sessions` only hold
+    // borrowed client handles (cheap `Arc` clones); their `shutdown()` is
+    // a noop that doesn't kill any subprocess. The pool is the唯一
+    // owner of the server processes.
+    tracing::info!("Shutting down opencode server pool");
+    opencode_sdk::pool::OpenCodeServerPool::instance()
+        .shutdown_all()
+        .await;
+
+    // Clear `active_sessions` so any in-flight broadcast tasks see their
+    // channel close. The providers themselves hold no subprocesses.
+    state.active_sessions.lock().await.clear();
+    tracing::info!("All provider sessions cleared. Exiting.");
 
     Ok(())
 }

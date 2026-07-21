@@ -4,8 +4,10 @@ use std::sync::Mutex;
 use async_trait::async_trait;
 use futures_util::StreamExt;
 use tokio::sync::mpsc;
+use uuid::Uuid;
 
 use crate::opencode_sdk::client::EventStreamCancellation;
+use crate::opencode_sdk::pool::OpenCodeServerPool;
 use crate::opencode_sdk::types::*;
 use crate::opencode_sdk::{self, OpencodeClient, ServerOptions};
 use crate::providers::config::ProviderConfigDir;
@@ -15,11 +17,24 @@ use crate::providers::{HarnessConfig, LlmProvider, ProviderError};
 pub struct OpenCodeSdkProvider {
     config: HarnessConfig,
     provider_snippet: String,
-    server: Mutex<Option<opencode_sdk::OpenCodeServer>>,
+    config_root: PathBuf,
+    /// Set by `start()` after the pool has handed us a client for the
+    /// user. Stored so other methods (`start_turn`, `resume_turn`,
+    /// `abort_turn`) can use it without re-acquiring the pool.
     client: Mutex<Option<OpencodeClient>>,
-    working_dir: Mutex<Option<PathBuf>>,
+    /// Last known session id — used by `abort_turn` for the best-effort
+    /// `client.session.abort` call.
     session_id: Mutex<Option<String>>,
+    /// Cancellation handle for the in-flight event stream reader task.
     event_cancellation: Mutex<Option<EventStreamCancellation>>,
+    /// User id used to key the pool. May be `None` for one-shot operations
+    /// (`get_models_list`, `one_shot_prompt`, title generation) which
+    /// spawn transient servers outside the pool.
+    user_id: Mutex<Option<Uuid>>,
+    /// Working dir threaded through `start()` for diagnostics; the pooled
+    /// server's cwd is the temp config dir, not the task worktree (the
+    /// reference passes `directory` per HTTP call instead).
+    working_dir: Mutex<Option<PathBuf>>,
 }
 
 impl OpenCodeSdkProvider {
@@ -29,12 +44,20 @@ impl OpenCodeSdkProvider {
         Ok(Self {
             config: config.clone(),
             provider_snippet: provider_cfg.raw_snippet,
-            server: Mutex::new(None),
+            config_root: config_root.to_path_buf(),
             client: Mutex::new(None),
-            working_dir: Mutex::new(None),
             session_id: Mutex::new(None),
             event_cancellation: Mutex::new(None),
+            user_id: Mutex::new(None),
+            working_dir: Mutex::new(None),
         })
+    }
+
+    /// Set the user id used for pool lookup. Must be called before
+    /// `start()`. Set by the registry when the caller passes `user_id`
+    /// through `resolve_provider_for_user`.
+    pub fn set_user_id(&self, user_id: Uuid) {
+        *self.user_id.lock().unwrap() = Some(user_id);
     }
 
     fn build_server_config(&self) -> serde_json::Value {
@@ -79,23 +102,19 @@ impl OpenCodeSdkProvider {
         v.get("provider")?.as_object()?.keys().next().cloned()
     }
 
-    async fn start_server_common(
-        &self,
-        working_dir: &Path,
-    ) -> Result<OpencodeClient, ProviderError> {
+    /// Internal: spawn a transient server+client pair for one-shot
+    /// operations (`get_models_list`, `one_shot_prompt`). The server is
+    /// shut down within the caller; it does NOT participate in the pool.
+    async fn spawn_transient(&self) -> Result<(OpencodeClient, opencode_sdk::OpenCodeServer), ProviderError> {
         let server_config = self.build_server_config();
         let options = ServerOptions {
-            working_dir: Some(working_dir.to_path_buf()),
             config: Some(server_config),
             ..Default::default()
         };
         let (client, server) = opencode_sdk::create_opencode(options)
             .await
             .map_err(|e| ProviderError::Protocol(e.to_string()))?;
-        *self.server.lock().unwrap() = Some(server);
-        *self.client.lock().unwrap() = Some(client.clone());
-        *self.working_dir.lock().unwrap() = Some(working_dir.to_path_buf());
-        Ok(client)
+        Ok((client, server))
     }
 
     async fn subscribe_and_spawn(
@@ -284,7 +303,22 @@ impl LlmProvider for OpenCodeSdkProvider {
     }
 
     async fn start(&mut self, working_dir: &Path) -> Result<(), ProviderError> {
-        self.start_server_common(working_dir).await?;
+        // Acquire a pooled opencode server for this user. The pool is a
+        // process-wide singleton (see `src/opencode_sdk/pool.rs`); servers
+        // are shared across all conversations for the same user and
+        // persist across Stop Agent / turn completion. The provider
+        // borrows the client handle (a cheap `Arc` clone) — it does NOT
+        // own the server.
+        let user_id = self
+            .user_id
+            .lock()
+            .unwrap()
+            .ok_or_else(|| ProviderError::Protocol("user_id not set on provider".into()))?;
+        let client = OpenCodeServerPool::instance()
+            .get_or_spawn(user_id, &self.config, &self.config_root)
+            .await?;
+        *self.client.lock().unwrap() = Some(client);
+        *self.working_dir.lock().unwrap() = Some(working_dir.to_path_buf());
         Ok(())
     }
 
@@ -431,18 +465,18 @@ impl LlmProvider for OpenCodeSdkProvider {
     }
 
     async fn shutdown(&mut self) -> Result<bool, ProviderError> {
+        // Pooled-server design: the provider does NOT own the opencode
+        // subprocess, so `shutdown` only cancels the in-flight event
+        // stream reader and drops the borrowed client handle. The
+        // underlying `opencode serve` process stays alive in the pool;
+        // it is reaped by the idle-reaper task or by the process-exit
+        // handlers in `src/main.rs` (which call
+        // `OpenCodeServerPool::instance().shutdown_all()`).
         if let Some(cancellation) = self.event_cancellation.lock().unwrap().take() {
             cancellation.cancel();
         }
-        let server = self.server.lock().unwrap().take();
-        if let Some(mut server) = server {
-            server
-                .shutdown()
-                .await
-                .map_err(|e| ProviderError::Protocol(e.to_string()))
-        } else {
-            Ok(true)
-        }
+        *self.client.lock().unwrap() = None;
+        Ok(true)
     }
 }
 
@@ -626,11 +660,12 @@ mod tests {
                 scope: crate::db::schema::ScopeType::Global,
             },
             provider_snippet: snippet.into(),
-            server: Mutex::new(None),
+            config_root: PathBuf::from("/tmp"),
             client: Mutex::new(None),
-            working_dir: Mutex::new(None),
             session_id: Mutex::new(None),
             event_cancellation: Mutex::new(None),
+            user_id: Mutex::new(None),
+            working_dir: Mutex::new(None),
         };
         assert_eq!(provider.extract_provider_id(), Some("anthropic".into()));
     }
@@ -647,11 +682,12 @@ mod tests {
                 scope: crate::db::schema::ScopeType::Global,
             },
             provider_snippet: "{}".into(),
-            server: Mutex::new(None),
+            config_root: PathBuf::from("/tmp"),
             client: Mutex::new(None),
-            working_dir: Mutex::new(None),
             session_id: Mutex::new(None),
             event_cancellation: Mutex::new(None),
+            user_id: Mutex::new(None),
+            working_dir: Mutex::new(None),
         };
         assert_eq!(provider.extract_provider_id(), None);
     }

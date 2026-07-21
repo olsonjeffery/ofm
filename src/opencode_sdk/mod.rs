@@ -1,5 +1,6 @@
 pub mod client;
 pub mod conversation;
+pub mod pool;
 pub mod server;
 pub mod types;
 
