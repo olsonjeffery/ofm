@@ -10,27 +10,24 @@ pub fn ChatInput(
     let task_id_str = task_id.to_string();
 
     view! {
-        <div class="chat-input" style="border-top:1px solid #ddd;padding:1rem;background:#fff">
-            <form id="chat-form" data-task-id={task_id_str}>
-                <textarea
-                    class="textarea"
-                    id="chat-message-input"
-                    placeholder="Type your message..."
-                    rows="2"
-                    disabled=disabled
-                    style="width:100%;margin-bottom:0.5rem"
-                ></textarea>
-                <div style="display:flex;justify-content:flex-end">
-                    <button
-                        class="button is-primary"
-                        id="chat-send-btn"
-                        disabled=disabled
-                    >
-                        "Send"
-                    </button>
-                </div>
-            </form>
-        </div>
+        <form id="chat-form" data-task-id={task_id_str}
+              style="display:flex;gap:0.5rem;align-items:flex-start">
+            <textarea
+                class="textarea"
+                id="chat-message-input"
+                placeholder="Type your message..."
+                rows="2"
+                disabled=disabled
+                style="flex:1"
+            ></textarea>
+            <button
+                class="button is-primary"
+                id="chat-send-btn"
+                disabled=disabled
+            >
+                "Send"
+            </button>
+        </form>
     }
 }
 
@@ -56,6 +53,8 @@ mod tests {
             !html.contains("has-addons"),
             "has-addons class should be removed"
         );
+        assert!(html.contains("flex:1"), "textarea should be flex:1");
+        assert!(html.contains("display:flex"), "form should use flex layout");
     }
 
     #[test]

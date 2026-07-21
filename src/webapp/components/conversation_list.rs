@@ -3,12 +3,32 @@ use leptos::prelude::*;
 
 fn agent_icon(agent_type: &AgentType) -> &'static str {
     match agent_type {
-        AgentType::Planification => "clipboard-list-outline",
+        AgentType::Planification => "file-document-outline",
         AgentType::Implementation => "code-tags",
-        AgentType::Refinement => "tune",
-        AgentType::Review => "eye-outline",
-        AgentType::Pr => "source-pull",
+        AgentType::Refinement => "creation-outline",
+        AgentType::Review => "checkbox-marked-circle-outline",
+        AgentType::Pr => "source-branch-plus",
         AgentType::Yolo => "rocket",
+    }
+}
+
+fn run_status_class(status: &crate::db::schema::RunStatus) -> &'static str {
+    match status {
+        crate::db::schema::RunStatus::Pending => "is-light",
+        crate::db::schema::RunStatus::Running => "is-info",
+        crate::db::schema::RunStatus::Completed => "is-success",
+        crate::db::schema::RunStatus::Failed => "is-danger",
+        crate::db::schema::RunStatus::Blocked => "is-warning",
+    }
+}
+
+fn run_status_label(status: &crate::db::schema::RunStatus) -> &'static str {
+    match status {
+        crate::db::schema::RunStatus::Pending => "Pending",
+        crate::db::schema::RunStatus::Running => "Running",
+        crate::db::schema::RunStatus::Completed => "Completed",
+        crate::db::schema::RunStatus::Failed => "Failed",
+        crate::db::schema::RunStatus::Blocked => "Blocked",
     }
 }
 
@@ -31,19 +51,7 @@ fn format_conversation_date(created_at: &chrono::NaiveDateTime) -> String {
     if *created_at <= epoch {
         return String::new();
     }
-    let now = chrono::Utc::now().naive_utc();
-    let diff = now - *created_at;
-    if diff.num_minutes() < 1 {
-        "Just now".to_string()
-    } else if diff.num_hours() < 1 {
-        format!("{}m ago", diff.num_minutes())
-    } else if diff.num_days() < 1 {
-        format!("{}h ago", diff.num_hours())
-    } else if diff.num_days() < 7 {
-        format!("{}d ago", diff.num_days())
-    } else {
-        created_at.format("%b %d").to_string()
-    }
+    created_at.format("%b %d, %H:%M").to_string()
 }
 
 #[component]
@@ -60,7 +68,6 @@ pub fn ConversationList(
                     {conversations.iter().map(|cwr| {
                         let conv_id = cwr.conversation.id;
                         let is_active = active_id.map(|id| id == conv_id).unwrap_or(false);
-                        let card_class = if is_active { "card is-active" } else { "card" };
                         let agent_type = cwr.run.as_ref().map(|r| &r.agent_type);
                         let icon = agent_type.map(agent_icon).unwrap_or("chat-outline");
                         let raw_name = cwr.conversation.name.clone().unwrap_or_default();
@@ -70,24 +77,30 @@ pub fn ConversationList(
                             cwr.conversation.model.clone()
                         };
                         let date_str = format_conversation_date(&cwr.conversation.created_at);
+                        let status = cwr.run.as_ref().map(|r| &r.status);
+                        let active_style = if is_active { "border-color:var(--bulma-primary)" } else { "" };
 
                         view! {
-                            <div class={card_class} style="padding:0.75rem;margin-bottom:0.25rem;cursor:pointer"
+                            <div class="box is-info is-light" style={format!("padding:0.75rem;margin-bottom:0.25rem;cursor:pointer;{}", active_style)}
                                 data-conversation-id={conv_id.to_string()}
                                 onclick="window.handleConversationClick(event)"
                             >
                                 <div class="level is-mobile" style="margin-bottom:0">
-                                    <div class="level-left" style="display:flex;align-items:center;gap:0.5rem">
+                                    <div class="level-left" style="display:flex;align-items:center;gap:0.5rem;min-width:0">
                                         <span class="icon has-text-info">
                                             <i class={format!("mdi mdi-{}", icon)}></i>
                                         </span>
-                                        <div>
-                                            <strong>{name}</strong>
+                                        <div style="min-width:0">
+                                            <strong style="display:block;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:180px">{name}</strong>
                                             <div class="has-text-grey is-size-7">{cwr.conversation.model.clone()}</div>
                                         </div>
                                     </div>
-                                    <div class="level-right">
-                                        <small class="has-text-grey conversation-date" data-conv-id={conv_id.to_string()}>
+                                    <div class="level-right" style="display:flex;align-items:center;gap:0.25rem;flex-shrink:0">
+                                        {status.map(|s| view! {
+                                            <span class={format!("tag {}", run_status_class(s))}>{run_status_label(s)}</span>
+                                        })}
+                                        <small class="has-text-grey conversation-date" data-conv-id={conv_id.to_string()}
+                                               style="white-space:nowrap;margin-left:0.25rem">
                                             {date_str}
                                         </small>
                                     </div>
@@ -155,6 +168,9 @@ mod tests {
         assert!(html.contains("mdi-code-tags"));
         assert!(html.contains("level-left"));
         assert!(html.contains("level-right"));
+        assert!(html.contains("box is-info is-light"));
+        assert!(html.contains("Completed"));
+        assert!(html.contains("is-success"));
     }
 
     #[test]
@@ -167,5 +183,39 @@ mod tests {
         let html =
             leptos::view! { <ConversationList conversations=convs active_id=None /> }.to_html();
         assert!(html.contains("mdi-chat-outline"));
+    }
+
+    #[test]
+    fn test_conversation_list_status_labels() {
+        use crate::db::schema::RunStatus;
+        let conv_id = uuid::Uuid::new_v4();
+        let convs = vec![ConversationWithRun {
+            conversation: make_conversation(conv_id, "Running Chat"),
+            run: Some(TaskAgentRun {
+                status: RunStatus::Running,
+                ..make_run(conv_id, AgentType::Planification)
+            }),
+        }];
+        let html =
+            leptos::view! { <ConversationList conversations=convs active_id=None /> }.to_html();
+        assert!(html.contains("Running"));
+        assert!(html.contains("mdi-file-document-outline"));
+    }
+
+    #[test]
+    fn test_conversation_list_date_format_absolute() {
+        let conv_id = uuid::Uuid::new_v4();
+        let mut conv = make_conversation(conv_id, "Dated Chat");
+        conv.created_at =
+            NaiveDateTime::parse_from_str("2024-06-15 14:30:00", "%Y-%m-%d %H:%M:%S").unwrap();
+        let convs = vec![ConversationWithRun {
+            conversation: conv,
+            run: None,
+        }];
+        let html =
+            leptos::view! { <ConversationList conversations=convs active_id=None /> }.to_html();
+        assert!(html.contains("Jun 15"));
+        assert!(!html.contains("ago"));
+        assert!(!html.contains("Just now"));
     }
 }

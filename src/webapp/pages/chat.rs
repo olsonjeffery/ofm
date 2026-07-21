@@ -45,6 +45,7 @@ document.addEventListener('DOMContentLoaded', function() {{
         if (streamContainer) streamContainer.scrollTop = streamContainer.scrollHeight;
     }}
     window.scrollToBottom = scrollToBottom;
+    scrollToBottom();
 
     // Stop agent
     window.stopAgent = function() {{
@@ -239,9 +240,10 @@ pub fn ChatPage(
     #[allow(unused)] conversation_name: Option<String>,
     current_run: Option<TaskAgentRun>,
 ) -> impl IntoView {
-    let is_running = current_run
-        .as_ref()
-        .is_some_and(|r| r.status == crate::db::schema::RunStatus::Running);
+    let is_running = current_run.as_ref().is_some_and(|r| {
+        r.status == crate::db::schema::RunStatus::Running
+            && r.conversation_id == active_conversation_id
+    });
 
     let active_id_str = active_conversation_id
         .map(|id| id.to_string())
@@ -257,9 +259,9 @@ pub fn ChatPage(
             <div id="chat-footer" style="border-top:1px solid #ddd;background:#fff;padding:0.5rem 1rem;position:relative">
                 <div id="agent-thinking-bar"
                      style="display:none;width:33.33%;margin:0 auto 0.5rem;background:#000;color:#fff;
-                            border-radius:8px;padding:0.75rem 1rem;
-                            display:flex;align-items:center;justify-content:space-between;
-                            box-shadow:0 2px 8px rgba(0,0,0,0.15)">
+                             border-radius:8px;padding:0.75rem 1rem;
+                             align-items:center;justify-content:space-between;
+                             box-shadow:0 2px 8px rgba(0,0,0,0.15)">
                     <span style="display:flex;align-items:center;gap:0.5rem">
                         <span class="icon"><i class="mdi mdi-loading mdi-spin has-text-white"></i></span>
                         <span>"Agent is processing..."</span>
