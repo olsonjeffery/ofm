@@ -203,8 +203,8 @@ fn render_event(event: &ProviderEvent) -> String {
         ProviderEvent::SessionStart { .. } => String::new(),
         ProviderEvent::UserText { text } => {
             format!(
-                r#"<content class="content message-user" style="max-width:33%">{}</content>"#,
-                esc(&render_markdown(text)),
+                r#"<div class="message-user" style="max-width:33%">{}</div>"#,
+                render_markdown(text),
             )
         }
         ProviderEvent::Ready => String::new(),
