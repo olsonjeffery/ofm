@@ -63,6 +63,8 @@ img.header-logo {
     --bulma-box-link-active-shadow: none;
     border: 1px solid var(--bulma-border);
     box-shadow: none !important;
+    overflow-wrap: break-word;
+    word-break: break-word;
 }
 
 a.box:hover,
@@ -70,6 +72,17 @@ a.box:focus,
 a.box:active {
     border-color: var(--bulma-primary);
     box-shadow: none !important;
+}
+
+/* ===== Content word-wrap ===== */
+.content {
+    overflow-wrap: break-word;
+    word-break: break-word;
+}
+.content pre {
+    white-space: pre-wrap;
+    word-break: break-word;
+    overflow-wrap: break-word;
 }
 
 /* ===== Remove all drop shadows ===== */

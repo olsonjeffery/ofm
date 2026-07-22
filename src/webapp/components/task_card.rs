@@ -29,9 +29,11 @@ pub fn TaskCard(task: Task) -> impl IntoView {
 
     view! {
         <a href={format!("/webapp/projects/{}/tasks/{}", task.project_id, task.id)} class="box" style="display:block">
-            <div class="level is-mobile">
+            <p class="title is-6">{task.title.clone()}</p>
+            <div class="level">
                 <div class="level-left">
-                    <p class="title is-6">{task.title.clone()}</p>
+                    <span class={format!("tag {}", badge_class)}>{label}</span>
+                    <small class="has-text-grey">{created}</small>
                 </div>
                 <div class="level-right">
                     <button
@@ -43,14 +45,6 @@ pub fn TaskCard(task: Task) -> impl IntoView {
                     >
                         <span class="icon is-small"><i class="mdi mdi-trash-can"></i></span>
                     </button>
-                </div>
-            </div>
-            <div class="level">
-                <div class="level-left">
-                    <span class={format!("tag {}", badge_class)}>{label}</span>
-                </div>
-                <div class="level-right">
-                    <small class="has-text-grey">{created}</small>
                 </div>
             </div>
         </a>
