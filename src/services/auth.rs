@@ -237,7 +237,6 @@ pub async fn refresh_access_token(
             .map_err(|e| ServerError::Internal(e.to_string()))?;
         }
         if error == "JwtToken" {
-            tracing::warn!("Token refresh rejected (transient): {error}");
             return Err(ServerError::BadRequest(format!(
                 "token refresh rejected: {error}"
             )));

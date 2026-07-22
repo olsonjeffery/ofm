@@ -204,7 +204,7 @@ pub fn render_event(event: &ProviderEvent) -> String {
         ProviderEvent::SessionStart { .. } => String::new(),
         ProviderEvent::UserText { text } => {
             format!(
-                r#"<div class="message-user" style="max-width:33%">{}</div>"#,
+                r#"<div class="message-user">{}</div>"#,
                 render_markdown(text),
             )
         }
