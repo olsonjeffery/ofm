@@ -72,6 +72,11 @@ Use `playwright-cli --help` to explore the CLI's capabilities
 
 ## `ofm` + Rauthy for isolated, local testing
 
+IMPORTANT: before beginning any OFM testing, grep for running processes named
+`ofm` and note their process ID down. YOU DO NOT WANT TO KILL THESE, ONE OF
+THEM IS THE PROCESS YOU'RE RUNNING UNDER; You only ever have permission to
+kill an `ofm` process that you spawned. This is important.
+
 The project includes built-in rauthy lifecycle management (spawn/cleanup).
 To start an isolated server for end-to-end testing:
 
