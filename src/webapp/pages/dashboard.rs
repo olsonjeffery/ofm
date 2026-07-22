@@ -93,7 +93,17 @@ pub fn DashboardPage(
                     apiCall('/api/projects',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(data)})
                         .then(function(r){if(r.ok)window.location.reload();});
                 });
-            });"#}
+            });
+                document.addEventListener('click',function(e){
+                    var delBtn=e.target.closest('[data-project-delete]');
+                    if(!delBtn)return;
+                    e.preventDefault();
+                    e.stopPropagation();
+                    var projectId=delBtn.getAttribute('data-project-id');
+                    if(!confirm('Delete this project and all its tasks?'))return;
+                    apiCall('/api/projects/'+projectId,{method:'DELETE'})
+                        .then(function(r){if(r.ok)window.location.reload();});
+                });"#}
         </script>
     }
 }
