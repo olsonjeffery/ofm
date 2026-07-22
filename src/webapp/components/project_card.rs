@@ -35,6 +35,16 @@ pub fn ProjectCard(project: Project, task_counts: TaskCounts) -> impl IntoView {
                         view! { <span class="tag is-success is-light">{format!("{} completed", task_counts.completed)}</span> }.into_any()
                     } else { "".into_any() }}
                 </div>
+                <div class="level-right">
+                    <button
+                        class="button is-small is-danger is-outlined"
+                        data-project-delete=""
+                        data-project-id={project.id.to_string()}
+                        title="Delete project"
+                    >
+                        <span class="icon is-small"><i class="mdi mdi-trash-can"></i></span>
+                    </button>
+                </div>
             </div>
         </a>
     }
@@ -75,6 +85,17 @@ mod tests {
         assert!(html.contains("2 in review"));
         assert!(html.contains("5 completed"));
         assert!(html.contains("/webapp/projects/1"));
+    }
+
+    #[test]
+    fn test_project_card_has_delete_button() {
+        let project = make_project();
+        let counts = TaskCounts::default();
+        let html = leptos::view! { <ProjectCard project task_counts=counts /> }.to_html();
+        assert!(html.contains("data-project-delete"));
+        assert!(html.contains("mdi-trash-can"));
+        assert!(html.contains("data-project-id=\"1\""));
+        assert!(html.contains("Delete project"));
     }
 
     #[test]
