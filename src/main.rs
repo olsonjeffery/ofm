@@ -398,6 +398,11 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         }
     }
 
+    match client.shutdown().await {
+        Ok(_) => tracing::info!("hiqlite client shutdown successful"),
+        Err(e) => tracing::error!("Failed to shutdown hiqlite client: {:?}", e),
+    }
+
     // Process-exit cleanup. Tear down the per-user opencode server pool —
     // each entry owns a child `opencode serve` subprocess that would
     // otherwise outlive ofm. Providers in `active_sessions` only hold
