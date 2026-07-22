@@ -128,3 +128,11 @@ a.box:active {
     overflow-wrap: break-word;
     max-width: 100%;
 }
+
+.conversation-date {
+    transition: color 0.3s ease;
+}
+.conversation-date.is-pulsed {
+    color: var(--bulma-primary);
+    transition: none;
+}

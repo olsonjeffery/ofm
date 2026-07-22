@@ -142,7 +142,7 @@ async fn send_message(
         topic: topic.clone(),
         event_type: "user_text".to_string(),
         timestamp: chrono::Utc::now(),
-        payload: serde_json::json!({"text": body.text}),
+        payload: serde_json::json!({"text": body.text, "conversation_id": conv_id.to_string()}),
     };
     state.ws_bus.broadcast(&topic, msg).await;
 
@@ -241,6 +241,14 @@ async fn send_message(
                                     local_completed = true;
                                 }
 
+                                let payload = if let Some(obj) = payload.as_object() {
+                                    let mut map = obj.clone();
+                                    map.insert("conversation_id".to_string(), serde_json::json!(c_id.to_string()));
+                                    serde_json::Value::Object(map)
+                                } else {
+                                    serde_json::json!({"conversation_id": c_id.to_string()})
+                                };
+
                                 let msg = ServerMessage::Event {
                                     topic: topic.clone(),
                                     event_type,
@@ -295,7 +303,7 @@ async fn send_message(
                         topic: topic.clone(),
                         event_type: "error".to_string(),
                         timestamp: chrono::Utc::now(),
-                        payload: serde_json::json!({"error": "Agent session ended unexpectedly. Send a message to resume."}),
+                        payload: serde_json::json!({"error": "Agent session ended unexpectedly. Send a message to resume.", "conversation_id": c_id.to_string()}),
                     };
                     ws_bus.broadcast(&topic, msg).await;
                 }

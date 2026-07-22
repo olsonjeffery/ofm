@@ -21,6 +21,7 @@ use crate::auth::AuthUser;
 use crate::server::error::ServerError;
 use crate::server::state::AppState;
 use crate::services;
+use crate::services::{session, transcript};
 use crate::webapp::components::breadcrumb::{breadcrumb_registry, BreadcrumbItem};
 use crate::webapp::components::project_card::TaskCounts;
 
@@ -41,6 +42,10 @@ pub fn webapp_protected_routes() -> Router<AppState> {
         .route(
             "/webapp/projects/{project_id}/tasks/{task_id}/chat",
             get(chat_handler),
+        )
+        .route(
+            "/webapp/projects/{project_id}/tasks/{task_id}/chat/{conversation_id}",
+            get(chat_handler_with_conv),
         )
         .route("/webapp/onboarding", get(onboarding_handler))
         .route("/webapp/settings", get(settings_handler))
@@ -260,6 +265,57 @@ async fn chat_handler(
     State(state): State<AppState>,
     Path((project_id, task_id)): Path<(i64, i64)>,
 ) -> Result<Html<String>, ServerError> {
+    let project = services::projects::get_project(&state.db, project_id)
+        .await
+        .map_err(|_| ServerError::NotFound("Project not found".into()))?;
+    if project.user_id != auth.user_id {
+        return Err(ServerError::NotFound("Project not found".into()));
+    }
+
+    let _task = services::tasks::get_task(&state.db, task_id)
+        .await
+        .map_err(|_| ServerError::NotFound("Task not found".into()))?;
+
+    let conversations = services::tasks::list_conversations_for_task(&state.db, task_id)
+        .await
+        .unwrap_or_default();
+
+    if let Some(first) = conversations.first() {
+        let redirect_url = format!(
+            "/webapp/projects/{}/tasks/{}/chat/{}",
+            project_id, task_id, first.conversation.id
+        );
+        return Ok(Html(format!(
+            "<script>window.location.href='{redirect_url}';</script>"
+        )));
+    }
+
+    let user_json = serde_json::to_string(&auth).unwrap_or_default();
+    let breadcrumbs = vec![
+        breadcrumb_registry::all_projects(),
+        breadcrumb_registry::project(&project.name, project.id),
+        breadcrumb_registry::task(&_task.title, project.id, _task.id),
+        breadcrumb_registry::chat(),
+    ];
+    let page_html = leptos::view! {
+        <pages::chat::ChatPage
+            _project_id=project_id
+            task_id
+            active_conversation_id=None
+            initial_messages=Vec::new()
+            conversation_name=None
+            current_run=None
+        />
+    }
+    .to_html();
+    Ok(Html(render_shell(&page_html, Some(user_json), breadcrumbs)))
+}
+
+async fn chat_handler_with_conv(
+    auth: AuthUser,
+    State(state): State<AppState>,
+    Path((project_id, task_id, conversation_id)): Path<(i64, i64, uuid::Uuid)>,
+) -> Result<Html<String>, ServerError> {
     let user_json = serde_json::to_string(&auth).unwrap_or_default();
 
     let project = services::projects::get_project(&state.db, project_id)
@@ -273,29 +329,40 @@ async fn chat_handler(
         .await
         .map_err(|_| ServerError::NotFound("Task not found".into()))?;
 
-    let conversations = services::tasks::list_conversations_for_task(&state.db, task_id)
+    let conv = session::resume_session(&state.db, conversation_id)
+        .await
+        .map_err(|_| ServerError::NotFound("Conversation not found".into()))?;
+
+    if conv.task_id != task_id {
+        return Err(ServerError::NotFound("Conversation not found".into()));
+    }
+
+    let provider_session_id = conv.provider_session_id.clone().unwrap_or_default();
+    let messages = transcript::load_transcript(&state.db, &provider_session_id, task_id)
         .await
         .unwrap_or_default();
 
     let current_run = services::tasks::get_running_agent_for_task(&state.db, task_id)
         .await
         .ok()
-        .flatten()
-        .or_else(|| conversations.first().and_then(|cwr| cwr.run.clone()));
+        .flatten();
+
+    let conv_name = conv.name.clone().unwrap_or_else(|| conv.model.clone());
 
     let breadcrumbs = vec![
         breadcrumb_registry::all_projects(),
         breadcrumb_registry::project(&project.name, project.id),
         breadcrumb_registry::task(&task.title, project.id, task.id),
-        breadcrumb_registry::chat(),
+        breadcrumb_registry::chat_conversation(&conv_name, project.id, task.id, conversation_id),
     ];
     let page_html = leptos::view! {
         <pages::chat::ChatPage
             _project_id=project_id
             task_id
-            _task=task
-            conversations
-            current_run
+            active_conversation_id=Some(conversation_id)
+            initial_messages=messages
+            conversation_name=Some(conv_name)
+            current_run=current_run
         />
     }
     .to_html();

@@ -53,6 +53,22 @@ pub mod breadcrumb_registry {
         BreadcrumbItem::new("Chat", "chat", "#")
     }
 
+    pub fn chat_conversation(
+        name: &str,
+        project_id: i64,
+        task_id: i64,
+        conv_id: uuid::Uuid,
+    ) -> BreadcrumbItem {
+        BreadcrumbItem::new(
+            title_truncate(name),
+            "chat",
+            format!(
+                "/webapp/projects/{}/tasks/{}/chat/{}",
+                project_id, task_id, conv_id
+            ),
+        )
+    }
+
     pub fn settings() -> BreadcrumbItem {
         BreadcrumbItem::new("Settings", "cog", "/webapp/settings")
     }
@@ -134,6 +150,18 @@ mod tests {
         assert_eq!(item.title, "Settings");
         assert_eq!(item.icon, "cog");
         assert_eq!(item.path, "/webapp/settings");
+    }
+
+    #[test]
+    fn test_registry_chat_conversation() {
+        let conv_id = uuid::Uuid::new_v4();
+        let item = breadcrumb_registry::chat_conversation("My Chat", 1, 42, conv_id);
+        assert_eq!(item.title, "My Chat");
+        assert_eq!(item.icon, "chat");
+        assert_eq!(
+            item.path,
+            format!("/webapp/projects/1/tasks/42/chat/{}", conv_id)
+        );
     }
 
     #[test]
