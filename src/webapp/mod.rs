@@ -236,12 +236,6 @@ async fn task_detail_handler(
         .await
         .unwrap_or_default();
 
-    let current_run = services::tasks::get_running_agent_for_task(&state.db, task_id)
-        .await
-        .ok()
-        .flatten()
-        .or_else(|| conversations.first().and_then(|cwr| cwr.run.clone()));
-
     let breadcrumbs = vec![
         breadcrumb_registry::all_projects(),
         breadcrumb_registry::project(&project.name, project.id),
@@ -253,8 +247,7 @@ async fn task_detail_handler(
             doc_content
             agent_runs
             conversations=conversations
-            current_run=current_run
-        />
+            />
     }
     .to_html();
     Ok(Html(render_shell(&page_html, Some(user_json), breadcrumbs)))

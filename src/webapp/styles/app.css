@@ -17,7 +17,7 @@ main {
     width: 99%;
     margin: 0 auto;
     min-height: 100vh;
-    padding-top: calc(3.25rem + 0.5rem);
+    padding-top: 1rem;
 }
 /* Chat page manages its own height via #chat-layout */
 main:has(#chat-layout) {
@@ -51,10 +51,10 @@ nav.navbar .navbar-brand strong {
 
 /* ===== Logo ===== */
 img.header-logo {
-    width: 50px;
-    height: 50px;
-    max-width: 50px;
-    max-height: 50px;
+    width: 25px;
+    height: 25px;
+    max-width: 25px;
+    max-height: 25px;
 }
 
 /* ===== Box/card visibility ===== */
@@ -215,4 +215,28 @@ a.box:active {
     display: block;
     text-align: right;
     margin-top: 0.5rem;
+}
+
+#agent-run-buttons {
+    margin-bottom:0.75em;
+}
+
+#agent-run-buttons button.is-info {
+    border: solid 1px var(--bulma-info);
+}
+
+#agent-run-buttons button.is-warning {
+    border: solid 1px var(--bulma-warning);
+}
+
+#agent-run-buttons button.is-danger {
+    border: solid 1px var(--bulma-danger);
+}
+
+#agent-run-buttons button.is-purple {
+    border: solid 1px var(--bulma-purple);
+}
+
+#agent-run-buttons button.is-success {
+    border: solid 1px var(--bulma-success);
 }
