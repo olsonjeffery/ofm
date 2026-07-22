@@ -506,8 +506,7 @@ async fn test_webapp_task_detail_page() {
     assert!(body.contains("My Test Task"));
     assert!(body.contains("No document yet"));
     assert!(body.contains("No runs yet"));
-    assert!(body.contains("is-info is-light"));
-    assert!(body.contains("has-text-info"));
+    assert!(body.contains("agent-run-buttons"));
 }
 
 #[tokio::test]
