@@ -58,20 +58,20 @@ pub fn ConversationList(
     view! {
         <div class="conversation-list">
             <div class="buttons has-addons is-fullwidth is-centered" id="agent-run-buttons">
-                <button class="button is-small is-info is-light" data-task-id={task_id.clone()} disabled=false data-agent-type="planification" >
-                    <span class="icon is-small"><i class="mdi mdi-file-document-outline"></i></span> <span>"Plan"</span>
+                <button class="button is-small is-light" data-task-id={task_id.clone()} disabled=false data-agent-type="planification" >
+                    <span class="icon is-small is-info"><i class="mdi mdi-file-document-outline"></i></span> <span>"Plan"</span>
                 </button>
-                <button class="button is-small is-purple is-light" data-task-id={task_id.clone()} disabled=false data-agent-type="implementation">
-                    <span class="icon is-small"><i class="mdi mdi-code-tags"></i></span> <span>"Impl"</span>
+                <button class="button is-small is-light" data-task-id={task_id.clone()} disabled=false data-agent-type="implementation">
+                    <span class="icon is-small is-purple"><i class="mdi mdi-code-tags"></i></span> <span>"Impl"</span>
                 </button>
-                <button class="button is-small is-primary is-light" data-task-id={task_id.clone()} disabled=false data-agent-type="review">
-                    <span class="icon is-small"><i class="mdi mdi-checkbox-marked-circle-outline"></i></span> <span>"Rev"</span>
+                <button class="button is-small is-light" data-task-id={task_id.clone()} disabled=false data-agent-type="review">
+                    <span class="icon is-small is-primary"><i class="mdi mdi-checkbox-marked-circle-outline"></i></span> <span>"Rev"</span>
                 </button>
-                <button class="button is-small is-danger is-light" data-task-id={task_id.clone()} disabled=false data-agent-type="refinement" >
-                    <span class="icon is-small"><i class="mdi mdi-creation-outline"></i></span> <span>"Ref"</span>
+                <button class="button is-small is-light" data-task-id={task_id.clone()} disabled=false data-agent-type="refinement" >
+                    <span class="icon is-small is-danger"><i class="mdi mdi-creation-outline"></i></span> <span>"Ref"</span>
                 </button>
-                <button class="button is-small is-success is-light" data-task-id={task_id.clone()} disabled=false data-agent-type="pr" >
-                    <span class="icon is-small"><i class="mdi mdi-source-branch-plus"></i></span> <span>"PR"</span>
+                <button class="button is-small is-light" data-task-id={task_id.clone()} disabled=false data-agent-type="pr" >
+                    <span class="icon is-small is-success"><i class="mdi mdi-source-branch-plus"></i></span> <span>"PR"</span>
                 </button>
             </div>
             {if conversations.is_empty() {
@@ -98,12 +98,12 @@ pub fn ConversationList(
                             Some(AgentType::Implementation) => "var(--bulma-purple)",
                             Some(AgentType::Review) => "var(--bulma-primary)",
                             Some(AgentType::Refinement) => "var(--bulma-danger)",
-                            Some(AgentType::Pr) => "var(--bulma-sucess)",
+                            Some(AgentType::Pr) => "var(--bulma-success)",
                             _ => "var(--bulma-grey-dark)",
                         };
 
                         view! {
-                            <div class="box is-light" style={format!("padding:0.4rem;margin-bottom:0.25rem;cursor:pointer;overflow-wrap:break-word;word-break:break-word;{};border: solid 1px {};", active_style, curr_agent_color)}
+                            <div class="box is-light" style={format!("padding:0.4rem;margin-bottom:0.25rem;cursor:pointer;overflow-wrap:break-word;word-break:break-word;{};border: solid 1px var(--bulma-grey);", active_style)}
                                 data-conversation-id={conv_id.to_string()}
                                 onclick="window.handleConversationClick(event)"
                             >
