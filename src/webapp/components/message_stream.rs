@@ -311,7 +311,7 @@ mod tests {
         let html = leptos::view! { <MessageStream messages=messages /> }.to_html();
         assert!(html.contains("hmm"));
         assert!(html.contains("message-thinking"));
-        assert!(html.contains("mdi-snowflake-outline"));
+        assert!(html.contains("mdi-head-snowflake-outline"));
     }
 
     #[test]
@@ -353,7 +353,7 @@ mod tests {
 
     #[test]
     fn test_message_stream_text_shows_full_when_short() {
-        let short = "x".repeat(400);
+        let short = "x".repeat(200);
         let messages = vec![ProviderEvent::Text {
             text: short.clone(),
         }];
@@ -364,7 +364,7 @@ mod tests {
 
     #[test]
     fn test_message_stream_text_collapses_when_long() {
-        let long = "x".repeat(401);
+        let long = "x".repeat(201);
         let messages = vec![ProviderEvent::Text { text: long }];
         let html = leptos::view! { <MessageStream messages=messages /> }.to_html();
         assert!(html.contains("show-more-btn"));
@@ -424,7 +424,7 @@ mod tests {
     }
 
     #[test]
-    fn test_message_stream_renders_tool_use_as_pre() {
+    fn test_message_stream_renders_tool_use_as_div() {
         let messages = vec![ProviderEvent::ToolUse {
             tool_name: "read".into(),
             tool_use_id: Some("id1".into()),
@@ -432,7 +432,7 @@ mod tests {
             message_id: None,
         }];
         let html = leptos::view! { <MessageStream messages=messages /> }.to_html();
-        assert!(html.contains("<pre>"));
+        assert!(html.contains("<div>"));
     }
 }
 
