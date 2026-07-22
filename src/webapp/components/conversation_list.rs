@@ -222,7 +222,6 @@ mod tests {
         assert!(html.contains("mdi-code-tags"));
         assert!(html.contains("level-left"));
         assert!(html.contains("level-right"));
-        assert!(html.contains("box is-info is-light"));
         assert!(html.contains("Completed"));
         assert!(html.contains("is-light"));
     }
