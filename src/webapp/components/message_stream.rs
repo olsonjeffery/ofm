@@ -1,5 +1,6 @@
 use crate::providers::types::ProviderEvent;
 use leptos::prelude::*;
+use std::collections::HashSet;
 use std::sync::atomic::{AtomicU64, Ordering};
 
 static COLLAPSE_ID: AtomicU64 = AtomicU64::new(0);
@@ -101,7 +102,7 @@ fn maybe_collapse_md(content: &str, html_id: &str) -> String {
     }
 }
 
-fn render_event(event: &ProviderEvent) -> String {
+pub fn render_event(event: &ProviderEvent) -> String {
     match event {
         ProviderEvent::Text { text } => {
             if text.trim().is_empty() {
@@ -224,26 +225,34 @@ fn render_event(event: &ProviderEvent) -> String {
             }
         }
         ProviderEvent::QuestionAsked { ref questions, .. } => {
-            let mut html = String::new();
+            if questions.is_empty() {
+                return String::new();
+            }
+            let mut md = String::new();
             for q in questions {
                 let hdr = q.header.as_deref().unwrap_or("Question");
-                let opts_html: String = q
-                    .options
-                    .iter()
-                    .map(|o| {
-                        format!(
-                            r#"<span class="tag is-info is-light">{}</span>"#,
-                            esc(&o.label)
-                        )
-                    })
-                    .collect::<Vec<_>>()
-                    .join(" ");
-                html.push_str(&format!(
-                    r#"<div class="box"><strong>{}</strong><p>{}</p><div style="margin-top:0.5rem">{}</div></div>"#,
-                    esc(hdr), esc(&q.question), opts_html
-                ));
+                md.push_str(&format!("**{}**\n\n{}", esc(hdr), q.question));
+                if !q.options.is_empty() {
+                    md.push_str("\n\n");
+                    for o in &q.options {
+                        md.push_str(&format!(
+                            "- **{}**{}",
+                            esc(&o.label),
+                            o.description
+                                .as_deref()
+                                .map(|d| format!(": {}", esc(d)))
+                                .unwrap_or_default()
+                        ));
+                        md.push('\n');
+                    }
+                }
+                md.push_str("\n\n");
             }
-            html
+            let content = render_markdown(&md);
+            format!(
+                r#"<div class="message-question notification is-info is-light"><span class="icon"><i class="mdi mdi-help-circle-outline"></i></span>{}</div>"#,
+                content
+            )
         }
         ProviderEvent::Done(_) => {
             r#"<div class="notification is-success is-light">Done</div>"#.to_string()
@@ -254,7 +263,7 @@ fn render_event(event: &ProviderEvent) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::providers::types::ProviderEvent;
+    use crate::providers::types::{AskedQuestion, ProviderEvent, QuestionOption};
 
     #[test]
     fn test_message_stream_empty() {
@@ -434,12 +443,199 @@ mod tests {
         let html = leptos::view! { <MessageStream messages=messages /> }.to_html();
         assert!(html.contains("<div>"));
     }
+
+    // ── Dedup tests ───────────────────────────────────────────────────────
+
+    #[test]
+    fn test_dedup_suppresses_duplicate_text() {
+        let messages = vec![
+            ProviderEvent::Text {
+                text: "hello".into(),
+            },
+            ProviderEvent::Text {
+                text: "hello".into(),
+            },
+        ];
+        let html = leptos::view! { <MessageStream messages=messages /> }.to_html();
+        assert_eq!(html.matches("hello").count(), 1);
+    }
+
+    #[test]
+    fn test_dedup_suppresses_duplicate_tool_use() {
+        let messages = vec![
+            ProviderEvent::ToolUse {
+                tool_name: "read".into(),
+                tool_use_id: Some("id1".into()),
+                input: serde_json::json!({"path": "/tmp"}),
+                message_id: None,
+            },
+            ProviderEvent::ToolUse {
+                tool_name: "read".into(),
+                tool_use_id: Some("id1".into()),
+                input: serde_json::json!({"path": "/tmp"}),
+                message_id: None,
+            },
+        ];
+        let html = leptos::view! { <MessageStream messages=messages /> }.to_html();
+        assert_eq!(html.matches("read").count(), 1);
+    }
+
+    #[test]
+    fn test_dedup_allows_different_tool_use() {
+        let messages = vec![
+            ProviderEvent::ToolUse {
+                tool_name: "read".into(),
+                tool_use_id: Some("id1".into()),
+                input: serde_json::json!({"path": "/tmp"}),
+                message_id: None,
+            },
+            ProviderEvent::ToolUse {
+                tool_name: "write".into(),
+                tool_use_id: Some("id2".into()),
+                input: serde_json::json!({"path": "/tmp/test.txt"}),
+                message_id: None,
+            },
+        ];
+        let html = leptos::view! { <MessageStream messages=messages /> }.to_html();
+        assert_eq!(html.matches("message-tool").count(), 2);
+    }
+
+    #[test]
+    fn test_dedup_suppresses_duplicate_thinking() {
+        let messages = vec![
+            ProviderEvent::Thinking {
+                thinking: "hmm".into(),
+            },
+            ProviderEvent::Thinking {
+                thinking: "hmm".into(),
+            },
+        ];
+        let html = leptos::view! { <MessageStream messages=messages /> }.to_html();
+        assert_eq!(html.matches("hmm").count(), 1);
+    }
+
+    #[test]
+    fn test_dedup_suppresses_duplicate_user_text() {
+        let messages = vec![
+            ProviderEvent::UserText {
+                text: "hello".into(),
+            },
+            ProviderEvent::UserText {
+                text: "hello".into(),
+            },
+        ];
+        let html = leptos::view! { <MessageStream messages=messages /> }.to_html();
+        assert_eq!(html.matches("hello").count(), 1);
+    }
+
+    // ── QuestionAsked rendering tests ─────────────────────────────────────
+
+    #[test]
+    fn test_question_asked_renders_notification_icon() {
+        let messages = vec![ProviderEvent::QuestionAsked {
+            session_id: "sess1".into(),
+            questions: vec![AskedQuestion {
+                question: "What model?".into(),
+                header: Some("Choose".into()),
+                options: vec![QuestionOption {
+                    label: "gpt-4".into(),
+                    description: Some("Fast".into()),
+                }],
+            }],
+            tool_call_id: None,
+            message_id: None,
+        }];
+        let html = leptos::view! { <MessageStream messages=messages /> }.to_html();
+        assert!(html.contains("notification is-info is-light"));
+        assert!(html.contains("mdi-help-circle-outline"));
+        assert!(html.contains("message-question"));
+    }
+
+    #[test]
+    fn test_question_asked_renders_fields_as_markdown() {
+        let messages = vec![ProviderEvent::QuestionAsked {
+            session_id: "sess1".into(),
+            questions: vec![AskedQuestion {
+                question: "Which color?".into(),
+                header: Some("Pick".into()),
+                options: vec![
+                    QuestionOption {
+                        label: "Red".into(),
+                        description: Some("Warm".into()),
+                    },
+                    QuestionOption {
+                        label: "Blue".into(),
+                        description: None,
+                    },
+                ],
+            }],
+            tool_call_id: None,
+            message_id: None,
+        }];
+        let html = leptos::view! { <MessageStream messages=messages /> }.to_html();
+        assert!(html.contains("Pick"));
+        assert!(html.contains("Which color?"));
+        assert!(html.contains("Red"));
+        assert!(html.contains("Warm"));
+        assert!(html.contains("Blue"));
+    }
+
+    #[test]
+    fn test_question_asked_empty_renders_nothing() {
+        let messages = vec![ProviderEvent::QuestionAsked {
+            session_id: "sess1".into(),
+            questions: vec![],
+            tool_call_id: None,
+            message_id: None,
+        }];
+        let html = leptos::view! { <MessageStream messages=messages /> }.to_html();
+        assert!(!html.contains("notification is-info is-light"));
+    }
+
+    #[test]
+    fn test_user_text_still_renders_normally() {
+        let messages = vec![ProviderEvent::UserText {
+            text: "hello user".into(),
+        }];
+        let html = leptos::view! { <MessageStream messages=messages /> }.to_html();
+        assert!(html.contains("hello user"));
+        assert!(html.contains("message-user"));
+    }
 }
 
 #[component]
 pub fn MessageStream(messages: Vec<ProviderEvent>) -> impl IntoView {
+    let mut seen = HashSet::new();
     let rendered: String = messages
         .iter()
+        .filter(|event| {
+            let key = match event {
+                ProviderEvent::Text { text } => Some(format!("text:{text}")),
+                ProviderEvent::UserText { text } => Some(format!("user_text:{text}")),
+                ProviderEvent::Thinking { thinking } => Some(format!("thinking:{thinking}")),
+                ProviderEvent::ToolUse {
+                    tool_use_id,
+                    message_id,
+                    ..
+                } => tool_use_id
+                    .as_deref()
+                    .or(message_id.as_deref())
+                    .map(|s| s.to_string()),
+                ProviderEvent::ToolResult {
+                    tool_use_id,
+                    message_id,
+                    ..
+                } => tool_use_id
+                    .as_deref()
+                    .or(message_id.as_deref())
+                    .map(|s| s.to_string()),
+                _ => None,
+            };
+            match key {
+                Some(k) => seen.insert(k),
+                None => true,
+            }
+        })
         .map(render_event)
         .filter(|s| !s.is_empty())
         .collect::<Vec<_>>()

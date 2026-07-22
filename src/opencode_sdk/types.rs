@@ -92,6 +92,8 @@ pub enum Event {
     TuiPromptAppend(serde_json::Value),
     #[serde(rename = "tui.command_execute")]
     TuiCommandExecute(serde_json::Value),
+    #[serde(rename = "question.asked")]
+    QuestionAsked(QuestionAskedData),
     #[serde(rename = "tui.toast_show")]
     TuiToastShow(TuiToastData),
 }
@@ -611,6 +613,13 @@ pub struct CacheUsage {
 pub struct PromptResponse {
     pub info: AssistantMessage,
     pub parts: Vec<Part>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct QuestionAskedData {
+    #[serde(rename = "sessionID")]
+    pub session_id: String,
+    pub questions: Vec<AskedQuestion>,
 }
 
 // ── Question types (from question.asked events) ──────────────────────────

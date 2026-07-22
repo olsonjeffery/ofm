@@ -197,18 +197,22 @@ document.addEventListener('DOMContentLoaded', function() {{
             case 'error': return '<div class="notification is-danger is-light">' + escapeHtml(evt.error) + '</div>';
             case 'question_asked':
                 setProcessing(false);
-                if (!evt.questions) return '';
-                var html = '';
+                if (!evt.questions || !evt.questions.length) return '';
+                var html = '<div class="message-question notification is-info is-light"><span class="icon"><i class="mdi mdi-help-circle-outline"></i></span>';
                 evt.questions.forEach(function(q) {{
                     var hdr = q.header || 'Question';
-                    var opts = '';
+                    html += '<strong>' + escapeHtml(hdr) + '</strong><p>' + escapeHtml(q.question) + '</p>';
                     if (q.options) {{
+                        html += '<ul>';
                         q.options.forEach(function(o) {{
-                            opts += '<span class="tag is-info is-light" style="margin:0.15rem">' + escapeHtml(o.label) + '</span> ';
+                            html += '<li><strong>' + escapeHtml(o.label) + '</strong>';
+                            if (o.description) html += ': ' + escapeHtml(o.description);
+                            html += '</li>';
                         }});
+                        html += '</ul>';
                     }}
-                    html += '<div class="box"><strong>' + escapeHtml(hdr) + '</strong><p>' + escapeHtml(q.question) + '</p><div style="margin-top:0.5rem">' + opts + '</div></div>';
                 }});
+                html += '</div>';
                 return html;
             case 'done': return '<div class="notification is-success is-light">Done</div>';
             default: return '';
@@ -216,6 +220,13 @@ document.addEventListener('DOMContentLoaded', function() {{
     }}
 
     function renderServerEvent(msg) {{
+        // Use server pre-rendered HTML when available
+        if (msg.html) {{
+            if (msg.event_type === 'done' || msg.event_type === 'error' || msg.event_type === 'question_asked') {{
+                setProcessing(false);
+            }}
+            return msg.html;
+        }}
         switch (msg.event_type) {{
             case 'response':
             case 'ready':
@@ -261,17 +272,22 @@ document.addEventListener('DOMContentLoaded', function() {{
             case 'question_asked':
                 setProcessing(false);
                 var questions = msg.payload.questions || [];
-                var qHtml = '';
+                if (!questions.length) return '';
+                var qHtml = '<div class="message-question notification is-info is-light"><span class="icon"><i class="mdi mdi-help-circle-outline"></i></span>';
                 questions.forEach(function(q) {{
                     var hdr = q.header || 'Question';
-                    var opts = '';
+                    qHtml += '<strong>' + escapeHtml(hdr) + '</strong><p>' + escapeHtml(q.question) + '</p>';
                     if (q.options) {{
+                        qHtml += '<ul>';
                         q.options.forEach(function(o) {{
-                            opts += '<span class="tag is-info is-light" style="margin:0.15rem">' + escapeHtml(o.label) + '</span> ';
+                            qHtml += '<li><strong>' + escapeHtml(o.label) + '</strong>';
+                            if (o.description) qHtml += ': ' + escapeHtml(o.description);
+                            qHtml += '</li>';
                         }});
+                        qHtml += '</ul>';
                     }}
-                    qHtml += '<div class="box"><strong>' + escapeHtml(hdr) + '</strong><p>' + escapeHtml(q.question) + '</p><div style="margin-top:0.5rem">' + opts + '</div></div>';
                 }});
+                qHtml += '</div>';
                 return qHtml;
             case 'done':
                 setProcessing(false);
