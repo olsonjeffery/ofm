@@ -101,7 +101,7 @@ fn maybe_collapse_md(content: &str, html_id: &str) -> String {
     }
 }
 
-fn render_event(event: &ProviderEvent) -> String {
+pub fn render_event(event: &ProviderEvent) -> String {
     match event {
         ProviderEvent::Text { text } => {
             if text.trim().is_empty() {
@@ -224,26 +224,29 @@ fn render_event(event: &ProviderEvent) -> String {
             }
         }
         ProviderEvent::QuestionAsked { ref questions, .. } => {
-            let mut html = String::new();
+            let mut body = String::new();
             for q in questions {
                 let hdr = q.header.as_deref().unwrap_or("Question");
-                let opts_html: String = q
+                let opts_md: String = q
                     .options
                     .iter()
                     .map(|o| {
-                        format!(
-                            r#"<span class="tag is-info is-light">{}</span>"#,
-                            esc(&o.label)
-                        )
+                        let label = &o.label;
+                        if let Some(desc) = &o.description {
+                            format!("- **{label}** ({desc})")
+                        } else {
+                            format!("- {label}")
+                        }
                     })
                     .collect::<Vec<_>>()
-                    .join(" ");
-                html.push_str(&format!(
-                    r#"<div class="box"><strong>{}</strong><p>{}</p><div style="margin-top:0.5rem">{}</div></div>"#,
-                    esc(hdr), esc(&q.question), opts_html
-                ));
+                    .join("\n");
+                let md = format!("**{hdr}**\n\n{}\n\n{opts_md}", q.question);
+                body.push_str(&render_markdown(&md));
             }
-            html
+            format!(
+                r#"<div class="message-question notification is-info is-light"><span class="icon"><i class="mdi mdi-help-circle-outline"></i></span>{}</div>"#,
+                body
+            )
         }
         ProviderEvent::Done(_) => {
             r#"<div class="notification is-success is-light">Done</div>"#.to_string()
@@ -434,12 +437,247 @@ mod tests {
         let html = leptos::view! { <MessageStream messages=messages /> }.to_html();
         assert!(html.contains("<div>"));
     }
+
+    // ── Dedup tests ──
+
+    #[test]
+    fn test_dedup_suppresses_duplicate_text() {
+        let messages = vec![
+            ProviderEvent::Text {
+                text: "hello".into(),
+            },
+            ProviderEvent::Text {
+                text: "hello".into(),
+            },
+        ];
+        let html = leptos::view! { <MessageStream messages=messages /> }.to_html();
+        let count = html.matches("hello").count();
+        assert_eq!(count, 1, "duplicate Text should be deduped");
+    }
+
+    #[test]
+    fn test_dedup_allows_different_text() {
+        let messages = vec![
+            ProviderEvent::Text {
+                text: "hello".into(),
+            },
+            ProviderEvent::Text {
+                text: "world".into(),
+            },
+        ];
+        let html = leptos::view! { <MessageStream messages=messages /> }.to_html();
+        assert!(html.contains("hello"));
+        assert!(html.contains("world"));
+    }
+
+    #[test]
+    fn test_dedup_suppresses_duplicate_tool_use() {
+        let messages = vec![
+            ProviderEvent::ToolUse {
+                tool_name: "read".into(),
+                tool_use_id: Some("id1".into()),
+                input: serde_json::json!({"path": "/tmp"}),
+                message_id: None,
+            },
+            ProviderEvent::ToolUse {
+                tool_name: "read".into(),
+                tool_use_id: Some("id1".into()),
+                input: serde_json::json!({"path": "/tmp"}),
+                message_id: None,
+            },
+        ];
+        let html = leptos::view! { <MessageStream messages=messages /> }.to_html();
+        let count = html.matches(r#"data-tool-use-id="id1""#).count();
+        assert_eq!(
+            count, 1,
+            "duplicate ToolUse (same tool_use_id) should be deduped"
+        );
+    }
+
+    #[test]
+    fn test_dedup_allows_different_tool_use() {
+        let messages = vec![
+            ProviderEvent::ToolUse {
+                tool_name: "read".into(),
+                tool_use_id: Some("id1".into()),
+                input: serde_json::json!({"path": "/tmp"}),
+                message_id: None,
+            },
+            ProviderEvent::ToolUse {
+                tool_name: "write".into(),
+                tool_use_id: Some("id2".into()),
+                input: serde_json::json!({"path": "/tmp/out"}),
+                message_id: None,
+            },
+        ];
+        let html = leptos::view! { <MessageStream messages=messages /> }.to_html();
+        assert!(html.contains(r#"data-tool-use-id="id1""#));
+        assert!(html.contains(r#"data-tool-use-id="id2""#));
+    }
+
+    #[test]
+    fn test_dedup_allows_user_text_same_content() {
+        let messages = vec![
+            ProviderEvent::UserText {
+                text: "hello".into(),
+            },
+            ProviderEvent::UserText {
+                text: "hello".into(),
+            },
+        ];
+        let html = leptos::view! { <MessageStream messages=messages /> }.to_html();
+        // UserText dedup uses fingerprint, so same text = same fingerprint = dedup
+        let count = html.matches("hello").count();
+        assert_eq!(
+            count, 1,
+            "duplicate UserText (same content) should be deduped"
+        );
+    }
+
+    #[test]
+    fn test_dedup_suppresses_duplicate_thinking() {
+        let messages = vec![
+            ProviderEvent::Thinking {
+                thinking: "hmm".into(),
+            },
+            ProviderEvent::Thinking {
+                thinking: "hmm".into(),
+            },
+        ];
+        let html = leptos::view! { <MessageStream messages=messages /> }.to_html();
+        let count = html.matches("hmm").count();
+        assert_eq!(count, 1, "duplicate Thinking should be deduped");
+    }
+
+    // ── Question rendering tests ──
+
+    #[test]
+    fn test_question_asked_renders_notification_styling() {
+        let messages = vec![ProviderEvent::QuestionAsked {
+            session_id: "sess-1".into(),
+            questions: vec![crate::providers::types::AskedQuestion {
+                question: "What model?".into(),
+                header: Some("Choose".into()),
+                options: vec![crate::providers::types::QuestionOption {
+                    label: "gpt-4".into(),
+                    description: Some("Fast".into()),
+                }],
+            }],
+            tool_call_id: None,
+            message_id: None,
+        }];
+        let html = leptos::view! { <MessageStream messages=messages /> }.to_html();
+        assert!(
+            html.contains("notification is-info is-light"),
+            "should use notification styling"
+        );
+        assert!(
+            html.contains("mdi-help-circle-outline"),
+            "should have help-circle icon"
+        );
+        assert!(
+            !html.contains("class=\"box\""),
+            "should NOT use box styling"
+        );
+    }
+
+    #[test]
+    fn test_question_asked_renders_markdown_fields() {
+        let messages = vec![ProviderEvent::QuestionAsked {
+            session_id: "sess-1".into(),
+            questions: vec![crate::providers::types::AskedQuestion {
+                question: "Pick one".into(),
+                header: Some("Selection".into()),
+                options: vec![
+                    crate::providers::types::QuestionOption {
+                        label: "opt-a".into(),
+                        description: Some("Option A desc".into()),
+                    },
+                    crate::providers::types::QuestionOption {
+                        label: "opt-b".into(),
+                        description: None,
+                    },
+                ],
+            }],
+            tool_call_id: None,
+            message_id: None,
+        }];
+        let html = leptos::view! { <MessageStream messages=messages /> }.to_html();
+        // Should render header and question in markdown as HTML
+        assert!(html.contains("Selection"), "should render header");
+        assert!(html.contains("Pick one"), "should render question text");
+        assert!(html.contains("opt-a"), "should render option label");
+        assert!(html.contains("opt-b"), "should render second option");
+    }
+
+    #[test]
+    fn test_question_asked_default_header() {
+        let messages = vec![ProviderEvent::QuestionAsked {
+            session_id: "sess-1".into(),
+            questions: vec![crate::providers::types::AskedQuestion {
+                question: "Just a question".into(),
+                header: None,
+                options: vec![],
+            }],
+            tool_call_id: None,
+            message_id: None,
+        }];
+        let html = leptos::view! { <MessageStream messages=messages /> }.to_html();
+        assert!(
+            html.contains("Question"),
+            "should use default 'Question' header"
+        );
+    }
+
+    #[test]
+    fn test_user_text_still_renders_normally() {
+        let messages = vec![ProviderEvent::UserText {
+            text: "hello world".into(),
+        }];
+        let html = leptos::view! { <MessageStream messages=messages /> }.to_html();
+        assert!(
+            html.contains("message-user"),
+            "should still use message-user class"
+        );
+        assert!(
+            !html.contains("notification"),
+            "should not have notification class"
+        );
+        assert!(html.contains("hello world"));
+    }
+}
+
+fn event_fingerprint(event: &ProviderEvent) -> Option<String> {
+    match event {
+        ProviderEvent::Text { text } => Some(format!("text:{text}")),
+        ProviderEvent::UserText { text } => Some(format!("user_text:{text}")),
+        ProviderEvent::Thinking { thinking } => Some(format!("thinking:{thinking}")),
+        ProviderEvent::ToolUse {
+            tool_use_id,
+            message_id,
+            ..
+        } => message_id.clone().or_else(|| tool_use_id.clone()),
+        ProviderEvent::ToolResult {
+            tool_use_id,
+            message_id,
+            ..
+        } => message_id.clone().or_else(|| tool_use_id.clone()),
+        _ => None,
+    }
 }
 
 #[component]
 pub fn MessageStream(messages: Vec<ProviderEvent>) -> impl IntoView {
+    let mut seen = std::collections::HashSet::new();
     let rendered: String = messages
         .iter()
+        .filter(|event| {
+            if let Some(fp) = event_fingerprint(event) {
+                seen.insert(fp)
+            } else {
+                true
+            }
+        })
         .map(render_event)
         .filter(|s| !s.is_empty())
         .collect::<Vec<_>>()

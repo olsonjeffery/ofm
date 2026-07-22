@@ -237,11 +237,12 @@ break.
 The conversation message stream applies distinct visual styling per content type, enforced via CSS classes in `src/webapp/styles/app.css` (both SSR and JS rendering paths produce identical HTML):
 
 | Content Type | CSS Class | Icon | Theme |
-|---|---|---|---|
+|---|---|---|---|---|
 | Model statement | `.message-model` | None | Default text, semi-bold (600) |
-| Thinking | `.message-thinking` | `mdi-snowflake-outline` | Purple background/border/text |
+| Thinking | `.message-thinking` | `mdi-head-snowflake-outline` | Purple background/border/text |
 | Tool usage | `.message-tool` | `mdi-cog-outline` | Gray background/border/text |
 | User input | `.message-user` | None | Blue (#1565c0) background, white text, right-aligned, 33% max-width |
+| Question asked | `.message-question` | `mdi-help-circle-outline` | `.notification.is-info.is-light` (Bulma info palette) |
 
 **Show More/Less** — any box with content exceeding 400 characters renders in a collapsed state:
 - A truncated preview (first 400 chars) is shown by default.
@@ -250,12 +251,16 @@ The conversation message stream applies distinct visual styling per content type
 
 **Chunk suppression** — `TextChunk` and `ThinkingChunk` events are silently dropped in both SSR (`message_stream.rs` `render_event`) and JS (`renderEvent`/`renderServerEvent`) rendering paths. Only final `Text` / `Thinking` events appear in the stream.
 
-**Client-side deduplication** — JS in `chat.rs` maintains a `renderedFingerprints` Set and `renderedToolCalls` map:
-- `user_text`: keyed by `"user_text:" + text`, skipped if already rendered.
+**Initial prompt visibility** — The agent's initial system prompt is rendered as a `UserText` message. It is persisted and broadcast only *after* `SessionStart` is received (which carries the provider's real `session_id`), fixing a race where the prompt was persisted with a placeholder `UNSET_*` `session_id` and broadcast before any WS client had subscribed. The broadcast now includes `conversation_id` in the payload for correct JS filtering. On SSR page reload, `load_transcript()` queries by the provider's real `session_id` and correctly loads the initial prompt.
+
+**Server-side deduplication** — The `MessageStream` component in `message_stream.rs` applies dedup before calling `render_event()` via `event_fingerprint()`, which computes a fingerprint key per event:
+- `user_text`: keyed by `"user_text:" + text`, skipped if duplicate.
 - `text`: keyed by `"text:" + text`, skipped if duplicate.
 - `thinking`: keyed by `"thinking:" + thinking`, skipped if duplicate.
-- `tool_use`: keyed by `tool_use_id`, first render stores the entry; subsequent `tool_result` with same `tool_use_id` updates the existing DOM element in-place (merging result into the tool content div).
-- `tool_result` with no matching `tool_use_id` renders as a standalone `.message-tool` entry.
+- `tool_use` / `tool_result`: keyed by `message_id` or `tool_use_id` (first wins).
+- Other variants: no dedup.
+
+The same dedup set applies to both SSR (initial page load) and WS streaming (server pre-renders `html` via `render_event()` in broadcast code). JS dedup code in `chat.rs` has been removed in favor of server HTML.
 
 ## Boundaries (not in this spec)
 

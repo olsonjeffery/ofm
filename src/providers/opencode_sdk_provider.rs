@@ -223,29 +223,50 @@ fn map_sdk_event_to_provider_event(
                 }
                 Some(ProviderEvent::Thinking { thinking: text })
             }
-            Part::Tool(tool_part) => match &tool_part.state {
-                ToolState::Running(_) => Some(ProviderEvent::ToolUse {
-                    tool_name: tool_part.tool.clone(),
-                    tool_use_id: Some(tool_part.call_id.clone()),
-                    input: tool_part.input.clone().unwrap_or(serde_json::Value::Null),
-                    message_id: data.message_id.clone(),
-                }),
-                ToolState::Completed(state) => {
-                    let output = state.output.trim().to_string();
-                    if output == "null" || output.is_empty() {
-                        return None;
+            Part::Tool(tool_part) => {
+                if tool_part.tool == "question" {
+                    if let Some(input) = &tool_part.input {
+                        if let Ok(asked) =
+                            serde_json::from_value::<Vec<crate::providers::types::AskedQuestion>>(
+                                input
+                                    .get("questions")
+                                    .cloned()
+                                    .unwrap_or(serde_json::Value::Null),
+                            )
+                        {
+                            return Some(ProviderEvent::QuestionAsked {
+                                session_id: session_id.to_string(),
+                                questions: asked,
+                                tool_call_id: Some(tool_part.call_id.clone()),
+                                message_id: data.message_id.clone(),
+                            });
+                        }
                     }
-                    Some(ProviderEvent::ToolResult {
-                        tool_use_id: Some(tool_part.call_id.clone()),
-                        result: output,
-                        message_id: data.message_id.clone(),
-                    })
                 }
-                ToolState::Error(state) => Some(ProviderEvent::Error {
-                    error: state.error.clone(),
-                }),
-                ToolState::Pending(_) => None,
-            },
+                match &tool_part.state {
+                    ToolState::Running(_) => Some(ProviderEvent::ToolUse {
+                        tool_name: tool_part.tool.clone(),
+                        tool_use_id: Some(tool_part.call_id.clone()),
+                        input: tool_part.input.clone().unwrap_or(serde_json::Value::Null),
+                        message_id: data.message_id.clone(),
+                    }),
+                    ToolState::Completed(state) => {
+                        let output = state.output.trim().to_string();
+                        if output == "null" || output.is_empty() {
+                            return None;
+                        }
+                        Some(ProviderEvent::ToolResult {
+                            tool_use_id: Some(tool_part.call_id.clone()),
+                            result: output,
+                            message_id: data.message_id.clone(),
+                        })
+                    }
+                    ToolState::Error(state) => Some(ProviderEvent::Error {
+                        error: state.error.clone(),
+                    }),
+                    ToolState::Pending(_) => None,
+                }
+            }
             _ => None,
         },
         Event::SessionStatus(data) => {

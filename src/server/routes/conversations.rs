@@ -138,11 +138,15 @@ async fn send_message(
         kind: WsTopicKind::Task,
         id: TopicId(task_id),
     };
+    let html = Some(crate::webapp::components::message_stream::render_event(
+        &user_event,
+    ));
     let msg = ServerMessage::Event {
         topic: topic.clone(),
         event_type: "user_text".to_string(),
         timestamp: chrono::Utc::now(),
         payload: serde_json::json!({"text": body.text, "conversation_id": conv_id.to_string()}),
+        html,
     };
     state.ws_bus.broadcast(&topic, msg).await;
 
@@ -249,11 +253,13 @@ async fn send_message(
                                     serde_json::json!({"conversation_id": c_id.to_string()})
                                 };
 
+                                let html = Some(crate::webapp::components::message_stream::render_event(&event));
                                 let msg = ServerMessage::Event {
                                     topic: topic.clone(),
                                     event_type,
                                     timestamp: chrono::Utc::now(),
                                     payload,
+                                    html,
                                 };
 
                                 ws_bus_inner.broadcast(&topic, msg).await;
@@ -304,6 +310,7 @@ async fn send_message(
                         event_type: "error".to_string(),
                         timestamp: chrono::Utc::now(),
                         payload: serde_json::json!({"error": "Agent session ended unexpectedly. Send a message to resume.", "conversation_id": c_id.to_string()}),
+                        html: None,
                     };
                     ws_bus.broadcast(&topic, msg).await;
                 }

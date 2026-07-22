@@ -46,6 +46,8 @@ pub enum ServerMessage {
         event_type: String,
         timestamp: DateTime<Utc>,
         payload: Value,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        html: Option<String>,
     },
     EventsReplay {
         events: Vec<ServerMessage>,
@@ -161,6 +163,7 @@ mod tests {
             event_type: "agent-run-updated".to_string(),
             timestamp: Utc::now(),
             payload: serde_json::json!({"status": "running", "progress": 0.5}),
+            html: None,
         };
         let json = serde_json::to_string(&msg).unwrap();
         assert!(json.contains("\"type\":\"event\""));
@@ -189,6 +192,7 @@ mod tests {
             event_type: "test".to_string(),
             timestamp: Utc::now(),
             payload: serde_json::json!({"key": "value"}),
+            html: None,
         };
         let msg = ServerMessage::EventsReplay {
             events: vec![inner],
@@ -244,6 +248,7 @@ mod tests {
             event_type: "test".to_string(),
             timestamp: now,
             payload: serde_json::json!({}),
+            html: None,
         };
         assert_eq!(event.timestamp(), Some(now));
 

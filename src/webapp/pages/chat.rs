@@ -52,10 +52,8 @@ document.addEventListener('DOMContentLoaded', function() {{
     // Periodic check to ensure pill visibility stays correct
     setInterval(updateJumpPill, 2000);
 
-    // Dedup state trackers
+    // Collapse ID counter (kept for JS fallback rendering)
     var collapseCounter = 0;
-    var renderedFingerprints = new Set();
-    var renderedMessageIds = {{}};
 
     // Stop agent
     window.stopAgent = function() {{
@@ -97,20 +95,9 @@ document.addEventListener('DOMContentLoaded', function() {{
                 setProcessing(true);
                 var container = document.getElementById('message-stream');
                 if (container) {{
-                    // dedup by message_id: merge into existing entry
-                    var dedupKey = msg.payload.message_id || msg.payload.tool_use_id || '';
-                    if (dedupKey && renderedMessageIds[dedupKey]) {{
-                        updateToolCallContent(dedupKey, msg);
-                        if (isAtBottom) {{ scrollToBottom(); }}
-                        else {{ updateJumpPill(); }}
-                        return;
-                    }}
-                    var eventHtml = renderServerEvent(msg);
+                    var eventHtml = msg.html || renderServerEvent(msg);
                     if (eventHtml) {{
                         container.insertAdjacentHTML('beforeend', eventHtml);
-                        // Track message_id / tool_use_id for future dedup
-                        var dk = msg.payload.message_id || msg.payload.tool_use_id || '';
-                        if (dk) renderedMessageIds[dk] = container.lastElementChild;
                         if (isAtBottom) {{ scrollToBottom(); }}
                         else {{ updateJumpPill(); }}
                     }}
@@ -163,32 +150,19 @@ document.addEventListener('DOMContentLoaded', function() {{
         switch (evt.type) {{
             case 'text':
                 if (!evt.text || !evt.text.trim()) return '';
-                var textFp = 'text:' + evt.text;
-                if (renderedFingerprints.has(textFp)) return '';
-                renderedFingerprints.add(textFp);
                 var id = nextCollapseId();
                 var content = maybeCollapse(evt.text, id);
                 return '<div class="message-model"><div class="content">' + content + '</div></div>';
             case 'user_text':
-                var utFp = 'user_text:' + evt.text;
-                if (renderedFingerprints.has(utFp)) return '';
-                renderedFingerprints.add(utFp);
                 return userMsgHtml(evt.text);
             case 'text_chunk': return '';
             case 'tool_use':
-                var dedupKey = evt.message_id || evt.tool_use_id || '';
-                if (dedupKey && renderedMessageIds[dedupKey]) return '';
                 return renderToolUse({{ tool_name: evt.tool_name, tool_use_id: evt.tool_use_id, input: evt.input, message_id: evt.message_id }});
             case 'tool_result':
                 if (!evt.result || evt.result.trim() === 'null' || !evt.result.trim()) return '';
-                var trKey = evt.message_id || evt.tool_use_id || '';
-                if (trKey && renderedMessageIds[trKey]) return '';
                 return renderToolResult({{ tool_use_id: evt.tool_use_id, result: evt.result, message_id: evt.message_id }});
             case 'thinking':
                 if (!evt.thinking || !evt.thinking.trim()) return '';
-                var thinkFp = 'thinking:' + evt.thinking;
-                if (renderedFingerprints.has(thinkFp)) return '';
-                renderedFingerprints.add(thinkFp);
                 var tid = nextCollapseId();
                 var tcontent = maybeCollapse(evt.thinking, tid);
                 return '<div class="message-thinking"><span class="icon"><i class="mdi mdi-head-snowflake-outline"></i></span>' + tcontent + '</div>';
@@ -198,17 +172,20 @@ document.addEventListener('DOMContentLoaded', function() {{
             case 'question_asked':
                 setProcessing(false);
                 if (!evt.questions) return '';
-                var html = '';
+                var html = '<div class="message-question notification is-info is-light"><span class="icon"><i class="mdi mdi-help-circle-outline"></i></span>';
                 evt.questions.forEach(function(q) {{
                     var hdr = q.header || 'Question';
-                    var opts = '';
+                    html += '<strong>' + escapeHtml(hdr) + '</strong><p>' + escapeHtml(q.question) + '</p>';
                     if (q.options) {{
+                        html += '<ul>';
                         q.options.forEach(function(o) {{
-                            opts += '<span class="tag is-info is-light" style="margin:0.15rem">' + escapeHtml(o.label) + '</span> ';
+                            var desc = o.description ? ' (' + escapeHtml(o.description) + ')' : '';
+                            html += '<li><strong>' + escapeHtml(o.label) + '</strong>' + desc + '</li>';
                         }});
+                        html += '</ul>';
                     }}
-                    html += '<div class="box"><strong>' + escapeHtml(hdr) + '</strong><p>' + escapeHtml(q.question) + '</p><div style="margin-top:0.5rem">' + opts + '</div></div>';
                 }});
+                html += '</div>';
                 return html;
             case 'done': return '<div class="notification is-success is-light">Done</div>';
             default: return '';
@@ -223,33 +200,20 @@ document.addEventListener('DOMContentLoaded', function() {{
             case 'extension_ui_request':
             case 'available_commands_update': return '';
             case 'user_text':
-                var utFp = 'user_text:' + (msg.payload.text || '');
-                if (renderedFingerprints.has(utFp)) return '';
-                renderedFingerprints.add(utFp);
                 return userMsgHtml(msg.payload.text || '');
             case 'text':
                 if (!msg.payload.text || !msg.payload.text.trim()) return '';
-                var textFp = 'text:' + (msg.payload.text || '');
-                if (renderedFingerprints.has(textFp)) return '';
-                renderedFingerprints.add(textFp);
                 var id = nextCollapseId();
                 var content = maybeCollapse(msg.payload.text || '', id);
                 return '<div class="message-model"><div class="content">' + content + '</div></div>';
             case 'text_chunk': return '';
             case 'tool_use':
-                var dedupKey = msg.payload.message_id || msg.payload.tool_use_id || '';
-                if (dedupKey && renderedMessageIds[dedupKey]) return '';
                 return renderToolUse(msg.payload);
             case 'tool_result':
                 if (!msg.payload.result || msg.payload.result.trim() === 'null' || !msg.payload.result.trim()) return '';
-                var trKey = msg.payload.message_id || msg.payload.tool_use_id || '';
-                if (trKey && renderedMessageIds[trKey]) return '';
                 return renderToolResult(msg.payload);
             case 'thinking':
                 if (!msg.payload.thinking || !msg.payload.thinking.trim()) return '';
-                var thinkFp = 'thinking:' + (msg.payload.thinking || '');
-                if (renderedFingerprints.has(thinkFp)) return '';
-                renderedFingerprints.add(thinkFp);
                 var tid = nextCollapseId();
                 var tcontent = maybeCollapse(msg.payload.thinking || '', tid);
                 return '<div class="message-thinking"><span class="icon"><i class="mdi mdi-head-snowflake-outline"></i></span>' + tcontent + '</div>';
@@ -261,44 +225,26 @@ document.addEventListener('DOMContentLoaded', function() {{
             case 'question_asked':
                 setProcessing(false);
                 var questions = msg.payload.questions || [];
-                var qHtml = '';
+                var qHtml = '<div class="message-question notification is-info is-light"><span class="icon"><i class="mdi mdi-help-circle-outline"></i></span>';
                 questions.forEach(function(q) {{
                     var hdr = q.header || 'Question';
-                    var opts = '';
+                    qHtml += '<strong>' + escapeHtml(hdr) + '</strong><p>' + escapeHtml(q.question) + '</p>';
                     if (q.options) {{
+                        qHtml += '<ul>';
                         q.options.forEach(function(o) {{
-                            opts += '<span class="tag is-info is-light" style="margin:0.15rem">' + escapeHtml(o.label) + '</span> ';
+                            var desc = o.description ? ' (' + escapeHtml(o.description) + ')' : '';
+                            qHtml += '<li><strong>' + escapeHtml(o.label) + '</strong>' + desc + '</li>';
                         }});
+                        qHtml += '</ul>';
                     }}
-                    qHtml += '<div class="box"><strong>' + escapeHtml(hdr) + '</strong><p>' + escapeHtml(q.question) + '</p><div style="margin-top:0.5rem">' + opts + '</div></div>';
                 }});
+                qHtml += '</div>';
                 return qHtml;
             case 'done':
                 setProcessing(false);
                 return '<div class="notification is-success is-light">Done</div>';
             default: return '';
         }}
-    }}
-
-    function updateToolCallContent(dedupKey, msg) {{
-        var el = renderedMessageIds[dedupKey];
-        if (!el || !el.querySelector) return;
-        var pre = el.querySelector('pre');
-        if (!pre) return;
-        var existingContent = pre.innerHTML;
-        var newContent = '';
-        if (msg.event_type === 'tool_result') {{
-            if (!msg.payload.result || msg.payload.result.trim() === 'null' || !msg.payload.result.trim()) return;
-            var collapseId = dedupKey;
-            var resultContent = maybeCollapse(msg.payload.result, collapseId);
-            newContent = existingContent + '<hr>' + resultContent;
-        }} else if (msg.event_type === 'tool_use') {{
-            var inputStr = JSON.stringify(msg.payload.input, null, 2);
-            var collapseId = dedupKey;
-            var inputContent = maybeCollapse(inputStr, collapseId);
-            newContent = inputContent;
-        }}
-        if (newContent) pre.innerHTML = newContent;
     }}
 
     function renderToolUse(payload) {{

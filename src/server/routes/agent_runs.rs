@@ -205,32 +205,6 @@ async fn post_create_agent_run(
                     )
                     .session_id(session_result.session_id.clone());
 
-                    // Broadcast initial prompt as user message before start_turn
-                    let prompt_event = ProviderEvent::UserText {
-                        text: prompt_text.clone(),
-                    };
-                    if let Err(e) = crate::services::transcript::persist_event(
-                        &state.db,
-                        &prompt_event,
-                        &session_result.session_id,
-                        task_id,
-                    )
-                    .await
-                    {
-                        tracing::warn!("Failed to persist prompt event: {e}");
-                    }
-                    let topic = WsTopic {
-                        kind: WsTopicKind::Task,
-                        id: TopicId(task_id),
-                    };
-                    let msg = ServerMessage::Event {
-                        topic: topic.clone(),
-                        event_type: "user_text".to_string(),
-                        timestamp: chrono::Utc::now(),
-                        payload: serde_json::json!({"text": prompt_text}),
-                    };
-                    state.ws_bus.broadcast(&topic, msg).await;
-
                     match provider.start_turn(turn_input).await {
                         Ok(mut rx) => {
                             // Store provider before spawning task (rx is independent)
@@ -248,6 +222,7 @@ async fn post_create_agent_run(
                             let t_id = task_id;
                             let project_key = task_id;
                             let mut s_id = session_result.session_id;
+                            let initial_prompt_text = prompt_text;
 
                             tokio::spawn(async move {
                                 let completed_normally = Arc::new(AtomicBool::new(false));
@@ -279,6 +254,29 @@ async fn post_create_agent_run(
                                                         "UPDATE conversations SET provider_session_id = $1 WHERE id = $2",
                                                         hiqlite::params!(session_id, conversation_id.to_string()),
                                                     ).await;
+
+                                                    // Persist and broadcast initial prompt with real session_id
+                                                    let prompt_event = ProviderEvent::UserText {
+                                                        text: initial_prompt_text.clone(),
+                                                    };
+                                                    if let Err(e) = crate::services::transcript::persist_event(
+                                                        &db_inner, &prompt_event, &s_id, project_key
+                                                    ).await {
+                                                        tracing::warn!("Failed to persist initial prompt: {e}");
+                                                    }
+                                                    let prompt_topic = WsTopic {
+                                                        kind: WsTopicKind::Task,
+                                                        id: TopicId(t_id),
+                                                    };
+                                                    let prompt_html = Some(crate::webapp::components::message_stream::render_event(&prompt_event));
+                                                    let prompt_msg = ServerMessage::Event {
+                                                        topic: prompt_topic.clone(),
+                                                        event_type: "user_text".to_string(),
+                                                        timestamp: chrono::Utc::now(),
+                                                        payload: serde_json::json!({"text": initial_prompt_text, "conversation_id": conversation_id.to_string()}),
+                                                        html: prompt_html,
+                                                    };
+                                                    ws_bus_inner.broadcast(&prompt_topic, prompt_msg).await;
                                                 }
 
                                                 let topic = WsTopic {
@@ -291,11 +289,13 @@ async fn post_create_agent_run(
                                                     local_completed = true;
                                                 }
 
+                                                let html = Some(crate::webapp::components::message_stream::render_event(&event));
                                                 let msg = ServerMessage::Event {
                                                     topic: topic.clone(),
                                                     event_type,
                                                     timestamp: chrono::Utc::now(),
                                                     payload,
+                                                    html,
                                                 };
 
                                                 ws_bus_inner.broadcast(&topic, msg).await;
@@ -352,6 +352,7 @@ async fn post_create_agent_run(
                                         event_type: "error".to_string(),
                                         timestamp: chrono::Utc::now(),
                                         payload: serde_json::json!({"error": "Agent session ended unexpectedly. Send a message to resume."}),
+                                        html: None,
                                     };
                                     ws_bus.broadcast(&topic, msg).await;
                                 }
@@ -502,6 +503,7 @@ async fn reset_agent_runs(
         event_type: "error".to_string(),
         timestamp: chrono::Utc::now(),
         payload: serde_json::json!({"error": "Session reset — you can now start a new agent run."}),
+        html: None,
     };
     state.ws_bus.broadcast(&topic, msg).await;
 
