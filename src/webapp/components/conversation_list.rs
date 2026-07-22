@@ -57,20 +57,20 @@ pub fn ConversationList(
 ) -> impl IntoView {
     view! {
         <div class="conversation-list">
-            <div class="buttons has-addons is-fullwidth is-centered" id="agent-run-buttons">
-                <button class="button is-small is-light" data-task-id={task_id.clone()} disabled=false data-agent-type="planification" >
+            <div class="buttons is-centered" id="agent-run-buttons">
+                <button class="button level-item is-small is-light" data-task-id={task_id.clone()} disabled=false data-agent-type="planification" >
                     <span class="icon is-small is-info"><i class="mdi mdi-file-document-outline"></i></span> <span>"Plan"</span>
                 </button>
-                <button class="button is-small is-light" data-task-id={task_id.clone()} disabled=false data-agent-type="implementation">
+                <button class="button level-item is-small is-light" data-task-id={task_id.clone()} disabled=false data-agent-type="implementation">
                     <span class="icon is-small is-purple"><i class="mdi mdi-code-tags"></i></span> <span>"Impl"</span>
                 </button>
-                <button class="button is-small is-light" data-task-id={task_id.clone()} disabled=false data-agent-type="review">
+                <button class="button level-item is-small is-light" data-task-id={task_id.clone()} disabled=false data-agent-type="review">
                     <span class="icon is-small is-primary"><i class="mdi mdi-checkbox-marked-circle-outline"></i></span> <span>"Rev"</span>
                 </button>
-                <button class="button is-small is-light" data-task-id={task_id.clone()} disabled=false data-agent-type="refinement" >
+                <button class="button level-item is-small is-light" data-task-id={task_id.clone()} disabled=false data-agent-type="refinement" >
                     <span class="icon is-small is-danger"><i class="mdi mdi-creation-outline"></i></span> <span>"Ref"</span>
                 </button>
-                <button class="button is-small is-light" data-task-id={task_id.clone()} disabled=false data-agent-type="pr" >
+                <button class="button level-item is-small is-light" data-task-id={task_id.clone()} disabled=false data-agent-type="pr" >
                     <span class="icon is-small is-success"><i class="mdi mdi-source-branch-plus"></i></span> <span>"PR"</span>
                 </button>
             </div>

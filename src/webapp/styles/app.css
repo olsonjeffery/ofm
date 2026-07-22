@@ -221,10 +221,6 @@ a.box:active {
     margin-bottom:0.75em;
 }
 
-#agent-run-buttons button {
-    border: 1px solid var(--bulma-grey-dark);
-}
-
 #agent-run-buttons .icon.is-info {
     color: var(--bulma-info);
 }
