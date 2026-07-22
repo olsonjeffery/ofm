@@ -46,11 +46,6 @@ fn is_valid_name(name: &str) -> bool {
 }
 
 fn format_conversation_date(created_at: &chrono::NaiveDateTime) -> String {
-    let epoch = chrono::NaiveDateTime::parse_from_str("1970-01-01 00:00:00", "%Y-%m-%d %H:%M:%S")
-        .unwrap_or_default();
-    if *created_at <= epoch {
-        return String::new();
-    }
     created_at.format("%b %d, %H:%M").to_string()
 }
 
@@ -81,7 +76,7 @@ pub fn ConversationList(
                         let active_style = if is_active { "border-color:var(--bulma-primary)" } else { "" };
 
                         view! {
-                            <div class="box is-info is-light" style={format!("padding:0.75rem;margin-bottom:0.25rem;cursor:pointer;overflow-wrap:break-word;word-break:break-word;{}", active_style)}
+                            <div class="box is-info is-light" style={format!("padding:0.4rem;margin-bottom:0.25rem;cursor:pointer;overflow-wrap:break-word;word-break:break-word;{}", active_style)}
                                 data-conversation-id={conv_id.to_string()}
                                 onclick="window.handleConversationClick(event)"
                             >
@@ -97,12 +92,16 @@ pub fn ConversationList(
                                     </div>
                                     <div class="level-right" style="display:flex;flex-direction:column;align-items:flex-end;gap:0.15rem;flex-shrink:0">
                                         {status.map(|s| view! {
+                                        <div>
                                             <span class={format!("tag {}", run_status_class(s))}>{run_status_label(s)}</span>
+                                        </div>
                                         })}
-                                        <small class="has-text-grey conversation-date" data-conv-id={conv_id.to_string()}
-                                               style="white-space:nowrap;font-size:0.65rem">
-                                            {date_str}
-                                        </small>
+                                        <div>
+                                            <span class="has-text-grey conversation-date" data-conv-id={conv_id.to_string()}
+                                                   style="white-space:nowrap;font-size:0.65rem">
+                                                {date_str}
+                                            </span>
+                                        </div>
                                     </div>
                                 </div>
                             </div>

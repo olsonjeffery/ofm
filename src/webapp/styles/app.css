@@ -14,7 +14,7 @@ body {
 
 /* Main content area accounts for fixed-top navbar */
 main {
-    width: 95%;
+    width: 99%;
     margin: 0 auto;
     min-height: 100vh;
     padding-top: calc(3.25rem + 0.5rem);
@@ -135,4 +135,68 @@ a.box:active {
 .conversation-date.is-pulsed {
     color: var(--bulma-primary);
     transition: none;
+}
+
+/* ===== Message stream content type styling ===== */
+.message-model {
+    font-weight: 600;
+    margin-bottom:1.5em;
+}
+
+.message-thinking {
+    background: var(--bulma-purple-light);
+    color: var(--bulma-purple);
+    border: 1px solid var(--bulma-purple);
+    border-radius: 6px;
+    border-bottom-left-radius: 0px;
+    padding: 0.75rem;
+    margin-bottom:1.5em;
+}
+
+.message-thinking code {
+    background: var(--bulma-info-light);
+    color: var(--bulma-info-dark);
+    border: none;
+    border-radius: 0px;
+    padding-left: 0.2rem;
+    padding-right: 0.2rem;
+    margin: 0.0rem;
+}
+
+.message-thinking .icon {
+    color: var(--bulma-purple);
+}
+
+.message-tool {
+    background: var(--bulma-white-bis);
+    color: var(--bulma-grey-darker);
+    border: 1px solid var(--bulma-grey);
+    border-radius: 6px;
+    border-bottom-left-radius: 0px;
+    padding: 0.75rem;
+    margin-bottom:1.5em;
+}
+.message-tool pre {
+    padding: 0.1rem;
+}
+.message-tool .icon {
+    color: var(--bulma-grey);
+}
+
+.message-user {
+    background: #1565c0;
+    color: #fff;
+    max-width: 45%;
+    margin-left: auto;
+    display: block;
+    padding: 0.75rem;
+    border-radius: 6px;
+    border-bottom-right-radius: 0px;
+    margin-bottom:1.5em;
+}
+
+.show-more-btn {
+    display: block;
+    text-align: right;
+    margin-top: 0.5rem;
 }
