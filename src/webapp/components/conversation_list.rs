@@ -57,27 +57,27 @@ pub fn ConversationList(
 ) -> impl IntoView {
     view! {
         <div class="conversation-list">
+            <div class="buttons has-addons is-fullwidth is-centered" id="agent-run-buttons">
+                <button class="button is-small is-info is-light" data-task-id={task_id.clone()} disabled=false data-agent-type="planification" >
+                    <span class="icon is-small"><i class="mdi mdi-file-document-outline"></i></span> <span>"Plan"</span>
+                </button>
+                <button class="button is-small is-purple is-light" data-task-id={task_id.clone()} disabled=false data-agent-type="implementation">
+                    <span class="icon is-small"><i class="mdi mdi-code-tags"></i></span> <span>"Impl"</span>
+                </button>
+                <button class="button is-small is-danger is-light" data-task-id={task_id.clone()} disabled=false data-agent-type="review">
+                    <span class="icon is-small"><i class="mdi mdi-checkbox-marked-circle-outline"></i></span> <span>"Rev"</span>
+                </button>
+                <button class="button is-small is-warning is-light" data-task-id={task_id.clone()} disabled=false data-agent-type="refinement" >
+                    <span class="icon is-small"><i class="mdi mdi-creation-outline"></i></span> <span>"Ref"</span>
+                </button>
+                <button class="button is-small is-success is-light" data-task-id={task_id.clone()} disabled=false data-agent-type="pr" >
+                    <span class="icon is-small"><i class="mdi mdi-source-branch-plus"></i></span> <span>"PR"</span>
+                </button>
+            </div>
             {if conversations.is_empty() {
                 view! { <p class="has-text-grey is-size-7 p-3">"No conversations yet."</p> }.into_any()
             } else {
                 view! {
-                    <div class="buttons has-addons is-fullwidth is-centered" id="agent-run-buttons">
-                        <button class="button is-small is-info is-light" data-task-id={&task_id} disabled=false data-agent-type="planification" >
-                            <span class="icon is-small"><i class="mdi mdi-file-document-outline"></i></span> <span>"Plan"</span>
-                        </button>
-                        <button class="button is-small is-purple is-light" data-task-id={&task_id} disabled=false data-agent-type="implementation">
-                            <span class="icon is-small"><i class="mdi mdi-code-tags"></i></span> <span>"Impl"</span>
-                        </button>
-                        <button class="button is-small is-danger is-light" data-task-id={&task_id} disabled=false data-agent-type="review">
-                            <span class="icon is-small"><i class="mdi mdi-checkbox-marked-circle-outline"></i></span> <span>"Rev"</span>
-                        </button>
-                        <button class="button is-small is-warning is-light" data-task-id={&task_id} disabled=false data-agent-type="refinement" >
-                            <span class="icon is-small"><i class="mdi mdi-creation-outline"></i></span> <span>"Ref"</span>
-                        </button>
-                        <button class="button is-small is-success is-light" data-task-id={&task_id} disabled=false data-agent-type="pr" >
-                            <span class="icon is-small"><i class="mdi mdi-source-branch-plus"></i></span> <span>"PR"</span>
-                        </button>
-                    </div>
                     {conversations.iter().map(|cwr| {
                         let conv_id = cwr.conversation.id;
                         let is_active = active_id.map(|id| id == conv_id).unwrap_or(false);
