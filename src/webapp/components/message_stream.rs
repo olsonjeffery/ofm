@@ -73,8 +73,8 @@ fn maybe_collapse(content: &str, html_id: &str) -> String {
             esc(content),
             esc(html_id),
             esc(html_id),
-            more_lines.to_string(),
-            more_lines.to_string(),
+            more_lines,
+            more_lines,
         )
     }
 }
@@ -95,8 +95,8 @@ fn maybe_collapse_md(content: &str, html_id: &str) -> String {
             render_markdown(content),
             esc(html_id),
             esc(html_id),
-            more_lines.to_string(),
-            more_lines.to_string(),
+            more_lines,
+            more_lines,
         )
     }
 }
