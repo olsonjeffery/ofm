@@ -80,6 +80,9 @@ kill an `ofm` process that you spawned. This is important.
 The project includes built-in rauthy lifecycle management (spawn/cleanup).
 To start an isolated server for end-to-end testing:
 
+IMPORTANT: You need an OAuth server, always use Rauthy as outlined in the
+example below:
+
 ```bash
 # Pick a random port for ofm (avoid conflicts with other worktrees)
 OFM_PORT={testing-ofm-port} \
