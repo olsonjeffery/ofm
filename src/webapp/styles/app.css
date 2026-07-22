@@ -17,7 +17,7 @@ main {
     width: 99%;
     margin: 0 auto;
     min-height: 100vh;
-    padding-top: 1rem;
+    padding-top: 3.75rem;
 }
 /* Chat page manages its own height via #chat-layout */
 main:has(#chat-layout) {
@@ -225,8 +225,8 @@ a.box:active {
     border: solid 1px var(--bulma-info);
 }
 
-#agent-run-buttons button.is-warning {
-    border: solid 1px var(--bulma-warning);
+#agent-run-buttons button.is-primary {
+    border: solid 1px var(--bulma-primary);
 }
 
 #agent-run-buttons button.is-danger {

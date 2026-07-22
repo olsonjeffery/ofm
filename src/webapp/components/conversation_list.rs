@@ -64,10 +64,10 @@ pub fn ConversationList(
                 <button class="button is-small is-purple is-light" data-task-id={task_id.clone()} disabled=false data-agent-type="implementation">
                     <span class="icon is-small"><i class="mdi mdi-code-tags"></i></span> <span>"Impl"</span>
                 </button>
-                <button class="button is-small is-danger is-light" data-task-id={task_id.clone()} disabled=false data-agent-type="review">
+                <button class="button is-small is-primary is-light" data-task-id={task_id.clone()} disabled=false data-agent-type="review">
                     <span class="icon is-small"><i class="mdi mdi-checkbox-marked-circle-outline"></i></span> <span>"Rev"</span>
                 </button>
-                <button class="button is-small is-warning is-light" data-task-id={task_id.clone()} disabled=false data-agent-type="refinement" >
+                <button class="button is-small is-danger is-light" data-task-id={task_id.clone()} disabled=false data-agent-type="refinement" >
                     <span class="icon is-small"><i class="mdi mdi-creation-outline"></i></span> <span>"Ref"</span>
                 </button>
                 <button class="button is-small is-success is-light" data-task-id={task_id.clone()} disabled=false data-agent-type="pr" >
@@ -93,14 +93,23 @@ pub fn ConversationList(
                         let status = cwr.run.as_ref().map(|r| &r.status);
                         let active_style = if is_active { "border-color:var(--bulma-primary)" } else { "" };
 
+                        let curr_agent_color = match agent_type {
+                            Some(AgentType::Planification) => "var(--bulma-info)",
+                            Some(AgentType::Implementation) => "var(--bulma-purple)",
+                            Some(AgentType::Review) => "var(--bulma-primary)",
+                            Some(AgentType::Refinement) => "var(--bulma-danger)",
+                            Some(AgentType::Pr) => "var(--bulma-sucess)",
+                            _ => "var(--bulma-grey-dark)",
+                        };
+
                         view! {
-                            <div class="box is-info is-light" style={format!("padding:0.4rem;margin-bottom:0.25rem;cursor:pointer;overflow-wrap:break-word;word-break:break-word;{}", active_style)}
+                            <div class="box is-light" style={format!("padding:0.4rem;margin-bottom:0.25rem;cursor:pointer;overflow-wrap:break-word;word-break:break-word;{};border: solid 1px {};", active_style, curr_agent_color)}
                                 data-conversation-id={conv_id.to_string()}
                                 onclick="window.handleConversationClick(event)"
                             >
                                 <div class="level is-mobile" style="margin-bottom:0">
                                     <div class="level-left" style="display:flex;align-items:center;gap:0.5rem;min-width:0;flex-shrink:1;overflow-wrap:break-word;word-break:break-word">
-                                        <span class="icon has-text-info" style="flex-shrink:0">
+                                        <span class="icon" style={format!("flex-shrink:0;color:{};", curr_agent_color)}>
                                             <i class={format!("mdi mdi-{}", icon)}></i>
                                         </span>
                                         <div style="min-width:0;overflow-wrap:break-word;word-break:break-word">
