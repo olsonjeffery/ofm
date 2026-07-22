@@ -127,6 +127,7 @@ a.box:active {
     word-break: break-word;
     overflow-wrap: break-word;
     max-width: 100%;
+    font-family: var(--bulma-family-code);
 }
 
 .conversation-date {
@@ -161,6 +162,7 @@ a.box:active {
     padding-left: 0.2rem;
     padding-right: 0.2rem;
     margin: 0.0rem;
+    font-family: var(--bulma-family-code);
 }
 
 .message-thinking .icon {
@@ -178,6 +180,7 @@ a.box:active {
 }
 .message-tool pre {
     padding: 0.1rem;
+    font-family: var(--bulma-family-code);
 }
 .message-tool .icon {
     color: var(--bulma-grey);
