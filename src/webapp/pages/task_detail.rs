@@ -146,7 +146,7 @@ pub fn TaskDetailPage(
                             <h2 class="title is-5">"Conversations "</h2>
                         </div>
                         <div class="level-right">
-                            <span class="tag is-grey is-light ml-1">{conversation_count}</span>
+                        <span class="tag is-grey is-light ml-1">{conversation_count}</span>
                         </div>
                     </div>
                     <ConversationList conversations=conversations active_id=None task_id />

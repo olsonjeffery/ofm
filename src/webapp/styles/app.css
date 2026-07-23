@@ -17,7 +17,7 @@ main {
     width: 99%;
     margin: 0 auto;
     min-height: 100vh;
-    padding-top: 1rem;
+    padding-top: 3.75rem;
 }
 /* Chat page manages its own height via #chat-layout */
 main:has(#chat-layout) {
@@ -221,22 +221,22 @@ a.box:active {
     margin-bottom:0.75em;
 }
 
-#agent-run-buttons button.is-info {
-    border: solid 1px var(--bulma-info);
+#agent-run-buttons .icon.is-info {
+    color: var(--bulma-info);
 }
 
-#agent-run-buttons button.is-warning {
-    border: solid 1px var(--bulma-warning);
+#agent-run-buttons .icon.is-primary {
+    color: var(--bulma-primary);
 }
 
-#agent-run-buttons button.is-danger {
-    border: solid 1px var(--bulma-danger);
+#agent-run-buttons .icon.is-danger {
+    color: var(--bulma-danger);
 }
 
-#agent-run-buttons button.is-purple {
-    border: solid 1px var(--bulma-purple);
+#agent-run-buttons .icon.is-purple {
+    color: var(--bulma-purple);
 }
 
-#agent-run-buttons button.is-success {
-    border: solid 1px var(--bulma-success);
+#agent-run-buttons .icon.is-success {
+    color: var(--bulma-success);
 }

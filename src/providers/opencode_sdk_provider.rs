@@ -280,6 +280,27 @@ fn map_sdk_event_to_provider_event(
             }
         }
         Event::ServerConnected(_) => Some(ProviderEvent::Ready),
+        Event::QuestionAsked(data) => Some(ProviderEvent::QuestionAsked {
+            session_id: data.session_id.clone(),
+            questions: data
+                .questions
+                .iter()
+                .map(|q| crate::providers::types::AskedQuestion {
+                    question: q.question.clone(),
+                    header: q.header.clone(),
+                    options: q
+                        .options
+                        .iter()
+                        .map(|o| crate::providers::types::QuestionOption {
+                            label: o.label.clone(),
+                            description: o.description.clone(),
+                        })
+                        .collect(),
+                })
+                .collect(),
+            tool_call_id: None,
+            message_id: None,
+        }),
         _ => None,
     }
 }

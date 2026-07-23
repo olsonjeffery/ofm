@@ -113,6 +113,7 @@ mod tests {
             event_type: "test".to_string(),
             timestamp,
             payload: serde_json::json!({"msg": "hello"}),
+            html: None,
         }
     }
 
