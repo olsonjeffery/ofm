@@ -190,21 +190,13 @@ async fn send_message(
                     let db = state.db.clone();
                     let ws_bus = state.ws_bus.clone();
                     let active_sessions = state.active_sessions.clone();
-                    let t_id = task_id;
                     let s_id = provider_session_id;
-                    let project_key = task_id;
                     let c_id = conv_id;
 
                     tokio::spawn(async move {
                         let completed_normally = Arc::new(AtomicBool::new(false));
-                        let cn = completed_normally.clone();
-                        let db_inner = db.clone();
-                        let ws_bus_inner = ws_bus.clone();
-                        let active_sessions_inner = active_sessions.clone();
-                        let active_sessions_for_guard = active_sessions_inner.clone();
 
-                        let broadcast_fut = AssertUnwindSafe(async move {
-                            let mut local_completed = false;
+                        let broadcast_fut = AssertUnwindSafe(async {
                             loop {
                                 tokio::select! {
                                     event = rx.recv() => {
@@ -214,13 +206,13 @@ async fn send_message(
                                         };
 
                                         if let Err(e) = transcript::persist_event(
-                                            &db_inner, &event, &s_id, project_key
+                                            &db, &event, &s_id, task_id
                                         ).await {
                                             tracing::warn!("Failed to persist event: {e}");
                                         }
 
                                         if let ProviderEvent::SessionStart { session_id } = &event {
-                                            let _ = db_inner.execute(
+                                            let _ = db.execute(
                                                 "UPDATE conversations SET provider_session_id = $1 WHERE id = $2",
                                                 hiqlite::params!(session_id, c_id.to_string()),
                                             ).await;
@@ -228,12 +220,12 @@ async fn send_message(
 
                                         let topic = WsTopic {
                                             kind: WsTopicKind::Task,
-                                            id: TopicId(t_id),
+                                            id: TopicId(task_id),
                                         };
 
                                         let (event_type, payload) = event.to_ws_event();
                                         if matches!(event, ProviderEvent::Done(_)) {
-                                            local_completed = true;
+                                            completed_normally.store(true, Ordering::SeqCst);
                                         }
 
                                         let payload = if let Some(obj) = payload.as_object() {
@@ -253,11 +245,11 @@ async fn send_message(
                                             html: if rendered.is_empty() { None } else { Some(rendered) },
                                         };
 
-                                        ws_bus_inner.broadcast(&topic, msg).await;
+                                        ws_bus.broadcast(&topic, msg).await;
 
                                         if matches!(event, ProviderEvent::Done(_)) {
                                             if let Err(e) = crate::orchestration::completion_handler(
-                                                &db_inner, c_id, &active_sessions_inner
+                                                &db, c_id, &active_sessions
                                             ).await {
                                                 tracing::warn!("Error in completion handler: {e:?}");
                                             }
@@ -265,9 +257,6 @@ async fn send_message(
                                         }
                                     }
                                 }
-                            }
-                            if local_completed {
-                                cn.store(true, Ordering::SeqCst);
                             }
                         });
 
@@ -278,7 +267,7 @@ async fn send_message(
 
                         if !completed_normally.load(Ordering::SeqCst) {
                             {
-                                let sessions = active_sessions_for_guard.lock().await;
+                                let sessions = active_sessions.lock().await;
                                 if let Some(p) = sessions.get(&c_id.to_string()) {
                                     if let Err(e) = p.abort_turn().await {
                                         tracing::warn!(conversation_id = %c_id, "Error aborting provider in broadcast cleanup: {e}");
@@ -288,9 +277,9 @@ async fn send_message(
 
                             let topic = WsTopic {
                                 kind: WsTopicKind::Task,
-                                id: TopicId(t_id),
+                                id: TopicId(task_id),
                             };
-                            let error_event = crate::providers::types::ProviderEvent::Error {
+                            let error_event = ProviderEvent::Error {
                                 error:
                                     "Agent session ended unexpectedly. Send a message to resume."
                                         .into(),

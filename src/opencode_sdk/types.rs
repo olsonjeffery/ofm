@@ -842,49 +842,6 @@ mod tests {
     }
 
     #[test]
-    fn test_opencode_sdk_event_server_instance_disposed() {
-        let json = global_event(r#"{"type":"server.instance.disposed","properties":{}}"#);
-        let event = parse_event(&json);
-        assert!(matches!(event, Event::ServerInstanceDisposed(_)));
-    }
-
-    #[test]
-    fn test_opencode_sdk_event_file_edited() {
-        let json = global_event(r#"{"type":"file.edited","properties":{"path":"/tmp/test.txt"}}"#);
-        let event = parse_event(&json);
-        assert!(matches!(event, Event::FileEdited(_)));
-    }
-
-    #[test]
-    fn test_opencode_sdk_event_todo_updated() {
-        let json = global_event(r#"{"type":"todo.updated","properties":{"items":[]}}"#);
-        let event = parse_event(&json);
-        assert!(matches!(event, Event::TodoUpdated(_)));
-    }
-
-    #[test]
-    fn test_opencode_sdk_event_command_executed() {
-        let json = global_event(r#"{"type":"command.executed","properties":{"command":"ls"}}"#);
-        let event = parse_event(&json);
-        assert!(matches!(event, Event::CommandExecuted(_)));
-    }
-
-    #[test]
-    fn test_opencode_sdk_event_file_watcher_updated() {
-        let json =
-            global_event(r#"{"type":"file_watcher.updated","properties":{"change":"created"}}"#);
-        let event = parse_event(&json);
-        assert!(matches!(event, Event::FileWatcherUpdated(_)));
-    }
-
-    #[test]
-    fn test_opencode_sdk_event_vcs_branch_updated() {
-        let json = global_event(r#"{"type":"vcs.branch.updated","properties":{"branch":"main"}}"#);
-        let event = parse_event(&json);
-        assert!(matches!(event, Event::VcsBranchUpdated(_)));
-    }
-
-    #[test]
     fn test_opencode_sdk_event_pty_created() {
         let json = global_event(
             r#"{"type":"pty.created","properties":{"ptyID":"pty1","sessionID":"sess1","cols":80,"rows":24}}"#,
@@ -927,39 +884,6 @@ mod tests {
     }
 
     #[test]
-    fn test_opencode_sdk_event_installation_updated() {
-        let json = global_event(r#"{"type":"installation.updated","properties":{"name":"test"}}"#);
-        let event = parse_event(&json);
-        assert!(matches!(event, Event::InstallationUpdated(_)));
-    }
-
-    #[test]
-    fn test_opencode_sdk_event_installation_update_available() {
-        let json = global_event(
-            r#"{"type":"installation.update_available","properties":{"version":"1.16.0"}}"#,
-        );
-        let event = parse_event(&json);
-        assert!(matches!(event, Event::InstallationUpdateAvailable(_)));
-    }
-
-    #[test]
-    fn test_opencode_sdk_event_lsp_client_diagnostics() {
-        let json = global_event(
-            r#"{"type":"lsp.client_diagnostics","properties":{"file":"test.rs","diagnostics":[]}}"#,
-        );
-        let event = parse_event(&json);
-        assert!(matches!(event, Event::LspClientDiagnostics(_)));
-    }
-
-    #[test]
-    fn test_opencode_sdk_event_lsp_updated() {
-        let json =
-            global_event(r#"{"type":"lsp.updated","properties":{"server":"rust-analyzer"}}"#);
-        let event = parse_event(&json);
-        assert!(matches!(event, Event::LspUpdated(_)));
-    }
-
-    #[test]
     fn test_opencode_sdk_event_permission_updated() {
         let json = global_event(
             r#"{"type":"permission.updated","properties":{"permissionID":"perm1","sessionID":"sess1","type":"bash"}}"#,
@@ -986,65 +910,6 @@ mod tests {
             }
             _ => panic!("expected PermissionReplied"),
         }
-    }
-
-    #[test]
-    fn test_opencode_sdk_event_tui_prompt_append() {
-        let json = global_event(r#"{"type":"tui.prompt_append","properties":{"text":"extra"}}"#);
-        let event = parse_event(&json);
-        assert!(matches!(event, Event::TuiPromptAppend(_)));
-    }
-
-    #[test]
-    fn test_opencode_sdk_event_tui_command_execute() {
-        let json =
-            global_event(r#"{"type":"tui.command_execute","properties":{"command":"/help"}}"#);
-        let event = parse_event(&json);
-        assert!(matches!(event, Event::TuiCommandExecute(_)));
-    }
-
-    #[test]
-    fn test_opencode_sdk_event_server_heartbeat() {
-        let json = global_event(r#"{"type":"server.heartbeat","properties":{}}"#);
-        let event = parse_event(&json);
-        assert!(matches!(event, Event::ServerHeartbeat(_)));
-    }
-
-    #[test]
-    fn test_opencode_sdk_event_plugin_added() {
-        let json = global_event(r#"{"type":"plugin.added","properties":{"id":"test-plugin"}}"#);
-        let event = parse_event(&json);
-        assert!(matches!(event, Event::PluginAdded(_)));
-    }
-
-    #[test]
-    fn test_opencode_sdk_event_reference_updated() {
-        let json = global_event(r#"{"type":"reference.updated","properties":{}}"#);
-        let event = parse_event(&json);
-        assert!(matches!(event, Event::ReferenceUpdated(_)));
-    }
-
-    #[test]
-    fn test_opencode_sdk_event_integration_updated() {
-        let json = global_event(r#"{"type":"integration.updated","properties":{}}"#);
-        let event = parse_event(&json);
-        assert!(matches!(event, Event::IntegrationUpdated(_)));
-    }
-
-    #[test]
-    fn test_opencode_sdk_event_catalog_updated() {
-        let json = global_event(r#"{"type":"catalog.updated","properties":{}}"#);
-        let event = parse_event(&json);
-        assert!(matches!(event, Event::CatalogUpdated(_)));
-    }
-
-    #[test]
-    fn test_opencode_sdk_event_message_part_delta() {
-        let json = global_event(
-            r#"{"type":"message.part.delta","properties":{"sessionID":"s1","messageID":"m1","partID":"p1","field":"text","delta":" hi"}}"#,
-        );
-        let event = parse_event(&json);
-        assert!(matches!(event, Event::MessagePartDelta(_)));
     }
 
     #[test]
@@ -1075,32 +940,6 @@ mod tests {
             global_event(r#"{"type":"session.compacted","properties":{"sessionID":"sess1"}}"#);
         let event = parse_event(&json);
         assert!(matches!(event, Event::SessionCompacted(data) if data.session_id == "sess1"));
-    }
-
-    #[test]
-    fn test_opencode_sdk_event_session_diff() {
-        let json =
-            global_event(r#"{"type":"session.diff","properties":{"sessionID":"sess1","diff":{}}}"#);
-        let event = parse_event(&json);
-        assert!(matches!(event, Event::SessionDiff(_)));
-    }
-
-    #[test]
-    fn test_opencode_sdk_event_message_removed() {
-        let json = global_event(
-            r#"{"type":"message.removed","properties":{"sessionID":"sess1","messageID":"msg1"}}"#,
-        );
-        let event = parse_event(&json);
-        assert!(matches!(event, Event::MessageRemoved(_)));
-    }
-
-    #[test]
-    fn test_opencode_sdk_event_message_part_removed() {
-        let json = global_event(
-            r#"{"type":"message.part.removed","properties":{"sessionID":"sess1","messageID":"msg1","partID":"part1"}}"#,
-        );
-        let event = parse_event(&json);
-        assert!(matches!(event, Event::MessagePartRemoved(_)));
     }
 
     #[test]

@@ -717,69 +717,25 @@ mod tests {
     }
 
     #[test]
-    fn test_event_mapping_server_heartbeat_returns_none() {
-        let global = GlobalEvent {
-            id: None,
-            payload: Event::ServerHeartbeat(serde_json::json!({})),
-        };
-        let event = map_sdk_event_to_provider_event(&global, "sess1");
-        assert!(event.is_none());
-    }
-
-    #[test]
-    fn test_event_mapping_plugin_added_returns_none() {
-        let global = GlobalEvent {
-            id: None,
-            payload: Event::PluginAdded(serde_json::json!({"id": "sap-ai-core"})),
-        };
-        let event = map_sdk_event_to_provider_event(&global, "sess1");
-        assert!(event.is_none());
-    }
-
-    #[test]
-    fn test_event_mapping_reference_updated_returns_none() {
-        let global = GlobalEvent {
-            id: None,
-            payload: Event::ReferenceUpdated(serde_json::json!({})),
-        };
-        let event = map_sdk_event_to_provider_event(&global, "sess1");
-        assert!(event.is_none());
-    }
-
-    #[test]
-    fn test_event_mapping_integration_updated_returns_none() {
-        let global = GlobalEvent {
-            id: None,
-            payload: Event::IntegrationUpdated(serde_json::json!({})),
-        };
-        let event = map_sdk_event_to_provider_event(&global, "sess1");
-        assert!(event.is_none());
-    }
-
-    #[test]
-    fn test_event_mapping_catalog_updated_returns_none() {
-        let global = GlobalEvent {
-            id: None,
-            payload: Event::CatalogUpdated(serde_json::json!({})),
-        };
-        let event = map_sdk_event_to_provider_event(&global, "sess1");
-        assert!(event.is_none());
-    }
-
-    #[test]
-    fn test_event_mapping_message_part_delta_returns_none() {
-        let global = GlobalEvent {
-            id: None,
-            payload: Event::MessagePartDelta(serde_json::json!({
+    fn test_event_mapping_returns_none() {
+        let cases = vec![
+            Event::ServerHeartbeat(serde_json::json!({})),
+            Event::PluginAdded(serde_json::json!({"id": "sap-ai-core"})),
+            Event::ReferenceUpdated(serde_json::json!({})),
+            Event::IntegrationUpdated(serde_json::json!({})),
+            Event::CatalogUpdated(serde_json::json!({})),
+            Event::MessagePartDelta(serde_json::json!({
                 "sessionID": "sess1",
                 "messageID": "msg1",
                 "partID": "part1",
                 "field": "text",
                 "delta": " files"
             })),
-        };
-        let event = map_sdk_event_to_provider_event(&global, "sess1");
-        assert!(event.is_none());
+        ];
+        for payload in cases {
+            let global = GlobalEvent { id: None, payload };
+            assert!(map_sdk_event_to_provider_event(&global, "sess1").is_none());
+        }
     }
 
     #[test]
