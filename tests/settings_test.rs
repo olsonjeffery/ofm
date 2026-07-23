@@ -3,6 +3,7 @@ use std::sync::Arc;
 
 use ofm::auth::api_key;
 use ofm::auth::AuthLayer;
+use ofm::config::OfmConfig;
 use ofm::db;
 use ofm::providers::LlmProvider;
 use ofm::server;
@@ -69,6 +70,7 @@ async fn make_state_with_auth() -> (AppState, AuthLayer, String, tempfile::TempD
         cookie_key: cookie::Key::generate(),
         api_key_pepper: b"test_pepper".to_vec(),
         ws_bus: BroadcastBus::new(),
+        config: OfmConfig::default(),
     };
 
     (state, auth_layer, api_key_str, tmp)
@@ -112,6 +114,7 @@ async fn make_state_no_auth() -> (AppState, AuthLayer, tempfile::TempDir) {
         cookie_key: cookie::Key::generate(),
         api_key_pepper: b"test_pepper".to_vec(),
         ws_bus: BroadcastBus::new(),
+        config: OfmConfig::default(),
     };
     (state, auth_layer, tmp)
 }
@@ -361,6 +364,7 @@ async fn test_settings_config_body_user_isolation() {
         cookie_key: cookie::Key::generate(),
         api_key_pepper: b"test_pepper".to_vec(),
         ws_bus: BroadcastBus::new(),
+        config: OfmConfig::default(),
     };
 
     let base_url = spawn_app(state, auth_layer).await;

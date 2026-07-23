@@ -36,7 +36,6 @@ pub fn TaskDetailPage(
     let conversation_count = conversations.len();
 
     let doc_value = doc_content.clone().unwrap_or_default();
-    let doc_escaped = html_escape::encode_text(&doc_value).to_string();
 
     view! {
         <section class="section">
@@ -83,7 +82,7 @@ pub fn TaskDetailPage(
                     <div class="field">
                         <label class="label" for="edit-task-doc">"Document"</label>
                         <div class="control">
-                            <textarea id="edit-task-doc" name="doc_content" class="textarea" rows="10">{doc_escaped.clone()}</textarea>
+                            <textarea id="edit-task-doc" name="doc_content" class="textarea" rows="10">{doc_value.clone()}</textarea>
                         </div>
                     </div>
                     <div class="field">
@@ -132,7 +131,7 @@ pub fn TaskDetailPage(
                                 <p class="has-text-grey">"No document yet. Start by running the Planification agent."</p>
                             }.into_any()
                         } else {
-                            view! { <MarkdownViewer content=doc_escaped /> }.into_any()
+                            view! { <MarkdownViewer content=doc_content.unwrap_or_default() /> }.into_any()
                         }}
                     </div>
                 </div>

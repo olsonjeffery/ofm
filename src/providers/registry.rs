@@ -20,9 +20,10 @@ pub struct AgentConfigStatus {
 pub async fn resolve_provider(
     config: &HarnessConfig,
     config_root: &Path,
+    log_data: bool,
 ) -> Result<Box<dyn LlmProvider>, ProviderError> {
     match config.harness.as_str() {
-        "opencode" => OpenCodeSdkProvider::new(config, config_root)
+        "opencode" => OpenCodeSdkProvider::new(config, config_root, log_data)
             .await
             .map(|p| Box::new(p) as Box<dyn LlmProvider>),
         other => Err(ProviderError::Protocol(format!("unknown harness: {other}"))),
@@ -36,10 +37,11 @@ pub async fn resolve_provider_for_user(
     config: &HarnessConfig,
     config_root: &Path,
     user_id: Uuid,
+    log_data: bool,
 ) -> Result<Box<dyn LlmProvider>, ProviderError> {
     match config.harness.as_str() {
         "opencode" => {
-            let p = OpenCodeSdkProvider::new(config, config_root).await?;
+            let p = OpenCodeSdkProvider::new(config, config_root, log_data).await?;
             p.set_user_id(user_id);
             Ok(Box::new(p) as Box<dyn LlmProvider>)
         }
@@ -144,6 +146,7 @@ async fn lookup_config(
 pub async fn get_models_for_config(
     config_root: &Path,
     config_ref: &str,
+    log_data: bool,
 ) -> Result<Vec<String>, ProviderError> {
     let cfg_dir = ProviderConfigDir::new(config_root);
     let provider_cfg = cfg_dir.load_provider_config(config_ref)?;
@@ -156,7 +159,7 @@ pub async fn get_models_for_config(
         effort: None,
         scope: ScopeType::Project,
     };
-    let provider = resolve_provider(&config, config_root).await?;
+    let provider = resolve_provider(&config, config_root, log_data).await?;
     provider.get_models_list().await
 }
 

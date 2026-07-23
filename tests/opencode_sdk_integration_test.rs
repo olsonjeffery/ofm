@@ -82,6 +82,7 @@ fn server_options() -> ServerOptions {
             }
         })),
         password: None,
+        log_data: false,
     }
 }
 
@@ -136,7 +137,7 @@ async fn test_opencode_sdk_create_opencode_and_client() {
     }
 
     let opts = server_options();
-    let (client, mut server) = opencode_sdk::create_opencode(opts).await.unwrap();
+    let (client, mut server) = opencode_sdk::create_opencode(opts, false).await.unwrap();
     assert!(!client.base_url().is_empty());
 
     server.shutdown().await.unwrap();
@@ -150,7 +151,7 @@ async fn test_opencode_sdk_session_lifecycle() {
     }
 
     let opts = server_options();
-    let (client, mut server) = opencode_sdk::create_opencode(opts).await.unwrap();
+    let (client, mut server) = opencode_sdk::create_opencode(opts, false).await.unwrap();
 
     // Create session
     let session = client.session.create("test-session").await.unwrap();
@@ -179,7 +180,7 @@ async fn test_opencode_sdk_config_providers() {
     }
 
     let opts = server_options();
-    let (client, mut server) = opencode_sdk::create_opencode(opts).await.unwrap();
+    let (client, mut server) = opencode_sdk::create_opencode(opts, false).await.unwrap();
 
     let providers = client.config.providers().await.unwrap();
     assert!(!providers.is_empty());
@@ -195,7 +196,7 @@ async fn test_opencode_sdk_one_shot_pattern() {
     }
 
     let opts = server_options();
-    let (client, mut server) = opencode_sdk::create_opencode(opts).await.unwrap();
+    let (client, mut server) = opencode_sdk::create_opencode(opts, false).await.unwrap();
 
     let config = OneShotConfig {
         model: "test-model".into(),
@@ -224,7 +225,7 @@ async fn test_opencode_sdk_abort_session() {
     }
 
     let opts = server_options();
-    let (client, mut server) = opencode_sdk::create_opencode(opts).await.unwrap();
+    let (client, mut server) = opencode_sdk::create_opencode(opts, false).await.unwrap();
 
     let session = client.session.create("abort-test").await.unwrap();
     let result = client.session.abort(&session.id).await.unwrap();
@@ -242,7 +243,7 @@ async fn test_opencode_sdk_create_opencode_factory() {
     }
 
     let opts = server_options();
-    let (_client, mut server) = opencode_sdk::create_opencode(opts).await.unwrap();
+    let (_client, mut server) = opencode_sdk::create_opencode(opts, false).await.unwrap();
 
     assert!(server.port() > 0);
     assert!(server.password().is_some());
@@ -258,7 +259,7 @@ async fn test_opencode_sdk_concurrent_sessions() {
     }
 
     let opts = server_options();
-    let (client, mut server) = opencode_sdk::create_opencode(opts).await.unwrap();
+    let (client, mut server) = opencode_sdk::create_opencode(opts, false).await.unwrap();
 
     let mut session_ids = Vec::new();
     for i in 0..3 {
@@ -288,7 +289,7 @@ async fn test_opencode_sdk_error_on_invalid_session() {
     }
 
     let opts = server_options();
-    let (client, mut server) = opencode_sdk::create_opencode(opts).await.unwrap();
+    let (client, mut server) = opencode_sdk::create_opencode(opts, false).await.unwrap();
 
     let result = client.session.get("nonexistent-session-id").await;
     assert!(result.is_err(), "getting nonexistent session should error");
@@ -304,7 +305,7 @@ async fn test_opencode_sdk_prompt_async_and_abort() {
     }
 
     let opts = server_options();
-    let (client, mut server) = opencode_sdk::create_opencode(opts).await.unwrap();
+    let (client, mut server) = opencode_sdk::create_opencode(opts, false).await.unwrap();
 
     let session = client.session.create("prompt-async-test").await.unwrap();
 
@@ -352,7 +353,7 @@ async fn test_opencode_sdk_phase_based_conversation() {
         cwd: None,
     };
 
-    let conv = opencode_sdk::conversation::PhaseConversation::start(opts, &config)
+    let conv = opencode_sdk::conversation::PhaseConversation::start(opts, &config, false)
         .await
         .unwrap();
     assert!(!conv.session_id().is_empty());
@@ -372,7 +373,7 @@ async fn test_opencode_sdk_unstructured_conversation() {
     }
 
     let opts = server_options();
-    let (client, mut server) = opencode_sdk::create_opencode(opts).await.unwrap();
+    let (client, mut server) = opencode_sdk::create_opencode(opts, false).await.unwrap();
 
     let conv = UnstructuredConversation::start(&client).await.unwrap();
     assert!(!conv.session_id().is_empty());
@@ -394,7 +395,7 @@ async fn test_opencode_sdk_session_resume() {
     }
 
     let opts = server_options();
-    let (client, mut server) = opencode_sdk::create_opencode(opts).await.unwrap();
+    let (client, mut server) = opencode_sdk::create_opencode(opts, false).await.unwrap();
 
     let conv = UnstructuredConversation::start(&client).await.unwrap();
     assert!(!conv.session_id().is_empty());
@@ -459,7 +460,7 @@ async fn test_opencode_sdk_multi_session_lifecycle() {
     }
 
     let opts = server_options();
-    let (client, mut server) = opencode_sdk::create_opencode(opts).await.unwrap();
+    let (client, mut server) = opencode_sdk::create_opencode(opts, false).await.unwrap();
 
     // Start N parallel unstructured conversations
     let n = 3;

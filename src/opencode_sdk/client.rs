@@ -51,10 +51,11 @@ pub struct OpencodeClient {
     pub session: SessionApi,
     pub event: EventApi,
     pub config: ConfigApi,
+    pub log_data: bool,
 }
 
 impl OpencodeClient {
-    pub fn new(base_url: &str, password: Option<&str>) -> Self {
+    pub fn new(base_url: &str, password: Option<&str>, log_data: bool) -> Self {
         let inner = std::sync::Arc::new(InnerClient {
             base_url: base_url.trim_end_matches('/').to_string(),
             password: password.unwrap_or("").to_string(),
@@ -64,8 +65,9 @@ impl OpencodeClient {
         Self {
             inner: inner.clone(),
             session: SessionApi(inner.clone()),
-            event: EventApi(inner.clone()),
+            event: EventApi(inner.clone(), log_data),
             config: ConfigApi(inner),
+            log_data,
         }
     }
 
@@ -73,7 +75,7 @@ impl OpencodeClient {
         let inner_ref = std::sync::Arc::make_mut(&mut self.inner);
         inner_ref.directory = Some(directory.to_string());
         self.session = SessionApi(self.inner.clone());
-        self.event = EventApi(self.inner.clone());
+        self.event = EventApi(self.inner.clone(), self.log_data);
         self.config = ConfigApi(self.inner.clone());
         self
     }
@@ -254,7 +256,7 @@ impl SessionApi {
 // ── EventApi ──────────────────────────────────────────────────────────────
 
 #[derive(Clone)]
-pub struct EventApi(std::sync::Arc<InnerClient>);
+pub struct EventApi(std::sync::Arc<InnerClient>, bool);
 
 impl EventApi {
     pub async fn subscribe(&self) -> Result<EventStream, SdkError> {
@@ -288,6 +290,7 @@ impl EventApi {
             }),
             reconnect_fut: None,
             cancellation: Arc::new(AtomicBool::new(false)),
+            log_data: self.1,
         })
     }
 }
@@ -332,6 +335,7 @@ pub struct EventStream {
     reconnect: Option<EventStreamReconnect>,
     reconnect_fut: Option<ReconnectFut>,
     cancellation: Arc<AtomicBool>,
+    log_data: bool,
 }
 
 impl EventStream {
@@ -346,7 +350,7 @@ impl EventStream {
     }
 }
 
-fn parse_sse_lines(buf: &mut Vec<u8>) -> (Vec<GlobalEvent>, Option<Duration>) {
+fn parse_sse_lines(buf: &mut Vec<u8>, log_data: bool) -> (Vec<GlobalEvent>, Option<Duration>) {
     let mut events = Vec::new();
     let mut retry = None;
     while let Some(pos) = buf.iter().position(|&b| b == b'\n') {
@@ -355,6 +359,9 @@ fn parse_sse_lines(buf: &mut Vec<u8>) -> (Vec<GlobalEvent>, Option<Duration>) {
         let trimmed = line.trim();
         if trimmed.is_empty() || trimmed.starts_with(':') {
             continue;
+        }
+        if log_data {
+            tracing::info!("data received: {}", trimmed);
         }
         if let Some(data) = trimmed.strip_prefix("data: ") {
             match serde_json::from_str::<GlobalEvent>(data) {
@@ -393,7 +400,8 @@ impl Stream for EventStream {
 
         loop {
             // Parse buffered data for SSE events (including retry field)
-            let (mut new_events, retry) = parse_sse_lines(&mut self.buf);
+            let log_data = self.log_data;
+            let (mut new_events, retry) = parse_sse_lines(&mut self.buf, log_data);
             if let Some(delay) = retry {
                 self.retry_delay = delay;
             }
@@ -554,7 +562,7 @@ impl ConfigApi {
 // ── Factory ───────────────────────────────────────────────────────────────
 
 pub fn create_opencode_client(base_url: &str, password: Option<&str>) -> OpencodeClient {
-    OpencodeClient::new(base_url, password)
+    OpencodeClient::new(base_url, password, false)
 }
 
 // ── Tests ─────────────────────────────────────────────────────────────────
@@ -572,19 +580,21 @@ mod tests {
 
     #[test]
     fn test_opencode_sdk_url_construction() {
-        let client = OpencodeClient::new("http://127.0.0.1:3183", Some("pw"));
+        let client = OpencodeClient::new("http://127.0.0.1:3183", Some("pw"), false);
+
         assert_eq!(client.base_url(), "http://127.0.0.1:3183");
     }
 
     #[test]
     fn test_opencode_sdk_url_trailing_slash_stripped() {
-        let client = OpencodeClient::new("http://127.0.0.1:3183/", Some("pw"));
+        let client = OpencodeClient::new("http://127.0.0.1:3183/", Some("pw"), false);
         assert_eq!(client.base_url(), "http://127.0.0.1:3183");
     }
 
     #[test]
     fn test_opencode_sdk_client_with_directory() {
-        let client = OpencodeClient::new("http://127.0.0.1:3183", None).with_directory("/tmp");
+        let client =
+            OpencodeClient::new("http://127.0.0.1:3183", None, false).with_directory("/tmp");
         assert!(client.inner.directory.is_some());
     }
 
@@ -630,42 +640,42 @@ mod tests {
 
     #[test]
     fn test_opencode_sdk_session_list_url() {
-        let client = OpencodeClient::new("http://127.0.0.1:3183", None);
+        let client = OpencodeClient::new("http://127.0.0.1:3183", None, false);
         let url = client.session.0.session_url("");
         assert_eq!(url, "http://127.0.0.1:3183/session");
     }
 
     #[test]
     fn test_opencode_sdk_session_get_url() {
-        let client = OpencodeClient::new("http://127.0.0.1:3183", None);
+        let client = OpencodeClient::new("http://127.0.0.1:3183", None, false);
         let url = client.session.0.session_url("/sess1");
         assert_eq!(url, "http://127.0.0.1:3183/session/sess1");
     }
 
     #[test]
     fn test_opencode_sdk_session_prompt_url() {
-        let client = OpencodeClient::new("http://127.0.0.1:3183", None);
+        let client = OpencodeClient::new("http://127.0.0.1:3183", None, false);
         let url = client.session.0.session_url("/sess1/message");
         assert_eq!(url, "http://127.0.0.1:3183/session/sess1/message");
     }
 
     #[test]
     fn test_opencode_sdk_session_prompt_async_url() {
-        let client = OpencodeClient::new("http://127.0.0.1:3183", None);
+        let client = OpencodeClient::new("http://127.0.0.1:3183", None, false);
         let url = client.session.0.session_url("/sess1/prompt_async");
         assert_eq!(url, "http://127.0.0.1:3183/session/sess1/prompt_async");
     }
 
     #[test]
     fn test_opencode_sdk_session_abort_url() {
-        let client = OpencodeClient::new("http://127.0.0.1:3183", None);
+        let client = OpencodeClient::new("http://127.0.0.1:3183", None, false);
         let url = client.session.0.session_url("/sess1/abort");
         assert_eq!(url, "http://127.0.0.1:3183/session/sess1/abort");
     }
 
     #[test]
     fn test_opencode_sdk_session_messages_url() {
-        let client = OpencodeClient::new("http://127.0.0.1:3183", None);
+        let client = OpencodeClient::new("http://127.0.0.1:3183", None, false);
         let url = client.session.0.session_url("/sess1/message");
         assert_eq!(url, "http://127.0.0.1:3183/session/sess1/message");
     }
@@ -739,6 +749,7 @@ mod tests {
                 reconnect: None,
                 reconnect_fut: None,
                 cancellation: Arc::new(AtomicBool::new(false)),
+                log_data: false
             };
 
             let mut count = 0;
@@ -763,7 +774,7 @@ mod tests {
     fn test_opencode_sdk_sse_comment_line_ignored() {
         let mut buf = Vec::new();
         buf.extend_from_slice(b":comment\ndata: {\"id\":\"evt_1\",\"type\":\"session.idle\",\"properties\":{\"sessionID\":\"s1\"}}\n");
-        let (events, _) = parse_sse_lines(&mut buf);
+        let (events, _) = parse_sse_lines(&mut buf, false);
         assert_eq!(events.len(), 1);
         assert!(matches!(events[0].payload, Event::SessionIdle(_)));
     }
@@ -772,7 +783,7 @@ mod tests {
     fn test_opencode_sdk_sse_invalid_json_skipped() {
         let mut buf = Vec::new();
         buf.extend_from_slice(b"data: not-json\n");
-        let (events, _) = parse_sse_lines(&mut buf);
+        let (events, _) = parse_sse_lines(&mut buf, false);
         assert!(events.is_empty());
     }
 
@@ -780,7 +791,7 @@ mod tests {
     fn test_opencode_sdk_sse_empty_data_ignored() {
         let mut buf = Vec::new();
         buf.extend_from_slice(b"data: \n");
-        let (events, _) = parse_sse_lines(&mut buf);
+        let (events, _) = parse_sse_lines(&mut buf, false);
         assert!(events.is_empty());
     }
 
@@ -788,7 +799,7 @@ mod tests {
     fn test_opencode_sdk_sse_retry_field_parsed() {
         let mut buf = Vec::new();
         buf.extend_from_slice(b"retry: 5000\ndata: {\"id\":\"evt_1\",\"type\":\"session.idle\",\"properties\":{\"sessionID\":\"s1\"}}\n");
-        let (events, retry) = parse_sse_lines(&mut buf);
+        let (events, retry) = parse_sse_lines(&mut buf, false);
         assert_eq!(events.len(), 1);
         assert_eq!(retry, Some(Duration::from_millis(5000)));
     }
@@ -846,6 +857,7 @@ mod tests {
                 reconnect: None,
                 reconnect_fut: None,
                 cancellation: Arc::new(AtomicBool::new(false)),
+                log_data: false,
             };
 
             let result = event_stream.next().await;
