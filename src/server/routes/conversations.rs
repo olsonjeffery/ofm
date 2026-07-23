@@ -150,10 +150,9 @@ async fn send_message(
     state.ws_bus.broadcast(&topic, msg).await;
 
     // Load transcript and resume the provider
-    let sessions = state.active_sessions.lock().await;
-    let provider = sessions.get(&conv_id.to_string());
+    let mut sessions = state.active_sessions.lock().await;
 
-    match provider {
+    match sessions.remove(&conv_id.to_string()) {
         Some(p) => {
             tracing::info!(
                 task_id = %task_id,
@@ -178,149 +177,161 @@ async fn send_message(
 
             let resume_input = ResumeInput::new(provider_session_id.clone(), messages_json);
 
-            let mut rx = p.resume_turn(resume_input).await.map_err(|e| {
-                tracing::warn!(
-                    task_id = %task_id,
-                    conversation_id = %conv_id,
-                    session_id = %provider_session_id,
-                    error = %e,
-                    "Failed to resume turn"
-                );
-                ServerError::Internal(format!("Failed to resume turn: {e}"))
-            })?;
+            match p.resume_turn(resume_input).await {
+                Ok(mut rx) => {
+                    sessions.insert(conv_id.to_string(), p);
 
-            tracing::info!(
-                task_id = %task_id,
-                conversation_id = %conv_id,
-                session_id = %provider_session_id,
-                "Successfully resumed turn, spawning broadcast task"
-            );
-            let db = state.db.clone();
-            let ws_bus = state.ws_bus.clone();
-            let active_sessions = state.active_sessions.clone();
-            let t_id = task_id;
-            let s_id = provider_session_id;
-            let project_key = task_id;
-            let c_id = conv_id;
+                    tracing::info!(
+                        task_id = %task_id,
+                        conversation_id = %conv_id,
+                        session_id = %provider_session_id,
+                        "Successfully resumed turn, spawning broadcast task"
+                    );
+                    let db = state.db.clone();
+                    let ws_bus = state.ws_bus.clone();
+                    let active_sessions = state.active_sessions.clone();
+                    let t_id = task_id;
+                    let s_id = provider_session_id;
+                    let project_key = task_id;
+                    let c_id = conv_id;
 
-            tokio::spawn(async move {
-                let completed_normally = Arc::new(AtomicBool::new(false));
-                let cn = completed_normally.clone();
-                let db_inner = db.clone();
-                let ws_bus_inner = ws_bus.clone();
-                let active_sessions_inner = active_sessions.clone();
-                let active_sessions_for_guard = active_sessions_inner.clone();
+                    tokio::spawn(async move {
+                        let completed_normally = Arc::new(AtomicBool::new(false));
+                        let cn = completed_normally.clone();
+                        let db_inner = db.clone();
+                        let ws_bus_inner = ws_bus.clone();
+                        let active_sessions_inner = active_sessions.clone();
+                        let active_sessions_for_guard = active_sessions_inner.clone();
 
-                let broadcast_fut = AssertUnwindSafe(async move {
-                    let mut local_completed = false;
-                    loop {
-                        tokio::select! {
-                            event = rx.recv() => {
-                                let event = match event {
-                                    Some(e) => e,
-                                    None => break,
-                                };
+                        let broadcast_fut = AssertUnwindSafe(async move {
+                            let mut local_completed = false;
+                            loop {
+                                tokio::select! {
+                                    event = rx.recv() => {
+                                        let event = match event {
+                                            Some(e) => e,
+                                            None => break,
+                                        };
 
-                                if let Err(e) = transcript::persist_event(
-                                    &db_inner, &event, &s_id, project_key
-                                ).await {
-                                    tracing::warn!("Failed to persist event: {e}");
-                                }
+                                        if let Err(e) = transcript::persist_event(
+                                            &db_inner, &event, &s_id, project_key
+                                        ).await {
+                                            tracing::warn!("Failed to persist event: {e}");
+                                        }
 
-                                if let ProviderEvent::SessionStart { session_id } = &event {
-                                    let _ = db_inner.execute(
-                                        "UPDATE conversations SET provider_session_id = $1 WHERE id = $2",
-                                        hiqlite::params!(session_id, c_id.to_string()),
-                                    ).await;
-                                }
+                                        if let ProviderEvent::SessionStart { session_id } = &event {
+                                            let _ = db_inner.execute(
+                                                "UPDATE conversations SET provider_session_id = $1 WHERE id = $2",
+                                                hiqlite::params!(session_id, c_id.to_string()),
+                                            ).await;
+                                        }
 
-                                let topic = WsTopic {
-                                    kind: WsTopicKind::Task,
-                                    id: TopicId(t_id),
-                                };
+                                        let topic = WsTopic {
+                                            kind: WsTopicKind::Task,
+                                            id: TopicId(t_id),
+                                        };
 
-                                let (event_type, payload) = event.to_ws_event();
-                                if matches!(event, ProviderEvent::Done(_)) {
-                                    local_completed = true;
-                                }
+                                        let (event_type, payload) = event.to_ws_event();
+                                        if matches!(event, ProviderEvent::Done(_)) {
+                                            local_completed = true;
+                                        }
 
-                                let payload = if let Some(obj) = payload.as_object() {
-                                    let mut map = obj.clone();
-                                    map.insert("conversation_id".to_string(), serde_json::json!(c_id.to_string()));
-                                    serde_json::Value::Object(map)
-                                } else {
-                                    serde_json::json!({"conversation_id": c_id.to_string()})
-                                };
+                                        let payload = if let Some(obj) = payload.as_object() {
+                                            let mut map = obj.clone();
+                                            map.insert("conversation_id".to_string(), serde_json::json!(c_id.to_string()));
+                                            serde_json::Value::Object(map)
+                                        } else {
+                                            serde_json::json!({"conversation_id": c_id.to_string()})
+                                        };
 
-                                let rendered = crate::webapp::components::message_stream::render_event(&event);
-                                let msg = ServerMessage::Event {
-                                    topic: topic.clone(),
-                                    event_type,
-                                    timestamp: chrono::Utc::now(),
-                                    payload,
-                                    html: if rendered.is_empty() { None } else { Some(rendered) },
-                                };
+                                        let rendered = crate::webapp::components::message_stream::render_event(&event);
+                                        let msg = ServerMessage::Event {
+                                            topic: topic.clone(),
+                                            event_type,
+                                            timestamp: chrono::Utc::now(),
+                                            payload,
+                                            html: if rendered.is_empty() { None } else { Some(rendered) },
+                                        };
 
-                                ws_bus_inner.broadcast(&topic, msg).await;
+                                        ws_bus_inner.broadcast(&topic, msg).await;
 
-                                if matches!(event, ProviderEvent::Done(_)) {
-                                    if let Err(e) = crate::orchestration::completion_handler(
-                                        &db_inner, c_id, &active_sessions_inner
-                                    ).await {
-                                        tracing::warn!("Error in completion handler: {e:?}");
+                                        if matches!(event, ProviderEvent::Done(_)) {
+                                            if let Err(e) = crate::orchestration::completion_handler(
+                                                &db_inner, c_id, &active_sessions_inner
+                                            ).await {
+                                                tracing::warn!("Error in completion handler: {e:?}");
+                                            }
+                                            break;
+                                        }
                                     }
-                                    break;
                                 }
                             }
-                        }
-                    }
-                    if local_completed {
-                        cn.store(true, Ordering::SeqCst);
-                    }
-                });
-
-                let result = broadcast_fut.catch_unwind().await;
-                if let Err(ref panic) = result {
-                    tracing::error!("Broadcast task panicked: {panic:?}");
-                }
-
-                if !completed_normally.load(Ordering::SeqCst) {
-                    // Abort the in-flight turn without killing the pooled
-                    // opencode server. The provider stays in
-                    // `active_sessions` so the user can resume the
-                    // conversation; the underlying server is reaped by
-                    // the idle-reaper or process-exit cleanup in
-                    // `src/main.rs`.
-                    {
-                        let sessions = active_sessions_for_guard.lock().await;
-                        if let Some(p) = sessions.get(&c_id.to_string()) {
-                            if let Err(e) = p.abort_turn().await {
-                                tracing::warn!(conversation_id = %c_id, "Error aborting provider in broadcast cleanup: {e}");
+                            if local_completed {
+                                cn.store(true, Ordering::SeqCst);
                             }
+                        });
+
+                        let result = broadcast_fut.catch_unwind().await;
+                        if let Err(ref panic) = result {
+                            tracing::error!("Broadcast task panicked: {panic:?}");
                         }
-                    }
 
-                    let topic = WsTopic {
-                        kind: WsTopicKind::Task,
-                        id: TopicId(t_id),
-                    };
-                    let error_event = crate::providers::types::ProviderEvent::Error {
-                        error: "Agent session ended unexpectedly. Send a message to resume.".into(),
-                    };
-                    let msg = ServerMessage::Event {
-                        topic: topic.clone(),
-                        event_type: "error".to_string(),
-                        timestamp: chrono::Utc::now(),
-                        payload: serde_json::json!({"error": "Agent session ended unexpectedly. Send a message to resume.", "conversation_id": c_id.to_string()}),
-                        html: Some(crate::webapp::components::message_stream::render_event(
-                            &error_event,
-                        )),
-                    };
-                    ws_bus.broadcast(&topic, msg).await;
+                        if !completed_normally.load(Ordering::SeqCst) {
+                            {
+                                let sessions = active_sessions_for_guard.lock().await;
+                                if let Some(p) = sessions.get(&c_id.to_string()) {
+                                    if let Err(e) = p.abort_turn().await {
+                                        tracing::warn!(conversation_id = %c_id, "Error aborting provider in broadcast cleanup: {e}");
+                                    }
+                                }
+                            }
+
+                            let topic = WsTopic {
+                                kind: WsTopicKind::Task,
+                                id: TopicId(t_id),
+                            };
+                            let error_event = crate::providers::types::ProviderEvent::Error {
+                                error:
+                                    "Agent session ended unexpectedly. Send a message to resume."
+                                        .into(),
+                            };
+                            let msg = ServerMessage::Event {
+                                topic: topic.clone(),
+                                event_type: "error".to_string(),
+                                timestamp: chrono::Utc::now(),
+                                payload: serde_json::json!({"error": "Agent session ended unexpectedly. Send a message to resume.", "conversation_id": c_id.to_string()}),
+                                html: Some(
+                                    crate::webapp::components::message_stream::render_event(
+                                        &error_event,
+                                    ),
+                                ),
+                            };
+                            ws_bus.broadcast(&topic, msg).await;
+                        }
+                    });
+
+                    Ok(StatusCode::OK)
                 }
-            });
-
-            Ok(StatusCode::OK)
+                Err(e) => {
+                    tracing::warn!(
+                        task_id = %task_id,
+                        conversation_id = %conv_id,
+                        session_id = %provider_session_id,
+                        error = %e,
+                        "Failed to resume turn, removing dead provider"
+                    );
+                    drop(sessions);
+                    Box::pin(send_message(
+                        auth,
+                        State(state),
+                        Path((task_id, conv_id)),
+                        Json(SendMessageRequest {
+                            text: body.text.clone(),
+                        }),
+                    ))
+                    .await
+                }
+            }
         }
         None => {
             tracing::warn!(
