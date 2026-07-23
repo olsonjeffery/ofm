@@ -239,22 +239,22 @@ The conversation message stream applies distinct visual styling per content type
 | Content Type | CSS Class | Icon | Theme |
 |---|---|---|---|---|
 | Model statement | `.message-model` | None | Default text, semi-bold (600) |
-| Thinking | `.message-thinking` | `mdi-snowflake-outline` | Purple background/border/text |
+| Thinking | `.message-thinking` | `mdi-snowflake-outline` | Purple background/border/text, flexbox icon+content layout |
 | Tool usage | `.message-tool` | `mdi-cog-outline` | Gray background/border/text |
-| User input | `.message-user` | None | Blue (#1565c0) background, white text, right-aligned, 33% max-width |
+| User input | `.message-user` | None | Blue (#1565c0) background, white text, right-aligned, 45% max-width |
 | Question asked | `.message-question` | `mdi-help-circle-outline` | `is-info is-light` notification (blue info palette) |
 
-**Show More/Less** — any box with content exceeding 400 characters renders in a collapsed state:
-- A truncated preview (first 400 chars) is shown by default.
-- A right-aligned `.show-more-btn` link toggles display of the full content via `toggleShowMore(id)`.
+**Show More/Less** — any box with content exceeding 256 characters renders in a collapsed state:
+- A truncated preview (first 256 chars) is shown by default, with a `…` ellipsis appended.
+- A right-aligned `.show-more-btn` link toggles display of the full content via `toggleShowMore(id)` or `toggleShowMoreLines(id, count)`.
 - Clicking the button switches between "show more" and "show less" text.
 
-**Chunk suppression** — `TextChunk` and `ThinkingChunk` events are silently dropped in both SSR (`message_stream.rs` `render_event`) and JS (`renderEvent`/`renderServerEvent`) rendering paths. Only final `Text` / `Thinking` events appear in the stream.
+**Chunk suppression** — `TextChunk` and `ThinkingChunk` events are silently dropped in the SSR (`message_stream.rs` `render_event`) rendering path. Only final `Text` / `Thinking` events appear in the stream.
 
 **Deduplication** — both server-side and client-side dedup prevent duplicate content:
 
 - **Server-side (SSR):** `MessageStream` in `message_stream.rs` applies a `HashSet` fingerprint before calling `render_event()`. Fingerprint keys mirror the JS pattern: `"text:{text}"`, `"user_text:{text}"`, `"thinking:{thinking}"`, and `tool_use_id`/`message_id` for tool events. This benefits both initial SSR rendering and (via WS pre-rendered HTML) streamed content.
-- **Client-side (WS fallback):** JS in `chat.rs` maintains a `renderedFingerprints` Set and `renderedMessageIds` map for the same event types, used when server HTML is absent (backward compatibility).
+- **Client-side (WS fallback):** JS in `chat.rs` maintains a `renderedMessageIds` map for the same event types, used only for `updateToolCallContent` streaming tool result merging (dead code `renderEvent` and fallback `renderServerEvent` switch removed).
 
 ## Boundaries (not in this spec)
 

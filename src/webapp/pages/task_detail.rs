@@ -127,7 +127,7 @@ pub fn TaskDetailPage(
                     <div class="field">
                         <label class="label" for="edit-task-doc">"Document"</label>
                         <div class="control">
-                            <textarea id="edit-task-doc" name="doc_content" class="textarea" rows="10">{doc_escaped}</textarea>
+                            <textarea id="edit-task-doc" name="doc_content" class="textarea" rows="10">{doc_escaped.clone()}</textarea>
                         </div>
                     </div>
                     <div class="field">
@@ -164,7 +164,7 @@ pub fn TaskDetailPage(
                                 <p class="has-text-grey">"No document yet. Start by running the Planification agent."</p>
                             }.into_any()
                         } else {
-                            view! { <MarkdownViewer content=doc_content.unwrap_or_default() /> }.into_any()
+                            view! { <MarkdownViewer content=doc_escaped /> }.into_any()
                         }}
                     </div>
 
