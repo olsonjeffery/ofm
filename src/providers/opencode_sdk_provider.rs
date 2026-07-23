@@ -280,6 +280,12 @@ fn map_sdk_event_to_provider_event(
             }
         }
         Event::ServerConnected(_) => Some(ProviderEvent::Ready),
+        Event::ServerHeartbeat(_) => None,
+        Event::PluginAdded(_) => None,
+        Event::ReferenceUpdated(_) => None,
+        Event::IntegrationUpdated(_) => None,
+        Event::CatalogUpdated(_) => None,
+        Event::MessagePartDelta(_) => None,
         Event::QuestionAsked(data) => Some(ProviderEvent::QuestionAsked {
             session_id: data.session_id.clone(),
             questions: data
@@ -708,6 +714,72 @@ mod tests {
             working_dir: Mutex::new(None),
         };
         assert_eq!(provider.extract_provider_id(), Some("anthropic".into()));
+    }
+
+    #[test]
+    fn test_event_mapping_server_heartbeat_returns_none() {
+        let global = GlobalEvent {
+            id: None,
+            payload: Event::ServerHeartbeat(serde_json::json!({})),
+        };
+        let event = map_sdk_event_to_provider_event(&global, "sess1");
+        assert!(event.is_none());
+    }
+
+    #[test]
+    fn test_event_mapping_plugin_added_returns_none() {
+        let global = GlobalEvent {
+            id: None,
+            payload: Event::PluginAdded(serde_json::json!({"id": "sap-ai-core"})),
+        };
+        let event = map_sdk_event_to_provider_event(&global, "sess1");
+        assert!(event.is_none());
+    }
+
+    #[test]
+    fn test_event_mapping_reference_updated_returns_none() {
+        let global = GlobalEvent {
+            id: None,
+            payload: Event::ReferenceUpdated(serde_json::json!({})),
+        };
+        let event = map_sdk_event_to_provider_event(&global, "sess1");
+        assert!(event.is_none());
+    }
+
+    #[test]
+    fn test_event_mapping_integration_updated_returns_none() {
+        let global = GlobalEvent {
+            id: None,
+            payload: Event::IntegrationUpdated(serde_json::json!({})),
+        };
+        let event = map_sdk_event_to_provider_event(&global, "sess1");
+        assert!(event.is_none());
+    }
+
+    #[test]
+    fn test_event_mapping_catalog_updated_returns_none() {
+        let global = GlobalEvent {
+            id: None,
+            payload: Event::CatalogUpdated(serde_json::json!({})),
+        };
+        let event = map_sdk_event_to_provider_event(&global, "sess1");
+        assert!(event.is_none());
+    }
+
+    #[test]
+    fn test_event_mapping_message_part_delta_returns_none() {
+        let global = GlobalEvent {
+            id: None,
+            payload: Event::MessagePartDelta(serde_json::json!({
+                "sessionID": "sess1",
+                "messageID": "msg1",
+                "partID": "part1",
+                "field": "text",
+                "delta": " files"
+            })),
+        };
+        let event = map_sdk_event_to_provider_event(&global, "sess1");
+        assert!(event.is_none());
     }
 
     #[test]

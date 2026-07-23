@@ -357,8 +357,15 @@ fn parse_sse_lines(buf: &mut Vec<u8>) -> (Vec<GlobalEvent>, Option<Duration>) {
             continue;
         }
         if let Some(data) = trimmed.strip_prefix("data: ") {
-            if let Ok(global) = serde_json::from_str::<GlobalEvent>(data) {
-                events.push(global);
+            match serde_json::from_str::<GlobalEvent>(data) {
+                Ok(global) => events.push(global),
+                Err(e) => {
+                    tracing::warn!(
+                        error = %e,
+                        raw_data = %data,
+                        "Failed to parse SSE data as GlobalEvent"
+                    );
+                }
             }
         } else if let Some(val) = trimmed.strip_prefix("retry: ") {
             if let Ok(ms) = val.trim().parse::<u64>() {
