@@ -280,6 +280,12 @@ fn map_sdk_event_to_provider_event(
             }
         }
         Event::ServerConnected(_) => Some(ProviderEvent::Ready),
+        Event::ServerHeartbeat(_) => None,
+        Event::PluginAdded(_) => None,
+        Event::ReferenceUpdated(_) => None,
+        Event::IntegrationUpdated(_) => None,
+        Event::CatalogUpdated(_) => None,
+        Event::MessagePartDelta(_) => None,
         Event::QuestionAsked(data) => Some(ProviderEvent::QuestionAsked {
             session_id: data.session_id.clone(),
             questions: data
@@ -708,6 +714,28 @@ mod tests {
             working_dir: Mutex::new(None),
         };
         assert_eq!(provider.extract_provider_id(), Some("anthropic".into()));
+    }
+
+    #[test]
+    fn test_event_mapping_returns_none() {
+        let cases = vec![
+            Event::ServerHeartbeat(serde_json::json!({})),
+            Event::PluginAdded(serde_json::json!({"id": "sap-ai-core"})),
+            Event::ReferenceUpdated(serde_json::json!({})),
+            Event::IntegrationUpdated(serde_json::json!({})),
+            Event::CatalogUpdated(serde_json::json!({})),
+            Event::MessagePartDelta(serde_json::json!({
+                "sessionID": "sess1",
+                "messageID": "msg1",
+                "partID": "part1",
+                "field": "text",
+                "delta": " files"
+            })),
+        ];
+        for payload in cases {
+            let global = GlobalEvent { id: None, payload };
+            assert!(map_sdk_event_to_provider_event(&global, "sess1").is_none());
+        }
     }
 
     #[test]

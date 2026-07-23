@@ -284,7 +284,7 @@ event filtering, and cleanup automatically.
 
 Located as `#[cfg(test)]` modules in each source file:
 
-- `types.rs` — JSON roundtrip for every Event variant (32), every Part variant
+- `types.rs` — JSON roundtrip for every Event variant (38), every Part variant
   (12), Message, PromptBody, Session, Provider, ToolState, TokenUsage.
 - `client.rs` — URL construction, request body serialization, SSE line parsing.
 - `server.rs` — Port picking, config generation, auth header format.

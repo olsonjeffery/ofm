@@ -30,6 +30,8 @@ pub enum Event {
     MessageRemoved(MessageRemovedData),
     #[serde(rename = "message.part.removed")]
     MessagePartRemoved(MessagePartRemovedData),
+    #[serde(rename = "message.part.delta")]
+    MessagePartDelta(serde_json::Value),
 
     #[serde(rename = "session.status")]
     SessionStatus(SessionStatusData),
@@ -52,6 +54,8 @@ pub enum Event {
     ServerConnected(ServerConnectedData),
     #[serde(rename = "server.instance.disposed")]
     ServerInstanceDisposed(serde_json::Value),
+    #[serde(rename = "server.heartbeat")]
+    ServerHeartbeat(serde_json::Value),
 
     #[serde(rename = "file.edited")]
     FileEdited(serde_json::Value),
@@ -96,6 +100,15 @@ pub enum Event {
     QuestionAsked(QuestionAskedData),
     #[serde(rename = "tui.toast_show")]
     TuiToastShow(TuiToastData),
+
+    #[serde(rename = "plugin.added")]
+    PluginAdded(serde_json::Value),
+    #[serde(rename = "reference.updated")]
+    ReferenceUpdated(serde_json::Value),
+    #[serde(rename = "integration.updated")]
+    IntegrationUpdated(serde_json::Value),
+    #[serde(rename = "catalog.updated")]
+    CatalogUpdated(serde_json::Value),
 }
 
 // ── Event property types ──────────────────────────────────────────────────
@@ -164,7 +177,10 @@ pub struct SessionCreatedData {
 pub struct SessionUpdatedData {
     #[serde(rename = "sessionID")]
     pub session_id: String,
-    pub session: Session,
+    #[serde(default)]
+    pub session: Option<Session>,
+    #[serde(default)]
+    pub info: Option<serde_json::Value>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -339,6 +355,7 @@ pub struct AssistantMessage {
     pub tokens: Option<TokenUsage>,
     #[serde(default)]
     pub finish: Option<String>,
+    #[serde(default)]
     pub parts: Vec<Part>,
 }
 
@@ -355,9 +372,9 @@ pub enum Part {
     Tool(ToolPart),
     #[serde(rename = "file")]
     File(FilePart),
-    #[serde(rename = "step_start")]
+    #[serde(rename = "step_start", alias = "step-start")]
     StepStart(StepStartPart),
-    #[serde(rename = "step_finish")]
+    #[serde(rename = "step_finish", alias = "step-finish")]
     StepFinish(StepFinishPart),
     #[serde(rename = "snapshot")]
     Snapshot(SnapshotPart),
@@ -825,49 +842,6 @@ mod tests {
     }
 
     #[test]
-    fn test_opencode_sdk_event_server_instance_disposed() {
-        let json = global_event(r#"{"type":"server.instance.disposed","properties":{}}"#);
-        let event = parse_event(&json);
-        assert!(matches!(event, Event::ServerInstanceDisposed(_)));
-    }
-
-    #[test]
-    fn test_opencode_sdk_event_file_edited() {
-        let json = global_event(r#"{"type":"file.edited","properties":{"path":"/tmp/test.txt"}}"#);
-        let event = parse_event(&json);
-        assert!(matches!(event, Event::FileEdited(_)));
-    }
-
-    #[test]
-    fn test_opencode_sdk_event_todo_updated() {
-        let json = global_event(r#"{"type":"todo.updated","properties":{"items":[]}}"#);
-        let event = parse_event(&json);
-        assert!(matches!(event, Event::TodoUpdated(_)));
-    }
-
-    #[test]
-    fn test_opencode_sdk_event_command_executed() {
-        let json = global_event(r#"{"type":"command.executed","properties":{"command":"ls"}}"#);
-        let event = parse_event(&json);
-        assert!(matches!(event, Event::CommandExecuted(_)));
-    }
-
-    #[test]
-    fn test_opencode_sdk_event_file_watcher_updated() {
-        let json =
-            global_event(r#"{"type":"file_watcher.updated","properties":{"change":"created"}}"#);
-        let event = parse_event(&json);
-        assert!(matches!(event, Event::FileWatcherUpdated(_)));
-    }
-
-    #[test]
-    fn test_opencode_sdk_event_vcs_branch_updated() {
-        let json = global_event(r#"{"type":"vcs.branch.updated","properties":{"branch":"main"}}"#);
-        let event = parse_event(&json);
-        assert!(matches!(event, Event::VcsBranchUpdated(_)));
-    }
-
-    #[test]
     fn test_opencode_sdk_event_pty_created() {
         let json = global_event(
             r#"{"type":"pty.created","properties":{"ptyID":"pty1","sessionID":"sess1","cols":80,"rows":24}}"#,
@@ -910,39 +884,6 @@ mod tests {
     }
 
     #[test]
-    fn test_opencode_sdk_event_installation_updated() {
-        let json = global_event(r#"{"type":"installation.updated","properties":{"name":"test"}}"#);
-        let event = parse_event(&json);
-        assert!(matches!(event, Event::InstallationUpdated(_)));
-    }
-
-    #[test]
-    fn test_opencode_sdk_event_installation_update_available() {
-        let json = global_event(
-            r#"{"type":"installation.update_available","properties":{"version":"1.16.0"}}"#,
-        );
-        let event = parse_event(&json);
-        assert!(matches!(event, Event::InstallationUpdateAvailable(_)));
-    }
-
-    #[test]
-    fn test_opencode_sdk_event_lsp_client_diagnostics() {
-        let json = global_event(
-            r#"{"type":"lsp.client_diagnostics","properties":{"file":"test.rs","diagnostics":[]}}"#,
-        );
-        let event = parse_event(&json);
-        assert!(matches!(event, Event::LspClientDiagnostics(_)));
-    }
-
-    #[test]
-    fn test_opencode_sdk_event_lsp_updated() {
-        let json =
-            global_event(r#"{"type":"lsp.updated","properties":{"server":"rust-analyzer"}}"#);
-        let event = parse_event(&json);
-        assert!(matches!(event, Event::LspUpdated(_)));
-    }
-
-    #[test]
     fn test_opencode_sdk_event_permission_updated() {
         let json = global_event(
             r#"{"type":"permission.updated","properties":{"permissionID":"perm1","sessionID":"sess1","type":"bash"}}"#,
@@ -969,21 +910,6 @@ mod tests {
             }
             _ => panic!("expected PermissionReplied"),
         }
-    }
-
-    #[test]
-    fn test_opencode_sdk_event_tui_prompt_append() {
-        let json = global_event(r#"{"type":"tui.prompt_append","properties":{"text":"extra"}}"#);
-        let event = parse_event(&json);
-        assert!(matches!(event, Event::TuiPromptAppend(_)));
-    }
-
-    #[test]
-    fn test_opencode_sdk_event_tui_command_execute() {
-        let json =
-            global_event(r#"{"type":"tui.command_execute","properties":{"command":"/help"}}"#);
-        let event = parse_event(&json);
-        assert!(matches!(event, Event::TuiCommandExecute(_)));
     }
 
     #[test]
@@ -1014,32 +940,6 @@ mod tests {
             global_event(r#"{"type":"session.compacted","properties":{"sessionID":"sess1"}}"#);
         let event = parse_event(&json);
         assert!(matches!(event, Event::SessionCompacted(data) if data.session_id == "sess1"));
-    }
-
-    #[test]
-    fn test_opencode_sdk_event_session_diff() {
-        let json =
-            global_event(r#"{"type":"session.diff","properties":{"sessionID":"sess1","diff":{}}}"#);
-        let event = parse_event(&json);
-        assert!(matches!(event, Event::SessionDiff(_)));
-    }
-
-    #[test]
-    fn test_opencode_sdk_event_message_removed() {
-        let json = global_event(
-            r#"{"type":"message.removed","properties":{"sessionID":"sess1","messageID":"msg1"}}"#,
-        );
-        let event = parse_event(&json);
-        assert!(matches!(event, Event::MessageRemoved(_)));
-    }
-
-    #[test]
-    fn test_opencode_sdk_event_message_part_removed() {
-        let json = global_event(
-            r#"{"type":"message.part.removed","properties":{"sessionID":"sess1","messageID":"msg1","partID":"part1"}}"#,
-        );
-        let event = parse_event(&json);
-        assert!(matches!(event, Event::MessagePartRemoved(_)));
     }
 
     #[test]
@@ -1100,6 +1000,10 @@ mod tests {
             (
                 r#"{"type":"server.instance.disposed","properties":{}}"#,
                 "server.instance.disposed",
+            ),
+            (
+                r#"{"type":"server.heartbeat","properties":{}}"#,
+                "server.heartbeat",
             ),
             (r#"{"type":"file.edited","properties":{}}"#, "file.edited"),
             (r#"{"type":"todo.updated","properties":{}}"#, "todo.updated"),
@@ -1163,6 +1067,26 @@ mod tests {
             (
                 r#"{"type":"tui.toast_show","properties":{"message":"m","type":"info"}}"#,
                 "tui.toast_show",
+            ),
+            (
+                r#"{"type":"plugin.added","properties":{"id":"sap-ai-core"}}"#,
+                "plugin.added",
+            ),
+            (
+                r#"{"type":"reference.updated","properties":{}}"#,
+                "reference.updated",
+            ),
+            (
+                r#"{"type":"integration.updated","properties":{}}"#,
+                "integration.updated",
+            ),
+            (
+                r#"{"type":"catalog.updated","properties":{}}"#,
+                "catalog.updated",
+            ),
+            (
+                r#"{"type":"message.part.delta","properties":{"sessionID":"s1","messageID":"m1","partID":"p1","field":"text","delta":" hi"}}"#,
+                "message.part.delta",
             ),
         ];
         for (props_json, expected_type) in &cases {
@@ -1234,8 +1158,24 @@ mod tests {
     }
 
     #[test]
+    fn test_opencode_sdk_part_step_start_alias() {
+        // The server sends `step-start` (kebab-case) — should deserialize via alias
+        let json = r#"{"type":"step-start","name":"analyze"}"#;
+        let part: Part = serde_json::from_str(json).unwrap();
+        assert!(matches!(part, Part::StepStart(s) if s.name == "analyze"));
+    }
+
+    #[test]
     fn test_opencode_sdk_part_step_finish() {
         let json = r#"{"type":"step_finish","name":"analyze"}"#;
+        let part: Part = serde_json::from_str(json).unwrap();
+        assert!(matches!(part, Part::StepFinish(s) if s.name == "analyze"));
+    }
+
+    #[test]
+    fn test_opencode_sdk_part_step_finish_alias() {
+        // The server sends `step-finish` (kebab-case) — should deserialize via alias
+        let json = r#"{"type":"step-finish","name":"analyze"}"#;
         let part: Part = serde_json::from_str(json).unwrap();
         assert!(matches!(part, Part::StepFinish(s) if s.name == "analyze"));
     }
@@ -1330,6 +1270,20 @@ mod tests {
         match msg {
             Message::Assistant(a) => {
                 assert_eq!(a.id, "a1");
+            }
+            _ => panic!("expected Assistant"),
+        }
+    }
+
+    #[test]
+    fn test_opencode_sdk_message_assistant_without_parts() {
+        // Server omits `parts` for user-role messages — should not fail
+        let json = r#"{"role":"assistant","id":"a1","sessionID":"s1","time":"t"}"#;
+        let msg: Message = serde_json::from_str(json).unwrap();
+        match msg {
+            Message::Assistant(a) => {
+                assert_eq!(a.id, "a1");
+                assert!(a.parts.is_empty());
             }
             _ => panic!("expected Assistant"),
         }
