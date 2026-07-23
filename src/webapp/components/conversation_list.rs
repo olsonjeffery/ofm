@@ -1,4 +1,4 @@
-use crate::db::schema::{AgentType, ConversationWithRun};
+use crate::db::schema::{AgentType, ConversationWithRun, RunStatus};
 use leptos::prelude::*;
 
 fn agent_icon(agent_type: &AgentType) -> &'static str {
@@ -12,49 +12,40 @@ fn agent_icon(agent_type: &AgentType) -> &'static str {
     }
 }
 
-fn run_status_class(status: &crate::db::schema::RunStatus) -> &'static str {
+fn run_status_class(status: &RunStatus) -> &'static str {
     match status {
-        crate::db::schema::RunStatus::Pending => "is-light",
-        crate::db::schema::RunStatus::Running => "is-info is-light",
-        crate::db::schema::RunStatus::Completed => "is-success is-light",
-        crate::db::schema::RunStatus::Failed => "is-danger is-light",
-        crate::db::schema::RunStatus::Blocked => "is-warning is-light",
+        RunStatus::Pending => "is-light",
+        RunStatus::Running => "is-info is-light",
+        RunStatus::Completed => "is-success is-light",
+        RunStatus::Failed => "is-danger is-light",
+        RunStatus::Blocked => "is-warning is-light",
     }
 }
 
-fn run_status_label(status: &crate::db::schema::RunStatus) -> &'static str {
+fn run_status_label(status: &RunStatus) -> &'static str {
     match status {
-        crate::db::schema::RunStatus::Pending => "Pending",
-        crate::db::schema::RunStatus::Running => "Running",
-        crate::db::schema::RunStatus::Completed => "Completed",
-        crate::db::schema::RunStatus::Failed => "Failed",
-        crate::db::schema::RunStatus::Blocked => "Blocked",
+        RunStatus::Pending => "Pending",
+        RunStatus::Running => "Running",
+        RunStatus::Completed => "Completed",
+        RunStatus::Failed => "Failed",
+        RunStatus::Blocked => "Blocked",
     }
 }
 
 fn is_valid_name(name: &str) -> bool {
-    if name.len() < 3 {
-        return false;
-    }
-    if name.starts_with("Generate a 1-3 word title") {
-        return false;
-    }
-    if name.starts_with("generate a 1-3 word title") {
-        return false;
-    }
-    true
+    name.len() >= 3
+        && !name.starts_with("Generate a 1-3 word title")
+        && !name.starts_with("generate a 1-3 word title")
 }
 
 fn format_conversation_date(
     created_at: &chrono::NaiveDateTime,
     updated_at: &chrono::NaiveDateTime,
 ) -> String {
-    let ts = if *updated_at > *created_at {
-        updated_at
-    } else {
-        created_at
-    };
-    ts.format("%b %d, %H:%M").to_string()
+    updated_at
+        .max(created_at)
+        .format("%b %d, %H:%M")
+        .to_string()
 }
 
 #[component]
@@ -249,7 +240,6 @@ mod tests {
 
     #[test]
     fn test_conversation_list_status_labels() {
-        use crate::db::schema::RunStatus;
         let conv_id = uuid::Uuid::new_v4();
         let convs = vec![ConversationWithRun {
             conversation: make_conversation(conv_id, "Running Chat"),
