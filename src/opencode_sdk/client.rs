@@ -478,6 +478,11 @@ impl Stream for EventStream {
                         continue;
                     }
                     Poll::Ready(Some(Err(e))) => {
+                        tracing::warn!(
+                            error = %e,
+                            body = %String::from_utf8_lossy(&self.buf),
+                            "Event stream transport error",
+                        );
                         return Poll::Ready(Some(Err(SdkError::Http(e))));
                     }
                     Poll::Ready(None) => {
@@ -786,5 +791,74 @@ mod tests {
         let (events, retry) = parse_sse_lines(&mut buf);
         assert_eq!(events.len(), 1);
         assert_eq!(retry, Some(Duration::from_millis(5000)));
+    }
+
+    #[test]
+    fn test_event_stream_error_logs_body() {
+        let rt = tokio::runtime::Runtime::new().unwrap();
+        rt.block_on(async {
+            use std::io::Write as IoWrite;
+            use std::sync::Mutex;
+
+            // Set up a tracing subscriber that captures log output
+            let captured = Arc::new(Mutex::new(Vec::<u8>::new()));
+
+            struct TestWriter {
+                buf: Arc<Mutex<Vec<u8>>>,
+            }
+            impl IoWrite for TestWriter {
+                fn write(&mut self, buf: &[u8]) -> std::io::Result<usize> {
+                    self.buf.lock().unwrap().write(buf)
+                }
+                fn flush(&mut self) -> std::io::Result<()> {
+                    self.buf.lock().unwrap().flush()
+                }
+            }
+
+            let subscriber = tracing_subscriber::fmt()
+                .with_writer({
+                    let captured = captured.clone();
+                    move || TestWriter {
+                        buf: captured.clone(),
+                    }
+                })
+                .finish();
+            let _guard = tracing::subscriber::set_default(subscriber);
+
+            // Get a real reqwest error
+            let err = reqwest::get("http://127.0.0.1:1/").await.unwrap_err();
+
+            // Build a stream that yields partial data (no newline, so it stays in
+            // buf after parse_sse_lines) and then errors out.
+            let partial = b"incomplete chunked data here";
+            let stream =
+                futures_util::stream::iter(vec![Ok(Bytes::from_static(partial)), Err(err)]);
+
+            use futures_util::StreamExt;
+            let mut event_stream = EventStream {
+                stream: Some(Box::pin(stream)),
+                buf: Vec::new(),
+                pending: Vec::new(),
+                retry_delay: Duration::from_millis(3000),
+                max_retries: 0,
+                retry_count: 0,
+                sleep: None,
+                reconnect: None,
+                reconnect_fut: None,
+                cancellation: Arc::new(AtomicBool::new(false)),
+            };
+
+            let result = event_stream.next().await;
+            assert!(result.is_some());
+            assert!(result.unwrap().is_err(), "expected error from stream");
+
+            // Verify the body appears in the trace log
+            let binding = captured.lock().unwrap();
+            let log_output = String::from_utf8_lossy(&binding);
+            assert!(
+                log_output.contains("incomplete chunked data here"),
+                "buffered body should appear in trace log: {log_output:?}"
+            );
+        });
     }
 }
