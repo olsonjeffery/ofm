@@ -15,10 +15,11 @@ fn esc(s: &str) -> String {
 }
 
 fn render_markdown(text: &str) -> String {
+    let escaped = html_escape::encode_text(text);
     let mut opt = Options::empty();
     opt.insert(Options::ENABLE_GFM);
     opt.insert(Options::ENABLE_TABLES);
-    let parser = pulldown_cmark::Parser::new_ext(text, opt);
+    let parser = pulldown_cmark::Parser::new_ext(&escaped, opt);
     let mut html = String::new();
     pulldown_cmark::html::push_html(&mut html, parser);
     ammonia::Builder::default()
@@ -60,10 +61,10 @@ fn render_markdown(text: &str) -> String {
 }
 
 fn maybe_collapse(content: &str, html_id: &str) -> String {
-    if content.len() <= 200 {
+    if content.len() <= 256 {
         esc(content)
     } else {
-        let truncated_content = content.chars().take(200).collect::<String>();
+        let truncated_content = content.chars().take(256).collect::<String>();
         let truncated_lines = truncated_content.lines().count();
         let full_lines = content.lines().count();
         let more_lines = full_lines - truncated_lines;
@@ -85,17 +86,16 @@ fn maybe_collapse(content: &str, html_id: &str) -> String {
 }
 
 fn maybe_collapse_md(content: &str, html_id: &str) -> String {
-    if content.len() <= 200 {
+    if content.len() <= 256 {
         render_markdown(content)
     } else {
-        let truncated_content = content.chars().take(200).collect::<String>();
-        let truncated_lines = truncated_content.lines().count();
-        let full_lines = content.lines().count();
-        let more_lines = full_lines - truncated_lines;
+        let truncated_content: String = content.chars().take(256).collect();
+        let truncated_display = format!("{}…", truncated_content);
+        let more_lines = content.lines().count() - truncated_content.lines().count();
         format!(
             r##"<span id="preview-{}">{}</span><span id="full-{}" style="display:none">{}</span><a href="#" id="btn-{}" class="show-more-btn" onclick="toggleShowMoreLines('{}', {});return false">show {} more lines</a>"##,
             esc(html_id),
-            render_markdown(&truncated_content),
+            render_markdown(&truncated_display),
             esc(html_id),
             render_markdown(content),
             esc(html_id),
@@ -187,7 +187,7 @@ pub fn render_event(event: &ProviderEvent) -> String {
             let id = next_id();
             let content = maybe_collapse_md(trimmed, &id);
             format!(
-                r#"<div class="message-thinking"><span class="icon"><i class="mdi mdi-head-snowflake-outline"></i></span>{}</div>"#,
+                r#"<div class="message-thinking"><span class="icon"><i class="mdi mdi-head-snowflake-outline"></i></span><div class="content">{}</div></div>"#,
                 content
             )
         }
@@ -208,7 +208,7 @@ pub fn render_event(event: &ProviderEvent) -> String {
         ProviderEvent::SessionStart { .. } => String::new(),
         ProviderEvent::UserText { text } => {
             format!(
-                r#"<div class="message-user">{}</div>"#,
+                r#"<div class="message-user"><div class="content">{}</div></div>"#,
                 render_markdown(text),
             )
         }
@@ -366,7 +366,7 @@ mod tests {
 
     #[test]
     fn test_message_stream_text_shows_full_when_short() {
-        let short = "x".repeat(200);
+        let short = "x".repeat(256);
         let messages = vec![ProviderEvent::Text {
             text: short.clone(),
         }];
@@ -377,10 +377,19 @@ mod tests {
 
     #[test]
     fn test_message_stream_text_collapses_when_long() {
-        let long = "x".repeat(201);
+        let long = "x".repeat(257);
         let messages = vec![ProviderEvent::Text { text: long }];
         let html = leptos::view! { <MessageStream messages=messages /> }.to_html();
         assert!(html.contains("show-more-btn"));
+    }
+
+    #[test]
+    fn test_message_stream_md_collapse_has_ellipsis() {
+        let long = "x".repeat(300);
+        let messages = vec![ProviderEvent::Text { text: long.clone() }];
+        let html = leptos::view! { <MessageStream messages=messages /> }.to_html();
+        assert!(html.contains("show-more-btn"));
+        assert!(html.contains("…"));
     }
 
     #[test]
