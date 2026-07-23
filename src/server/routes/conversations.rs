@@ -133,6 +133,15 @@ async fn send_message(
         .await
         .map_err(|e| ServerError::Internal(e.to_string()))?;
 
+    let now = chrono::Utc::now().naive_utc().to_string();
+    let _ = state
+        .db
+        .execute(
+            "UPDATE conversations SET updated_at = $1 WHERE id = $2",
+            hiqlite::params!(&now, conv_id.to_string()),
+        )
+        .await;
+
     // Broadcast user message via WS
     let topic = WsTopic {
         kind: WsTopicKind::Task,
@@ -248,6 +257,11 @@ async fn send_message(
                                         ws_bus.broadcast(&topic, msg).await;
 
                                         if matches!(event, ProviderEvent::Done(_)) {
+                                            let done_now = chrono::Utc::now().naive_utc().to_string();
+                                            let _ = db.execute(
+                                                "UPDATE conversations SET updated_at = $1 WHERE id = $2",
+                                                hiqlite::params!(&done_now, c_id.to_string()),
+                                            ).await;
                                             if let Err(e) = crate::orchestration::completion_handler(
                                                 &db, c_id, &active_sessions
                                             ).await {

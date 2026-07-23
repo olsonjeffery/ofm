@@ -5,7 +5,7 @@ use hiqlite::Client;
 use uuid::Uuid;
 
 fn utc_now() -> String {
-    chrono::Utc::now().naive_utc().to_string()
+    chrono::Utc::now().format("%Y-%m-%d %H:%M:%S").to_string()
 }
 
 pub async fn create_task(
@@ -28,8 +28,8 @@ pub async fn create_task(
     };
     client
         .execute(
-            "INSERT INTO tasks (id, project_id, user_id, title, status) VALUES ($1, $2, $3, $4, $5)",
-            hiqlite::params!(id, project_id, user_id.to_string(), title, status),
+            "INSERT INTO tasks (id, project_id, user_id, title, status, created_at) VALUES ($1, $2, $3, $4, $5, $6)",
+            hiqlite::params!(id, project_id, user_id.to_string(), title, status, utc_now()),
         )
         .await?;
     get_task(client, id).await
@@ -148,7 +148,7 @@ pub async fn list_conversations_for_task(
 ) -> Result<Vec<ConversationWithRun>, hiqlite::Error> {
     let conversations = client
         .query_map::<Conversation, _>(
-            "SELECT id, task_id, provider_session_id, model, effort, name, created_at FROM conversations WHERE task_id = $1 ORDER BY created_at DESC",
+            "SELECT id, task_id, provider_session_id, model, effort, name, created_at, updated_at FROM conversations WHERE task_id = $1 ORDER BY created_at DESC",
             hiqlite::params!(task_id),
         )
         .await?;
@@ -439,5 +439,20 @@ mod tests {
         mark_pr_agent_complete(&client, task_id).await.unwrap();
 
         assert_flags(&client, task_id, (true, false, false, true)).await;
+    }
+
+    #[tokio::test]
+    async fn test_create_task_sets_created_at() {
+        let (client, _tmp) = make_client().await;
+        let (_, task_id) = seed_task(&client).await;
+        let task = get_task(&client, task_id).await.unwrap();
+        let epoch =
+            chrono::NaiveDateTime::parse_from_str("1970-01-01 00:00:00", "%Y-%m-%d %H:%M:%S")
+                .unwrap();
+        assert_ne!(
+            task.created_at, epoch,
+            "created_at should not be the default epoch"
+        );
+        assert!(task.created_at > epoch, "created_at should be after epoch");
     }
 }

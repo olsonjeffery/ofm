@@ -7,9 +7,12 @@ use tokio::io::AsyncBufReadExt;
 use tokio::process::{Child, Command};
 
 const RAUTHY_IMAGE: &str = "ghcr.io/sebadob/rauthy:latest";
-const CONTAINER_NAME: &str = "ofm-rauthy";
 const HEALTH_POLL_INTERVAL: Duration = Duration::from_millis(500);
 const HEALTH_TIMEOUT: Duration = Duration::from_secs(120);
+
+fn container_name(port: u16) -> String {
+    format!("ofm-rauthy-{}", port)
+}
 
 type BoxError = Box<dyn std::error::Error>;
 
@@ -67,7 +70,7 @@ pub async fn start_rauthy(
     proxy_port: u16,
 ) -> Result<RauthyInstance, BoxError> {
     tokio::process::Command::new("docker")
-        .args(["rm", "-f", CONTAINER_NAME])
+        .args(["rm", "-f", &container_name(port)])
         .stdout(Stdio::null())
         .stderr(Stdio::null())
         .status()
@@ -111,7 +114,7 @@ pub async fn start_rauthy(
     )?;
 
     let mut cmd = Command::new("docker");
-    cmd.args(["run", "--rm", "--name", CONTAINER_NAME]);
+    cmd.args(["run", "--rm", "--name", &container_name(port)]);
 
     cmd.arg("-v");
     cmd.arg(format!("{}:/app/data", data_dir));
@@ -161,7 +164,7 @@ pub async fn wait_until_healthy(port: u16) -> Result<(), BoxError> {
     loop {
         if start.elapsed() > HEALTH_TIMEOUT {
             let logs = Command::new("docker")
-                .args(["logs", CONTAINER_NAME, "--tail", "50"])
+                .args(["logs", &container_name(port), "--tail", "50"])
                 .output()
                 .await
                 .ok();

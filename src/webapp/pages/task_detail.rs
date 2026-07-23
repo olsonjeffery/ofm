@@ -1,51 +1,8 @@
 use leptos::prelude::*;
 
-use crate::db::schema::{AgentType, ConversationWithRun, RunStatus, Task, TaskAgentRun};
+use crate::db::schema::{ConversationWithRun, Task};
 use crate::webapp::components::conversation_list::ConversationList;
 use crate::webapp::components::markdown_viewer::MarkdownViewer;
-
-fn agent_type_icon(agent_type: &AgentType) -> &'static str {
-    match agent_type {
-        AgentType::Planification => "file-document-outline",
-        AgentType::Implementation => "code-tags",
-        AgentType::Refinement => "creation-outline",
-        AgentType::Review => "checkbox-marked-circle-outline",
-        AgentType::Pr => "source-branch-plus",
-        AgentType::Yolo => "rocket",
-    }
-}
-
-fn agent_type_label(agent_type: &AgentType) -> &'static str {
-    match agent_type {
-        AgentType::Planification => "Plannification",
-        AgentType::Implementation => "Implementation",
-        AgentType::Refinement => "Refinement",
-        AgentType::Review => "Review",
-        AgentType::Pr => "PR",
-        AgentType::Yolo => "Yolo",
-    }
-}
-
-fn agent_type_value(agent_type: &AgentType) -> &'static str {
-    match agent_type {
-        AgentType::Planification => "planification",
-        AgentType::Implementation => "implementation",
-        AgentType::Refinement => "refinement",
-        AgentType::Review => "review",
-        AgentType::Pr => "pr",
-        AgentType::Yolo => "yolo",
-    }
-}
-
-fn run_status_class(status: &RunStatus) -> &'static str {
-    match status {
-        RunStatus::Pending => "is-light",
-        RunStatus::Running => "is-info",
-        RunStatus::Completed => "is-success",
-        RunStatus::Failed => "is-danger",
-        RunStatus::Blocked => "is-warning",
-    }
-}
 
 fn status_label(status: &str) -> &'static str {
     match status {
@@ -60,9 +17,9 @@ fn status_label(status: &str) -> &'static str {
 fn status_class(status: &str) -> &'static str {
     match status {
         "pending" => "is-light",
-        "in_progress" => "is-info",
-        "in_review" => "is-warning",
-        "completed" => "is-success",
+        "in_progress" => "is-info is-light",
+        "in_review" => "is-warning is-light",
+        "completed" => "is-success is-light",
         _ => "is-light",
     }
 }
@@ -71,7 +28,6 @@ fn status_class(status: &str) -> &'static str {
 pub fn TaskDetailPage(
     task: Task,
     doc_content: Option<String>,
-    agent_runs: Vec<TaskAgentRun>,
     conversations: Vec<ConversationWithRun>,
 ) -> impl IntoView {
     let status_badge_class = status_class(&task.status);
@@ -137,6 +93,18 @@ pub fn TaskDetailPage(
                         </div>
                     </div>
                 </form>
+                <hr />
+                <div class="level">
+                    <div class="level-left">
+                        <h2 class="title is-4 has-text-danger">"Danger Zone"</h2>
+                    </div>
+                    <div class="level-right">
+                        <button id="delete-task-btn" class="button is-danger">
+                            <span class="icon is-small"><i class="mdi mdi-delete"></i></span>
+                            <span>"Delete Task"</span>
+                        </button>
+                    </div>
+                </div>
             </div>
 
             <div class="columns">
@@ -166,53 +134,6 @@ pub fn TaskDetailPage(
                         } else {
                             view! { <MarkdownViewer content=doc_escaped /> }.into_any()
                         }}
-                    </div>
-
-
-                    <div class="box">
-                        <h2 class="title is-4">"Run History"</h2>
-                        {if agent_runs.is_empty() {
-                            view! { <p class="has-text-grey is-size-7">"No runs yet."</p> }.into_any()
-                        } else {
-                            view! {
-                                <table class="table is-fullwidth is-striped is-hoverable">
-                                    <thead>
-                                        <tr>
-                                            <th>"Agent"</th>
-                                            <th>"Status"</th>
-                                            <th>"Date"</th>
-                                        </tr>
-                                    </thead>
-                                    <tbody>
-                                        {agent_runs.iter().map(|run| {
-                                            let run_status_class = run_status_class(&run.status);
-                                            let created = run.created_at.format("%Y-%m-%d %H:%M").to_string();
-                                            view! {
-                                                <tr>
-                                                    <td>{agent_type_label(&run.agent_type)}</td>
-                                                    <td><span class={format!("tag {}", run_status_class)}>{run.status.to_string()}</span></td>
-                                                    <td><small class="has-text-grey">{created}</small></td>
-                                                </tr>
-                                            }
-                                        }).collect::<Vec<_>>()}
-                                    </tbody>
-                                </table>
-                            }.into_any()
-                        }}
-                    </div>
-
-                    <div class="box" style="margin-top:1rem">
-                        <div class="level">
-                            <div class="level-left">
-                                <h2 class="title is-4 has-text-danger">"Danger Zone"</h2>
-                            </div>
-                            <div class="level-right">
-                                <button id="delete-task-btn" class="button is-danger">
-                                    <span class="icon is-small"><i class="mdi mdi-delete"></i></span>
-                                    <span>"Delete Task"</span>
-                                </button>
-                            </div>
-                        </div>
                     </div>
                 </div>
             </div>
@@ -293,19 +214,25 @@ pub fn TaskDetailPage(
                 // WS subscription for conversation timestamp updates
                 if(window.OfmWS&&taskId){
                     window.OfmWS.subscribe({kind:'task',id:parseInt(taskId)},function(msg){
-                        if(msg.type==='event'&&msg.payload&&msg.payload.conversation_id){
-                            var convId=msg.payload.conversation_id;
-                            var dateEl=document.querySelector('.conversation-date[data-conv-id="'+convId+'"]');
-                            if(dateEl){
-                                var now=new Date();
-                                var months=['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
-                                var h=now.getHours().toString().padStart(2,'0');
-                                var m=now.getMinutes().toString().padStart(2,'0');
-                                dateEl.textContent=months[now.getMonth()]+' '+now.getDate()+', '+h+':'+m;
-                                dateEl.classList.remove('is-pulsed');
-                                void dateEl.offsetWidth;
-                                dateEl.classList.add('is-pulsed');
-                                setTimeout(function(){dateEl.classList.remove('is-pulsed');},3000);
+                        if(msg.type==='event'){
+                            if(msg.event_type==='task_updated'){
+                                window.location.reload();
+                                return;
+                            }
+                            if(msg.payload&&msg.payload.conversation_id){
+                                var convId=msg.payload.conversation_id;
+                                var dateEl=document.querySelector('.conversation-date[data-conv-id="'+convId+'"]');
+                                if(dateEl){
+                                    var now=new Date();
+                                    var months=['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+                                    var h=now.getHours().toString().padStart(2,'0');
+                                    var m=now.getMinutes().toString().padStart(2,'0');
+                                    dateEl.textContent=months[now.getMonth()]+' '+now.getDate()+', '+h+':'+m;
+                                    dateEl.classList.remove('is-pulsed');
+                                    void dateEl.offsetWidth;
+                                    dateEl.classList.add('is-pulsed');
+                                    setTimeout(function(){dateEl.classList.remove('is-pulsed');},3000);
+                                }
                             }
                         }
                     });
@@ -350,111 +277,40 @@ mod tests {
         }
     }
 
-    fn make_run(agent_type: AgentType, status: RunStatus) -> TaskAgentRun {
-        TaskAgentRun {
-            id: uuid::Uuid::new_v4(),
-            task_id: 1,
-            agent_type,
-            status,
-            conversation_id: None,
-            created_at: NaiveDateTime::parse_from_str("2024-06-01 12:00:00", "%Y-%m-%d %H:%M:%S")
-                .unwrap(),
-            completed_at: None,
-        }
-    }
-
-    #[test]
-    fn test_task_detail_current_run_matching_phase_shows_loading() {
-        let task = make_task();
-        let agent_runs = vec![make_run(AgentType::Implementation, RunStatus::Running)];
-        let doc_content = None;
-        let html =
-            leptos::view! { <TaskDetailPage task doc_content agent_runs conversations=vec![] /> }
-                .to_html();
-        assert!(html.contains("is-loading"));
-        assert!(html.contains("stop-agent-btn"));
-    }
-
-    #[test]
-    fn test_task_detail_current_run_non_matching_phase_no_loading() {
-        let task = make_task();
-        let agent_runs = vec![make_run(AgentType::Planification, RunStatus::Running)];
-        let doc_content = None;
-        let html =
-            leptos::view! { <TaskDetailPage task doc_content agent_runs conversations=vec![] /> }
-                .to_html();
-        // is-loading appears for the Planification phase (and also in inline JS)
-        assert!(html.contains("is-loading"));
-    }
-
     #[test]
     fn test_task_detail_renders_markdown_section() {
         let task = make_task();
-        let agent_runs = vec![];
         let doc_content = Some("# Hello World".into());
         let html =
-            leptos::view! { <TaskDetailPage task doc_content agent_runs conversations=vec![]  /> }
-                .to_html();
+            leptos::view! { <TaskDetailPage task doc_content conversations=vec![]  /> }.to_html();
         assert!(html.contains("Documentation"));
         assert!(html.contains("<h1>"));
         assert!(html.contains("Hello World"));
-        assert!(html.contains("class=\"content\""));
-    }
-
-    #[test]
-    fn test_task_detail_shows_run_history() {
-        let task = make_task();
-        let agent_runs = vec![
-            make_run(AgentType::Planification, RunStatus::Completed),
-            make_run(AgentType::Implementation, RunStatus::Running),
-        ];
-        let doc_content = None;
-        let html =
-            leptos::view! { <TaskDetailPage task doc_content agent_runs conversations=vec![]  /> }
-                .to_html();
-        assert!(html.contains("Run History"));
-        assert!(html.contains("Planification"));
-        assert!(html.contains("completed"));
-        assert!(html.contains("running"));
     }
 
     #[test]
     fn test_task_detail_empty_doc_shows_prompt() {
         let task = make_task();
-        let agent_runs = vec![];
         let doc_content = None;
         let html =
-            leptos::view! { <TaskDetailPage task doc_content agent_runs conversations=vec![]  /> }
-                .to_html();
+            leptos::view! { <TaskDetailPage task doc_content conversations=vec![]  /> }.to_html();
         assert!(html.contains("No document yet"));
-    }
-
-    #[test]
-    fn test_task_detail_no_runs_shows_message() {
-        let task = make_task();
-        let agent_runs = vec![];
-        let doc_content = None;
-        let html =
-            leptos::view! { <TaskDetailPage task doc_content agent_runs conversations=vec![]  /> }
-                .to_html();
-        assert!(html.contains("No runs yet"));
     }
 
     #[test]
     fn test_task_detail_shows_conversations_sidebar() {
         let task = make_task();
-        let agent_runs = vec![];
         let doc_content = None;
         let html =
-            leptos::view! { <TaskDetailPage task doc_content agent_runs conversations=vec![]  /> }
-                .to_html();
+            leptos::view! { <TaskDetailPage task doc_content conversations=vec![]  /> }.to_html();
         assert!(html.contains("Conversations"));
     }
 
     #[test]
     fn test_task_detail_has_edit_button() {
         let task = make_task();
-        let html = leptos::view! { <TaskDetailPage task doc_content=None agent_runs=vec![] conversations=vec![]  /> }.to_html();
+        let html = leptos::view! { <TaskDetailPage task doc_content=None conversations=vec![]  /> }
+            .to_html();
         assert!(html.contains("id=\"edit-task-btn\""));
         assert!(html.contains("mdi-pencil"));
     }
@@ -462,14 +318,16 @@ mod tests {
     #[test]
     fn test_task_detail_edit_form_preserves_task_title() {
         let task = make_task();
-        let html = leptos::view! { <TaskDetailPage task doc_content=None agent_runs=vec![] conversations=vec![]  /> }.to_html();
+        let html = leptos::view! { <TaskDetailPage task doc_content=None conversations=vec![]  /> }
+            .to_html();
         assert!(html.contains("value=\"Implement feature X\""));
     }
 
     #[test]
     fn test_task_detail_edit_form_has_status_select() {
         let task = make_task();
-        let html = leptos::view! { <TaskDetailPage task doc_content=None agent_runs=vec![] conversations=vec![]  /> }.to_html();
+        let html = leptos::view! { <TaskDetailPage task doc_content=None conversations=vec![]  /> }
+            .to_html();
         assert!(html.contains("id=\"edit-task-status\""));
         assert!(html.contains("Pending"));
         assert!(html.contains("In Progress"));
@@ -480,17 +338,43 @@ mod tests {
     #[test]
     fn test_task_detail_edit_form_pre_selects_current_status() {
         let task = make_task();
-        let html = leptos::view! { <TaskDetailPage task doc_content=None agent_runs=vec![] conversations=vec![]  /> }.to_html();
+        let html = leptos::view! { <TaskDetailPage task doc_content=None conversations=vec![]  /> }
+            .to_html();
         assert!(html.contains("value=\"in_progress\" selected"));
     }
 
     #[test]
-    fn test_task_detail_has_delete_button() {
+    fn test_task_detail_danger_zone_in_edit_form() {
         let task = make_task();
-        let html = leptos::view! { <TaskDetailPage task doc_content=None agent_runs=vec![] conversations=vec![]  /> }.to_html();
+        let html = leptos::view! { <TaskDetailPage task doc_content=None conversations=vec![]  /> }
+            .to_html();
         assert!(html.contains("id=\"delete-task-btn\""));
         assert!(html.contains("Danger Zone"));
         assert!(html.contains("Delete Task"));
         assert!(html.contains("mdi-delete"));
+        assert!(html.contains("edit-task-form"));
+        let edit_form_start = html.find("edit-task-form").unwrap();
+        let danger_zone_pos = html.find("Danger Zone").unwrap();
+        assert!(
+            danger_zone_pos > edit_form_start,
+            "Danger Zone should be inside edit form"
+        );
+    }
+
+    #[test]
+    fn test_task_detail_ws_subscription_reloads_on_task_updated() {
+        let task = make_task();
+        let html = leptos::view! { <TaskDetailPage task doc_content=None conversations=vec![]  /> }
+            .to_html();
+        assert!(html.contains("task_updated"));
+        assert!(html.contains("window.location.reload()"));
+    }
+
+    #[test]
+    fn test_task_detail_status_badge_includes_is_light() {
+        let task = make_task();
+        let html = leptos::view! { <TaskDetailPage task doc_content=None conversations=vec![]  /> }
+            .to_html();
+        assert!(html.contains("is-info is-light"));
     }
 }

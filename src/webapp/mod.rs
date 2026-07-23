@@ -228,10 +228,6 @@ async fn task_detail_handler(
         archive.read_task_doc(&doc_path).ok()
     });
 
-    let agent_runs = services::tasks::list_agent_runs_for_task(&state.db, task_id)
-        .await
-        .map_err(|e| ServerError::Internal(e.to_string()))?;
-
     let conversations = services::tasks::list_conversations_for_task(&state.db, task_id)
         .await
         .unwrap_or_default();
@@ -245,7 +241,6 @@ async fn task_detail_handler(
         <pages::task_detail::TaskDetailPage
             task
             doc_content
-            agent_runs
             conversations=conversations
             />
     }

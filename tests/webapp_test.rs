@@ -505,7 +505,7 @@ async fn test_webapp_task_detail_page() {
     let body = resp.text().await.unwrap();
     assert!(body.contains("My Test Task"));
     assert!(body.contains("No document yet"));
-    assert!(body.contains("No runs yet"));
+    assert!(body.contains("No conversations yet"));
     assert!(body.contains("agent-run-buttons"));
 }
 
