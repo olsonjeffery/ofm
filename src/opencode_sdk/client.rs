@@ -360,7 +360,7 @@ fn parse_sse_lines(buf: &mut Vec<u8>) -> (Vec<GlobalEvent>, Option<Duration>) {
             match serde_json::from_str::<GlobalEvent>(data) {
                 Ok(global) => events.push(global),
                 Err(e) => {
-                    let truncated: String = data.chars().take(256).collect();
+                    let truncated: String = data.chars().take(1024).collect();
                     tracing::warn!(
                         error = %e,
                         raw_data = %truncated,
