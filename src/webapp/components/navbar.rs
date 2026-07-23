@@ -35,20 +35,20 @@ pub fn Navbar(user_json: Option<String>, breadcrumbs: Vec<BreadcrumbItem>) -> im
                                 <span>{username}</span>
                             </span>
                             <div class="navbar-item">
-                                <a href="/webapp/onboarding" class="button is-white">
+                                <a href="/webapp/onboarding" class="button is-white is-small">
                                     <span class="icon is-small"><i class="mdi mdi-account-cog"></i></span>
                                     <span>"User Config"</span>
                                 </a>
                             </div>
                             <div class="navbar-item">
-                                <a href="/webapp/settings" class="button is-white">
+                                <a href="/webapp/settings" class="button is-white is-small">
                                     <span class="icon is-small"><i class="mdi mdi-cog"></i></span>
                                     <span>"Settings"</span>
                                 </a>
                             </div>
                             <div class="navbar-item">
                                 <form action="/api/auth/logout" method="post" id="logout-form">
-                                    <button type="submit" class="button is-white">
+                                    <button type="submit" class="button is-primary is-light is-small">
                                         <span class="icon is-small"><i class="mdi mdi-logout"></i></span>
                                         <span>"Logout"</span>
                                     </button>

@@ -73,20 +73,11 @@ pub fn TaskDetailPage(
     doc_content: Option<String>,
     agent_runs: Vec<TaskAgentRun>,
     conversations: Vec<ConversationWithRun>,
-    current_run: Option<TaskAgentRun>,
 ) -> impl IntoView {
     let status_badge_class = status_class(&task.status);
     let status_label_str = status_label(&task.status);
     let task_id = task.id.to_string();
     let conversation_count = conversations.len();
-
-    let agent_types = [
-        AgentType::Planification,
-        AgentType::Implementation,
-        AgentType::Refinement,
-        AgentType::Review,
-        AgentType::Pr,
-    ];
 
     let doc_value = doc_content.clone().unwrap_or_default();
     let doc_escaped = html_escape::encode_text(&doc_value).to_string();
@@ -95,8 +86,14 @@ pub fn TaskDetailPage(
         <section class="section">
             <div class="level" data-task-id={task.id.to_string()} data-project-id={task.project_id.to_string()}>
                 <div class="level-left">
-                    <h1 class="title">{task.title.clone()}</h1>
-                    <span class={format!("tag {} ml-2", status_badge_class)}>{status_label_str}</span>
+                    <div class="level">
+                        <div class="level-left">
+                            <h1 class="title">{task.title.clone()}</h1>
+                        </div>
+                        <div class="level-right">
+                            <span class={format!("tag {} ml-2", status_badge_class)}>{status_label_str}</span>
+                        </div>
+                    </div>
                 </div>
                 <div class="level-right">
                     <button id="edit-task-btn" class="button is-small is-light" title="Edit task">
@@ -143,18 +140,19 @@ pub fn TaskDetailPage(
             </div>
 
             <div class="columns">
-                <div class="column is-one-quarter">
+                <div class="column is-one-quarter" style="overflow-y:auto;position:sticky;display:inline-block;scrollbar:hidden">
                     <div class="level is-mobile" style="margin-bottom:0.5rem">
                         <div class="level-left">
                             <h2 class="title is-5">"Conversations "</h2>
-                            <span class="tag is-info is-light ml-1">{conversation_count}</span>
                         </div>
-                        <div class="level-right"></div>
+                        <div class="level-right">
+                            <span class="tag is-grey is-light ml-1">{conversation_count}</span>
+                        </div>
                     </div>
-                    <ConversationList conversations=conversations active_id=None />
+                    <ConversationList conversations=conversations active_id=None task_id />
                 </div>
 
-                <div class="column">
+                <div class="column" style="overflow-y:auto;height:80vh;">
                     <div class="box">
                         <div class="level is-mobile" style="margin-bottom:0.5rem">
                             <div class="level-left">
@@ -170,48 +168,6 @@ pub fn TaskDetailPage(
                         }}
                     </div>
 
-                    <div class="box">
-                        <div style="display:flex;justify-content:space-between;align-items:center">
-                            <h2 class="title is-4">"Agents"</h2>
-                            <button
-                                id="stop-agent-btn"
-                                class="button is-small is-danger"
-                                style={if current_run.is_some() { "display:inline-flex" } else { "display:none" }}
-                            >
-                                <span class="icon is-small"><i class="mdi mdi-stop"></i></span>
-                                <span>"Stop Agent"</span>
-                            </button>
-                        </div>
-                        {agent_types.iter().map(|agent_type| {
-                            let agent_val = agent_type_value(agent_type);
-                            let agent_icon = agent_type_icon(agent_type);
-                            let agent_label = agent_type_label(agent_type);
-                            let is_current = current_run.as_ref().map(|r| r.agent_type == *agent_type).unwrap_or(false);
-                            let is_running = current_run.as_ref().map(|r| r.status == RunStatus::Running).unwrap_or(false);
-                            let btn_loading = is_current && is_running;
-                            view! {
-                                <div class="box is-info is-light" style="padding:0.75rem;margin-bottom:0.25rem">
-                                    <div class="level is-mobile">
-                                        <div class="level-left">
-                                            <span class="icon has-text-info"><i class={format!("mdi mdi-{}", agent_icon)}></i></span>
-                                            <span class="has-text-info">{agent_label}</span>
-                                        </div>
-                                        <div class="level-right">
-                                            <button
-                                                class={format!("button is-small has-text-info {}", if btn_loading { "is-loading" } else { "" })}
-                                                data-task-id={task_id.clone()}
-                                                data-agent-type={agent_val}
-                                                disabled=false
-                                            >
-                                                <span class="icon is-small"><i class="mdi mdi-play-outline"></i></span>
-                                                <span>"Run"</span>
-                                            </button>
-                                        </div>
-                                    </div>
-                                </div>
-                            }
-                        }).collect::<Vec<_>>()}
-                    </div>
 
                     <div class="box">
                         <h2 class="title is-4">"Run History"</h2>
@@ -266,30 +222,6 @@ pub fn TaskDetailPage(
                 var taskIdEl=document.querySelector('[data-task-id]');
                 var taskId=taskIdEl?.getAttribute('data-task-id');
                 var projectId=taskIdEl?.getAttribute('data-project-id');
-
-                // Agent run buttons
-                var buttons=document.querySelectorAll('[data-task-id][data-agent-type]');
-                buttons.forEach(function(btn){
-                    btn.addEventListener('click',function(){
-                        var taskId=btn.getAttribute('data-task-id');
-                        var agentType=btn.getAttribute('data-agent-type');
-                        btn.disabled=true;
-                        btn.classList.add('is-loading');
-                        apiCall('/api/tasks/'+taskId+'/agent-runs',{
-                            method:'POST',
-                            headers:{'Content-Type':'application/json'},
-                            body:JSON.stringify({agent_type:agentType})
-                        }).then(function(r){
-                            if(r.status===409){showMessage('Agent already running for this task');}
-                            else if(r.status===403){showMessage('Provider credentials missing');}
-                            else if(r.ok){window.location.reload();}
-                            else{showMessage('Error starting agent');}
-                        }).finally(function(){
-                            btn.disabled=false;
-                            btn.classList.remove('is-loading');
-                        });
-                    });
-                });
 
                 // Stop Agent button
                 var stopBtn=document.getElementById('stop-agent-btn');
@@ -432,35 +364,13 @@ mod tests {
     }
 
     #[test]
-    fn test_task_detail_has_agent_boxes() {
-        let task = make_task();
-        let agent_runs = vec![];
-        let doc_content = Some("Hello".into());
-        let html = leptos::view! { <TaskDetailPage task doc_content agent_runs conversations=vec![] current_run=None /> }.to_html();
-        assert!(html.contains("Plannification"));
-        assert!(html.contains("Implementation"));
-        assert!(html.contains("Refinement"));
-        assert!(html.contains("Review"));
-        assert!(html.contains("PR"));
-        assert!(html.contains("Run"));
-        assert!(html.contains("is-info is-light"));
-        assert!(html.contains("has-text-info"));
-        assert!(html.contains("mdi-file-document-outline"));
-        assert!(html.contains("mdi-code-tags"));
-        assert!(html.contains("mdi-checkbox-marked-circle-outline"));
-        assert!(html.contains("mdi-creation-outline"));
-        assert!(html.contains("mdi-source-branch-plus"));
-        assert!(html.contains("mdi-play-outline"));
-        // is-loading class appears in inline JS code (not as a rendered class when no run)
-    }
-
-    #[test]
     fn test_task_detail_current_run_matching_phase_shows_loading() {
         let task = make_task();
-        let agent_runs = vec![];
+        let agent_runs = vec![make_run(AgentType::Implementation, RunStatus::Running)];
         let doc_content = None;
-        let current_run = Some(make_run(AgentType::Implementation, RunStatus::Running));
-        let html = leptos::view! { <TaskDetailPage task doc_content agent_runs conversations=vec![] current_run /> }.to_html();
+        let html =
+            leptos::view! { <TaskDetailPage task doc_content agent_runs conversations=vec![] /> }
+                .to_html();
         assert!(html.contains("is-loading"));
         assert!(html.contains("stop-agent-btn"));
     }
@@ -468,33 +378,13 @@ mod tests {
     #[test]
     fn test_task_detail_current_run_non_matching_phase_no_loading() {
         let task = make_task();
-        let agent_runs = vec![];
+        let agent_runs = vec![make_run(AgentType::Planification, RunStatus::Running)];
         let doc_content = None;
-        let current_run = Some(make_run(AgentType::Planification, RunStatus::Running));
-        let html = leptos::view! { <TaskDetailPage task doc_content agent_runs conversations=vec![] current_run /> }.to_html();
+        let html =
+            leptos::view! { <TaskDetailPage task doc_content agent_runs conversations=vec![] /> }
+                .to_html();
         // is-loading appears for the Planification phase (and also in inline JS)
         assert!(html.contains("is-loading"));
-    }
-
-    #[test]
-    fn test_task_detail_stop_agent_visible_when_running() {
-        let task = make_task();
-        let agent_runs = vec![];
-        let doc_content = None;
-        let current_run = Some(make_run(AgentType::Implementation, RunStatus::Running));
-        let html = leptos::view! { <TaskDetailPage task doc_content agent_runs conversations=vec![] current_run /> }.to_html();
-        assert!(html.contains("stop-agent-btn"));
-        assert!(html.contains("Stop Agent"));
-        assert!(html.contains("mdi-stop"));
-    }
-
-    #[test]
-    fn test_task_detail_stop_agent_hidden_when_no_run() {
-        let task = make_task();
-        let agent_runs = vec![];
-        let doc_content = None;
-        let html = leptos::view! { <TaskDetailPage task doc_content agent_runs conversations=vec![] current_run=None /> }.to_html();
-        assert!(html.contains("display:none"));
     }
 
     #[test]
@@ -502,7 +392,9 @@ mod tests {
         let task = make_task();
         let agent_runs = vec![];
         let doc_content = Some("# Hello World".into());
-        let html = leptos::view! { <TaskDetailPage task doc_content agent_runs conversations=vec![] current_run=None /> }.to_html();
+        let html =
+            leptos::view! { <TaskDetailPage task doc_content agent_runs conversations=vec![]  /> }
+                .to_html();
         assert!(html.contains("Documentation"));
         assert!(html.contains("<h1>"));
         assert!(html.contains("Hello World"));
@@ -517,7 +409,9 @@ mod tests {
             make_run(AgentType::Implementation, RunStatus::Running),
         ];
         let doc_content = None;
-        let html = leptos::view! { <TaskDetailPage task doc_content agent_runs conversations=vec![] current_run=None /> }.to_html();
+        let html =
+            leptos::view! { <TaskDetailPage task doc_content agent_runs conversations=vec![]  /> }
+                .to_html();
         assert!(html.contains("Run History"));
         assert!(html.contains("Planification"));
         assert!(html.contains("completed"));
@@ -529,7 +423,9 @@ mod tests {
         let task = make_task();
         let agent_runs = vec![];
         let doc_content = None;
-        let html = leptos::view! { <TaskDetailPage task doc_content agent_runs conversations=vec![] current_run=None /> }.to_html();
+        let html =
+            leptos::view! { <TaskDetailPage task doc_content agent_runs conversations=vec![]  /> }
+                .to_html();
         assert!(html.contains("No document yet"));
     }
 
@@ -538,7 +434,9 @@ mod tests {
         let task = make_task();
         let agent_runs = vec![];
         let doc_content = None;
-        let html = leptos::view! { <TaskDetailPage task doc_content agent_runs conversations=vec![] current_run=None /> }.to_html();
+        let html =
+            leptos::view! { <TaskDetailPage task doc_content agent_runs conversations=vec![]  /> }
+                .to_html();
         assert!(html.contains("No runs yet"));
     }
 
@@ -547,14 +445,16 @@ mod tests {
         let task = make_task();
         let agent_runs = vec![];
         let doc_content = None;
-        let html = leptos::view! { <TaskDetailPage task doc_content agent_runs conversations=vec![] current_run=None /> }.to_html();
+        let html =
+            leptos::view! { <TaskDetailPage task doc_content agent_runs conversations=vec![]  /> }
+                .to_html();
         assert!(html.contains("Conversations"));
     }
 
     #[test]
     fn test_task_detail_has_edit_button() {
         let task = make_task();
-        let html = leptos::view! { <TaskDetailPage task doc_content=None agent_runs=vec![] conversations=vec![] current_run=None /> }.to_html();
+        let html = leptos::view! { <TaskDetailPage task doc_content=None agent_runs=vec![] conversations=vec![]  /> }.to_html();
         assert!(html.contains("id=\"edit-task-btn\""));
         assert!(html.contains("mdi-pencil"));
     }
@@ -562,14 +462,14 @@ mod tests {
     #[test]
     fn test_task_detail_edit_form_preserves_task_title() {
         let task = make_task();
-        let html = leptos::view! { <TaskDetailPage task doc_content=None agent_runs=vec![] conversations=vec![] current_run=None /> }.to_html();
+        let html = leptos::view! { <TaskDetailPage task doc_content=None agent_runs=vec![] conversations=vec![]  /> }.to_html();
         assert!(html.contains("value=\"Implement feature X\""));
     }
 
     #[test]
     fn test_task_detail_edit_form_has_status_select() {
         let task = make_task();
-        let html = leptos::view! { <TaskDetailPage task doc_content=None agent_runs=vec![] conversations=vec![] current_run=None /> }.to_html();
+        let html = leptos::view! { <TaskDetailPage task doc_content=None agent_runs=vec![] conversations=vec![]  /> }.to_html();
         assert!(html.contains("id=\"edit-task-status\""));
         assert!(html.contains("Pending"));
         assert!(html.contains("In Progress"));
@@ -580,14 +480,14 @@ mod tests {
     #[test]
     fn test_task_detail_edit_form_pre_selects_current_status() {
         let task = make_task();
-        let html = leptos::view! { <TaskDetailPage task doc_content=None agent_runs=vec![] conversations=vec![] current_run=None /> }.to_html();
+        let html = leptos::view! { <TaskDetailPage task doc_content=None agent_runs=vec![] conversations=vec![]  /> }.to_html();
         assert!(html.contains("value=\"in_progress\" selected"));
     }
 
     #[test]
     fn test_task_detail_has_delete_button() {
         let task = make_task();
-        let html = leptos::view! { <TaskDetailPage task doc_content=None agent_runs=vec![] conversations=vec![] current_run=None /> }.to_html();
+        let html = leptos::view! { <TaskDetailPage task doc_content=None agent_runs=vec![] conversations=vec![]  /> }.to_html();
         assert!(html.contains("id=\"delete-task-btn\""));
         assert!(html.contains("Danger Zone"));
         assert!(html.contains("Delete Task"));

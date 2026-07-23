@@ -53,9 +53,27 @@ fn format_conversation_date(created_at: &chrono::NaiveDateTime) -> String {
 pub fn ConversationList(
     conversations: Vec<ConversationWithRun>,
     active_id: Option<uuid::Uuid>,
+    task_id: String,
 ) -> impl IntoView {
     view! {
         <div class="conversation-list">
+            <div class="buttons has-addons is-fullwidth is-centered" id="agent-run-buttons">
+                <button class="button is-small is-info is-light" data-task-id={task_id.clone()} disabled=false data-agent-type="planification" >
+                    <span class="icon is-small"><i class="mdi mdi-file-document-outline"></i></span> <span>"Plan"</span>
+                </button>
+                <button class="button is-small is-purple is-light" data-task-id={task_id.clone()} disabled=false data-agent-type="implementation">
+                    <span class="icon is-small"><i class="mdi mdi-code-tags"></i></span> <span>"Impl"</span>
+                </button>
+                <button class="button is-small is-danger is-light" data-task-id={task_id.clone()} disabled=false data-agent-type="review">
+                    <span class="icon is-small"><i class="mdi mdi-checkbox-marked-circle-outline"></i></span> <span>"Rev"</span>
+                </button>
+                <button class="button is-small is-warning is-light" data-task-id={task_id.clone()} disabled=false data-agent-type="refinement" >
+                    <span class="icon is-small"><i class="mdi mdi-creation-outline"></i></span> <span>"Ref"</span>
+                </button>
+                <button class="button is-small is-success is-light" data-task-id={task_id.clone()} disabled=false data-agent-type="pr" >
+                    <span class="icon is-small"><i class="mdi mdi-source-branch-plus"></i></span> <span>"PR"</span>
+                </button>
+            </div>
             {if conversations.is_empty() {
                 view! { <p class="has-text-grey is-size-7 p-3">"No conversations yet."</p> }.into_any()
             } else {
@@ -109,7 +127,35 @@ pub fn ConversationList(
                     }).collect::<Vec<_>>()}
                 }.into_any()
             }}
-        </div>
+            <script>
+            {r#"
+
+                // Agent run buttons
+                var buttons=document.querySelectorAll('[data-task-id][data-agent-type]');
+                buttons.forEach(function(btn){
+                    btn.addEventListener('click',function(){
+                        var taskId=btn.getAttribute('data-task-id');
+                        var agentType=btn.getAttribute('data-agent-type');
+                        btn.disabled=true;
+                        btn.classList.add('is-loading');
+                        apiCall('/api/tasks/'+taskId+'/agent-runs',{
+                            method:'POST',
+                            headers:{'Content-Type':'application/json'},
+                            body:JSON.stringify({agent_type:agentType})
+                        }).then(function(r){
+                            if(r.status===409){showMessage('Agent already running for this task');}
+                            else if(r.status===403){showMessage('Provider credentials missing');}
+                            else if(r.ok){window.location.reload();}
+                            else{showMessage('Error starting agent');}
+                        }).finally(function(){
+                            btn.disabled=false;
+                            btn.classList.remove('is-loading');
+                        });
+                    });
+                });
+                "#}
+            </script>
+            </div>
     }
 }
 
@@ -147,7 +193,7 @@ mod tests {
 
     #[test]
     fn test_conversation_list_empty() {
-        let html = leptos::view! { <ConversationList conversations=Vec::new() active_id=None /> }
+        let html = leptos::view! { <ConversationList conversations=Vec::new() active_id=None task_id="1".to_owned() /> }
             .to_html();
         assert!(html.contains("No conversations yet"));
     }
@@ -160,7 +206,7 @@ mod tests {
             run: Some(make_run(conv_id, AgentType::Implementation)),
         }];
         let html =
-            leptos::view! { <ConversationList conversations=convs active_id=None /> }.to_html();
+            leptos::view! { <ConversationList conversations=convs active_id=None task_id="1".to_owned() /> }.to_html();
         assert!(html.contains("Test Chat"));
         assert!(html.contains("gpt-4"));
         assert!(html.contains("data-conv-id"));
@@ -180,7 +226,7 @@ mod tests {
             run: None,
         }];
         let html =
-            leptos::view! { <ConversationList conversations=convs active_id=None /> }.to_html();
+            leptos::view! { <ConversationList conversations=convs active_id=None task_id="1".to_owned() /> }.to_html();
         assert!(html.contains("mdi-chat-outline"));
     }
 
@@ -196,7 +242,7 @@ mod tests {
             }),
         }];
         let html =
-            leptos::view! { <ConversationList conversations=convs active_id=None /> }.to_html();
+            leptos::view! { <ConversationList conversations=convs active_id=None task_id="1".to_owned() /> }.to_html();
         assert!(html.contains("Running"));
         assert!(html.contains("mdi-file-document-outline"));
     }
@@ -212,7 +258,7 @@ mod tests {
             run: None,
         }];
         let html =
-            leptos::view! { <ConversationList conversations=convs active_id=None /> }.to_html();
+            leptos::view! { <ConversationList conversations=convs active_id=None task_id="1".to_owned() /> }.to_html();
         assert!(html.contains("Jun 15"));
         assert!(!html.contains("ago"));
         assert!(!html.contains("Just now"));

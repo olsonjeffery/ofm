@@ -49,7 +49,7 @@ impl std::fmt::Display for AgentType {
 impl std::str::FromStr for AgentType {
     type Err = String;
     fn from_str(s: &str) -> Result<Self, Self::Err> {
-        match s {
+        match s.to_lowercase().as_str() {
             "planification" => Ok(Self::Planification),
             "implementation" => Ok(Self::Implementation),
             "refinement" => Ok(Self::Refinement),
