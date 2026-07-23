@@ -6,7 +6,7 @@ use leptos::prelude::*;
 
 fn build_chat_js(active_id_str: &str, is_running: bool) -> String {
     let processing_init = if is_running { "true" } else { "false" };
-    let js = format!(
+    format!(
         r###"
 document.addEventListener('DOMContentLoaded', function() {{
     var currentConversationId = "{active_id_str}";
@@ -26,7 +26,7 @@ document.addEventListener('DOMContentLoaded', function() {{
         if (sendBtn) sendBtn.disabled = processing;
     }}
 
-    if (currentConversationId && currentConversationId !== '') {{
+    if (currentConversationId) {{
         setProcessing({processing_init});
     }}
 
@@ -52,9 +52,7 @@ document.addEventListener('DOMContentLoaded', function() {{
     // Periodic check to ensure pill visibility stays correct
     setInterval(updateJumpPill, 2000);
 
-    // Dedup state trackers
-    var collapseCounter = 0;
-    var renderedFingerprints = new Set();
+    // Streaming tool-result dedup tracker
     var renderedMessageIds = {{}};
 
     // Stop agent
@@ -119,10 +117,6 @@ document.addEventListener('DOMContentLoaded', function() {{
         }});
     }}
 
-    function nextCollapseId() {{
-        return 'c' + (collapseCounter++);
-    }}
-
     // Only used by updateToolCallContent for streaming tool result merging.
     // All primary rendering uses server-pre-rendered HTML (msg.html).
     function maybeCollapse(content, id) {{
@@ -132,10 +126,6 @@ document.addEventListener('DOMContentLoaded', function() {{
         return '<span id="preview-' + id + '">' + escapeHtml(content.substring(0, 256)) + '…</span>' +
                '<a href="#" id="btn-' + id + '" class="show-more-btn" onclick="toggleShowMore(\'' + id + '\');return false">show more</a>' +
                '<span id="full-' + id + '" style="display:none">' + escapeHtml(content) + '</span>';
-    }}
-
-    function userMsgHtml(text) {{
-        return '<content class="content message-user">' + escapeHtml(text) + '</content>';
     }}
 
     window.toggleShowMoreLines = function(id, linesCount) {{
@@ -162,13 +152,11 @@ document.addEventListener('DOMContentLoaded', function() {{
     }};
 
     function renderServerEvent(msg) {{
-        if (msg.html) {{
-            if (msg.event_type === 'done' || msg.event_type === 'error' || msg.event_type === 'question_asked') {{
-                setProcessing(false);
-            }}
-            return msg.html;
+        if (!msg.html) return '';
+        if (msg.event_type === 'done' || msg.event_type === 'error' || msg.event_type === 'question_asked') {{
+            setProcessing(false);
         }}
-        return '';  // only reached for chunk/control events with no html
+        return msg.html;
     }}
 
     function updateToolCallContent(dedupKey, msg) {{
@@ -212,8 +200,7 @@ document.addEventListener('DOMContentLoaded', function() {{
     }}
 }});
 "###
-    );
-    js
+    )
 }
 
 #[component]

@@ -90,12 +90,11 @@ fn maybe_collapse_md(content: &str, html_id: &str) -> String {
         render_markdown(content)
     } else {
         let truncated_content: String = content.chars().take(256).collect();
-        let truncated_display = format!("{}…", truncated_content);
         let more_lines = content.lines().count() - truncated_content.lines().count();
         format!(
             r##"<span id="preview-{}">{}</span><span id="full-{}" style="display:none">{}</span><a href="#" id="btn-{}" class="show-more-btn" onclick="toggleShowMoreLines('{}', {});return false">show {} more lines</a>"##,
             esc(html_id),
-            render_markdown(&truncated_display),
+            render_markdown(&format!("{}…", truncated_content)),
             esc(html_id),
             render_markdown(content),
             esc(html_id),
@@ -103,6 +102,27 @@ fn maybe_collapse_md(content: &str, html_id: &str) -> String {
             more_lines,
             more_lines,
         )
+    }
+}
+
+fn build_data_attrs(id_str: &str, message_id: &Option<String>) -> String {
+    let mut attrs = String::new();
+    if !id_str.is_empty() {
+        attrs.push_str(&format!(r#" data-tool-use-id="{}""#, esc(id_str)));
+    }
+    if let Some(mid) = message_id {
+        if !mid.is_empty() {
+            attrs.push_str(&format!(r#" data-message-id="{}""#, esc(mid)));
+        }
+    }
+    attrs
+}
+
+fn collapse_id(id_str: &str) -> String {
+    if id_str.is_empty() {
+        next_id()
+    } else {
+        id_str.to_string()
     }
 }
 
@@ -128,21 +148,8 @@ pub fn render_event(event: &ProviderEvent) -> String {
         } => {
             let input_str = serde_json::to_string_pretty(input).unwrap_or_default();
             let id_str = tool_use_id.as_deref().unwrap_or("");
-            let collapse_id = if id_str.is_empty() {
-                next_id()
-            } else {
-                id_str.to_string()
-            };
-            let content = maybe_collapse(&input_str, &collapse_id);
-            let mut data_attrs = String::new();
-            if !id_str.is_empty() {
-                data_attrs.push_str(&format!(r#" data-tool-use-id="{}""#, esc(id_str)));
-            }
-            if let Some(mid) = message_id {
-                if !mid.is_empty() {
-                    data_attrs.push_str(&format!(r#" data-message-id="{}""#, esc(mid)));
-                }
-            }
+            let content = maybe_collapse(&input_str, &collapse_id(id_str));
+            let data_attrs = build_data_attrs(id_str, message_id);
             format!(
                 r#"<div class="message-tool"{}><span class="icon"><i class="mdi mdi-cog-outline"></i></span> <code>{}</code>{}</div>"#,
                 data_attrs,
@@ -155,25 +162,13 @@ pub fn render_event(event: &ProviderEvent) -> String {
             result,
             message_id,
         } => {
-            if result.trim().is_empty() || result.trim() == "null" {
+            let trimmed = result.trim();
+            if trimmed.is_empty() || trimmed == "null" {
                 return String::new();
             }
             let id_str = tool_use_id.as_deref().unwrap_or("");
-            let collapse_id = if id_str.is_empty() {
-                next_id()
-            } else {
-                id_str.to_string()
-            };
-            let content = maybe_collapse(result, &collapse_id);
-            let mut data_attrs = String::new();
-            if !id_str.is_empty() {
-                data_attrs.push_str(&format!(r#" data-tool-use-id="{}""#, esc(id_str)));
-            }
-            if let Some(mid) = message_id {
-                if !mid.is_empty() {
-                    data_attrs.push_str(&format!(r#" data-message-id="{}""#, esc(mid)));
-                }
-            }
+            let content = maybe_collapse(result, &collapse_id(id_str));
+            let data_attrs = build_data_attrs(id_str, message_id);
             format!(
                 r#"<div class="message-tool"{}><span class="icon"><i class="mdi mdi-cog-outline"></i></span>{}</div>"#,
                 data_attrs, content
