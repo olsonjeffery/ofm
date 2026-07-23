@@ -68,10 +68,11 @@ mod tests {
                 .first_mut()
                 .map(|r| r.get::<i64>("next_id"))
                 .unwrap_or(1);
+            let now = chrono::Utc::now().naive_utc().to_string();
             client
                 .execute(
-                    "INSERT INTO tasks (id, project_id, user_id, title) VALUES ($1, $2, $3, $4)",
-                    hiqlite::params!(id, project_id, user_id.to_string(), "test-task"),
+                    "INSERT INTO tasks (id, project_id, user_id, title, created_at) VALUES ($1, $2, $3, $4, $5)",
+                    hiqlite::params!(id, project_id, user_id.to_string(), "test-task", &now),
                 )
                 .await
                 .unwrap();

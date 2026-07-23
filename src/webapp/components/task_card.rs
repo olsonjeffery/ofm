@@ -4,9 +4,9 @@ use leptos::prelude::*;
 fn status_badge_class(status: &str) -> &'static str {
     match status {
         "pending" => "is-light",
-        "in_progress" => "is-info",
-        "in_review" => "is-warning",
-        "completed" => "is-success",
+        "in_progress" => "is-info is-light",
+        "in_review" => "is-warning is-light",
+        "completed" => "is-success is-light",
         _ => "is-light",
     }
 }
@@ -90,9 +90,9 @@ mod tests {
     fn test_task_card_status_badges() {
         let statuses = [
             ("pending", "is-light", "Pending"),
-            ("in_progress", "is-info", "In Progress"),
-            ("in_review", "is-warning", "In Review"),
-            ("completed", "is-success", "Completed"),
+            ("in_progress", "is-info is-light", "In Progress"),
+            ("in_review", "is-warning is-light", "In Review"),
+            ("completed", "is-success is-light", "Completed"),
         ];
         for (status, expected_class, expected_label) in &statuses {
             let task = make_task(status);

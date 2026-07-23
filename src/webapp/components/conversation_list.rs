@@ -45,8 +45,16 @@ fn is_valid_name(name: &str) -> bool {
     true
 }
 
-fn format_conversation_date(created_at: &chrono::NaiveDateTime) -> String {
-    created_at.format("%b %d, %H:%M").to_string()
+fn format_conversation_date(
+    created_at: &chrono::NaiveDateTime,
+    updated_at: &chrono::NaiveDateTime,
+) -> String {
+    let ts = if *updated_at > *created_at {
+        updated_at
+    } else {
+        created_at
+    };
+    ts.format("%b %d, %H:%M").to_string()
 }
 
 #[component]
@@ -89,7 +97,7 @@ pub fn ConversationList(
                         } else {
                             cwr.conversation.model.clone()
                         };
-                        let date_str = format_conversation_date(&cwr.conversation.created_at);
+                        let date_str = format_conversation_date(&cwr.conversation.created_at, &cwr.conversation.updated_at);
                         let status = cwr.run.as_ref().map(|r| &r.status);
                         let active_style = if is_active { "border-color:var(--bulma-primary)" } else { "" };
 
@@ -175,6 +183,7 @@ mod tests {
     use chrono::NaiveDateTime;
 
     fn make_conversation(id: uuid::Uuid, name: &str) -> Conversation {
+        let dt = NaiveDateTime::parse_from_str("2024-06-01 12:00:00", "%Y-%m-%d %H:%M:%S").unwrap();
         Conversation {
             id,
             task_id: 1,
@@ -182,8 +191,8 @@ mod tests {
             model: "gpt-4".into(),
             effort: "balanced".into(),
             name: Some(name.into()),
-            created_at: NaiveDateTime::parse_from_str("2024-06-01 12:00:00", "%Y-%m-%d %H:%M:%S")
-                .unwrap(),
+            created_at: dt,
+            updated_at: dt,
         }
     }
 
@@ -258,9 +267,10 @@ mod tests {
     #[test]
     fn test_conversation_list_date_format_absolute() {
         let conv_id = uuid::Uuid::new_v4();
+        let dt = NaiveDateTime::parse_from_str("2024-06-15 14:30:00", "%Y-%m-%d %H:%M:%S").unwrap();
         let mut conv = make_conversation(conv_id, "Dated Chat");
-        conv.created_at =
-            NaiveDateTime::parse_from_str("2024-06-15 14:30:00", "%Y-%m-%d %H:%M:%S").unwrap();
+        conv.created_at = dt;
+        conv.updated_at = dt;
         let convs = vec![ConversationWithRun {
             conversation: conv,
             run: None,

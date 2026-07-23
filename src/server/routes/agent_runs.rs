@@ -296,6 +296,11 @@ async fn post_create_agent_run(
                                                 ws_bus_inner.broadcast(&topic, msg).await;
 
                                                 if matches!(event, ProviderEvent::Done(_)) {
+                                                    let done_now = chrono::Utc::now().naive_utc().to_string();
+                                                    let _ = db_inner.execute(
+                                                        "UPDATE conversations SET updated_at = $1 WHERE id = $2",
+                                                        hiqlite::params!(&done_now, conversation_id.to_string()),
+                                                    ).await;
                                                     if let Err(e) = crate::orchestration::completion_handler(
                                                         &db_inner, conversation_id, &active_sessions_inner
                                                     ).await {
