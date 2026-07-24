@@ -6,7 +6,7 @@ use leptos::prelude::*;
 
 fn build_chat_js(active_id_str: &str, is_running: bool) -> String {
     let processing_init = if is_running { "true" } else { "false" };
-    let js = format!(
+    format!(
         r###"
 document.addEventListener('DOMContentLoaded', function() {{
     var currentConversationId = "{active_id_str}";
@@ -26,7 +26,7 @@ document.addEventListener('DOMContentLoaded', function() {{
         if (sendBtn) sendBtn.disabled = processing;
     }}
 
-    if (currentConversationId && currentConversationId !== '') {{
+    if (currentConversationId) {{
         setProcessing({processing_init});
     }}
 
@@ -52,9 +52,7 @@ document.addEventListener('DOMContentLoaded', function() {{
     // Periodic check to ensure pill visibility stays correct
     setInterval(updateJumpPill, 2000);
 
-    // Dedup state trackers
-    var collapseCounter = 0;
-    var renderedFingerprints = new Set();
+    // Streaming tool-result dedup tracker
     var renderedMessageIds = {{}};
 
     // Stop agent
@@ -119,21 +117,15 @@ document.addEventListener('DOMContentLoaded', function() {{
         }});
     }}
 
-    function nextCollapseId() {{
-        return 'c' + (collapseCounter++);
-    }}
-
+    // Only used by updateToolCallContent for streaming tool result merging.
+    // All primary rendering uses server-pre-rendered HTML (msg.html).
     function maybeCollapse(content, id) {{
-        if (content.length <= 400) {{
+        if (content.length <= 256) {{
             return escapeHtml(content);
         }}
-        return '<span id="preview-' + id + '">' + escapeHtml(content.substring(0, 400)) + '</span>' +
+        return '<span id="preview-' + id + '">' + escapeHtml(content.substring(0, 256)) + '…</span>' +
                '<a href="#" id="btn-' + id + '" class="show-more-btn" onclick="toggleShowMore(\'' + id + '\');return false">show more</a>' +
                '<span id="full-' + id + '" style="display:none">' + escapeHtml(content) + '</span>';
-    }}
-
-    function userMsgHtml(text) {{
-        return '<content class="content message-user">' + escapeHtml(text) + '</content>';
     }}
 
     window.toggleShowMoreLines = function(id, linesCount) {{
@@ -159,141 +151,12 @@ document.addEventListener('DOMContentLoaded', function() {{
         }}
     }};
 
-    function renderEvent(evt) {{
-        switch (evt.type) {{
-            case 'text':
-                if (!evt.text || !evt.text.trim()) return '';
-                var textFp = 'text:' + evt.text;
-                if (renderedFingerprints.has(textFp)) return '';
-                renderedFingerprints.add(textFp);
-                var id = nextCollapseId();
-                var content = maybeCollapse(evt.text, id);
-                return '<div class="message-model"><div class="content">' + content + '</div></div>';
-            case 'user_text':
-                var utFp = 'user_text:' + evt.text;
-                if (renderedFingerprints.has(utFp)) return '';
-                renderedFingerprints.add(utFp);
-                return userMsgHtml(evt.text);
-            case 'text_chunk': return '';
-            case 'tool_use':
-                var dedupKey = evt.message_id || evt.tool_use_id || '';
-                if (dedupKey && renderedMessageIds[dedupKey]) return '';
-                return renderToolUse({{ tool_name: evt.tool_name, tool_use_id: evt.tool_use_id, input: evt.input, message_id: evt.message_id }});
-            case 'tool_result':
-                if (!evt.result || evt.result.trim() === 'null' || !evt.result.trim()) return '';
-                var trKey = evt.message_id || evt.tool_use_id || '';
-                if (trKey && renderedMessageIds[trKey]) return '';
-                return renderToolResult({{ tool_use_id: evt.tool_use_id, result: evt.result, message_id: evt.message_id }});
-            case 'thinking':
-                if (!evt.thinking || !evt.thinking.trim()) return '';
-                var thinkFp = 'thinking:' + evt.thinking;
-                if (renderedFingerprints.has(thinkFp)) return '';
-                renderedFingerprints.add(thinkFp);
-                var tid = nextCollapseId();
-                var tcontent = maybeCollapse(evt.thinking, tid);
-                return '<div class="message-thinking"><span class="icon"><i class="mdi mdi-head-snowflake-outline"></i></span>' + tcontent + '</div>';
-            case 'thinking_chunk': return '';
-            case 'context_usage': return '<div class="notification is-light is-small">' + escapeHtml(JSON.stringify(evt.usage)) + '</div>';
-            case 'error': return '<div class="notification is-danger is-light">' + escapeHtml(evt.error) + '</div>';
-            case 'question_asked':
-                setProcessing(false);
-                if (!evt.questions || !evt.questions.length) return '';
-                var html = '<div class="message-question notification is-info is-light"><span class="icon"><i class="mdi mdi-help-circle-outline"></i></span>';
-                evt.questions.forEach(function(q) {{
-                    var hdr = q.header || 'Question';
-                    html += '<strong>' + escapeHtml(hdr) + '</strong><p>' + escapeHtml(q.question) + '</p>';
-                    if (q.options) {{
-                        html += '<ul>';
-                        q.options.forEach(function(o) {{
-                            html += '<li><strong>' + escapeHtml(o.label) + '</strong>';
-                            if (o.description) html += ': ' + escapeHtml(o.description);
-                            html += '</li>';
-                        }});
-                        html += '</ul>';
-                    }}
-                }});
-                html += '</div>';
-                return html;
-            case 'done': return '<div class="notification is-success is-light">Done</div>';
-            default: return '';
-        }}
-    }}
-
     function renderServerEvent(msg) {{
-        // Use server pre-rendered HTML when available
-        if (msg.html) {{
-            if (msg.event_type === 'done' || msg.event_type === 'error' || msg.event_type === 'question_asked') {{
-                setProcessing(false);
-            }}
-            return msg.html;
+        if (!msg.html) return '';
+        if (msg.event_type === 'done' || msg.event_type === 'error' || msg.event_type === 'question_asked') {{
+            setProcessing(false);
         }}
-        switch (msg.event_type) {{
-            case 'response':
-            case 'ready':
-            case 'start':
-            case 'extension_ui_request':
-            case 'available_commands_update': return '';
-            case 'user_text':
-                var utFp = 'user_text:' + (msg.payload.text || '');
-                if (renderedFingerprints.has(utFp)) return '';
-                renderedFingerprints.add(utFp);
-                return userMsgHtml(msg.payload.text || '');
-            case 'text':
-                if (!msg.payload.text || !msg.payload.text.trim()) return '';
-                var textFp = 'text:' + (msg.payload.text || '');
-                if (renderedFingerprints.has(textFp)) return '';
-                renderedFingerprints.add(textFp);
-                var id = nextCollapseId();
-                var content = maybeCollapse(msg.payload.text || '', id);
-                return '<div class="message-model"><div class="content">' + content + '</div></div>';
-            case 'text_chunk': return '';
-            case 'tool_use':
-                var dedupKey = msg.payload.message_id || msg.payload.tool_use_id || '';
-                if (dedupKey && renderedMessageIds[dedupKey]) return '';
-                return renderToolUse(msg.payload);
-            case 'tool_result':
-                if (!msg.payload.result || msg.payload.result.trim() === 'null' || !msg.payload.result.trim()) return '';
-                var trKey = msg.payload.message_id || msg.payload.tool_use_id || '';
-                if (trKey && renderedMessageIds[trKey]) return '';
-                return renderToolResult(msg.payload);
-            case 'thinking':
-                if (!msg.payload.thinking || !msg.payload.thinking.trim()) return '';
-                var thinkFp = 'thinking:' + (msg.payload.thinking || '');
-                if (renderedFingerprints.has(thinkFp)) return '';
-                renderedFingerprints.add(thinkFp);
-                var tid = nextCollapseId();
-                var tcontent = maybeCollapse(msg.payload.thinking || '', tid);
-                return '<div class="message-thinking"><span class="icon"><i class="mdi mdi-head-snowflake-outline"></i></span>' + tcontent + '</div>';
-            case 'thinking_chunk': return '';
-            case 'context_usage': return '<div class="notification is-light is-small">' + escapeHtml(JSON.stringify(msg.payload.usage || {{}})) + '</div>';
-            case 'error':
-                setProcessing(false);
-                return '<div class="notification is-danger is-light">' + escapeHtml(msg.payload.error || '') + '</div>';
-            case 'question_asked':
-                setProcessing(false);
-                var questions = msg.payload.questions || [];
-                if (!questions.length) return '';
-                var qHtml = '<div class="message-question notification is-info is-light"><span class="icon"><i class="mdi mdi-help-circle-outline"></i></span>';
-                questions.forEach(function(q) {{
-                    var hdr = q.header || 'Question';
-                    qHtml += '<strong>' + escapeHtml(hdr) + '</strong><p>' + escapeHtml(q.question) + '</p>';
-                    if (q.options) {{
-                        qHtml += '<ul>';
-                        q.options.forEach(function(o) {{
-                            qHtml += '<li><strong>' + escapeHtml(o.label) + '</strong>';
-                            if (o.description) qHtml += ': ' + escapeHtml(o.description);
-                            qHtml += '</li>';
-                        }});
-                        qHtml += '</ul>';
-                    }}
-                }});
-                qHtml += '</div>';
-                return qHtml;
-            case 'done':
-                setProcessing(false);
-                return '<div class="notification is-success is-light">Done</div>';
-            default: return '';
-        }}
+        return msg.html;
     }}
 
     function updateToolCallContent(dedupKey, msg) {{
@@ -317,36 +180,6 @@ document.addEventListener('DOMContentLoaded', function() {{
         if (newContent) pre.innerHTML = newContent;
     }}
 
-    function renderToolUse(payload) {{
-        var toolName = escapeHtml(payload.tool_name || 'unknown');
-        var toolId = escapeHtml(payload.tool_use_id || '');
-        var msgId = escapeHtml(payload.message_id || '');
-        var inputStr = JSON.stringify(payload.input, null, 2);
-        var collapseId = toolId || msgId || nextCollapseId();
-        var inputContent = maybeCollapse(inputStr, collapseId);
-        var dataAttrs = '';
-        if (toolId) dataAttrs += ' data-tool-use-id="' + toolId + '"';
-        if (msgId) dataAttrs += ' data-message-id="' + msgId + '"';
-        return '<div class="message-tool"' + dataAttrs + '>' +
-            '<span class="icon"><i class="mdi mdi-cog-outline"></i></span> <code>' + toolName + '</code>' +
-            '<pre>' + inputContent + '</pre></div>';
-    }}
-
-    function renderToolResult(payload) {{
-        var toolId = escapeHtml(payload.tool_use_id || '');
-        var msgId = escapeHtml(payload.message_id || '');
-        if (!payload.result || payload.result.trim() === 'null' || !payload.result.trim()) return '';
-        var result = payload.result || '';
-        var collapseId = toolId || msgId || nextCollapseId();
-        var resultContent = maybeCollapse(result, collapseId);
-        var dataAttrs = '';
-        if (toolId) dataAttrs += ' data-tool-use-id="' + toolId + '"';
-        if (msgId) dataAttrs += ' data-message-id="' + msgId + '"';
-        return '<div class="message-tool"' + dataAttrs + '>' +
-            '<span class="icon"><i class="mdi mdi-cog-outline"></i></span>' +
-            '<pre>' + resultContent + '</pre></div>';
-    }}
-
     function escapeHtml(str) {{
         if (!str) return '';
         var div = document.createElement('div');
@@ -367,8 +200,7 @@ document.addEventListener('DOMContentLoaded', function() {{
     }}
 }});
 "###
-    );
-    js
+    )
 }
 
 #[component]
