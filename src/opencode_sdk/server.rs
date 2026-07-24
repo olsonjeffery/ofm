@@ -250,6 +250,22 @@ async fn wait_for_health(
     Err(SdkError::Timeout)
 }
 
+/// Test-only constructor for creating a dummy `OpenCodeServer` without
+/// spawning a real `opencode serve` subprocess. The `_temp_dir` is a
+/// real temp directory; the `child` is a real (but inert) OS process.
+#[cfg(test)]
+impl OpenCodeServer {
+    pub(crate) fn test_dummy(child: std::process::Child) -> Self {
+        Self {
+            child,
+            port: 0,
+            hostname: String::new(),
+            password: None,
+            _temp_dir: TempDir::new().expect("test temp dir"),
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
