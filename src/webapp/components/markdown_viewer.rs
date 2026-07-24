@@ -1,8 +1,12 @@
 use leptos::prelude::*;
+use pulldown_cmark::Options;
 
 #[component]
 pub fn MarkdownViewer(content: String) -> impl IntoView {
-    let parser = pulldown_cmark::Parser::new(&content);
+    let mut opt = Options::empty();
+    opt.insert(Options::ENABLE_GFM);
+    opt.insert(Options::ENABLE_TABLES);
+    let parser = pulldown_cmark::Parser::new_ext(&content, opt);
     let mut html = String::new();
     pulldown_cmark::html::push_html(&mut html, parser);
     let clean = ammonia::Builder::default()

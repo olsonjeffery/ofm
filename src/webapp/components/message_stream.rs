@@ -1,5 +1,6 @@
 use crate::providers::types::ProviderEvent;
 use leptos::prelude::*;
+use pulldown_cmark::Options;
 use std::collections::HashSet;
 use std::sync::atomic::{AtomicU64, Ordering};
 
@@ -14,7 +15,10 @@ fn esc(s: &str) -> String {
 }
 
 fn render_markdown(text: &str) -> String {
-    let parser = pulldown_cmark::Parser::new(text);
+    let mut opt = Options::empty();
+    opt.insert(Options::ENABLE_GFM);
+    opt.insert(Options::ENABLE_TABLES);
+    let parser = pulldown_cmark::Parser::new_ext(text, opt);
     let mut html = String::new();
     pulldown_cmark::html::push_html(&mut html, parser);
     ammonia::Builder::default()
