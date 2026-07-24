@@ -1,4 +1,5 @@
 use ofm::auth::AuthLayer;
+use ofm::config::OfmConfig;
 use ofm::db;
 use ofm::providers::LlmProvider;
 use ofm::server;
@@ -47,6 +48,7 @@ async fn make_state() -> (AppState, AuthLayer, TempDir) {
         cookie_key: cookie::Key::generate(),
         api_key_pepper: b"test_pepper".to_vec(),
         ws_bus: BroadcastBus::new(),
+        config: OfmConfig::default(),
     };
     (state, auth_layer, tmp)
 }

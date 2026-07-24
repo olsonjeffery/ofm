@@ -294,6 +294,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         api_key_pepper,
         cfg_port: cfg.port,
         ws_bus: BroadcastBus::new(),
+        config: cfg.clone(),
     };
     tracing::info!("Auth middleware: enabled");
 

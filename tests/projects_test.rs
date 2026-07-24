@@ -1,4 +1,5 @@
 use ofm::auth::AuthLayer;
+use ofm::config::OfmConfig;
 use ofm::db;
 use ofm::providers::LlmProvider;
 use ofm::server;
@@ -48,6 +49,7 @@ async fn setup_app() -> (String, tokio::task::JoinHandle<()>) {
         cookie_key: cookie::Key::generate(),
         api_key_pepper: b"test_pepper".to_vec(),
         ws_bus: BroadcastBus::new(),
+        config: OfmConfig::default(),
     };
 
     let app = server::router(state, auth_layer);

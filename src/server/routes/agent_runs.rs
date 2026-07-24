@@ -131,7 +131,14 @@ async fn post_create_agent_run(
     );
 
     // Start and store provider, then begin turn
-    match registry::resolve_provider_for_user(&harness_config, &config_root, task.user_id).await {
+    match registry::resolve_provider_for_user(
+        &harness_config,
+        &config_root,
+        task.user_id,
+        state.config.info_log_client_data,
+    )
+    .await
+    {
         Ok(mut provider) => {
             let working_dir = std::path::Path::new("/tmp");
             match provider.start(working_dir).await {

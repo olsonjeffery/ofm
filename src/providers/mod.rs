@@ -68,13 +68,14 @@ pub async fn generate_conversation_title(
     harness_config: &HarnessConfig,
     conversation_id: Uuid,
     first_message: &str,
+    log_data: bool,
 ) {
     let truncated: String = first_message.chars().take(500).collect();
     let title_prompt = format!(
         "Generate a 1-3 word title summarizing this message. Output ONLY the title, nothing else. What follows is context for creating the title: {truncated} {RESPONSE_FOLLOWS_TOKEN}"
     );
 
-    let provider = match registry::resolve_provider(harness_config, config_root).await {
+    let provider = match registry::resolve_provider(harness_config, config_root, log_data).await {
         Ok(p) => p,
         Err(e) => {
             tracing::warn!("Failed to create provider for title generation: {e}");

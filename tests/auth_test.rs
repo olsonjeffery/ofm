@@ -5,6 +5,7 @@ use axum::routing::post;
 use axum::{Json, Router};
 use hiqlite::params;
 use jsonwebtoken::{encode, EncodingKey, Header};
+use ofm::config::OfmConfig;
 use serde_json::{json, Value};
 use tokio::sync::Mutex;
 use uuid::Uuid;
@@ -118,6 +119,7 @@ fn make_app_state(client: hiqlite::Client, user_id: Uuid, oidc: Option<OidcEndpo
         cookie_key: cookie::Key::generate(),
         api_key_pepper: b"test_pepper".to_vec(),
         ws_bus: BroadcastBus::new(),
+        config: OfmConfig::default(),
     }
 }
 
@@ -963,6 +965,7 @@ async fn test_refresh_with_session_cookie() {
         cookie_key: key.clone(),
         api_key_pepper: b"test_pepper".to_vec(),
         ws_bus: BroadcastBus::new(),
+        config: OfmConfig::default(),
     };
     let auth_layer = AuthLayer::disabled(
         state.db.clone(),

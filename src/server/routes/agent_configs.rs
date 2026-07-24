@@ -178,8 +178,12 @@ async fn get_models_for_config_ref(
 ) -> Result<Json<Vec<String>>, ServerError> {
     validate_config_ref(&query.config_ref)?;
     let config_root = PathBuf::from(&state.config_root);
-    let models = registry::get_models_for_config(&config_root, &query.config_ref)
-        .await
-        .map_err(|e| ServerError::Internal(e.to_string()))?;
+    let models = registry::get_models_for_config(
+        &config_root,
+        &query.config_ref,
+        state.config.info_log_client_data,
+    )
+    .await
+    .map_err(|e| ServerError::Internal(e.to_string()))?;
     Ok(Json(models))
 }

@@ -35,10 +35,16 @@ pub struct OpenCodeSdkProvider {
     /// server's cwd is the temp config dir, not the task worktree (the
     /// reference passes `directory` per HTTP call instead).
     working_dir: Mutex<Option<PathBuf>>,
+    /// Whether we will trace log every line that comes into the OpenCode SDK client as INFO
+    log_data: bool,
 }
 
 impl OpenCodeSdkProvider {
-    pub async fn new(config: &HarnessConfig, config_root: &Path) -> Result<Self, ProviderError> {
+    pub async fn new(
+        config: &HarnessConfig,
+        config_root: &Path,
+        log_data: bool,
+    ) -> Result<Self, ProviderError> {
         let cfg_dir = ProviderConfigDir::new(config_root);
         let provider_cfg = cfg_dir.load_provider_config(&config.provider_config_ref)?;
         Ok(Self {
@@ -50,6 +56,7 @@ impl OpenCodeSdkProvider {
             event_cancellation: Mutex::new(None),
             user_id: Mutex::new(None),
             working_dir: Mutex::new(None),
+            log_data,
         })
     }
 
@@ -113,7 +120,7 @@ impl OpenCodeSdkProvider {
             config: Some(server_config),
             ..Default::default()
         };
-        let (client, server) = opencode_sdk::create_opencode(options)
+        let (client, server) = opencode_sdk::create_opencode(options, self.log_data)
             .await
             .map_err(|e| ProviderError::Protocol(e.to_string()))?;
         Ok((client, server))
@@ -319,7 +326,7 @@ impl LlmProvider for OpenCodeSdkProvider {
             config: Some(server_config),
             ..Default::default()
         };
-        let (client, mut server) = opencode_sdk::create_opencode(options)
+        let (client, mut server) = opencode_sdk::create_opencode(options, self.log_data)
             .await
             .map_err(|e| ProviderError::Protocol(e.to_string()))?;
 
@@ -356,7 +363,7 @@ impl LlmProvider for OpenCodeSdkProvider {
             .unwrap()
             .ok_or_else(|| ProviderError::Protocol("user_id not set on provider".into()))?;
         let client = OpenCodeServerPool::instance()
-            .get_or_spawn(user_id, &self.config, &self.config_root)
+            .get_or_spawn(user_id, &self.config, &self.config_root, self.log_data)
             .await?;
         *self.client.lock().unwrap() = Some(client);
         *self.working_dir.lock().unwrap() = Some(working_dir.to_path_buf());
@@ -489,7 +496,7 @@ impl LlmProvider for OpenCodeSdkProvider {
             config: Some(server_config),
             ..Default::default()
         };
-        let (client, mut server) = opencode_sdk::create_opencode(options)
+        let (client, mut server) = opencode_sdk::create_opencode(options, self.log_data)
             .await
             .map_err(|e| ProviderError::Protocol(e.to_string()))?;
 
@@ -712,6 +719,7 @@ mod tests {
             event_cancellation: Mutex::new(None),
             user_id: Mutex::new(None),
             working_dir: Mutex::new(None),
+            log_data: false,
         };
         assert_eq!(provider.extract_provider_id(), Some("anthropic".into()));
     }
@@ -756,6 +764,7 @@ mod tests {
             event_cancellation: Mutex::new(None),
             user_id: Mutex::new(None),
             working_dir: Mutex::new(None),
+            log_data: false,
         };
         assert_eq!(provider.extract_provider_id(), None);
     }

@@ -51,10 +51,14 @@ pub struct PhaseConversation {
 }
 
 impl PhaseConversation {
-    pub async fn start(server_opts: ServerOptions, config: &PhaseConfig) -> Result<Self, SdkError> {
+    pub async fn start(
+        server_opts: ServerOptions,
+        config: &PhaseConfig,
+        log_data: bool,
+    ) -> Result<Self, SdkError> {
         let server = crate::opencode_sdk::server::create_opencode_server(server_opts).await?;
         let password = server.password().map(|s| s.to_string());
-        let client = OpencodeClient::new(&server.url(), password.as_deref());
+        let client = OpencodeClient::new(&server.url(), password.as_deref(), log_data);
 
         let title = format!("phase-{}", config.agent);
         let session = client.session.create(&title).await?;

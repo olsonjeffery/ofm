@@ -16,6 +16,7 @@ pub struct ServerOptions {
     pub working_dir: Option<PathBuf>,
     pub config: Option<serde_json::Value>,
     pub password: Option<String>,
+    pub log_data: bool,
 }
 
 impl Default for ServerOptions {
@@ -27,6 +28,7 @@ impl Default for ServerOptions {
             working_dir: None,
             config: None,
             password: None,
+            log_data: false,
         }
     }
 }

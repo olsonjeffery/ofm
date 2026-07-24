@@ -17,8 +17,7 @@ fn esc(s: &str) -> String {
 fn render_markdown(text: &str) -> String {
     let escaped = html_escape::encode_text(text);
     let mut opt = Options::empty();
-    opt.insert(Options::ENABLE_GFM);
-    opt.insert(Options::ENABLE_TABLES);
+    opt.insert(Options::all());
     let parser = pulldown_cmark::Parser::new_ext(&escaped, opt);
     let mut html = String::new();
     pulldown_cmark::html::push_html(&mut html, parser);

@@ -84,6 +84,7 @@ impl OpenCodeServerPool {
         user_id: Uuid,
         harness_config: &HarnessConfig,
         config_root: &Path,
+        log_data: bool,
     ) -> Result<OpencodeClient, crate::providers::ProviderError> {
         // Coalesce concurrent spawns for the same user. The pending entry
         // is removed once the spawn completes (success or failure).
@@ -102,7 +103,7 @@ impl OpenCodeServerPool {
             return Ok(client.clone());
         }
         let client = self
-            .spawn_entry(user_id, harness_config, config_root)
+            .spawn_entry(user_id, harness_config, config_root, log_data)
             .await?;
         *pending_guard = Some(client.clone());
         self.pending.lock().await.remove(&user_id);
@@ -162,6 +163,7 @@ impl OpenCodeServerPool {
         _user_id: Uuid,
         harness_config: &HarnessConfig,
         config_root: &Path,
+        log_data: bool,
     ) -> Result<OpencodeClient, crate::providers::ProviderError> {
         // Build the server config from the harness config's provider
         // snippet (loaded from disk by the provider at construction time).
@@ -175,7 +177,7 @@ impl OpenCodeServerPool {
             config: Some(server_config),
             ..Default::default()
         };
-        let (client, server) = opencode_sdk::create_opencode(options)
+        let (client, server) = opencode_sdk::create_opencode(options, log_data)
             .await
             .map_err(|e| crate::providers::ProviderError::Protocol(e.to_string()))?;
 
