@@ -56,8 +56,10 @@ fn render_markdown(text: &str) -> String {
             "sub",
             "sup",
             "img",
+            "input",
         ])
         .add_tag_attributes("a", &["href"])
+        .add_tag_attributes("input", &["disabled", "type", "checked"])
         .add_tag_attributes("img", &["src", "alt", "title"])
         .clean(&html)
         .to_string()
