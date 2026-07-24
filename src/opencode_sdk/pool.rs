@@ -100,13 +100,10 @@ impl OpenCodeServerPool {
         // is removed once the spawn completes (success or failure).
         let pending_slot = {
             let mut pending = self.pending.lock().await;
-            if let Some(slot) = pending.get(&user_id) {
-                slot.clone()
-            } else {
-                let slot = Arc::new(tokio::sync::Mutex::new(None));
-                pending.insert(user_id, slot.clone());
-                slot
-            }
+            pending
+                .entry(user_id)
+                .or_insert_with(|| Arc::new(tokio::sync::Mutex::new(None)))
+                .clone()
         };
         let mut pending_guard = pending_slot.lock().await;
         if let Some(client) = pending_guard.as_ref() {
@@ -125,9 +122,7 @@ impl OpenCodeServerPool {
     /// spawn fresh.
     pub async fn invalidate(&self, user_id: Uuid) {
         let mut inner = self.inner.lock().await;
-        if let Some(entry) = inner.remove(&user_id) {
-            // Drop the entry — `OpenCodeServer`'s `Drop` kills the child.
-            drop(entry);
+        if inner.remove(&user_id).is_some() {
             tracing::info!(%user_id, "invalidated opencode server entry");
         }
     }
@@ -162,20 +157,14 @@ impl OpenCodeServerPool {
     pub async fn reap_idle(&self, idle_timeout: Duration) {
         let now = Instant::now();
         let mut inner = self.inner.lock().await;
-        let to_remove: Vec<Uuid> = inner
-            .iter()
-            .filter_map(|(uid, entry)| {
-                if now.duration_since(entry.last_used_at) > idle_timeout {
-                    Some(*uid)
-                } else {
-                    None
-                }
-            })
-            .collect();
-        for uid in to_remove {
-            inner.remove(&uid);
-            tracing::info!(%uid, "reaped idle opencode server");
-        }
+        inner.retain(|uid, entry| {
+            if now.duration_since(entry.last_used_at) > idle_timeout {
+                tracing::info!(%uid, "reaped idle opencode server");
+                false
+            } else {
+                true
+            }
+        });
     }
 
     async fn spawn_entry(

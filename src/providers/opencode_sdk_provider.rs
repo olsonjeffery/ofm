@@ -147,11 +147,11 @@ impl OpenCodeSdkProvider {
         let cancellation = event_stream.cancellation_handle();
         *self.event_cancellation.lock().unwrap() = Some(cancellation);
 
-        let (tx, rx) = mpsc::channel(1024);
         let s_id = session_id.to_string();
+        let (tx, rx) = mpsc::channel(1024);
 
         tx.send(ProviderEvent::SessionStart {
-            session_id: session_id.to_string(),
+            session_id: s_id.clone(),
         })
         .await
         .map_err(|_| ProviderError::Protocol("channel closed".into()))?;
@@ -335,14 +335,7 @@ fn map_sdk_event_to_provider_event(
 #[async_trait]
 impl LlmProvider for OpenCodeSdkProvider {
     async fn get_models_list(&self) -> Result<Vec<String>, ProviderError> {
-        let server_config = self.build_server_config();
-        let options = ServerOptions {
-            config: Some(server_config),
-            ..Default::default()
-        };
-        let (client, mut server) = opencode_sdk::create_opencode(options, self.log_data)
-            .await
-            .map_err(|e| ProviderError::Protocol(e.to_string()))?;
+        let (client, mut server) = self.spawn_transient().await?;
 
         let providers = client
             .config
@@ -457,22 +450,17 @@ impl LlmProvider for OpenCodeSdkProvider {
         let session_id = input.session_id;
         *self.session_id.lock().unwrap() = Some(session_id.clone());
 
-        // Extract the last user message from the transcript to use as the prompt
-        let prompt = if let Some(messages) = input.messages.as_array() {
-            if let Some(last) = messages.last() {
-                if let Some(text) = last.get("text").and_then(|t| t.as_str()) {
-                    text.to_string()
-                } else if let Some(delta) = last.get("delta").and_then(|d| d.as_str()) {
-                    delta.to_string()
-                } else {
-                    "continue".to_string()
-                }
-            } else {
-                "continue".to_string()
-            }
-        } else {
-            "continue".to_string()
-        };
+        let prompt = input
+            .messages
+            .as_array()
+            .and_then(|msgs| msgs.last())
+            .and_then(|last| {
+                last.get("text")
+                    .and_then(|t| t.as_str())
+                    .or_else(|| last.get("delta").and_then(|d| d.as_str()))
+            })
+            .map(|s| s.to_string())
+            .unwrap_or_else(|| "continue".to_string());
 
         let user_id = self
             .user_id
@@ -521,14 +509,7 @@ impl LlmProvider for OpenCodeSdkProvider {
     }
 
     async fn one_shot_prompt(&self, prompt: &str, model: &str) -> Result<String, ProviderError> {
-        let server_config = self.build_server_config();
-        let options = ServerOptions {
-            config: Some(server_config),
-            ..Default::default()
-        };
-        let (client, mut server) = opencode_sdk::create_opencode(options, self.log_data)
-            .await
-            .map_err(|e| ProviderError::Protocol(e.to_string()))?;
+        let (client, mut server) = self.spawn_transient().await?;
 
         let config = opencode_sdk::conversation::OneShotConfig {
             model: model.to_string(),
