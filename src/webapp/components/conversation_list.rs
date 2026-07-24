@@ -1,4 +1,4 @@
-use crate::db::schema::{AgentType, ConversationWithRun};
+use crate::db::schema::{AgentType, ConversationWithRun, RunStatus};
 use leptos::prelude::*;
 
 fn agent_icon(agent_type: &AgentType) -> &'static str {
@@ -12,41 +12,40 @@ fn agent_icon(agent_type: &AgentType) -> &'static str {
     }
 }
 
-fn run_status_class(status: &crate::db::schema::RunStatus) -> &'static str {
+fn run_status_class(status: &RunStatus) -> &'static str {
     match status {
-        crate::db::schema::RunStatus::Pending => "is-light",
-        crate::db::schema::RunStatus::Running => "is-info is-light",
-        crate::db::schema::RunStatus::Completed => "is-success is-light",
-        crate::db::schema::RunStatus::Failed => "is-danger is-light",
-        crate::db::schema::RunStatus::Blocked => "is-warning is-light",
+        RunStatus::Pending => "is-light",
+        RunStatus::Running => "is-info is-light",
+        RunStatus::Completed => "is-success is-light",
+        RunStatus::Failed => "is-danger is-light",
+        RunStatus::Blocked => "is-warning is-light",
     }
 }
 
-fn run_status_label(status: &crate::db::schema::RunStatus) -> &'static str {
+fn run_status_label(status: &RunStatus) -> &'static str {
     match status {
-        crate::db::schema::RunStatus::Pending => "Pending",
-        crate::db::schema::RunStatus::Running => "Running",
-        crate::db::schema::RunStatus::Completed => "Completed",
-        crate::db::schema::RunStatus::Failed => "Failed",
-        crate::db::schema::RunStatus::Blocked => "Blocked",
+        RunStatus::Pending => "Pending",
+        RunStatus::Running => "Running",
+        RunStatus::Completed => "Completed",
+        RunStatus::Failed => "Failed",
+        RunStatus::Blocked => "Blocked",
     }
 }
 
 fn is_valid_name(name: &str) -> bool {
-    if name.len() < 3 {
-        return false;
-    }
-    if name.starts_with("Generate a 1-3 word title") {
-        return false;
-    }
-    if name.starts_with("generate a 1-3 word title") {
-        return false;
-    }
-    true
+    name.len() >= 3
+        && !name.starts_with("Generate a 1-3 word title")
+        && !name.starts_with("generate a 1-3 word title")
 }
 
-fn format_conversation_date(created_at: &chrono::NaiveDateTime) -> String {
-    created_at.format("%b %d, %H:%M").to_string()
+fn format_conversation_date(
+    created_at: &chrono::NaiveDateTime,
+    updated_at: &chrono::NaiveDateTime,
+) -> String {
+    updated_at
+        .max(created_at)
+        .format("%b %d, %H:%M")
+        .to_string()
 }
 
 #[component]
@@ -89,7 +88,7 @@ pub fn ConversationList(
                         } else {
                             cwr.conversation.model.clone()
                         };
-                        let date_str = format_conversation_date(&cwr.conversation.created_at);
+                        let date_str = format_conversation_date(&cwr.conversation.created_at, &cwr.conversation.updated_at);
                         let status = cwr.run.as_ref().map(|r| &r.status);
                         let active_style = if is_active { "border-color:var(--bulma-primary)" } else { "" };
 
@@ -175,6 +174,7 @@ mod tests {
     use chrono::NaiveDateTime;
 
     fn make_conversation(id: uuid::Uuid, name: &str) -> Conversation {
+        let dt = NaiveDateTime::parse_from_str("2024-06-01 12:00:00", "%Y-%m-%d %H:%M:%S").unwrap();
         Conversation {
             id,
             task_id: 1,
@@ -182,8 +182,8 @@ mod tests {
             model: "gpt-4".into(),
             effort: "balanced".into(),
             name: Some(name.into()),
-            created_at: NaiveDateTime::parse_from_str("2024-06-01 12:00:00", "%Y-%m-%d %H:%M:%S")
-                .unwrap(),
+            created_at: dt,
+            updated_at: dt,
         }
     }
 
@@ -240,7 +240,6 @@ mod tests {
 
     #[test]
     fn test_conversation_list_status_labels() {
-        use crate::db::schema::RunStatus;
         let conv_id = uuid::Uuid::new_v4();
         let convs = vec![ConversationWithRun {
             conversation: make_conversation(conv_id, "Running Chat"),
@@ -258,9 +257,10 @@ mod tests {
     #[test]
     fn test_conversation_list_date_format_absolute() {
         let conv_id = uuid::Uuid::new_v4();
+        let dt = NaiveDateTime::parse_from_str("2024-06-15 14:30:00", "%Y-%m-%d %H:%M:%S").unwrap();
         let mut conv = make_conversation(conv_id, "Dated Chat");
-        conv.created_at =
-            NaiveDateTime::parse_from_str("2024-06-15 14:30:00", "%Y-%m-%d %H:%M:%S").unwrap();
+        conv.created_at = dt;
+        conv.updated_at = dt;
         let convs = vec![ConversationWithRun {
             conversation: conv,
             run: None,

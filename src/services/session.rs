@@ -22,13 +22,14 @@ pub async fn start_session(
 
     client
         .execute(
-            "INSERT INTO conversations (id, task_id, provider_session_id, model, effort, created_at) VALUES ($1, $2, $3, $4, $5, $6)",
+            "INSERT INTO conversations (id, task_id, provider_session_id, model, effort, created_at, updated_at) VALUES ($1, $2, $3, $4, $5, $6, $7)",
             hiqlite::params!(
                 conversation_id.to_string(),
                 task_id,
                 &session_id,
                 model,
                 effort,
+                &now,
                 &now
             ),
         )
@@ -60,7 +61,7 @@ pub async fn resume_session(
 ) -> Result<Conversation, hiqlite::Error> {
     client
         .query_map_one::<Conversation, _>(
-                "SELECT id, task_id, provider_session_id, model, effort, name, created_at FROM conversations WHERE id = $1",
+                "SELECT id, task_id, provider_session_id, model, effort, name, created_at, updated_at FROM conversations WHERE id = $1",
             hiqlite::params!(conversation_id.to_string()),
         )
         .await
@@ -138,10 +139,11 @@ mod tests {
                 .first_mut()
                 .map(|r| r.get::<i64>("next_id"))
                 .unwrap_or(1);
+            let now = chrono::Utc::now().naive_utc().to_string();
             client
                 .execute(
-                    "INSERT INTO tasks (id, project_id, user_id, title) VALUES ($1, $2, $3, $4)",
-                    hiqlite::params!(id, project_id, user_id.to_string(), "test-task"),
+                    "INSERT INTO tasks (id, project_id, user_id, title, created_at) VALUES ($1, $2, $3, $4, $5)",
+                    hiqlite::params!(id, project_id, user_id.to_string(), "test-task", &now),
                 )
                 .await
                 .unwrap();
@@ -167,7 +169,7 @@ mod tests {
 
         let conv: Conversation = client
             .query_map_one(
-            "SELECT id, task_id, provider_session_id, model, effort, name, created_at FROM conversations WHERE id = $1",
+            "SELECT id, task_id, provider_session_id, model, effort, name, created_at, updated_at FROM conversations WHERE id = $1",
                 hiqlite::params!(result.conversation_id.to_string()),
             )
             .await

@@ -3,6 +3,7 @@ use crate::auth::AuthUser;
 use crate::db::schema::Task;
 use crate::server::error::ServerError;
 use crate::server::state::AppState;
+use crate::server::ws::message::{ServerMessage, TopicId, WsTopic, WsTopicKind};
 use crate::services;
 use crate::worktree;
 use axum::{
@@ -268,6 +269,19 @@ async fn update_task(
             }
         }
     }
+
+    let topic = WsTopic {
+        kind: WsTopicKind::Task,
+        id: TopicId(id),
+    };
+    let msg = ServerMessage::Event {
+        topic: topic.clone(),
+        event_type: "task_updated".to_string(),
+        timestamp: chrono::Utc::now(),
+        payload: serde_json::to_value(&task).unwrap_or_default(),
+        html: None,
+    };
+    state.ws_bus.broadcast(&topic, msg).await;
 
     Ok(Json(task))
 }

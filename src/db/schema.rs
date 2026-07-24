@@ -133,6 +133,7 @@ pub struct Conversation {
     pub effort: String,
     pub name: Option<String>,
     pub created_at: NaiveDateTime,
+    pub updated_at: NaiveDateTime,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -289,7 +290,9 @@ pub struct UserModelConfig {
 // hiqlite Row conversions
 
 fn parse_naive_datetime(s: &str) -> NaiveDateTime {
-    NaiveDateTime::parse_from_str(s, "%Y-%m-%d %H:%M:%S").unwrap_or_default()
+    NaiveDateTime::parse_from_str(s, "%Y-%m-%d %H:%M:%S")
+        .or_else(|_| NaiveDateTime::parse_from_str(s, "%Y-%m-%d %H:%M:%S%.f"))
+        .unwrap_or_default()
 }
 
 impl From<&mut Row<'_>> for Project {
@@ -384,6 +387,7 @@ impl From<&mut Row<'_>> for Conversation {
             effort: row.get("effort"),
             name: row.get("name"),
             created_at: parse_naive_datetime(&row.get::<String>("created_at")),
+            updated_at: parse_naive_datetime(&row.get::<String>("updated_at")),
         }
     }
 }

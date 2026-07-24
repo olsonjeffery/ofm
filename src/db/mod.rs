@@ -209,6 +209,10 @@ const MIGRATIONS: &[(&str, &str)] = &[
         "sessions_add_id_token",
         "ALTER TABLE sessions ADD COLUMN id_token TEXT",
     ),
+    (
+        "conversations_add_updated_at",
+        "ALTER TABLE conversations ADD COLUMN updated_at TEXT NOT NULL DEFAULT ''",
+    ),
 ];
 
 pub async fn run_migrations(client: &Client) -> Result<usize, Box<dyn std::error::Error>> {
