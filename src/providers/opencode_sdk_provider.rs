@@ -1,5 +1,6 @@
 use std::path::{Path, PathBuf};
 use std::sync::Mutex;
+use std::time::Duration;
 
 use async_trait::async_trait;
 use futures_util::StreamExt;
@@ -130,6 +131,7 @@ impl OpenCodeSdkProvider {
         &self,
         client: &OpencodeClient,
         session_id: &str,
+        user_id: Uuid,
     ) -> Result<mpsc::Receiver<ProviderEvent>, ProviderError> {
         tracing::info!(
             session_id = %session_id,
@@ -156,39 +158,51 @@ impl OpenCodeSdkProvider {
 
         tokio::spawn(async move {
             let mut stream = event_stream;
+            let pool = OpenCodeServerPool::instance();
+            let mut refresh_ticker = tokio::time::interval(Duration::from_secs(5 * 60));
+            refresh_ticker.tick().await; // skip the first immediate tick
+
             tracing::info!(session_id = %s_id, "Event reader task started");
-            while let Some(result) = stream.next().await {
-                match result {
-                    Ok(global) => {
-                        tracing::debug!(
-                            session_id = %s_id,
-                            event = ?global.payload,
-                            "SDK event received"
-                        );
-                        if let Some(provider_event) =
-                            map_sdk_event_to_provider_event(&global, &s_id)
-                        {
-                            if tx.send(provider_event).await.is_err() {
-                                tracing::info!(
+            loop {
+                tokio::select! {
+                    result = stream.next() => {
+                        match result {
+                            Some(Ok(global)) => {
+                                tracing::debug!(
                                     session_id = %s_id,
-                                    "Event channel closed by receiver, exiting reader task"
+                                    event = ?global.payload,
+                                    "SDK event received"
                                 );
+                                if let Some(provider_event) =
+                                    map_sdk_event_to_provider_event(&global, &s_id)
+                                {
+                                    if tx.send(provider_event).await.is_err() {
+                                        tracing::info!(
+                                            session_id = %s_id,
+                                            "Event channel closed by receiver, exiting reader task"
+                                        );
+                                        break;
+                                    }
+                                }
+                            }
+                            Some(Err(e)) => {
+                                tracing::warn!(
+                                    session_id = %s_id,
+                                    error = %e,
+                                    "Event stream error"
+                                );
+                                let _ = tx
+                                    .send(ProviderEvent::Error {
+                                        error: e.to_string(),
+                                    })
+                                    .await;
                                 break;
                             }
+                            None => break,
                         }
                     }
-                    Err(e) => {
-                        tracing::warn!(
-                            session_id = %s_id,
-                            error = %e,
-                            "Event stream error"
-                        );
-                        let _ = tx
-                            .send(ProviderEvent::Error {
-                                error: e.to_string(),
-                            })
-                            .await;
-                        break;
+                    _ = refresh_ticker.tick() => {
+                        pool.update_timestamp(user_id).await;
                     }
                 }
             }
@@ -390,10 +404,18 @@ impl LlmProvider for OpenCodeSdkProvider {
 
         *self.session_id.lock().unwrap() = Some(session.id.clone());
 
+        let user_id = self
+            .user_id
+            .lock()
+            .unwrap()
+            .ok_or_else(|| ProviderError::Protocol("user_id not set on provider".into()))?;
+
         // Subscribe to the global event stream BEFORE issuing the prompt so
         // we don't miss events that fire immediately when the prompt is
         // queued on the server.
-        let rx = self.subscribe_and_spawn(&client, &session.id).await?;
+        let rx = self
+            .subscribe_and_spawn(&client, &session.id, user_id)
+            .await?;
 
         let body = self.build_prompt_body(&input.prompt, &input.model);
         tracing::info!(
@@ -452,9 +474,17 @@ impl LlmProvider for OpenCodeSdkProvider {
             "continue".to_string()
         };
 
+        let user_id = self
+            .user_id
+            .lock()
+            .unwrap()
+            .ok_or_else(|| ProviderError::Protocol("user_id not set on provider".into()))?;
+
         // Subscribe BEFORE issuing the prompt_async so we don't miss events
         // that fire immediately when the prompt is queued on the server.
-        let rx = self.subscribe_and_spawn(&client, &session_id).await?;
+        let rx = self
+            .subscribe_and_spawn(&client, &session_id, user_id)
+            .await?;
 
         let body =
             self.build_prompt_body(&prompt, self.config.model.as_deref().unwrap_or("default"));

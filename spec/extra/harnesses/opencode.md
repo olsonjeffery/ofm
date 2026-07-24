@@ -91,7 +91,13 @@ pool — they're discarded on return.
    underlying `opencode serve` subprocess stays alive in the pool.
 6. **Idle reaping** — A background `tokio::spawn` task started in
    `src/main.rs` wakes every 60 seconds and SIGKILLs pool entries whose
-   `last_used_at` is older than 15 minutes. Matches the reference's
+   `last_used_at` is older than 15 minutes. `last_used_at` is refreshed by
+   two mechanisms: `get_or_spawn()` cache hits bump the timestamp before
+   returning the cached client, and the event stream reader task
+   (`subscribe_and_spawn`) periodically refreshes the pool entry's
+   timestamp (every 5 minutes)
+   while a turn is active. This prevents the reaper from killing live
+   sessions during long-running operations. Matches the reference's
    `DEFAULT_IDLE_TIMEOUT_MS = 15 * 60 * 1000`.
 7. **Credential invalidation** — `OpenCodeServerPool::invalidate(user_id)`
    removes the user's entry; `Drop` on the owned `OpenCodeServer` kills

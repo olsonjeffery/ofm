@@ -28,7 +28,7 @@ struct ServerEntry {
     /// (NOT in the provider) so it persists across Stop Agent / turn
     /// completion / new conversations.
     _server: opencode_sdk::OpenCodeServer,
-    /// Monotonic timestamp of the last `get_or_spawn` call for this user.
+    /// Monotonic timestamp of the last `get_or_spawn` call or timestamp update.
     last_used_at: Instant,
 }
 
@@ -86,6 +86,16 @@ impl OpenCodeServerPool {
         config_root: &Path,
         log_data: bool,
     ) -> Result<OpencodeClient, crate::providers::ProviderError> {
+        // Fast path: if an entry already exists in the pool, refresh its
+        // last_used_at and return the cached client immediately — no spawn needed.
+        {
+            let mut inner = self.inner.lock().await;
+            if let Some(entry) = inner.get_mut(&user_id) {
+                entry.last_used_at = Instant::now();
+                return Ok(entry.client.clone());
+            }
+        }
+
         // Coalesce concurrent spawns for the same user. The pending entry
         // is removed once the spawn completes (success or failure).
         let pending_slot = {
@@ -135,6 +145,16 @@ impl OpenCodeServerPool {
     pub async fn status(&self, user_id: Uuid) -> bool {
         let inner = self.inner.lock().await;
         inner.contains_key(&user_id)
+    }
+
+    /// Update the `last_used_at` timestamp for the given user's server
+    /// entry to now, preventing the idle reaper from killing it. No-op if
+    /// the user has no entry (e.g., transient server).
+    pub async fn update_timestamp(&self, user_id: Uuid) {
+        let mut inner = self.inner.lock().await;
+        if let Some(entry) = inner.get_mut(&user_id) {
+            entry.last_used_at = Instant::now();
+        }
     }
 
     /// Reap idle entries (last_used_at older than `idle_timeout`). Called
@@ -247,12 +267,86 @@ fn deep_merge(base: &mut serde_json::Value, overlay: &serde_json::Value) {
 mod tests {
     use super::*;
 
+    // Helper to insert a test entry into the pool with a specific age.
+    async fn insert_entry(pool: &OpenCodeServerPool, uid: Uuid, age: Duration) {
+        let child = std::process::Command::new("true").spawn().unwrap();
+        let entry = ServerEntry {
+            client: OpencodeClient::new("http://127.0.0.1:9999", None, false),
+            _server: crate::opencode_sdk::OpenCodeServer::test_dummy(child),
+            last_used_at: Instant::now() - age,
+        };
+        pool.inner.lock().await.insert(uid, entry);
+    }
+
     #[test]
     fn test_pool_singleton_idempotent() {
         let p1 = OpenCodeServerPool::instance();
         let p2 = OpenCodeServerPool::instance();
         // Same address — singleton.
         assert!(std::ptr::eq(p1, p2));
+    }
+
+    /// Run all singleton-dependent pool tests sequentially to prevent
+    /// state leakage between parallel `#[tokio::test]` functions.
+    #[tokio::test]
+    async fn test_pool_update_timestamp_and_reap_lifecycle() {
+        let pool = OpenCodeServerPool::instance();
+
+        // ── test_update_timestamp_updates_last_used_at ────────────────────────────
+        let uid = Uuid::new_v4();
+        insert_entry(pool, uid, Duration::from_secs(60 * 60)).await;
+
+        // Entry should be reaped with a 1-second timeout (it's 1 hour old).
+        pool.reap_idle(Duration::from_secs(1)).await;
+        assert!(!pool.status(uid).await);
+
+        // Re-insert and update timestamp — should NOT be reaped.
+        insert_entry(pool, uid, Duration::from_secs(60 * 60)).await;
+        pool.update_timestamp(uid).await;
+        pool.reap_idle(Duration::from_secs(1)).await;
+        assert!(pool.status(uid).await);
+
+        // ── test_reap_idle_reaps_old_but_not_recent ───────────────────────────────
+        let stale_uid = Uuid::new_v4();
+        let fresh_uid = Uuid::new_v4();
+
+        insert_entry(pool, stale_uid, Duration::from_secs(60 * 60)).await;
+        insert_entry(pool, fresh_uid, Duration::from_secs(1)).await;
+
+        pool.reap_idle(Duration::from_secs(60)).await;
+
+        assert!(!pool.status(stale_uid).await);
+        assert!(pool.status(fresh_uid).await);
+
+        // ── test_get_or_spawn_fast_path_update ────────────────────────────────────
+        let uid2 = Uuid::new_v4();
+
+        // Insert an old entry directly.
+        insert_entry(pool, uid2, Duration::from_secs(60 * 60)).await;
+
+        // Calling get_or_spawn should hit the fast path and update timestamp.
+        let harness_config = crate::providers::HarnessConfig {
+            agent_type: "test".into(),
+            harness: "opencode".into(),
+            provider_config_ref: "test.json".into(),
+            model: None,
+            effort: None,
+            scope: crate::db::schema::ScopeType::Global,
+        };
+        let config_root = std::path::Path::new("/tmp");
+        let result = pool
+            .get_or_spawn(uid2, &harness_config, config_root, false)
+            .await;
+        assert!(result.is_ok());
+
+        // After the fast-path update, the entry should NOT be reaped.
+        pool.reap_idle(Duration::from_secs(60)).await;
+        assert!(pool.status(uid2).await);
+
+        // ── test_update_timestamp_noop_for_unknown_user ───────────────────────────
+        let unknown_uid = Uuid::new_v4();
+        // Should not panic.
+        pool.update_timestamp(unknown_uid).await;
     }
 
     #[test]
