@@ -8,6 +8,7 @@ use tokio::sync::{Mutex, RwLock};
 use uuid::Uuid;
 
 use crate::auth::jwks::JwksCache;
+use crate::config::OfmConfig;
 use crate::providers::LlmProvider;
 use crate::server::ws::bus::BroadcastBus;
 
@@ -27,6 +28,7 @@ pub struct AppState {
     pub api_key_pepper: Vec<u8>,
     pub cfg_port: u16,
     pub ws_bus: Arc<BroadcastBus>,
+    pub config: OfmConfig,
 }
 
 impl FromRef<AppState> for Key {

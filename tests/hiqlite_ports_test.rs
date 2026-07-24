@@ -1,4 +1,5 @@
 use ofm::auth::AuthLayer;
+use ofm::config::OfmConfig;
 use ofm::db;
 use ofm::providers::LlmProvider;
 use ofm::server;
@@ -57,6 +58,7 @@ async fn make_state_with_ports(raft_port: u16, api_port: u16) -> (AppState, Auth
         cookie_key: cookie::Key::generate(),
         api_key_pepper: b"test_pepper".to_vec(),
         ws_bus: BroadcastBus::new(),
+        config: OfmConfig::default(),
     };
     (state, auth_layer, tmp)
 }

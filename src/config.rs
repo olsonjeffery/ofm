@@ -10,6 +10,14 @@ pub struct OfmConfigFile {
     pub auth: Option<GroupAuth>,
     pub raft: Option<GroupRaft>,
     pub rauthy: Option<GroupRauthy>,
+    pub behavior: Option<GroupBehavior>,
+}
+
+#[derive(Debug, Default, Serialize, Deserialize, PartialEq)]
+#[serde(default)]
+pub struct GroupBehavior {
+    #[serde(rename = "INFO_LOG_CLIENT_DATA")]
+    log_data: Option<bool>,
 }
 
 #[derive(Debug, Default, Serialize, Deserialize, PartialEq)]
@@ -56,6 +64,7 @@ pub struct GroupRauthy {
 
 // ── Main config struct ────────────────────────────────────────────────────
 
+#[derive(Clone, Default, Debug)]
 pub struct OfmConfig {
     pub hostname: String,
     pub port: u16,
@@ -75,6 +84,7 @@ pub struct OfmConfig {
     pub rauthy_enabled: bool,
     pub rauthy_port: u16,
     pub logging_config_path: Option<String>,
+    pub info_log_client_data: bool,
 }
 
 const OFM_OIDC_ISSUER_URL: &str = "OFM_OIDC_ISSUER_URL";
@@ -120,6 +130,7 @@ impl OfmConfig {
             rauthy_enabled: env_bool("OFM_RAUTHY_ENABLED").unwrap_or(false),
             rauthy_port: env_u16("OFM_RAUTHY_PORT").unwrap_or(0),
             logging_config_path,
+            info_log_client_data: env_bool("OFM_INFO_LOG_CLIENT_DATA").unwrap_or(false),
         }
     }
 
@@ -224,6 +235,12 @@ impl OfmConfig {
         let archive_root = format!("{footprint}/archive");
         let data_dir = format!("{footprint}/hiqlite");
 
+        let info_log_client_data = env_bool("OFM_INFO_LOG_CLIENT_DATA").or_else(|| {
+            yaml_cfg
+                .as_ref()
+                .and_then(|y| y.behavior.as_ref()?.log_data)
+        });
+
         // Check for logging config file
         let logging_config_path = env_opt_or("OFM_LOGGING_CONFIG").or_else(|| {
             let log_config = format!("{config_root}/logging.json");
@@ -255,6 +272,9 @@ impl OfmConfig {
                     rauthy_enabled: Some(rauthy_enabled),
                     rauthy_port: Some(rauthy_port),
                 }),
+                behavior: Some(GroupBehavior {
+                    log_data: info_log_client_data,
+                }),
             };
             let template = generate_yaml_template(&yaml_out);
             let _ = std::fs::create_dir_all(&config_root);
@@ -280,6 +300,7 @@ impl OfmConfig {
             rauthy_enabled,
             rauthy_port,
             logging_config_path,
+            info_log_client_data: info_log_client_data.unwrap_or(false),
         }
     }
 }
@@ -632,6 +653,7 @@ mod tests {
             auth: Some(auth),
             raft: Some(raft),
             rauthy: Some(rauthy),
+            behavior: Some(GroupBehavior::default()),
         };
 
         let yaml_str = serde_yaml::to_string(&cfg).unwrap();
@@ -845,6 +867,7 @@ rauthy:
             auth: None,
             raft: None,
             rauthy: None,
+            behavior: None,
         };
         let tpl = generate_yaml_template(&cfg);
         assert!(tpl.contains("server:"));

@@ -4,8 +4,7 @@ use pulldown_cmark::Options;
 #[component]
 pub fn MarkdownViewer(content: String) -> impl IntoView {
     let mut opt = Options::empty();
-    opt.insert(Options::ENABLE_GFM);
-    opt.insert(Options::ENABLE_TABLES);
+    opt.insert(Options::all());
     let parser = pulldown_cmark::Parser::new_ext(&content, opt);
     let mut html = String::new();
     pulldown_cmark::html::push_html(&mut html, parser);
@@ -45,6 +44,7 @@ pub fn MarkdownViewer(content: String) -> impl IntoView {
         .add_tag_attributes("img", &["src", "alt", "title"])
         .clean(&html)
         .to_string();
+    //let clean = html_escape::encode_text(&clean).to_string();
     view! { <div class="content" inner_html=clean></div> }
 }
 

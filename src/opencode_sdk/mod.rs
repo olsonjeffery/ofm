@@ -28,9 +28,10 @@ pub enum SdkError {
 
 pub async fn create_opencode(
     options: ServerOptions,
+    log_data: bool,
 ) -> Result<(OpencodeClient, OpenCodeServer), SdkError> {
     let server = create_opencode_server(options).await?;
     let password = server.password().map(|s| s.to_string());
-    let client = OpencodeClient::new(&server.url(), password.as_deref());
+    let client = OpencodeClient::new(&server.url(), password.as_deref(), log_data);
     Ok((client, server))
 }
