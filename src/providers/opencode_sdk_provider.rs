@@ -1,10 +1,12 @@
 use std::path::{Path, PathBuf};
+use std::sync::Arc;
 use std::sync::Mutex;
 use std::time::Duration;
 
 use async_trait::async_trait;
 use futures_util::StreamExt;
 use tokio::sync::mpsc;
+use tokio::sync::Notify;
 use uuid::Uuid;
 
 use crate::opencode_sdk::client::EventStreamCancellation;
@@ -28,6 +30,10 @@ pub struct OpenCodeSdkProvider {
     session_id: Mutex<Option<String>>,
     /// Cancellation handle for the in-flight event stream reader task.
     event_cancellation: Mutex<Option<EventStreamCancellation>>,
+    /// Per-task cancellation for the spawned reader task. Signalled before
+    /// a new reader is spawned in `subscribe_and_spawn()` to stop the old
+    /// reader from persisting events for a stale session.
+    reader_cancellation: Mutex<Option<Arc<Notify>>>,
     /// User id used to key the pool. May be `None` for one-shot operations
     /// (`get_models_list`, `one_shot_prompt`, title generation) which
     /// spawn transient servers outside the pool.
@@ -55,6 +61,7 @@ impl OpenCodeSdkProvider {
             client: Mutex::new(None),
             session_id: Mutex::new(None),
             event_cancellation: Mutex::new(None),
+            reader_cancellation: Mutex::new(None),
             user_id: Mutex::new(None),
             working_dir: Mutex::new(None),
             log_data,
@@ -66,6 +73,15 @@ impl OpenCodeSdkProvider {
     /// through `resolve_provider_for_user`.
     pub fn set_user_id(&self, user_id: Uuid) {
         *self.user_id.lock().unwrap() = Some(user_id);
+    }
+
+    fn cancel_inflight(&self) {
+        if let Some(notify) = self.reader_cancellation.lock().unwrap().take() {
+            notify.notify_one();
+        }
+        if let Some(cancellation) = self.event_cancellation.lock().unwrap().take() {
+            cancellation.cancel();
+        }
     }
 
     fn build_server_config(&self) -> serde_json::Value {
@@ -137,6 +153,13 @@ impl OpenCodeSdkProvider {
             session_id = %session_id,
             "Subscribing to opencode global event stream"
         );
+
+        // Cancel any previous reader task and event subscription before creating new ones
+        self.cancel_inflight();
+
+        let reader_stop: Arc<Notify> = Arc::new(Notify::new());
+        *self.reader_cancellation.lock().unwrap() = Some(reader_stop.clone());
+
         let event_stream = client
             .event
             .subscribe()
@@ -144,9 +167,6 @@ impl OpenCodeSdkProvider {
             .map_err(|e| ProviderError::Protocol(e.to_string()))?;
         tracing::info!(session_id = %session_id, "Subscribed to opencode event stream");
 
-        if let Some(old_cancellation) = self.event_cancellation.lock().unwrap().take() {
-            old_cancellation.cancel();
-        }
         let cancellation = event_stream.cancellation_handle();
         *self.event_cancellation.lock().unwrap() = Some(cancellation);
 
@@ -207,7 +227,10 @@ impl OpenCodeSdkProvider {
                     }
                     _ = refresh_ticker.tick() => {
                         pool.update_timestamp(user_id).await;
-
+                    }
+                    _ = reader_stop.notified() => {
+                        tracing::info!(session_id = %s_id, "Event reader task cancelled");
+                        break;
                     }
                 }
             }
@@ -357,7 +380,7 @@ fn map_sdk_event_to_provider_event(
             if data.session_id != *session_id {
                 return None;
             }
-            let value = serde_json::to_value(data).unwrap_or(serde_json::Value::Null);
+            let value = serde_json::to_value(data).unwrap_or_default();
             Some(ProviderEvent::MessageUpdated {
                 data: value,
                 timestamp: chrono::Utc::now().naive_utc(),
@@ -385,7 +408,7 @@ impl LlmProvider for OpenCodeSdkProvider {
 
         let mut models: Vec<String> = providers
             .into_iter()
-            .flat_map(|p| p.models.into_keys().collect::<Vec<_>>())
+            .flat_map(|p| p.models.into_keys())
             .collect();
         models.sort();
         models.dedup();
@@ -529,9 +552,7 @@ impl LlmProvider for OpenCodeSdkProvider {
     }
 
     async fn abort_turn(&self) -> Result<(), ProviderError> {
-        if let Some(cancellation) = self.event_cancellation.lock().unwrap().take() {
-            cancellation.cancel();
-        }
+        self.cancel_inflight();
         let (session_id, client) = {
             let s = self.session_id.lock().unwrap().clone();
             let c = self.client.lock().unwrap().clone();
@@ -567,9 +588,7 @@ impl LlmProvider for OpenCodeSdkProvider {
         // it is reaped by the idle-reaper task or by the process-exit
         // handlers in `src/main.rs` (which call
         // `OpenCodeServerPool::instance().shutdown_all()`).
-        if let Some(cancellation) = self.event_cancellation.lock().unwrap().take() {
-            cancellation.cancel();
-        }
+        self.cancel_inflight();
         *self.client.lock().unwrap() = None;
         Ok(true)
     }
@@ -767,6 +786,7 @@ mod tests {
             client: Mutex::new(None),
             session_id: Mutex::new(None),
             event_cancellation: Mutex::new(None),
+            reader_cancellation: Mutex::new(None),
             user_id: Mutex::new(None),
             working_dir: Mutex::new(None),
             log_data: false,
@@ -812,6 +832,7 @@ mod tests {
             client: Mutex::new(None),
             session_id: Mutex::new(None),
             event_cancellation: Mutex::new(None),
+            reader_cancellation: Mutex::new(None),
             user_id: Mutex::new(None),
             working_dir: Mutex::new(None),
             log_data: false,
@@ -917,5 +938,43 @@ mod tests {
             }
             _ => panic!("expected MessagePartUpdated"),
         }
+    }
+
+    #[tokio::test]
+    async fn test_reader_task_cancellation() {
+        let notify = Arc::new(Notify::new());
+        let notify_clone = notify.clone();
+
+        let provider = OpenCodeSdkProvider {
+            config: HarnessConfig {
+                agent_type: "test".into(),
+                harness: "opencode".into(),
+                provider_config_ref: "test.json".into(),
+                model: None,
+                effort: None,
+                scope: crate::db::schema::ScopeType::Global,
+            },
+            provider_snippet: "{}".into(),
+            config_root: PathBuf::from("/tmp"),
+            client: Mutex::new(None),
+            session_id: Mutex::new(None),
+            event_cancellation: Mutex::new(None),
+            reader_cancellation: Mutex::new(Some(notify)),
+            user_id: Mutex::new(None),
+            working_dir: Mutex::new(None),
+            log_data: false,
+        };
+
+        provider.cancel_inflight();
+
+        assert!(
+            provider.reader_cancellation.lock().unwrap().is_none(),
+            "reader_cancellation should be taken after cancel_inflight"
+        );
+
+        // The Notify should have been notified; notified() resolves immediately
+        tokio::time::timeout(Duration::from_millis(100), notify_clone.notified())
+            .await
+            .expect("notify should be signalled within timeout");
     }
 }

@@ -9,7 +9,6 @@ pub async fn persist_event(
     session_id: &str,
     project_key: i64,
 ) -> Result<(), hiqlite::Error> {
-    let seq: i32 = next_seq(client, session_id, project_key).await?;
     let entry_json = serde_json::to_value(event)
         .map_err(|e| hiqlite::Error::new(format!("serialize event: {e}")))?;
 
@@ -19,8 +18,11 @@ pub async fn persist_event(
 
     client
         .execute(
-            "INSERT INTO messages (project_key, session_id, seq, entry_json, timestamp) VALUES ($1, $2, $3, $4, $5)",
-            hiqlite::params!(project_key, session_id, seq, entry_json.to_string(), timestamp),
+            "INSERT INTO messages (project_key, session_id, seq, entry_json, timestamp)
+             VALUES ($1, $2,
+               (SELECT COALESCE(MAX(seq), 0) + 1 FROM messages WHERE project_key = $1 AND session_id = $2),
+               $3, $4)",
+            hiqlite::params!(project_key, session_id, entry_json.to_string(), timestamp),
         )
         .await?;
     Ok(())
@@ -37,24 +39,6 @@ fn event_timestamp(event: &ProviderEvent) -> Option<chrono::NaiveDateTime> {
         | ProviderEvent::Done { timestamp, .. } => Some(*timestamp),
         _ => None,
     }
-}
-
-async fn next_seq(
-    client: &Client,
-    session_id: &str,
-    project_key: i64,
-) -> Result<i32, hiqlite::Error> {
-    let mut rows = client
-        .query_raw(
-            "SELECT COALESCE(MAX(seq), 0) + 1 AS next_seq FROM messages WHERE project_key = $1 AND session_id = $2",
-            hiqlite::params!(project_key, session_id),
-        )
-        .await?;
-    let seq: i64 = rows
-        .first_mut()
-        .expect("COALESCE query always returns one row")
-        .get("next_seq");
-    Ok(seq as i32)
 }
 
 pub async fn load_transcript(
@@ -278,5 +262,49 @@ mod tests {
         let (client, _tmp) = make_client().await;
         let loaded = load_transcript(&client, "nonexistent", 9999).await.unwrap();
         assert!(loaded.is_empty());
+    }
+
+    #[tokio::test]
+    async fn test_persist_event_concurrent() {
+        let (client, _tmp) = make_client().await;
+        let session_id = "sess-concurrent";
+        let project_key = 42i64;
+        let ts = test_ts();
+        let count = 20;
+
+        let mut handles = Vec::with_capacity(count);
+        for i in 0..count {
+            let event = ProviderEvent::Text {
+                text: format!("msg-{i}"),
+                timestamp: ts,
+            };
+            let c = client.clone();
+            handles.push(tokio::spawn(async move {
+                persist_event(&c, &event, session_id, project_key).await
+            }));
+        }
+
+        for h in handles {
+            h.await.unwrap().unwrap();
+        }
+
+        let messages = client
+            .query_map::<Message, _>(
+                "SELECT project_key, session_id, seq, entry_json FROM messages WHERE project_key = $1 AND session_id = $2 ORDER BY seq ASC",
+                hiqlite::params!(project_key, session_id),
+            )
+            .await
+            .unwrap();
+
+        assert_eq!(messages.len(), count, "all {count} events persisted");
+
+        let mut seen = std::collections::BTreeSet::new();
+        for m in &messages {
+            assert!(seen.insert(m.seq), "seq {} is a duplicate", m.seq);
+        }
+
+        for (i, m) in messages.iter().enumerate() {
+            assert_eq!(m.seq, (i + 1) as i32, "seq values must be 1..{count}");
+        }
     }
 }

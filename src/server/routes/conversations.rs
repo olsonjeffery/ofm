@@ -217,10 +217,29 @@ async fn send_message(
                                             None => break,
                                         };
 
+                                        let topic = WsTopic {
+                                            kind: WsTopicKind::Task,
+                                            id: TopicId(task_id),
+                                        };
+
                                         if let Err(e) = transcript::persist_event(
                                             &db, &event, &s_id, task_id
                                         ).await {
-                                            tracing::warn!("Failed to persist event: {e}");
+                                            tracing::error!("Failed to persist event: {e}");
+                                            let error_event = ProviderEvent::Error {
+                                                error: format!("Failed to persist event: {e}"),
+                                                timestamp: chrono::Utc::now().naive_utc(),
+                                            };
+                                            let (event_type, payload) = error_event.to_ws_event();
+                                            let msg = ServerMessage::Event {
+                                                topic: topic.clone(),
+                                                event_type,
+                                                timestamp: chrono::Utc::now(),
+                                                payload,
+                                                html: None,
+                                            };
+                                            ws_bus.broadcast(&topic, msg).await;
+                                            break;
                                         }
 
                                         if let ProviderEvent::SessionStart { session_id } = &event {
@@ -229,11 +248,6 @@ async fn send_message(
                                                 hiqlite::params!(session_id, c_id.to_string()),
                                             ).await;
                                         }
-
-                                        let topic = WsTopic {
-                                            kind: WsTopicKind::Task,
-                                            id: TopicId(task_id),
-                                        };
 
                                         let (event_type, payload) = event.to_ws_event();
                                         let is_done = matches!(event, ProviderEvent::Done { .. });

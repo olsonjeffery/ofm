@@ -232,12 +232,8 @@ async fn post_create_agent_run(
 
                             tokio::spawn(async move {
                                 let completed_normally = Arc::new(AtomicBool::new(false));
-                                let cn = completed_normally.clone();
-                                let db_inner = db.clone();
-                                let ws_bus_inner = ws_bus.clone();
-                                let active_sessions_clone = active_sessions.clone();
 
-                                let broadcast_fut = AssertUnwindSafe(async move {
+                                let broadcast_fut = AssertUnwindSafe(async {
                                     loop {
                                         tokio::select! {
                                             event = rx.recv() => {
@@ -246,20 +242,34 @@ async fn post_create_agent_run(
                                                     None => break,
                                                 };
 
-                                                if let Err(e) = crate::services::transcript::persist_event(
-                                                    &db_inner, &event, &s_id, project_key
-                                                ).await {
-                                                    tracing::warn!("Failed to persist event: {e}");
-                                                }
-
                                                 let topic = WsTopic {
                                                     kind: WsTopicKind::Task,
                                                     id: TopicId(t_id),
                                                 };
 
+                                                if let Err(e) = crate::services::transcript::persist_event(
+                                                    &db, &event, &s_id, project_key
+                                                ).await {
+                                                    tracing::error!("Failed to persist event: {e}");
+                                                    let error_event = ProviderEvent::Error {
+                                                        error: format!("Failed to persist event: {e}"),
+                                                        timestamp: chrono::Utc::now().naive_utc(),
+                                                    };
+                                                    let (event_type, payload) = error_event.to_ws_event();
+                                                    let msg = ServerMessage::Event {
+                                                        topic: topic.clone(),
+                                                        event_type,
+                                                        timestamp: chrono::Utc::now(),
+                                                        payload,
+                                                        html: None,
+                                                    };
+                                                    ws_bus.broadcast(&topic, msg).await;
+                                                    break;
+                                                }
+
                                                 if let ProviderEvent::SessionStart { session_id } = &event {
                                                     s_id = session_id.clone();
-                                                    let _ = db_inner.execute(
+                                                    let _ = db.execute(
                                                         "UPDATE conversations SET provider_session_id = $1 WHERE id = $2",
                                                         hiqlite::params!(session_id, conversation_id.to_string()),
                                                     ).await;
@@ -271,9 +281,23 @@ async fn post_create_agent_run(
                                                         timestamp: prompt_ts,
                                                     };
                                                     if let Err(e) = crate::services::transcript::persist_event(
-                                                        &db_inner, &prompt_event, &s_id, project_key
+                                                        &db, &prompt_event, &s_id, project_key
                                                     ).await {
-                                                        tracing::warn!("Failed to persist initial prompt: {e}");
+                                                        tracing::error!("Failed to persist initial prompt: {e}");
+                                                        let error_event = ProviderEvent::Error {
+                                                            error: format!("Failed to persist initial prompt: {e}"),
+                                                            timestamp: chrono::Utc::now().naive_utc(),
+                                                        };
+                                                        let (event_type, payload) = error_event.to_ws_event();
+                                                        let msg = ServerMessage::Event {
+                                                            topic: topic.clone(),
+                                                            event_type,
+                                                            timestamp: chrono::Utc::now(),
+                                                            payload,
+                                                            html: None,
+                                                        };
+                                                        ws_bus.broadcast(&topic, msg).await;
+                                                        break;
                                                     }
                                                     let prompt_ts_str = prompt_ts.format("%Y-%m-%d %H:%M:%S").to_string();
                                                     let prompt_msg = ServerMessage::Event {
@@ -283,7 +307,7 @@ async fn post_create_agent_run(
                                                         payload: serde_json::json!({"text": prompt_text, "conversation_id": conversation_id.to_string(), "timestamp": prompt_ts_str}),
                                                         html: Some(crate::webapp::components::message_stream::render_event(&prompt_event)),
                                                     };
-                                                    ws_bus_inner.broadcast(&topic, prompt_msg).await;
+                                                    ws_bus.broadcast(&topic, prompt_msg).await;
                                                 }
 
                                                 let (event_type, payload) = event.to_ws_event();
@@ -298,17 +322,17 @@ async fn post_create_agent_run(
                                                     html: if rendered.is_empty() { None } else { Some(rendered) },
                                                 };
 
-                                                ws_bus_inner.broadcast(&topic, msg).await;
+                                                ws_bus.broadcast(&topic, msg).await;
 
                                                 if is_done {
-                                                    cn.store(true, Ordering::SeqCst);
+                                                    completed_normally.store(true, Ordering::SeqCst);
                                                     let done_now = chrono::Utc::now().naive_utc().to_string();
-                                                    let _ = db_inner.execute(
+                                                    let _ = db.execute(
                                                         "UPDATE conversations SET updated_at = $1 WHERE id = $2",
                                                         hiqlite::params!(&done_now, conversation_id.to_string()),
                                                     ).await;
                                                     if let Err(e) = crate::orchestration::completion_handler(
-                                                        &db_inner, conversation_id, &active_sessions_clone
+                                                        &db, conversation_id, &active_sessions
                                                     ).await {
                                                         tracing::warn!("Error in completion handler: {e:?}");
                                                     }
@@ -332,8 +356,7 @@ async fn post_create_agent_run(
                                     // reaped by the idle-reaper or process-exit
                                     // cleanup in `src/main.rs`.
                                     {
-                                        let sessions_guard = active_sessions.clone();
-                                        let sessions = sessions_guard.lock().await;
+                                        let sessions = active_sessions.lock().await;
                                         if let Some(p) = sessions.get(&conversation_id.to_string())
                                         {
                                             if let Err(e) = p.abort_turn().await {
@@ -445,10 +468,7 @@ async fn reset_agent_runs(
         .await
         .map_err(|e| ServerError::Internal(e.to_string()))?
         .into_iter()
-        .filter_map(|mut row| {
-            let conv_id: Option<String> = row.get("conversation_id");
-            conv_id
-        })
+        .filter_map(|mut row| -> Option<String> { row.get("conversation_id") })
         .collect();
 
     tracing::info!(
@@ -503,15 +523,15 @@ async fn reset_agent_runs(
     tracing::info!(task_id = %task_id, affected_runs = affected, "Marked running runs as failed");
 
     // Broadcast reset notification
-    let topic = crate::server::ws::message::WsTopic {
-        kind: crate::server::ws::message::WsTopicKind::Task,
-        id: crate::server::ws::message::TopicId(task_id),
+    let topic = WsTopic {
+        kind: WsTopicKind::Task,
+        id: TopicId(task_id),
     };
-    let error_event = crate::providers::types::ProviderEvent::Error {
+    let error_event = ProviderEvent::Error {
         error: "Session reset — you can now start a new agent run.".into(),
         timestamp: chrono::Utc::now().naive_utc(),
     };
-    let msg = crate::server::ws::message::ServerMessage::Event {
+    let msg = ServerMessage::Event {
         topic: topic.clone(),
         event_type: "error".to_string(),
         timestamp: chrono::Utc::now(),
