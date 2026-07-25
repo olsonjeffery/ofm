@@ -144,6 +144,9 @@ impl OpenCodeSdkProvider {
             .map_err(|e| ProviderError::Protocol(e.to_string()))?;
         tracing::info!(session_id = %session_id, "Subscribed to opencode event stream");
 
+        if let Some(old_cancellation) = self.event_cancellation.lock().unwrap().take() {
+            old_cancellation.cancel();
+        }
         let cancellation = event_stream.cancellation_handle();
         *self.event_cancellation.lock().unwrap() = Some(cancellation);
 
@@ -235,86 +238,86 @@ fn map_sdk_event_to_provider_event(
     session_id: &str,
 ) -> Option<ProviderEvent> {
     match &global.payload {
-        Event::MessagePartUpdated(data) => match &data.part {
-            Part::Text(t) => Some(ProviderEvent::TextChunk {
-                delta: data.delta.clone().unwrap_or_else(|| t.text.clone()),
-            }),
-            Part::Reasoning(r) => {
-                let text = r.text.trim().to_string();
-                if text.is_empty() {
-                    return None;
-                }
-                Some(ProviderEvent::Thinking {
-                    thinking: text,
-                    timestamp: chrono::Utc::now().naive_utc(),
-                })
+        Event::MessagePartUpdated(data) => {
+            if data.session_id != *session_id {
+                return None;
             }
-            Part::Tool(tool_part) => match &tool_part.state {
-                ToolState::Running(_) => Some(ProviderEvent::ToolUse {
-                    tool_name: tool_part.tool.clone(),
-                    tool_use_id: Some(tool_part.call_id.clone()),
-                    input: tool_part.input.clone().unwrap_or(serde_json::Value::Null),
-                    message_id: data.message_id.clone(),
-                    timestamp: chrono::Utc::now().naive_utc(),
+            match &data.part {
+                Part::Text(t) => Some(ProviderEvent::TextChunk {
+                    delta: data.delta.clone().unwrap_or_else(|| t.text.clone()),
                 }),
-                ToolState::Completed(state) => {
-                    let output = state.output.trim().to_string();
-                    if output == "null" || output.is_empty() {
+                Part::Reasoning(r) => {
+                    let text = r.text.trim().to_string();
+                    if text.is_empty() {
                         return None;
                     }
-                    Some(ProviderEvent::ToolResult {
+                    Some(ProviderEvent::Thinking {
+                        thinking: text,
+                        timestamp: chrono::Utc::now().naive_utc(),
+                    })
+                }
+                Part::Tool(tool_part) => match &tool_part.state {
+                    ToolState::Running(_) => Some(ProviderEvent::ToolUse {
+                        tool_name: tool_part.tool.clone(),
                         tool_use_id: Some(tool_part.call_id.clone()),
-                        result: output,
+                        input: tool_part.input.clone().unwrap_or(serde_json::Value::Null),
                         message_id: data.message_id.clone(),
                         timestamp: chrono::Utc::now().naive_utc(),
-                    })
-                }
-                ToolState::Error(state) => Some(ProviderEvent::Error {
-                    error: state.error.clone(),
+                    }),
+                    ToolState::Completed(state) => {
+                        let output = state.output.trim().to_string();
+                        if output == "null" || output.is_empty() {
+                            return None;
+                        }
+                        Some(ProviderEvent::ToolResult {
+                            tool_use_id: Some(tool_part.call_id.clone()),
+                            result: output,
+                            message_id: data.message_id.clone(),
+                            timestamp: chrono::Utc::now().naive_utc(),
+                        })
+                    }
+                    ToolState::Error(state) => Some(ProviderEvent::Error {
+                        error: state.error.clone(),
+                        timestamp: chrono::Utc::now().naive_utc(),
+                    }),
+                    ToolState::Pending(_) => None,
+                },
+                _ => None,
+            }
+        }
+        Event::SessionStatus(data) => {
+            if data.session_id != *session_id {
+                return None;
+            }
+            match data.status.status_type.as_str() {
+                "error" => Some(ProviderEvent::Error {
+                    error: "session error".into(),
                     timestamp: chrono::Utc::now().naive_utc(),
                 }),
-                ToolState::Pending(_) => None,
-            },
-            _ => None,
-        },
-        Event::SessionStatus(data) => {
-            if data.session_id == session_id {
-                if data.status.status_type == "error" {
-                    Some(ProviderEvent::Error {
-                        error: "session error".into(),
-                        timestamp: chrono::Utc::now().naive_utc(),
-                    })
-                } else if data.status.status_type == "idle" {
-                    Some(ProviderEvent::Done {
-                        data: serde_json::json!({}),
-                        timestamp: chrono::Utc::now().naive_utc(),
-                    })
-                } else {
-                    None
-                }
-            } else {
-                None
+                "idle" => Some(ProviderEvent::Done {
+                    data: serde_json::json!({}),
+                    timestamp: chrono::Utc::now().naive_utc(),
+                }),
+                _ => None,
             }
         }
         Event::SessionIdle(data) => {
-            if data.session_id == session_id {
-                Some(ProviderEvent::Done {
-                    data: serde_json::json!({}),
-                    timestamp: chrono::Utc::now().naive_utc(),
-                })
-            } else {
-                None
+            if data.session_id != *session_id {
+                return None;
             }
+            Some(ProviderEvent::Done {
+                data: serde_json::json!({}),
+                timestamp: chrono::Utc::now().naive_utc(),
+            })
         }
         Event::SessionError(data) => {
-            if data.session_id == session_id {
-                Some(ProviderEvent::Error {
-                    error: data.error_message(),
-                    timestamp: chrono::Utc::now().naive_utc(),
-                })
-            } else {
-                None
+            if data.session_id != *session_id {
+                return None;
             }
+            Some(ProviderEvent::Error {
+                error: data.error_message(),
+                timestamp: chrono::Utc::now().naive_utc(),
+            })
         }
         Event::ServerConnected(_) => Some(ProviderEvent::Ready),
         Event::ServerHeartbeat(_) => None,
@@ -323,28 +326,43 @@ fn map_sdk_event_to_provider_event(
         Event::IntegrationUpdated(_) => None,
         Event::CatalogUpdated(_) => None,
         Event::MessagePartDelta(_) => None,
-        Event::QuestionAsked(data) => Some(ProviderEvent::QuestionAsked {
-            session_id: data.session_id.clone(),
-            questions: data
-                .questions
-                .iter()
-                .map(|q| crate::providers::types::AskedQuestion {
-                    question: q.question.clone(),
-                    header: q.header.clone(),
-                    options: q
-                        .options
-                        .iter()
-                        .map(|o| crate::providers::types::QuestionOption {
-                            label: o.label.clone(),
-                            description: o.description.clone(),
-                        })
-                        .collect(),
-                })
-                .collect(),
-            tool_call_id: None,
-            message_id: None,
-            timestamp: chrono::Utc::now().naive_utc(),
-        }),
+        Event::QuestionAsked(data) => {
+            if data.session_id != *session_id {
+                return None;
+            }
+            Some(ProviderEvent::QuestionAsked {
+                session_id: data.session_id.clone(),
+                questions: data
+                    .questions
+                    .iter()
+                    .map(|q| crate::providers::types::AskedQuestion {
+                        question: q.question.clone(),
+                        header: q.header.clone(),
+                        options: q
+                            .options
+                            .iter()
+                            .map(|o| crate::providers::types::QuestionOption {
+                                label: o.label.clone(),
+                                description: o.description.clone(),
+                            })
+                            .collect(),
+                    })
+                    .collect(),
+                tool_call_id: None,
+                message_id: None,
+                timestamp: chrono::Utc::now().naive_utc(),
+            })
+        }
+        Event::MessageUpdated(data) => {
+            if data.session_id != *session_id {
+                return None;
+            }
+            let value = serde_json::to_value(data).unwrap_or(serde_json::Value::Null);
+            Some(ProviderEvent::MessageUpdated {
+                data: value,
+                timestamp: chrono::Utc::now().naive_utc(),
+            })
+        }
         _ => None,
     }
 }
@@ -567,6 +585,7 @@ mod tests {
             id: None,
 
             payload: Event::MessagePartUpdated(MessagePartUpdatedData {
+                session_id: "sess1".into(),
                 part: Part::Text(TextPart {
                     text: "Hello".into(),
                 }),
@@ -584,6 +603,7 @@ mod tests {
             id: None,
 
             payload: Event::MessagePartUpdated(MessagePartUpdatedData {
+                session_id: "sess1".into(),
                 part: Part::Reasoning(ReasoningPart {
                     text: "thinking...".into(),
                     signature: None,
@@ -604,6 +624,7 @@ mod tests {
             id: None,
 
             payload: Event::MessagePartUpdated(MessagePartUpdatedData {
+                session_id: "sess1".into(),
                 part: Part::Tool(ToolPart {
                     tool: "read".into(),
                     call_id: "call1".into(),
@@ -628,6 +649,7 @@ mod tests {
             id: None,
 
             payload: Event::MessagePartUpdated(MessagePartUpdatedData {
+                session_id: "sess1".into(),
                 part: Part::Tool(ToolPart {
                     tool: "read".into(),
                     call_id: "call1".into(),
@@ -795,5 +817,105 @@ mod tests {
             log_data: false,
         };
         assert_eq!(provider.extract_provider_id(), None);
+    }
+
+    #[test]
+    fn test_filter_message_part_updated_wrong_session() {
+        let global = GlobalEvent {
+            id: None,
+            payload: Event::MessagePartUpdated(MessagePartUpdatedData {
+                session_id: "other-session".into(),
+                part: Part::Text(TextPart {
+                    text: "Hello".into(),
+                }),
+                delta: Some("Hello".into()),
+                message_id: None,
+            }),
+        };
+        let event = map_sdk_event_to_provider_event(&global, "sess1");
+        assert!(event.is_none());
+    }
+
+    #[test]
+    fn test_filter_message_part_updated_correct_session() {
+        let global = GlobalEvent {
+            id: None,
+            payload: Event::MessagePartUpdated(MessagePartUpdatedData {
+                session_id: "sess1".into(),
+                part: Part::Text(TextPart {
+                    text: "Hello".into(),
+                }),
+                delta: Some("Hello".into()),
+                message_id: None,
+            }),
+        };
+        let event = map_sdk_event_to_provider_event(&global, "sess1");
+        assert!(matches!(event, Some(ProviderEvent::TextChunk { delta }) if delta == "Hello"));
+    }
+
+    #[test]
+    fn test_filter_question_asked_wrong_session() {
+        let global = GlobalEvent {
+            id: None,
+            payload: Event::QuestionAsked(QuestionAskedData {
+                session_id: "other-session".into(),
+                questions: vec![],
+            }),
+        };
+        let event = map_sdk_event_to_provider_event(&global, "sess1");
+        assert!(event.is_none());
+    }
+
+    #[test]
+    fn test_filter_message_updated_wrong_session() {
+        let global = GlobalEvent {
+            id: None,
+            payload: Event::MessageUpdated(MessageUpdatedData {
+                session_id: "other-session".into(),
+                info: AssistantMessage {
+                    id: "msg1".into(),
+                    session_id: "other-session".into(),
+                    time: serde_json::Value::Null,
+                    error: None,
+                    parent_id: None,
+                    model_id: None,
+                    provider_id: None,
+                    mode: None,
+                    path: None,
+                    cost: None,
+                    tokens: None,
+                    finish: None,
+                    parts: vec![],
+                },
+                parts: None,
+            }),
+        };
+        let event = map_sdk_event_to_provider_event(&global, "sess1");
+        assert!(event.is_none());
+    }
+
+    #[test]
+    fn test_message_part_updated_deserialization() {
+        let json = r#"{
+            "id": null,
+            "type": "message.part.updated",
+            "properties": {
+                "sessionID": "ses_test123",
+                "part": {
+                    "type": "text",
+                    "text": "Hello"
+                },
+                "delta": "Hello",
+                "messageID": "msg1"
+            }
+        }"#;
+        let global: GlobalEvent = serde_json::from_str(json).unwrap();
+        match &global.payload {
+            Event::MessagePartUpdated(data) => {
+                assert_eq!(data.session_id, "ses_test123");
+                assert_eq!(data.message_id, Some("msg1".into()));
+            }
+            _ => panic!("expected MessagePartUpdated"),
+        }
     }
 }

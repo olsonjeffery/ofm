@@ -273,6 +273,7 @@ pub fn render_event(event: &ProviderEvent) -> String {
         ProviderEvent::Done { .. } => {
             r#"<div class="notification is-success is-light">Done</div>"#.to_string()
         }
+        ProviderEvent::MessageUpdated { .. } => String::new(),
     }
 }
 

@@ -87,6 +87,11 @@ pub enum ProviderEvent {
         #[serde(default)]
         timestamp: NaiveDateTime,
     },
+    MessageUpdated {
+        data: serde_json::Value,
+        #[serde(default)]
+        timestamp: NaiveDateTime,
+    },
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -268,6 +273,9 @@ impl ProviderEvent {
                 }),
             ),
             ProviderEvent::Ready => ("ready".to_string(), serde_json::json!({})),
+            ProviderEvent::MessageUpdated { data, .. } => {
+                ("message_updated".to_string(), data.clone())
+            }
         }
     }
 }

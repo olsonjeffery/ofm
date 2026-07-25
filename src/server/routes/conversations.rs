@@ -236,9 +236,7 @@ async fn send_message(
                                         };
 
                                         let (event_type, payload) = event.to_ws_event();
-                                         if matches!(event, ProviderEvent::Done { .. }) {
-                                            completed_normally.store(true, Ordering::SeqCst);
-                                        }
+                                        let is_done = matches!(event, ProviderEvent::Done { .. });
 
                                         let payload = if let Some(obj) = payload.as_object() {
                                             let mut map = obj.clone();
@@ -259,7 +257,8 @@ async fn send_message(
 
                                         ws_bus.broadcast(&topic, msg).await;
 
-                                        if matches!(event, ProviderEvent::Done { .. }) {
+                                        if is_done {
+                                            completed_normally.store(true, Ordering::SeqCst);
                                             let done_now = chrono::Utc::now().naive_utc().to_string();
                                             let _ = db.execute(
                                                 "UPDATE conversations SET updated_at = $1 WHERE id = $2",

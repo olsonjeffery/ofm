@@ -7,7 +7,7 @@ opening a PR.
 ## TL;DR
 
 - **Issues are open to everyone.** File bugs, feature requests, and questions
-  freely — they are triaged automatically.
+  freely.
 - **Pull requests require a vouch.** A PR whose author is not vouched (or is
   denounced) is **closed automatically**. If you are not yet vouched, do **not**
   open a PR to get noticed — it will be closed on sight. Start a Discussion and
@@ -24,8 +24,7 @@ Anyone **denounced** (prefixed with `-` in that file) is always blocked.
 
 ## Getting vouched
 
-1. Open a [Discussion](../../discussions) (or comment on an existing one)
-   describing what you'd like to contribute.
+1. Open an Issue (or comment on an existing one) describing what you'd like to contribute.
 2. A maintainer vouches you by commenting **`!vouch`** (vouches the discussion
    author) or **`!vouch @your-handle`** on that discussion.
 3. Once you appear in `.github/VOUCHED.td`, open your PR — it stays open and is

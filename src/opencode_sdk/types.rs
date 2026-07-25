@@ -115,6 +115,8 @@ pub enum Event {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct MessagePartUpdatedData {
+    #[serde(rename = "sessionID")]
+    pub session_id: String,
     pub part: Part,
     #[serde(default)]
     pub delta: Option<String>,
@@ -124,6 +126,8 @@ pub struct MessagePartUpdatedData {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct MessageUpdatedData {
+    #[serde(rename = "sessionID")]
+    pub session_id: String,
     pub info: AssistantMessage,
     #[serde(default)]
     pub parts: Option<Vec<Part>>,
@@ -348,7 +352,7 @@ pub struct AssistantMessage {
     #[serde(default)]
     pub mode: Option<String>,
     #[serde(default)]
-    pub path: Option<String>,
+    pub path: Option<serde_json::Value>,
     #[serde(default)]
     pub cost: Option<f64>,
     #[serde(default)]
@@ -682,7 +686,7 @@ mod tests {
     #[test]
     fn test_opencode_sdk_event_message_part_updated_text() {
         let json = global_event(
-            r#"{"type":"message.part.updated","properties":{"part":{"type":"text","text":"Hello"},"delta":"Hello"}}"#,
+            r#"{"type":"message.part.updated","properties":{"sessionID":"sess1","part":{"type":"text","text":"Hello"},"delta":"Hello"}}"#,
         );
         let event = parse_event(&json);
         match event {
@@ -700,7 +704,7 @@ mod tests {
     #[test]
     fn test_opencode_sdk_event_message_part_updated_reasoning() {
         let json = global_event(
-            r#"{"type":"message.part.updated","properties":{"part":{"type":"reasoning","text":"thinking..."},"delta":"thinking..."}}"#,
+            r#"{"type":"message.part.updated","properties":{"sessionID":"sess1","part":{"type":"reasoning","text":"thinking..."},"delta":"thinking..."}}"#,
         );
         let event = parse_event(&json);
         match event {
@@ -715,7 +719,7 @@ mod tests {
     #[test]
     fn test_opencode_sdk_event_message_part_updated_tool() {
         let json = global_event(
-            r#"{"type":"message.part.updated","properties":{"part":{"type":"tool","tool":"read","callID":"id1","state":{"status":"pending","input":{"path":"/tmp"}}}}}"#,
+            r#"{"type":"message.part.updated","properties":{"sessionID":"sess1","part":{"type":"tool","tool":"read","callID":"id1","state":{"status":"pending","input":{"path":"/tmp"}}}}}"#,
         );
         let event = parse_event(&json);
         match event {
@@ -734,7 +738,7 @@ mod tests {
     #[test]
     fn test_opencode_sdk_event_message_part_updated_tool_completed() {
         let json = global_event(
-            r#"{"type":"message.part.updated","properties":{"part":{"type":"tool","tool":"read","callID":"id1","state":{"status":"completed","input":{},"output":"result"}}}}"#,
+            r#"{"type":"message.part.updated","properties":{"sessionID":"sess1","part":{"type":"tool","tool":"read","callID":"id1","state":{"status":"completed","input":{},"output":"result"}}}}"#,
         );
         let event = parse_event(&json);
         match event {
@@ -751,7 +755,7 @@ mod tests {
     #[test]
     fn test_opencode_sdk_event_message_part_updated_tool_error() {
         let json = global_event(
-            r#"{"type":"message.part.updated","properties":{"part":{"type":"tool","tool":"read","callID":"id1","state":{"status":"error","input":{},"error":"failed"}}}}"#,
+            r#"{"type":"message.part.updated","properties":{"sessionID":"sess1","part":{"type":"tool","tool":"read","callID":"id1","state":{"status":"error","input":{},"error":"failed"}}}}"#,
         );
         let event = parse_event(&json);
         match event {
@@ -768,7 +772,7 @@ mod tests {
     #[test]
     fn test_opencode_sdk_event_message_updated() {
         let json = global_event(
-            r#"{"type":"message.updated","properties":{"info":{"id":"msg1","sessionID":"sess1","role":"assistant","time":"2024-01-01T00:00:00Z","parts":[{"type":"text","text":"Hello"}]}}}"#,
+            r#"{"type":"message.updated","properties":{"sessionID":"sess1","info":{"id":"msg1","sessionID":"sess1","role":"assistant","time":"2024-01-01T00:00:00Z","parts":[{"type":"text","text":"Hello"}]}}}"#,
         );
         let event = parse_event(&json);
         match event {
@@ -946,11 +950,11 @@ mod tests {
     fn test_opencode_sdk_event_roundtrip_all_variants() {
         let cases = [
             (
-                r#"{"type":"message.part.updated","properties":{"part":{"type":"text","text":"hi"},"delta":"hi"}}"#,
+                r#"{"type":"message.part.updated","properties":{"sessionID":"s1","part":{"type":"text","text":"hi"},"delta":"hi"}}"#,
                 "message.part.updated",
             ),
             (
-                r#"{"type":"message.updated","properties":{"info":{"id":"m1","sessionID":"s1","role":"assistant","time":"t","parts":[{"type":"text","text":"hi"}]}}}"#,
+                r#"{"type":"message.updated","properties":{"sessionID":"s1","info":{"id":"m1","sessionID":"s1","role":"assistant","time":"t","parts":[{"type":"text","text":"hi"}]}}}"#,
                 "message.updated",
             ),
             (

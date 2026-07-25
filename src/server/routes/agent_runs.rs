@@ -154,9 +154,8 @@ async fn post_create_agent_run(
                         .map(|w| w.worktree_path.clone())
                         .unwrap_or_else(|| "/tmp".to_string());
 
-                    let proj_str = task.project_id.to_string();
                     let task_str = task_id.to_string();
-                    let doc_path = archive.task_doc_path(&proj_str, &task_str);
+                    let doc_path = archive.task_doc_path(&task.project_id.to_string(), &task_str);
                     let context_prompt = archive
                         .build_context_prompt(&state.footprint, task.project_id, task_id)
                         .ok()
@@ -236,11 +235,9 @@ async fn post_create_agent_run(
                                 let cn = completed_normally.clone();
                                 let db_inner = db.clone();
                                 let ws_bus_inner = ws_bus.clone();
-                                let active_sessions_inner = active_sessions.clone();
-                                let active_sessions_for_guard = active_sessions_inner.clone();
+                                let active_sessions_clone = active_sessions.clone();
 
                                 let broadcast_fut = AssertUnwindSafe(async move {
-                                    let mut local_completed = false;
                                     loop {
                                         tokio::select! {
                                             event = rx.recv() => {
@@ -290,9 +287,7 @@ async fn post_create_agent_run(
                                                 }
 
                                                 let (event_type, payload) = event.to_ws_event();
-                                                if matches!(event, ProviderEvent::Done { .. }) {
-                                                    local_completed = true;
-                                                }
+                                                let is_done = matches!(event, ProviderEvent::Done { .. });
 
                                                 let rendered = crate::webapp::components::message_stream::render_event(&event);
                                                 let msg = ServerMessage::Event {
@@ -305,14 +300,15 @@ async fn post_create_agent_run(
 
                                                 ws_bus_inner.broadcast(&topic, msg).await;
 
-                                                if matches!(event, ProviderEvent::Done { .. }) {
+                                                if is_done {
+                                                    cn.store(true, Ordering::SeqCst);
                                                     let done_now = chrono::Utc::now().naive_utc().to_string();
                                                     let _ = db_inner.execute(
                                                         "UPDATE conversations SET updated_at = $1 WHERE id = $2",
                                                         hiqlite::params!(&done_now, conversation_id.to_string()),
                                                     ).await;
                                                     if let Err(e) = crate::orchestration::completion_handler(
-                                                        &db_inner, conversation_id, &active_sessions_inner
+                                                        &db_inner, conversation_id, &active_sessions_clone
                                                     ).await {
                                                         tracing::warn!("Error in completion handler: {e:?}");
                                                     }
@@ -320,9 +316,6 @@ async fn post_create_agent_run(
                                                 }
                                             }
                                         }
-                                    }
-                                    if local_completed {
-                                        cn.store(true, Ordering::SeqCst);
                                     }
                                 });
 
@@ -339,7 +332,8 @@ async fn post_create_agent_run(
                                     // reaped by the idle-reaper or process-exit
                                     // cleanup in `src/main.rs`.
                                     {
-                                        let sessions = active_sessions_for_guard.lock().await;
+                                        let sessions_guard = active_sessions.clone();
+                                        let sessions = sessions_guard.lock().await;
                                         if let Some(p) = sessions.get(&conversation_id.to_string())
                                         {
                                             if let Err(e) = p.abort_turn().await {
