@@ -4,7 +4,12 @@ use pulldown_cmark::Options;
 #[component]
 pub fn MarkdownViewer(content: String) -> impl IntoView {
     let mut opt = Options::empty();
-    opt.insert(Options::all());
+    opt.insert(Options::ENABLE_TABLES);
+    opt.insert(Options::ENABLE_GFM);
+    opt.insert(Options::ENABLE_TASKLISTS);
+    opt.insert(Options::ENABLE_STRIKETHROUGH);
+    opt.insert(Options::ENABLE_YAML_STYLE_METADATA_BLOCKS);
+
     let parser = pulldown_cmark::Parser::new_ext(&content, opt);
     let mut html = String::new();
     pulldown_cmark::html::push_html(&mut html, parser);
