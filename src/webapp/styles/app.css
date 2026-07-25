@@ -331,3 +331,28 @@ a.box:active {
 #agent-run-buttons .icon.is-success {
     color: var(--bulma-success);
 }
+
+.timestamp-pill {
+    float: left;
+    clear: both;
+    max-width: 10%;
+    font-size: 0.75rem;
+    margin-bottom: 0.25rem;
+}
+
+hr.timestamp-separator {
+    clear: both;
+    margin: 0.25rem 0 0.5rem 0;
+    border: none;
+    border-top: 1px solid var(--bulma-border);
+    max-width: 10%;
+}
+
+#newest-timestamp-pill {
+    margin-top: 0.5rem;
+    margin-bottom: 0.5rem;
+}
+
+.message-stream {
+    overflow-wrap: break-word;
+}

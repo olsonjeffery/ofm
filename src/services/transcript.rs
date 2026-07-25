@@ -13,13 +13,30 @@ pub async fn persist_event(
     let entry_json = serde_json::to_value(event)
         .map_err(|e| hiqlite::Error::new(format!("serialize event: {e}")))?;
 
+    let timestamp = event_timestamp(event)
+        .map(|ts| ts.format("%Y-%m-%d %H:%M:%S").to_string())
+        .unwrap_or_default();
+
     client
         .execute(
-            "INSERT INTO messages (project_key, session_id, seq, entry_json) VALUES ($1, $2, $3, $4)",
-            hiqlite::params!(project_key, session_id, seq, entry_json.to_string()),
+            "INSERT INTO messages (project_key, session_id, seq, entry_json, timestamp) VALUES ($1, $2, $3, $4, $5)",
+            hiqlite::params!(project_key, session_id, seq, entry_json.to_string(), timestamp),
         )
         .await?;
     Ok(())
+}
+
+fn event_timestamp(event: &ProviderEvent) -> Option<chrono::NaiveDateTime> {
+    match event {
+        ProviderEvent::UserText { timestamp, .. }
+        | ProviderEvent::Text { timestamp, .. }
+        | ProviderEvent::ToolUse { timestamp, .. }
+        | ProviderEvent::ToolResult { timestamp, .. }
+        | ProviderEvent::Thinking { timestamp, .. }
+        | ProviderEvent::Error { timestamp, .. }
+        | ProviderEvent::Done { timestamp, .. } => Some(*timestamp),
+        _ => None,
+    }
 }
 
 async fn next_seq(
@@ -52,20 +69,31 @@ pub async fn load_transcript(
         )
         .await?;
 
-    messages
-        .into_iter()
-        .map(|m| {
-            serde_json::from_value(m.entry_json)
-                .map_err(|e| hiqlite::Error::new(format!("deserialize event: {e}")))
-        })
-        .collect()
+    let mut events = Vec::with_capacity(messages.len());
+    for m in messages {
+        match serde_json::from_value(m.entry_json) {
+            Ok(event) => events.push(event),
+            Err(e) => {
+                tracing::warn!(
+                    "load_transcript: skipping event seq={}: deserialize error: {e}",
+                    m.seq
+                );
+            }
+        }
+    }
+    Ok(events)
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
     use crate::db;
+    use chrono::NaiveDateTime;
     use tempfile::TempDir;
+
+    fn test_ts() -> NaiveDateTime {
+        NaiveDateTime::parse_from_str("2024-01-15 12:00:00", "%Y-%m-%d %H:%M:%S").unwrap()
+    }
 
     async fn make_client() -> (hiqlite::Client, TempDir) {
         let tmp = TempDir::new().unwrap();
@@ -88,25 +116,33 @@ mod tests {
     }
 
     fn make_events() -> Vec<ProviderEvent> {
+        let ts = test_ts();
         vec![
             ProviderEvent::Text {
                 text: "hello".into(),
+                timestamp: ts,
             },
             ProviderEvent::ToolUse {
                 tool_name: "read".into(),
                 tool_use_id: Some("id1".into()),
                 input: serde_json::json!({"path": "/tmp"}),
                 message_id: None,
+                timestamp: ts,
             },
             ProviderEvent::ToolResult {
                 tool_use_id: Some("id1".into()),
                 result: "ok".into(),
                 message_id: None,
+                timestamp: ts,
             },
             ProviderEvent::Thinking {
                 thinking: "hmm".into(),
+                timestamp: ts,
             },
-            ProviderEvent::Done(serde_json::json!({"status": "ok"})),
+            ProviderEvent::Done {
+                data: serde_json::json!({"status": "ok"}),
+                timestamp: ts,
+            },
         ]
     }
 
@@ -139,10 +175,12 @@ mod tests {
         let session_id = "sess-seq";
         let project_key = 2i64;
 
+        let ts = test_ts();
         persist_event(
             &client,
             &ProviderEvent::Text {
                 text: "first".into(),
+                timestamp: ts,
             },
             session_id,
             project_key,
@@ -153,6 +191,7 @@ mod tests {
             &client,
             &ProviderEvent::Text {
                 text: "second".into(),
+                timestamp: ts,
             },
             session_id,
             project_key,
@@ -163,6 +202,7 @@ mod tests {
             &client,
             &ProviderEvent::Text {
                 text: "third".into(),
+                timestamp: ts,
             },
             session_id,
             project_key,
@@ -189,10 +229,12 @@ mod tests {
         let (client, _tmp) = make_client().await;
         let project_key = 3i64;
 
+        let ts = test_ts();
         persist_event(
             &client,
             &ProviderEvent::Text {
                 text: "sess1-event".into(),
+                timestamp: ts,
             },
             "sess-a",
             project_key,
@@ -203,6 +245,7 @@ mod tests {
             &client,
             &ProviderEvent::Text {
                 text: "sess2-event".into(),
+                timestamp: ts,
             },
             "sess-b",
             project_key,
@@ -219,13 +262,14 @@ mod tests {
 
         assert_eq!(loaded_a.len(), 1);
         assert_eq!(loaded_b.len(), 1);
+        let ts_str = test_ts().format("%Y-%m-%dT%H:%M:%S").to_string();
         assert_eq!(
             serde_json::to_value(&loaded_a[0]).unwrap(),
-            serde_json::json!({"type": "text", "text": "sess1-event"})
+            serde_json::json!({"type": "text", "text": "sess1-event", "timestamp": ts_str})
         );
         assert_eq!(
             serde_json::to_value(&loaded_b[0]).unwrap(),
-            serde_json::json!({"type": "text", "text": "sess2-event"})
+            serde_json::json!({"type": "text", "text": "sess2-event", "timestamp": ts_str})
         );
     }
 

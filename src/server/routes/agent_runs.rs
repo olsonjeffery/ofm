@@ -268,26 +268,29 @@ async fn post_create_agent_run(
                                                     ).await;
 
                                                     // Persist and broadcast initial prompt with real session_id
+                                                    let prompt_ts = chrono::Utc::now().naive_utc();
                                                     let prompt_event = ProviderEvent::UserText {
                                                         text: prompt_text.clone(),
+                                                        timestamp: prompt_ts,
                                                     };
                                                     if let Err(e) = crate::services::transcript::persist_event(
                                                         &db_inner, &prompt_event, &s_id, project_key
                                                     ).await {
                                                         tracing::warn!("Failed to persist initial prompt: {e}");
                                                     }
+                                                    let prompt_ts_str = prompt_ts.format("%Y-%m-%d %H:%M:%S").to_string();
                                                     let prompt_msg = ServerMessage::Event {
                                                         topic: topic.clone(),
                                                         event_type: "user_text".to_string(),
                                                         timestamp: chrono::Utc::now(),
-                                                        payload: serde_json::json!({"text": prompt_text, "conversation_id": conversation_id.to_string()}),
+                                                        payload: serde_json::json!({"text": prompt_text, "conversation_id": conversation_id.to_string(), "timestamp": prompt_ts_str}),
                                                         html: Some(crate::webapp::components::message_stream::render_event(&prompt_event)),
                                                     };
                                                     ws_bus_inner.broadcast(&topic, prompt_msg).await;
                                                 }
 
                                                 let (event_type, payload) = event.to_ws_event();
-                                                if matches!(event, ProviderEvent::Done(_)) {
+                                                if matches!(event, ProviderEvent::Done { .. }) {
                                                     local_completed = true;
                                                 }
 
@@ -302,7 +305,7 @@ async fn post_create_agent_run(
 
                                                 ws_bus_inner.broadcast(&topic, msg).await;
 
-                                                if matches!(event, ProviderEvent::Done(_)) {
+                                                if matches!(event, ProviderEvent::Done { .. }) {
                                                     let done_now = chrono::Utc::now().naive_utc().to_string();
                                                     let _ = db_inner.execute(
                                                         "UPDATE conversations SET updated_at = $1 WHERE id = $2",
@@ -354,7 +357,7 @@ async fn post_create_agent_run(
                                         kind: WsTopicKind::Task,
                                         id: TopicId(t_id),
                                     };
-                                    let error_event = ProviderEvent::Error { error: "Agent session ended unexpectedly. Send a message to resume.".into() };
+                                    let error_event = ProviderEvent::Error { error: "Agent session ended unexpectedly. Send a message to resume.".into(), timestamp: chrono::Utc::now().naive_utc() };
                                     let msg = ServerMessage::Event {
                                         topic: topic.clone(),
                                         event_type: "error".to_string(),
@@ -512,6 +515,7 @@ async fn reset_agent_runs(
     };
     let error_event = crate::providers::types::ProviderEvent::Error {
         error: "Session reset — you can now start a new agent run.".into(),
+        timestamp: chrono::Utc::now().naive_utc(),
     };
     let msg = crate::server::ws::message::ServerMessage::Event {
         topic: topic.clone(),

@@ -2,6 +2,7 @@ use crate::db::schema::TaskAgentRun;
 use crate::providers::types::ProviderEvent;
 use crate::webapp::components::chat_input::ChatInput;
 use crate::webapp::components::message_stream::MessageStream;
+use chrono::NaiveDateTime;
 use leptos::prelude::*;
 
 fn build_chat_js(active_id_str: &str, is_running: bool) -> String {
@@ -15,6 +16,7 @@ document.addEventListener('DOMContentLoaded', function() {{
     var isAtBottom = true;
     var streamContainer = document.getElementById('message-stream-container');
     var jumpPill = document.getElementById('jump-to-newest-pill');
+    var backToTopPill = document.getElementById('back-to-top-pill');
     var agentBar = document.getElementById('agent-thinking-bar');
 
     function setProcessing(processing) {{
@@ -37,9 +39,17 @@ document.addEventListener('DOMContentLoaded', function() {{
         jumpPill.style.display = isAtBottom ? 'none' : 'block';
     }}
 
+    function updateBackToTopPill() {{
+        if (!backToTopPill || !streamContainer) return;
+        backToTopPill.style.display = streamContainer.scrollTop > 200 ? 'block' : 'none';
+    }}
+
     // Scroll management
     if (streamContainer) {{
-        streamContainer.addEventListener('scroll', updateJumpPill);
+        streamContainer.addEventListener('scroll', function() {{
+            updateJumpPill();
+            updateBackToTopPill();
+        }});
     }}
 
     function scrollToBottom() {{
@@ -48,9 +58,37 @@ document.addEventListener('DOMContentLoaded', function() {{
         if (streamContainer) streamContainer.scrollTop = streamContainer.scrollHeight;
     }}
     window.scrollToBottom = scrollToBottom;
+
+    function scrollToTop() {{
+        if (streamContainer) streamContainer.scrollTop = 0;
+        if (backToTopPill) backToTopPill.style.display = 'none';
+    }}
+    window.scrollToTop = scrollToTop;
+
     scrollToBottom();
     // Periodic check to ensure pill visibility stays correct
-    setInterval(updateJumpPill, 2000);
+    setInterval(function() {{
+        updateJumpPill();
+        updateBackToTopPill();
+    }}, 2000);
+
+    // Format timestamp for display in newest-timestamp pill
+    function formatTimestamp(tsStr) {{
+        if (!tsStr) return '';
+        var now = new Date();
+        var parts = tsStr.split(' ');
+        if (parts.length < 2) return tsStr;
+        var dateParts = parts[0].split('-');
+        var timeParts = parts[1].split(':');
+        var d = new Date(parseInt(dateParts[0]), parseInt(dateParts[1]) - 1, parseInt(dateParts[2]), parseInt(timeParts[0]), parseInt(timeParts[1]));
+        var isToday = d.getDate() === now.getDate() && d.getMonth() === now.getMonth() && d.getFullYear() === now.getFullYear();
+        if (isToday) {{
+            return ('0' + d.getHours()).slice(-2) + ':' + ('0' + d.getMinutes()).slice(-2);
+        }} else {{
+            var months = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+            return months[d.getMonth()] + ' ' + ('0' + d.getDate()).slice(-2) + ', ' + ('0' + d.getHours()).slice(-2) + ':' + ('0' + d.getMinutes()).slice(-2);
+        }}
+    }}
 
     // Streaming tool-result dedup tracker
     var renderedMessageIds = {{}};
@@ -105,7 +143,24 @@ document.addEventListener('DOMContentLoaded', function() {{
                     }}
                     var eventHtml = renderServerEvent(msg);
                     if (eventHtml) {{
+                        // Remove old newest-timestamp pill + its separator before inserting new content
+                        var oldNewestPill = document.getElementById('newest-timestamp-pill');
+                        if (oldNewestPill) {{
+                            var prevSep = oldNewestPill.previousElementSibling;
+                            if (prevSep && prevSep.matches('hr.timestamp-separator')) prevSep.remove();
+                            oldNewestPill.remove();
+                        }}
+                        // Prepend user-timestamp pill for user_text events
+                        if (msg.event_type === 'user_text' && msg.payload && msg.payload.timestamp) {{
+                            var userTsHtml = '<div class="timestamp-pill tag is-light">' + formatTimestamp(msg.payload.timestamp) + '</div><hr class="timestamp-separator">';
+                            container.insertAdjacentHTML('beforeend', userTsHtml);
+                        }}
                         container.insertAdjacentHTML('beforeend', eventHtml);
+                        // Append newest-timestamp pill below the new event with separator
+                        if (msg.payload && msg.payload.timestamp) {{
+                            var newTsHtml = '<hr class="timestamp-separator"><div id="newest-timestamp-pill" class="timestamp-pill tag is-light">' + formatTimestamp(msg.payload.timestamp) + '</div>';
+                            container.insertAdjacentHTML('beforeend', newTsHtml);
+                        }}
                         // Track message_id / tool_use_id for future dedup
                         var dk = msg.payload.message_id || msg.payload.tool_use_id || '';
                         if (dk) renderedMessageIds[dk] = container.lastElementChild;
@@ -211,6 +266,7 @@ pub fn ChatPage(
     initial_messages: Vec<ProviderEvent>,
     #[allow(unused)] conversation_name: Option<String>,
     current_run: Option<TaskAgentRun>,
+    #[prop(default = None)] conversation_created_at: Option<NaiveDateTime>,
 ) -> impl IntoView {
     let is_running = current_run.as_ref().is_some_and(|r| {
         r.status == crate::db::schema::RunStatus::Running
@@ -224,9 +280,17 @@ pub fn ChatPage(
     let script_content = build_chat_js(&active_id_str, is_running);
 
     view! {
+        <div id="back-to-top-pill"
+             style="display:none;position:fixed;top:4rem;left:50%;transform:translateX(-50%);z-index:1000;
+                    background:#3273dc;color:#fff;border-radius:2rem;padding:0.25rem 0.75rem;cursor:pointer;
+                    box-shadow:0 2px 6px rgba(0,0,0,0.2);font-size:1.1rem;white-space:nowrap;width:auto"
+             onclick="window.scrollToTop()">
+            <span>"Back to top"</span>
+            <span class="icon is-small"><i class="mdi mdi-arrow-up-thick"></i></span>
+        </div>
         <div id="chat-layout" style="display:flex;flex-direction:column;height:calc(100vh - 3.75rem);overflow:hidden">
             <div id="message-stream-container" style="flex:1;overflow-y:auto;overflow-x:hidden">
-                <MessageStream messages=initial_messages />
+                <MessageStream messages=initial_messages conversation_created_at=conversation_created_at />
             </div>
             <div id="chat-footer" style="border-top:1px solid #ddd;background:#fff;padding:0.5rem 1rem;position:relative">
                 <div id="agent-thinking-bar"
@@ -250,7 +314,7 @@ pub fn ChatPage(
                                 background:#3273dc;color:#fff;border-radius:2rem;padding:0.25rem 0.75rem;cursor:pointer;
                                 box-shadow:0 2px 6px rgba(0,0,0,0.2);font-size:1.1rem;white-space:nowrap;width:auto"
                          onclick="window.scrollToBottom()">
-                        "Jump to newest"
+                        <span>"Jump to newest"</span>
                         <span class="icon is-small"><i class="mdi mdi-arrow-down-thick"></i></span>
                     </div>
                     <ChatInput
@@ -320,6 +384,8 @@ mod tests {
         assert!(html.contains("chat-footer"));
         assert!(html.contains("jump-to-newest-pill"));
         assert!(html.contains("arrow-down-thick"));
+        assert!(html.contains("back-to-top-pill"));
+        assert!(html.contains("arrow-up-thick"));
         assert!(html.contains("Stop Agent"));
         assert!(html.contains("close-thick"));
         assert!(html.contains("agent-thinking-bar"));

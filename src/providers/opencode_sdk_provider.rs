@@ -194,6 +194,7 @@ impl OpenCodeSdkProvider {
                                 let _ = tx
                                     .send(ProviderEvent::Error {
                                         error: e.to_string(),
+                                        timestamp: chrono::Utc::now().naive_utc(),
                                     })
                                     .await;
                                 break;
@@ -203,6 +204,7 @@ impl OpenCodeSdkProvider {
                     }
                     _ = refresh_ticker.tick() => {
                         pool.update_timestamp(user_id).await;
+
                     }
                 }
             }
@@ -242,7 +244,10 @@ fn map_sdk_event_to_provider_event(
                 if text.is_empty() {
                     return None;
                 }
-                Some(ProviderEvent::Thinking { thinking: text })
+                Some(ProviderEvent::Thinking {
+                    thinking: text,
+                    timestamp: chrono::Utc::now().naive_utc(),
+                })
             }
             Part::Tool(tool_part) => match &tool_part.state {
                 ToolState::Running(_) => Some(ProviderEvent::ToolUse {
@@ -250,6 +255,7 @@ fn map_sdk_event_to_provider_event(
                     tool_use_id: Some(tool_part.call_id.clone()),
                     input: tool_part.input.clone().unwrap_or(serde_json::Value::Null),
                     message_id: data.message_id.clone(),
+                    timestamp: chrono::Utc::now().naive_utc(),
                 }),
                 ToolState::Completed(state) => {
                     let output = state.output.trim().to_string();
@@ -260,10 +266,12 @@ fn map_sdk_event_to_provider_event(
                         tool_use_id: Some(tool_part.call_id.clone()),
                         result: output,
                         message_id: data.message_id.clone(),
+                        timestamp: chrono::Utc::now().naive_utc(),
                     })
                 }
                 ToolState::Error(state) => Some(ProviderEvent::Error {
                     error: state.error.clone(),
+                    timestamp: chrono::Utc::now().naive_utc(),
                 }),
                 ToolState::Pending(_) => None,
             },
@@ -274,9 +282,13 @@ fn map_sdk_event_to_provider_event(
                 if data.status.status_type == "error" {
                     Some(ProviderEvent::Error {
                         error: "session error".into(),
+                        timestamp: chrono::Utc::now().naive_utc(),
                     })
                 } else if data.status.status_type == "idle" {
-                    Some(ProviderEvent::Done(serde_json::json!({})))
+                    Some(ProviderEvent::Done {
+                        data: serde_json::json!({}),
+                        timestamp: chrono::Utc::now().naive_utc(),
+                    })
                 } else {
                     None
                 }
@@ -286,7 +298,10 @@ fn map_sdk_event_to_provider_event(
         }
         Event::SessionIdle(data) => {
             if data.session_id == session_id {
-                Some(ProviderEvent::Done(serde_json::json!({})))
+                Some(ProviderEvent::Done {
+                    data: serde_json::json!({}),
+                    timestamp: chrono::Utc::now().naive_utc(),
+                })
             } else {
                 None
             }
@@ -295,6 +310,7 @@ fn map_sdk_event_to_provider_event(
             if data.session_id == session_id {
                 Some(ProviderEvent::Error {
                     error: data.error_message(),
+                    timestamp: chrono::Utc::now().naive_utc(),
                 })
             } else {
                 None
@@ -327,6 +343,7 @@ fn map_sdk_event_to_provider_event(
                 .collect(),
             tool_call_id: None,
             message_id: None,
+            timestamp: chrono::Utc::now().naive_utc(),
         }),
         _ => None,
     }
@@ -577,7 +594,7 @@ mod tests {
         };
         let event = map_sdk_event_to_provider_event(&global, "sess1");
         assert!(
-            matches!(event, Some(ProviderEvent::Thinking { thinking }) if thinking == "thinking...")
+            matches!(event, Some(ProviderEvent::Thinking { thinking, .. }) if thinking == "thinking...")
         );
     }
 
@@ -641,7 +658,7 @@ mod tests {
         };
         let event = map_sdk_event_to_provider_event(&global, "sess1");
         assert!(
-            matches!(event, Some(ProviderEvent::Error { error }) if error == "something went wrong")
+            matches!(event, Some(ProviderEvent::Error { error, .. }) if error == "something went wrong")
         );
     }
 
@@ -655,7 +672,7 @@ mod tests {
             }),
         };
         let event = map_sdk_event_to_provider_event(&global, "sess1");
-        assert!(matches!(event, Some(ProviderEvent::Done(_))));
+        assert!(matches!(event, Some(ProviderEvent::Done { .. })));
     }
 
     #[test]
@@ -671,7 +688,7 @@ mod tests {
             }),
         };
         let event = map_sdk_event_to_provider_event(&global, "sess1");
-        assert!(matches!(event, Some(ProviderEvent::Done(_))));
+        assert!(matches!(event, Some(ProviderEvent::Done { .. })));
     }
 
     #[test]

@@ -126,8 +126,10 @@ async fn send_message(
     }
 
     // Persist the user's message
+    let user_ts = chrono::Utc::now().naive_utc();
     let user_event = ProviderEvent::UserText {
         text: body.text.clone(),
+        timestamp: user_ts,
     };
     transcript::persist_event(&state.db, &user_event, &provider_session_id, task_id)
         .await
@@ -147,11 +149,12 @@ async fn send_message(
         kind: WsTopicKind::Task,
         id: TopicId(task_id),
     };
+    let ts_str = user_ts.format("%Y-%m-%d %H:%M:%S").to_string();
     let msg = ServerMessage::Event {
         topic: topic.clone(),
         event_type: "user_text".to_string(),
         timestamp: chrono::Utc::now(),
-        payload: serde_json::json!({"text": body.text, "conversation_id": conv_id.to_string()}),
+        payload: serde_json::json!({"text": body.text, "conversation_id": conv_id.to_string(), "timestamp": ts_str}),
         html: Some(crate::webapp::components::message_stream::render_event(
             &user_event,
         )),
@@ -233,7 +236,7 @@ async fn send_message(
                                         };
 
                                         let (event_type, payload) = event.to_ws_event();
-                                        if matches!(event, ProviderEvent::Done(_)) {
+                                         if matches!(event, ProviderEvent::Done { .. }) {
                                             completed_normally.store(true, Ordering::SeqCst);
                                         }
 
@@ -256,7 +259,7 @@ async fn send_message(
 
                                         ws_bus.broadcast(&topic, msg).await;
 
-                                        if matches!(event, ProviderEvent::Done(_)) {
+                                        if matches!(event, ProviderEvent::Done { .. }) {
                                             let done_now = chrono::Utc::now().naive_utc().to_string();
                                             let _ = db.execute(
                                                 "UPDATE conversations SET updated_at = $1 WHERE id = $2",
@@ -297,6 +300,7 @@ async fn send_message(
                                 error:
                                     "Agent session ended unexpectedly. Send a message to resume."
                                         .into(),
+                                timestamp: chrono::Utc::now().naive_utc(),
                             };
                             let msg = ServerMessage::Event {
                                 topic: topic.clone(),

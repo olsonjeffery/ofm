@@ -326,9 +326,14 @@ async fn chat_handler_with_conv(
     }
 
     let provider_session_id = conv.provider_session_id.clone().unwrap_or_default();
-    let messages = transcript::load_transcript(&state.db, &provider_session_id, task_id)
-        .await
-        .unwrap_or_default();
+    let messages = match transcript::load_transcript(&state.db, &provider_session_id, task_id).await
+    {
+        Ok(msgs) => msgs,
+        Err(e) => {
+            tracing::error!("Failed to load transcript for conversation {conversation_id}: {e}");
+            Vec::new()
+        }
+    };
 
     let current_run = services::tasks::get_running_agent_for_task(&state.db, task_id)
         .await
@@ -351,6 +356,7 @@ async fn chat_handler_with_conv(
             initial_messages=messages
             conversation_name=Some(conv_name)
             current_run=current_run
+            conversation_created_at=Some(conv.created_at)
         />
     }
     .to_html();

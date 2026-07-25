@@ -213,6 +213,10 @@ const MIGRATIONS: &[(&str, &str)] = &[
         "conversations_add_updated_at",
         "ALTER TABLE conversations ADD COLUMN updated_at TEXT NOT NULL DEFAULT ''",
     ),
+    (
+        "messages_add_timestamp",
+        "ALTER TABLE messages ADD COLUMN timestamp TEXT NOT NULL DEFAULT '1970-01-01 00:00:00'",
+    ),
 ];
 
 pub async fn run_migrations(client: &Client) -> Result<usize, Box<dyn std::error::Error>> {

@@ -1,4 +1,5 @@
 use crate::providers::types::ProviderEvent;
+use chrono::NaiveDateTime;
 use leptos::prelude::*;
 use pulldown_cmark::Options;
 use std::collections::HashSet;
@@ -8,6 +9,15 @@ static COLLAPSE_ID: AtomicU64 = AtomicU64::new(0);
 
 fn next_id() -> String {
     format!("c{}", COLLAPSE_ID.fetch_add(1, Ordering::Relaxed))
+}
+
+pub fn format_timestamp_pill(ts: NaiveDateTime) -> String {
+    let now = chrono::Utc::now().naive_utc();
+    if ts.date() == now.date() {
+        ts.format("%H:%M").to_string()
+    } else {
+        ts.format("%b %d, %H:%M").to_string()
+    }
 }
 
 fn esc(s: &str) -> String {
@@ -133,7 +143,7 @@ fn collapse_id(id_str: &str) -> String {
 
 pub fn render_event(event: &ProviderEvent) -> String {
     match event {
-        ProviderEvent::Text { text } => {
+        ProviderEvent::Text { text, .. } => {
             if text.trim().is_empty() {
                 return String::new();
             }
@@ -150,6 +160,7 @@ pub fn render_event(event: &ProviderEvent) -> String {
             tool_use_id,
             input,
             message_id,
+            ..
         } => {
             let input_str = serde_json::to_string_pretty(input).unwrap_or_default();
             let id_str = tool_use_id.as_deref().unwrap_or("");
@@ -166,6 +177,7 @@ pub fn render_event(event: &ProviderEvent) -> String {
             tool_use_id,
             result,
             message_id,
+            ..
         } => {
             let trimmed = result.trim();
             if trimmed.is_empty() || trimmed == "null" {
@@ -179,7 +191,7 @@ pub fn render_event(event: &ProviderEvent) -> String {
                 data_attrs, content
             )
         }
-        ProviderEvent::Thinking { thinking } => {
+        ProviderEvent::Thinking { thinking, .. } => {
             let trimmed = thinking.trim();
             if trimmed.is_empty() {
                 return String::new();
@@ -199,14 +211,14 @@ pub fn render_event(event: &ProviderEvent) -> String {
                 esc(&usage_str)
             )
         }
-        ProviderEvent::Error { error } => {
+        ProviderEvent::Error { error, .. } => {
             format!(
                 r#"<div class="notification is-danger is-light">{}</div>"#,
                 esc(error)
             )
         }
         ProviderEvent::SessionStart { .. } => String::new(),
-        ProviderEvent::UserText { text } => {
+        ProviderEvent::UserText { text, .. } => {
             format!(
                 r#"<div class="message-user"><div class="content">{}</div></div>"#,
                 render_markdown(text),
@@ -258,7 +270,7 @@ pub fn render_event(event: &ProviderEvent) -> String {
                 content
             )
         }
-        ProviderEvent::Done(_) => {
+        ProviderEvent::Done { .. } => {
             r#"<div class="notification is-success is-light">Done</div>"#.to_string()
         }
     }
@@ -268,6 +280,11 @@ pub fn render_event(event: &ProviderEvent) -> String {
 mod tests {
     use super::*;
     use crate::providers::types::{AskedQuestion, ProviderEvent, QuestionOption};
+    use chrono::NaiveDateTime;
+
+    fn test_ts() -> NaiveDateTime {
+        NaiveDateTime::parse_from_str("2024-01-15 12:00:00", "%Y-%m-%d %H:%M:%S").unwrap()
+    }
 
     #[test]
     fn test_message_stream_empty() {
@@ -277,8 +294,10 @@ mod tests {
 
     #[test]
     fn test_message_stream_renders_text() {
+        let ts = test_ts();
         let messages = vec![ProviderEvent::Text {
             text: "Hello World".into(),
+            timestamp: ts,
         }];
         let html = leptos::view! { <MessageStream messages=messages /> }.to_html();
         assert!(html.contains("Hello World"));
@@ -288,11 +307,13 @@ mod tests {
 
     #[test]
     fn test_message_stream_renders_tool_use() {
+        let ts = test_ts();
         let messages = vec![ProviderEvent::ToolUse {
             tool_name: "read".into(),
             tool_use_id: Some("id1".into()),
             input: serde_json::json!({"path": "/tmp"}),
             message_id: None,
+            timestamp: ts,
         }];
         let html = leptos::view! { <MessageStream messages=messages /> }.to_html();
         assert!(html.contains("read"));
@@ -305,10 +326,12 @@ mod tests {
 
     #[test]
     fn test_message_stream_renders_tool_result() {
+        let ts = test_ts();
         let messages = vec![ProviderEvent::ToolResult {
             tool_use_id: Some("id1".into()),
             result: "ok".into(),
             message_id: None,
+            timestamp: ts,
         }];
         let html = leptos::view! { <MessageStream messages=messages /> }.to_html();
         assert!(html.contains("ok"));
@@ -318,8 +341,10 @@ mod tests {
 
     #[test]
     fn test_message_stream_renders_thinking() {
+        let ts = test_ts();
         let messages = vec![ProviderEvent::Thinking {
             thinking: "hmm".into(),
+            timestamp: ts,
         }];
         let html = leptos::view! { <MessageStream messages=messages /> }.to_html();
         assert!(html.contains("hmm"));
@@ -329,8 +354,10 @@ mod tests {
 
     #[test]
     fn test_message_stream_renders_error() {
+        let ts = test_ts();
         let messages = vec![ProviderEvent::Error {
             error: "something broke".into(),
+            timestamp: ts,
         }];
         let html = leptos::view! { <MessageStream messages=messages /> }.to_html();
         assert!(html.contains("something broke"));
@@ -339,7 +366,11 @@ mod tests {
 
     #[test]
     fn test_message_stream_renders_done() {
-        let messages = vec![ProviderEvent::Done(serde_json::json!({"status": "ok"}))];
+        let ts = test_ts();
+        let messages = vec![ProviderEvent::Done {
+            data: serde_json::json!({"status": "ok"}),
+            timestamp: ts,
+        }];
         let html = leptos::view! { <MessageStream messages=messages /> }.to_html();
         assert!(html.contains("Done"));
     }
@@ -366,9 +397,11 @@ mod tests {
 
     #[test]
     fn test_message_stream_text_shows_full_when_short() {
+        let ts = test_ts();
         let short = "x".repeat(256);
         let messages = vec![ProviderEvent::Text {
             text: short.clone(),
+            timestamp: ts,
         }];
         let html = leptos::view! { <MessageStream messages=messages /> }.to_html();
         assert!(html.contains(&short));
@@ -377,16 +410,24 @@ mod tests {
 
     #[test]
     fn test_message_stream_text_collapses_when_long() {
+        let ts = test_ts();
         let long = "x".repeat(257);
-        let messages = vec![ProviderEvent::Text { text: long }];
+        let messages = vec![ProviderEvent::Text {
+            text: long,
+            timestamp: ts,
+        }];
         let html = leptos::view! { <MessageStream messages=messages /> }.to_html();
         assert!(html.contains("show-more-btn"));
     }
 
     #[test]
     fn test_message_stream_md_collapse_has_ellipsis() {
+        let ts = test_ts();
         let long = "x".repeat(300);
-        let messages = vec![ProviderEvent::Text { text: long.clone() }];
+        let messages = vec![ProviderEvent::Text {
+            text: long.clone(),
+            timestamp: ts,
+        }];
         let html = leptos::view! { <MessageStream messages=messages /> }.to_html();
         assert!(html.contains("show-more-btn"));
         assert!(html.contains("…"));
@@ -394,8 +435,10 @@ mod tests {
 
     #[test]
     fn test_message_stream_user_text_uses_css_class_no_inline_styles() {
+        let ts = test_ts();
         let messages = vec![ProviderEvent::UserText {
             text: "hello".into(),
+            timestamp: ts,
         }];
         let html = leptos::view! { <MessageStream messages=messages /> }.to_html();
         assert!(html.contains("message-user"));
@@ -404,10 +447,12 @@ mod tests {
 
     #[test]
     fn test_message_stream_tool_result_suppresses_null() {
+        let ts = test_ts();
         let messages = vec![ProviderEvent::ToolResult {
             tool_use_id: Some("id1".into()),
             result: "null".into(),
             message_id: None,
+            timestamp: ts,
         }];
         let html = leptos::view! { <MessageStream messages=messages /> }.to_html();
         assert!(!html.contains("pre"));
@@ -415,10 +460,12 @@ mod tests {
 
     #[test]
     fn test_message_stream_tool_result_suppresses_empty() {
+        let ts = test_ts();
         let messages = vec![ProviderEvent::ToolResult {
             tool_use_id: Some("id1".into()),
             result: "".into(),
             message_id: None,
+            timestamp: ts,
         }];
         let html = leptos::view! { <MessageStream messages=messages /> }.to_html();
         assert!(!html.contains("pre"));
@@ -426,8 +473,10 @@ mod tests {
 
     #[test]
     fn test_message_stream_thinking_suppresses_empty() {
+        let ts = test_ts();
         let messages = vec![ProviderEvent::Thinking {
             thinking: "   ".into(),
+            timestamp: ts,
         }];
         let html = leptos::view! { <MessageStream messages=messages /> }.to_html();
         assert!(!html.contains("message-thinking"));
@@ -435,11 +484,13 @@ mod tests {
 
     #[test]
     fn test_message_stream_tool_use_has_data_message_id() {
+        let ts = test_ts();
         let messages = vec![ProviderEvent::ToolUse {
             tool_name: "read".into(),
             tool_use_id: Some("id1".into()),
             input: serde_json::json!({"path": "/tmp"}),
             message_id: Some("msg123".into()),
+            timestamp: ts,
         }];
         let html = leptos::view! { <MessageStream messages=messages /> }.to_html();
         assert!(html.contains(r#"data-message-id="msg123""#));
@@ -447,11 +498,13 @@ mod tests {
 
     #[test]
     fn test_message_stream_renders_tool_use_as_div() {
+        let ts = test_ts();
         let messages = vec![ProviderEvent::ToolUse {
             tool_name: "read".into(),
             tool_use_id: Some("id1".into()),
             input: serde_json::json!({"path": "/tmp"}),
             message_id: None,
+            timestamp: ts,
         }];
         let html = leptos::view! { <MessageStream messages=messages /> }.to_html();
         assert!(html.contains("<div>"));
@@ -461,12 +514,15 @@ mod tests {
 
     #[test]
     fn test_dedup_suppresses_duplicate_text() {
+        let ts = test_ts();
         let messages = vec![
             ProviderEvent::Text {
                 text: "hello".into(),
+                timestamp: ts,
             },
             ProviderEvent::Text {
                 text: "hello".into(),
+                timestamp: ts,
             },
         ];
         let html = leptos::view! { <MessageStream messages=messages /> }.to_html();
@@ -475,18 +531,21 @@ mod tests {
 
     #[test]
     fn test_dedup_suppresses_duplicate_tool_use() {
+        let ts = test_ts();
         let messages = vec![
             ProviderEvent::ToolUse {
                 tool_name: "read".into(),
                 tool_use_id: Some("id1".into()),
                 input: serde_json::json!({"path": "/tmp"}),
                 message_id: None,
+                timestamp: ts,
             },
             ProviderEvent::ToolUse {
                 tool_name: "read".into(),
                 tool_use_id: Some("id1".into()),
                 input: serde_json::json!({"path": "/tmp"}),
                 message_id: None,
+                timestamp: ts,
             },
         ];
         let html = leptos::view! { <MessageStream messages=messages /> }.to_html();
@@ -495,18 +554,21 @@ mod tests {
 
     #[test]
     fn test_dedup_allows_different_tool_use() {
+        let ts = test_ts();
         let messages = vec![
             ProviderEvent::ToolUse {
                 tool_name: "read".into(),
                 tool_use_id: Some("id1".into()),
                 input: serde_json::json!({"path": "/tmp"}),
                 message_id: None,
+                timestamp: ts,
             },
             ProviderEvent::ToolUse {
                 tool_name: "write".into(),
                 tool_use_id: Some("id2".into()),
                 input: serde_json::json!({"path": "/tmp/test.txt"}),
                 message_id: None,
+                timestamp: ts,
             },
         ];
         let html = leptos::view! { <MessageStream messages=messages /> }.to_html();
@@ -515,12 +577,15 @@ mod tests {
 
     #[test]
     fn test_dedup_suppresses_duplicate_thinking() {
+        let ts = test_ts();
         let messages = vec![
             ProviderEvent::Thinking {
                 thinking: "hmm".into(),
+                timestamp: ts,
             },
             ProviderEvent::Thinking {
                 thinking: "hmm".into(),
+                timestamp: ts,
             },
         ];
         let html = leptos::view! { <MessageStream messages=messages /> }.to_html();
@@ -529,12 +594,15 @@ mod tests {
 
     #[test]
     fn test_dedup_suppresses_duplicate_user_text() {
+        let ts = test_ts();
         let messages = vec![
             ProviderEvent::UserText {
                 text: "hello".into(),
+                timestamp: ts,
             },
             ProviderEvent::UserText {
                 text: "hello".into(),
+                timestamp: ts,
             },
         ];
         let html = leptos::view! { <MessageStream messages=messages /> }.to_html();
@@ -545,6 +613,7 @@ mod tests {
 
     #[test]
     fn test_question_asked_renders_notification_icon() {
+        let ts = test_ts();
         let messages = vec![ProviderEvent::QuestionAsked {
             session_id: "sess1".into(),
             questions: vec![AskedQuestion {
@@ -557,6 +626,7 @@ mod tests {
             }],
             tool_call_id: None,
             message_id: None,
+            timestamp: ts,
         }];
         let html = leptos::view! { <MessageStream messages=messages /> }.to_html();
         assert!(html.contains("notification is-info is-light"));
@@ -566,6 +636,7 @@ mod tests {
 
     #[test]
     fn test_question_asked_renders_fields_as_markdown() {
+        let ts = test_ts();
         let messages = vec![ProviderEvent::QuestionAsked {
             session_id: "sess1".into(),
             questions: vec![AskedQuestion {
@@ -584,6 +655,7 @@ mod tests {
             }],
             tool_call_id: None,
             message_id: None,
+            timestamp: ts,
         }];
         let html = leptos::view! { <MessageStream messages=messages /> }.to_html();
         assert!(html.contains("Pick"));
@@ -595,11 +667,13 @@ mod tests {
 
     #[test]
     fn test_question_asked_empty_renders_nothing() {
+        let ts = test_ts();
         let messages = vec![ProviderEvent::QuestionAsked {
             session_id: "sess1".into(),
             questions: vec![],
             tool_call_id: None,
             message_id: None,
+            timestamp: ts,
         }];
         let html = leptos::view! { <MessageStream messages=messages /> }.to_html();
         assert!(!html.contains("notification is-info is-light"));
@@ -607,52 +681,222 @@ mod tests {
 
     #[test]
     fn test_user_text_still_renders_normally() {
+        let ts = test_ts();
         let messages = vec![ProviderEvent::UserText {
             text: "hello user".into(),
+            timestamp: ts,
         }];
         let html = leptos::view! { <MessageStream messages=messages /> }.to_html();
         assert!(html.contains("hello user"));
         assert!(html.contains("message-user"));
     }
+
+    // ── Timestamp pill tests ──────────────────────────────────────────────
+
+    #[test]
+    fn test_format_timestamp_pill_old_date() {
+        let ts = NaiveDateTime::parse_from_str("2023-06-15 14:30:00", "%Y-%m-%d %H:%M:%S").unwrap();
+        let formatted = format_timestamp_pill(ts);
+        assert_eq!(formatted, "Jun 15, 14:30");
+    }
+
+    #[test]
+    fn test_format_timestamp_pill_today() {
+        let now = chrono::Utc::now().naive_utc();
+        let formatted = format_timestamp_pill(now);
+        let expected = now.format("%H:%M").to_string();
+        assert_eq!(formatted, expected);
+    }
+
+    #[test]
+    fn test_format_timestamp_pill_edge() {
+        let ts = NaiveDateTime::parse_from_str("2024-01-01 00:00:00", "%Y-%m-%d %H:%M:%S").unwrap();
+        let formatted = format_timestamp_pill(ts);
+        assert_eq!(formatted, "Jan 01, 00:00");
+    }
+
+    #[test]
+    fn test_message_stream_has_start_timestamp_with_created_at() {
+        let ts = test_ts();
+        let messages = vec![ProviderEvent::UserText {
+            text: "hello".into(),
+            timestamp: ts,
+        }];
+        let html = leptos::view! {
+            <MessageStream messages=messages conversation_created_at=Some(ts) />
+        }
+        .to_html();
+        assert!(html.contains("timestamp-pill"));
+        assert!(html.contains("tag is-light"));
+    }
+
+    #[test]
+    fn test_message_stream_has_newest_timestamp_pill() {
+        let ts = test_ts();
+        let messages = vec![
+            ProviderEvent::UserText {
+                text: "first".into(),
+                timestamp: ts,
+            },
+            ProviderEvent::UserText {
+                text: "second".into(),
+                timestamp: ts,
+            },
+        ];
+        let html = leptos::view! { <MessageStream messages=messages /> }.to_html();
+        assert!(html.contains("newest-timestamp-pill"));
+    }
+
+    #[test]
+    fn test_message_stream_no_newest_timestamp_for_single_event() {
+        let ts = test_ts();
+        let messages = vec![ProviderEvent::UserText {
+            text: "only".into(),
+            timestamp: ts,
+        }];
+        let html = leptos::view! { <MessageStream messages=messages /> }.to_html();
+        assert!(!html.contains("newest-timestamp-pill"));
+    }
+
+    #[test]
+    fn test_message_stream_has_user_timestamp_pills() {
+        let ts = test_ts();
+        let messages = vec![
+            ProviderEvent::UserText {
+                text: "msg1".into(),
+                timestamp: ts,
+            },
+            ProviderEvent::Text {
+                text: "response".into(),
+                timestamp: ts,
+            },
+            ProviderEvent::UserText {
+                text: "msg2".into(),
+                timestamp: ts,
+            },
+        ];
+        let html = leptos::view! { <MessageStream messages=messages /> }.to_html();
+        // Each UserText should have a timestamp pill before it
+        let user_ts_count = html.matches("timestamp-pill tag is-light").count();
+        // At least 2 user timestamp pills + 1 newest timestamp pill = 3
+        // (start timestamp is not added since conversation_created_at is None)
+        assert!(
+            user_ts_count >= 2,
+            "should have at least 2 user timestamp pills"
+        );
+    }
+
+    #[test]
+    fn test_format_timestamp_pill_public_api() {
+        let ts = NaiveDateTime::parse_from_str("2023-12-25 08:05:00", "%Y-%m-%d %H:%M:%S").unwrap();
+        let result = format_timestamp_pill(ts);
+        assert_eq!(result, "Dec 25, 08:05");
+    }
 }
 
 #[component]
-pub fn MessageStream(messages: Vec<ProviderEvent>) -> impl IntoView {
+pub fn MessageStream(
+    messages: Vec<ProviderEvent>,
+    #[prop(default = None)] conversation_created_at: Option<NaiveDateTime>,
+) -> impl IntoView {
     let mut seen = HashSet::new();
-    let rendered: String = messages
+    let mut parts: Vec<String> = Vec::new();
+
+    // If conversation has a created_at, prepend the start-of-conversation timestamp pill
+    if let Some(created_at) = conversation_created_at {
+        if !messages.is_empty() {
+            parts.push(format!(
+                r#"<div class="timestamp-pill tag is-light">{start_ts}</div><hr class="timestamp-separator">"#,
+                start_ts = format_timestamp_pill(created_at)
+            ));
+        }
+    }
+
+    for event in messages.iter() {
+        // Dedup check
+        let key = match event {
+            ProviderEvent::Text { text, .. } => Some(format!("text:{text}")),
+            ProviderEvent::UserText { text, .. } => Some(format!("user_text:{text}")),
+            ProviderEvent::Thinking { thinking, .. } => Some(format!("thinking:{thinking}")),
+            ProviderEvent::ToolUse {
+                tool_use_id,
+                message_id,
+                ..
+            } => tool_use_id
+                .as_deref()
+                .or(message_id.as_deref())
+                .map(|s| s.to_string()),
+            ProviderEvent::ToolResult {
+                tool_use_id,
+                message_id,
+                ..
+            } => tool_use_id
+                .as_deref()
+                .or(message_id.as_deref())
+                .map(|s| s.to_string()),
+            _ => None,
+        };
+        let is_new = match key {
+            Some(k) => seen.insert(k),
+            None => true,
+        };
+        if !is_new {
+            continue;
+        }
+
+        // Prepend timestamp pill before UserText events (including first one)
+        if let ProviderEvent::UserText { timestamp, .. } = event {
+            parts.push(format!(
+                r#"<div class="timestamp-pill tag is-light">{ts}</div><hr class="timestamp-separator">"#,
+                ts = format_timestamp_pill(*timestamp)
+            ));
+        }
+
+        let html = render_event(event);
+        if !html.is_empty() {
+            parts.push(html);
+        }
+    }
+
+    // Append newest-message timestamp pill (skip for single-event conversations to avoid overlap)
+    let event_count_with_timestamp = messages
         .iter()
-        .filter(|event| {
-            let key = match event {
-                ProviderEvent::Text { text } => Some(format!("text:{text}")),
-                ProviderEvent::UserText { text } => Some(format!("user_text:{text}")),
-                ProviderEvent::Thinking { thinking } => Some(format!("thinking:{thinking}")),
-                ProviderEvent::ToolUse {
-                    tool_use_id,
-                    message_id,
-                    ..
-                } => tool_use_id
-                    .as_deref()
-                    .or(message_id.as_deref())
-                    .map(|s| s.to_string()),
-                ProviderEvent::ToolResult {
-                    tool_use_id,
-                    message_id,
-                    ..
-                } => tool_use_id
-                    .as_deref()
-                    .or(message_id.as_deref())
-                    .map(|s| s.to_string()),
-                _ => None,
-            };
-            match key {
-                Some(k) => seen.insert(k),
-                None => true,
-            }
+        .filter(|e| {
+            matches!(
+                e,
+                ProviderEvent::UserText { .. }
+                    | ProviderEvent::Text { .. }
+                    | ProviderEvent::ToolUse { .. }
+                    | ProviderEvent::ToolResult { .. }
+                    | ProviderEvent::Thinking { .. }
+                    | ProviderEvent::Error { .. }
+                    | ProviderEvent::Done { .. }
+            )
         })
-        .map(render_event)
-        .filter(|s| !s.is_empty())
-        .collect::<Vec<_>>()
-        .join("\n");
+        .count();
+
+    if event_count_with_timestamp > 1 {
+        let newest_timestamp = messages.iter().rev().find_map(|e| match e {
+            ProviderEvent::UserText { timestamp, .. }
+            | ProviderEvent::Text { timestamp, .. }
+            | ProviderEvent::ToolUse { timestamp, .. }
+            | ProviderEvent::ToolResult { timestamp, .. }
+            | ProviderEvent::Thinking { timestamp, .. }
+            | ProviderEvent::Error { timestamp, .. }
+            | ProviderEvent::Done { timestamp, .. } => Some(timestamp),
+            _ => None,
+        });
+
+        if let Some(ts) = newest_timestamp {
+            parts.push(format!(
+                r#"<hr class="timestamp-separator"><div id="newest-timestamp-pill" class="timestamp-pill tag is-light">{ts}</div>"#,
+                ts = format_timestamp_pill(*ts)
+            ));
+        }
+    }
+
+    let rendered = parts.join("\n");
+
     view! {
         <div id="message-stream" class="message-stream" style="padding:1rem;overflow-wrap:break-word">
             {if messages.is_empty() {
