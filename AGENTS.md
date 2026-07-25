@@ -21,6 +21,16 @@ for their content in the light theme
   - reusability is a future option
   - separation of concerns is desirable
 
+## Concept naming
+
+- avoid using "nudge" to describe anything that isn't related to sending a re-focus message to an LLM model that is active, but idle.
+
+## Running the integration test
+
+If you are running the full integration test suite (`cargo test --tests`), ALWAYS run it in the background and do periodic checks on
+status to check for completion, and give the User an update. This avoids getting stuck/idling while waiting but keeping the session
+active.
+
 ## Environment Variables
 
 All env vars use the `OFM_` prefix. Key ones:
