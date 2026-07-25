@@ -356,3 +356,32 @@ hr.timestamp-separator {
 .message-stream {
     overflow-wrap: break-word;
 }
+
+/* ===== Dragula overrides ===== */
+.gu-mirror {
+    position: fixed !important;
+    margin: 0 !important;
+    z-index: 9999 !important;
+    opacity: 0.8;
+    border: 1px solid var(--bulma-primary);
+    background: var(--bulma-white);
+    border-radius: 6px;
+    padding: 0.75rem;
+    box-shadow: 0 4px 12px rgba(0,0,0,0.15);
+    pointer-events: none;
+    transform: rotate(2deg);
+}
+.gu-hide {
+    display: none !important;
+}
+.gu-unselectable {
+    user-select: none !important;
+}
+.gu-transit {
+    opacity: 0.3;
+    border: 1px dashed var(--bulma-grey-light);
+}
+.column.gu-over {
+    background-color: var(--bulma-light);
+    border-radius: 6px;
+}

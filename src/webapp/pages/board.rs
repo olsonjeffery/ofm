@@ -18,9 +18,9 @@ pub fn BoardPage(project: Project, tasks: Vec<Task>) -> impl IntoView {
     let in_review = tasks_for_status(&tasks, "in_review");
     let completed = tasks_for_status(&tasks, "completed");
 
-    let render_column = |label: &str, color_class: &str, items: Vec<Task>| {
+    let render_column = |label: &str, color_class: &str, items: Vec<Task>, status: &str| {
         view! {
-            <div class="column">
+            <div class="column" data-status={status.to_string()}>
                 <div class={format!("box {}", color_class)}>
                     <h3 class="title is-5">{format!("{} ({})", label, items.len())}</h3>
                 </div>
@@ -75,12 +75,13 @@ pub fn BoardPage(project: Project, tasks: Vec<Task>) -> impl IntoView {
             </div>
 
             <div class="columns">
-                {render_column("Pending", "has-background-grey-lighter", pending)}
-                {render_column("In Progress", "has-background-info-light", in_progress)}
-                {render_column("In Review", "has-background-warning-light", in_review)}
-                {render_column("Completed", "has-background-success-light", completed)}
+                {render_column("Pending", "has-background-grey-lighter", pending, "pending")}
+                {render_column("In Progress", "has-background-info-light", in_progress, "in_progress")}
+                {render_column("In Review", "has-background-warning-light", in_review, "in_review")}
+                {render_column("Completed", "has-background-success-light", completed, "completed")}
             </div>
         </section>
+        <script src="/webapp/assets/dragula.min.js"></script>
         <script>
             {r#"document.addEventListener('DOMContentLoaded',function(){
                 // Delete task from card
@@ -114,6 +115,71 @@ pub fn BoardPage(project: Project, tasks: Vec<Task>) -> impl IntoView {
                     apiCall('/api/tasks',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(data)})
                         .then(function(r){if(r.ok)window.location.reload();});
                 });
+                // Drag-and-drop task cards via dragula
+                var containers=Array.from(document.querySelectorAll('.columns>.column[data-status]'));
+                var statusConfig={
+                    'pending':{label:'Pending',badgeClass:'is-light'},
+                    'in_progress':{label:'In Progress',badgeClass:'is-info is-light'},
+                    'in_review':{label:'In Review',badgeClass:'is-warning is-light'},
+                    'completed':{label:'Completed',badgeClass:'is-success is-light'}
+                };
+                var drake=dragula(containers,{
+                    moves:function(el,source,handle,sibling){
+                        return el.tagName==='A'&&el.classList.contains('box')&&!handle.closest('[data-task-delete]');
+                    }
+                });
+                drake.on('drop',function(el,target,source,sibling){
+                    if(target===source)return;
+                    var taskId=el.getAttribute('data-task-id');
+                    if(!taskId)return;
+                    var newStatus=target.getAttribute('data-status');
+                    function revertDrag(){
+                        source.appendChild(el);
+                        updateColumnCount(target);
+                        updateColumnCount(source);
+                    }
+                    apiCall('/api/tasks/'+taskId,{
+                        method:'PUT',
+                        headers:{'Content-Type':'application/json'},
+                        body:JSON.stringify({status:newStatus})
+                    }).then(function(r){
+                        if(r.ok){
+                            var badge=el.querySelector('.tag');
+                            if(badge){
+                                var cfg=statusConfig[newStatus];
+                                if(cfg){badge.textContent=cfg.label;badge.className='tag '+cfg.badgeClass;}
+                            }
+                            updateColumnCount(target);
+                            updateColumnCount(source);
+                        }else{
+                            revertDrag();
+                        }
+                    }).catch(revertDrag);
+                });
+                function updateColumnCount(col){
+                    var cards=col.querySelectorAll('a.box');
+                    var count=cards.length;
+                    var title=col.querySelector('h3.title');
+                    if(title){
+                        var label=title.textContent.split(' (')[0];
+                        title.textContent=label+' ('+count+')';
+                    }
+                    var noTasks=col.querySelector('p.has-text-grey');
+                    if(count===0){
+                        if(!noTasks){
+                            var header=col.querySelector('div.box');
+                            if(header){
+                                var p=document.createElement('p');
+                                p.className='has-text-grey is-size-7';
+                                p.style.padding='0.5rem';
+                                p.textContent='No tasks';
+                                header.insertAdjacentElement('afterend',p);
+                            }
+                        }
+                    }else{
+                        if(noTasks)noTasks.remove();
+                    }
+                }
             });"#}
         </script>
     }
@@ -192,5 +258,16 @@ mod tests {
         let html = leptos::view! { <BoardPage project tasks /> }.to_html();
         assert!(html.contains("New Task"));
         assert!(html.contains("mdi-plus"));
+    }
+
+    #[test]
+    fn test_board_columns_have_data_status() {
+        let project = make_project();
+        let tasks = vec![];
+        let html = leptos::view! { <BoardPage project tasks /> }.to_html();
+        assert!(html.contains(r#"data-status="pending""#));
+        assert!(html.contains(r#"data-status="in_progress""#));
+        assert!(html.contains(r#"data-status="in_review""#));
+        assert!(html.contains(r#"data-status="completed""#));
     }
 }

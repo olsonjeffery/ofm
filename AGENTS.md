@@ -134,6 +134,14 @@ cargo test --lib -- board
 cargo test --tests -- webapp_test
 ```
 
+## Webapp JS Dependency Pattern
+
+Import JavaScript libraries at the page/island/component level where they are used, not in the top-level `app.rs` shell. This keeps JS loads scoped to the pages that need them.
+
+CSS imports are fine in the shell (`<head>`) since CSS is declarative and inert without matching DOM elements.
+
+Example: dragula.js is loaded via `<script src="...">` in `board.rs`, while dragula.css is loaded via `<link>` in `app.rs`.
+
 ## Documentation Updates
 
 Every task implementation **must**:

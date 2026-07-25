@@ -28,7 +28,7 @@ pub fn TaskCard(task: Task) -> impl IntoView {
     let created = task.created_at.format("%Y-%m-%d").to_string();
 
     view! {
-        <a href={format!("/webapp/projects/{}/tasks/{}", task.project_id, task.id)} class="box" style="display:block">
+        <a href={format!("/webapp/projects/{}/tasks/{}", task.project_id, task.id)} class="box" style="display:block" data-task-id={task.id.to_string()}>
             <p class="title is-6">{task.title.clone()}</p>
             <div class="level">
                 <div class="level-left">
@@ -110,5 +110,12 @@ mod tests {
         assert!(html.contains("mdi-trash-can"));
         assert!(html.contains("data-task-id=\"1\""));
         assert!(html.contains("data-project-id=\"1\""));
+    }
+
+    #[test]
+    fn test_task_card_root_has_data_task_id() {
+        let task = make_task("pending");
+        let html = leptos::view! { <TaskCard task /> }.to_html();
+        assert!(html.contains(r#"data-task-id="1""#));
     }
 }

@@ -15,6 +15,7 @@ pub fn ShellPage(user_json: Option<String>, breadcrumbs: Vec<BreadcrumbItem>) ->
             <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
             <title>"ofm"</title>
             <link rel="stylesheet" href="/webapp/assets/bulma.css" />
+            <link rel="stylesheet" href="/webapp/assets/dragula.min.css" />
             <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@mdi/font@7.4.47/css/materialdesignicons.min.css" />
             <style>{include_str!("styles/app.css")}</style>
             <script>{global_runtime_script()}</script>
