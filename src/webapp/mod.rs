@@ -340,13 +340,27 @@ async fn chat_handler_with_conv(
         .ok()
         .flatten();
 
+    let agent_run = services::tasks::get_agent_run_by_conversation(&state.db, &conversation_id)
+        .await
+        .ok();
+    let breadcrumb_icon = agent_run
+        .as_ref()
+        .map(|r| r.agent_type.icon())
+        .unwrap_or("chat");
+
     let conv_name = conv.name.clone().unwrap_or_else(|| conv.model.clone());
 
     let breadcrumbs = vec![
         breadcrumb_registry::all_projects(),
         breadcrumb_registry::project(&project.name, project.id),
         breadcrumb_registry::task(&task.title, project.id, task.id),
-        breadcrumb_registry::chat_conversation(&conv_name, project.id, task.id, conversation_id),
+        breadcrumb_registry::chat_conversation(
+            &conv_name,
+            project.id,
+            task.id,
+            conversation_id,
+            Some(breadcrumb_icon),
+        ),
     ];
     let page_html = leptos::view! {
         <pages::chat::ChatPage

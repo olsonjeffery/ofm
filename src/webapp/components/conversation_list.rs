@@ -1,17 +1,6 @@
 use crate::db::schema::{AgentType, ConversationWithRun, RunStatus};
 use leptos::prelude::*;
 
-fn agent_icon(agent_type: &AgentType) -> &'static str {
-    match agent_type {
-        AgentType::Planification => "file-document-outline",
-        AgentType::Implementation => "code-tags",
-        AgentType::Refinement => "creation-outline",
-        AgentType::Review => "checkbox-marked-circle-outline",
-        AgentType::Pr => "source-branch-plus",
-        AgentType::Yolo => "rocket",
-    }
-}
-
 fn run_status_class(status: &RunStatus) -> &'static str {
     match status {
         RunStatus::Pending => "is-light",
@@ -81,7 +70,7 @@ pub fn ConversationList(
                         let conv_id = cwr.conversation.id;
                         let is_active = active_id.map(|id| id == conv_id).unwrap_or(false);
                         let agent_type = cwr.run.as_ref().map(|r| &r.agent_type);
-                        let icon = agent_type.map(agent_icon).unwrap_or("chat-outline");
+                        let icon = agent_type.map(AgentType::icon).unwrap_or("chat-outline");
                         let raw_name = cwr.conversation.name.clone().unwrap_or_default();
                         let name = if is_valid_name(&raw_name) {
                             raw_name

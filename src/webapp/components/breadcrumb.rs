@@ -58,10 +58,12 @@ pub mod breadcrumb_registry {
         project_id: i64,
         task_id: i64,
         conv_id: uuid::Uuid,
+        icon: Option<&str>,
     ) -> BreadcrumbItem {
+        let icon = icon.unwrap_or("chat");
         BreadcrumbItem::new(
             title_truncate(name),
-            "chat",
+            icon,
             format!(
                 "/webapp/projects/{}/tasks/{}/chat/{}",
                 project_id, task_id, conv_id
@@ -155,9 +157,22 @@ mod tests {
     #[test]
     fn test_registry_chat_conversation() {
         let conv_id = uuid::Uuid::new_v4();
-        let item = breadcrumb_registry::chat_conversation("My Chat", 1, 42, conv_id);
+        let item = breadcrumb_registry::chat_conversation("My Chat", 1, 42, conv_id, None);
         assert_eq!(item.title, "My Chat");
         assert_eq!(item.icon, "chat");
+        assert_eq!(
+            item.path,
+            format!("/webapp/projects/1/tasks/42/chat/{}", conv_id)
+        );
+    }
+
+    #[test]
+    fn test_registry_chat_conversation_with_icon() {
+        let conv_id = uuid::Uuid::new_v4();
+        let item =
+            breadcrumb_registry::chat_conversation("Agent Chat", 1, 42, conv_id, Some("code-tags"));
+        assert_eq!(item.title, "Agent Chat");
+        assert_eq!(item.icon, "code-tags");
         assert_eq!(
             item.path,
             format!("/webapp/projects/1/tasks/42/chat/{}", conv_id)
@@ -200,5 +215,20 @@ mod tests {
         let items = vec![breadcrumb_registry::all_projects()];
         let html = leptos::view! { <Breadcrumbs breadcrumbs=items /> }.to_html();
         assert!(html.contains("mdi-home"));
+    }
+
+    #[test]
+    fn test_breadcrumbs_chat_agent_icon() {
+        let conv_id = uuid::Uuid::new_v4();
+        let items = vec![
+            breadcrumb_registry::all_projects(),
+            breadcrumb_registry::project("Test", 1),
+            breadcrumb_registry::task("My Task", 1, 42),
+            breadcrumb_registry::chat_conversation("Agent Chat", 1, 42, conv_id, Some("code-tags")),
+        ];
+        let html = leptos::view! { <Breadcrumbs breadcrumbs=items /> }.to_html();
+        assert!(html.contains("mdi-code-tags"));
+        assert!(html.contains("Agent Chat"));
+        assert_eq!(html.matches("<li").count(), 4);
     }
 }

@@ -61,6 +61,19 @@ impl std::str::FromStr for AgentType {
     }
 }
 
+impl AgentType {
+    pub fn icon(&self) -> &'static str {
+        match self {
+            Self::Planification => "file-document-outline",
+            Self::Implementation => "code-tags",
+            Self::Refinement => "creation-outline",
+            Self::Review => "checkbox-marked-circle-outline",
+            Self::Pr => "source-branch-plus",
+            Self::Yolo => "rocket",
+        }
+    }
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "snake_case")]
 pub enum RunStatus {
@@ -528,6 +541,16 @@ mod tests {
         assert_eq!(AgentType::Review.to_string(), "review");
         assert_eq!(AgentType::Pr.to_string(), "pr");
         assert_eq!(AgentType::Yolo.to_string(), "yolo");
+    }
+
+    #[test]
+    fn test_agent_type_icon_mapping() {
+        assert_eq!(AgentType::Planification.icon(), "file-document-outline");
+        assert_eq!(AgentType::Implementation.icon(), "code-tags");
+        assert_eq!(AgentType::Refinement.icon(), "creation-outline");
+        assert_eq!(AgentType::Review.icon(), "checkbox-marked-circle-outline");
+        assert_eq!(AgentType::Pr.icon(), "source-branch-plus");
+        assert_eq!(AgentType::Yolo.icon(), "rocket");
     }
 
     #[test]
