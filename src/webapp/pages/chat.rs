@@ -289,7 +289,7 @@ pub fn ChatPage(
             <span class="icon is-small"><i class="mdi mdi-arrow-up-thick"></i></span>
         </div>
         <div id="chat-layout" style="display:flex;flex-direction:column;height:calc(100vh - 3.75rem);overflow:hidden">
-            <div id="message-stream-container" style="flex:1;overflow-y:auto;overflow-x:hidden">
+            <div id="message-stream-container" style="flex:1;overflow-y:auto;overflow-x:hidden;padding-bottom:1rem;">
                 <MessageStream messages=initial_messages conversation_created_at=conversation_created_at />
             </div>
             <div id="chat-footer" style="border-top:1px solid #ddd;background:#fff;padding:0.5rem 1rem;position:relative">
