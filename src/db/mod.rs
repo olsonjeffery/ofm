@@ -217,6 +217,10 @@ const MIGRATIONS: &[(&str, &str)] = &[
         "messages_add_timestamp",
         "ALTER TABLE messages ADD COLUMN timestamp TEXT NOT NULL DEFAULT '1970-01-01 00:00:00'",
     ),
+    (
+        "sessions_add_access_token",
+        "ALTER TABLE sessions ADD COLUMN access_token TEXT NOT NULL DEFAULT ''",
+    ),
 ];
 
 pub async fn run_migrations(client: &Client) -> Result<usize, Box<dyn std::error::Error>> {

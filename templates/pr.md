@@ -49,8 +49,10 @@ HOST=$(jq -r '.agentVars.ofmHost' .ofm_agent.json)
 PORT=$(jq -r '.agentVars.ofmPort' .ofm_agent.json)
 ACCESS_TOKEN=$(jq -r '.agentVars.accessToken' .ofm_agent.json)
 TASK_ID=$(basename "$(pwd)" | sed 's/task-//')
-curl -X POST "http://$HOST:$PORT/api/tasks/$TASK_ID/agent-flags/complete-pr" \
-  -H "Authorization: Bearer $ACCESS_TOKEN"
+curl -X POST "http://$HOST:$PORT/api/tasks/$TASK_ID/complete-pr" \
+  -H "Authorization: Bearer $ACCESS_TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{}'
 ```
 
 **If mergeable is "CONFLICTING" (has conflicts):**

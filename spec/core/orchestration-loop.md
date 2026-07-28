@@ -50,10 +50,10 @@ the loop needs to know about them.
 
 | Agent | Does | Signals "done" by (completion handler) |
 |---|---|---|
-| **planning** (`planification`) | Turns the task doc + original request into a structured plan, written back into the doc. Touches nothing but the doc. | `curl POST .../agent-flags/complete-plan` → sets `planification_complete`. |
+| **planning** (`planification`) | Turns the task doc + original request into a structured plan, written back into the doc. Touches nothing but the doc. | `curl POST .../complete-plan` → sets `planification_complete`. |
 | **implementation** | Implements the unchecked to-do items from the plan, inside the worktree. | Ending its turn — the completion handler auto-advances to review. |
-| **review** | Verifies the implementation against the plan, runs tests, and decides READY / NEEDS_WORK / BLOCKED. | READY → `curl POST .../agent-flags/complete-workflow` (sets `workflow_complete`). BLOCKED → `curl POST .../agent-flags/block-workflow` (sets `workflow_blocked`). NEEDS_WORK → no script, just ends → auto-advances back to implementation. |
-| **PR** (`pr`) | Opens the pull request, drives CI to green, resolves conflicts. Terminal. | `curl POST .../agent-flags/complete-pr` → sets `pr_agent_complete`. |
+| **review** | Verifies the implementation against the plan, runs tests, and decides READY / NEEDS_WORK / BLOCKED. | READY → `curl POST .../complete-workflow` (sets `workflow_complete`). BLOCKED → `curl POST .../block-workflow` (sets `workflow_blocked`). NEEDS_WORK → no script, just ends → auto-advances back to implementation. |
+| **PR** (`pr`) | Opens the pull request, drives CI to green, resolves conflicts. Terminal. | `curl POST .../complete-pr` → sets `pr_agent_complete`. |
 
 The agent-type enum in the schema also contains `refinement` and `yolo`. Those
 are **extras** ([`refinement-agent.md`](../extra/refinement-agent.md),
@@ -140,10 +140,10 @@ those flags after the turn ends.
 
 | Endpoint | Flag set | Called by |
 |---|---|---|
-| `POST /api/tasks/{task_id}/agent-flags/complete-plan` | `planification_complete` | planning agent (via curl) |
-| `POST /api/tasks/{task_id}/agent-flags/complete-workflow` | `workflow_complete` | review agent, on READY (via curl) |
-| `POST /api/tasks/{task_id}/agent-flags/block-workflow` | `workflow_blocked` | review agent, on BLOCKED (via curl) |
-| `POST /api/tasks/{task_id}/agent-flags/complete-pr` | `pr_agent_complete` | PR agent (via curl) |
+| `POST /api/tasks/{task_id}/complete-plan` | `planification_complete` | planning agent (via curl) |
+| `POST /api/tasks/{task_id}/complete-workflow` | `workflow_complete` | review agent, on READY (via curl) |
+| `POST /api/tasks/{task_id}/block-workflow` | `workflow_blocked` | review agent, on BLOCKED (via curl) |
+| `POST /api/tasks/{task_id}/complete-pr` | `pr_agent_complete` | PR agent (via curl) |
 
 The `build_context_prompt()` function includes instructions for agents to read
 connection details from `.ofm_agent.json` in the worktree root and derive their task ID
@@ -165,7 +165,7 @@ HOST=$(jq -r '.agentVars.ofmHost' .ofm_agent.json)
 PORT=$(jq -r '.agentVars.ofmPort' .ofm_agent.json)
 ACCESS_TOKEN=$(jq -r '.agentVars.accessToken' .ofm_agent.json)
 TASK_ID=$(basename "$(pwd)" | sed 's/task-//')
-curl -X POST "http://$HOST:$PORT/api/tasks/$TASK_ID/agent-flags/{action}" \
+curl -X POST "http://$HOST:$PORT/api/tasks/$TASK_ID/{action}" \
   -H "Authorization: Bearer $ACCESS_TOKEN"
 ```
 

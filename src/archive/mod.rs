@@ -291,18 +291,20 @@ HOST=$(jq -r '.agentVars.ofmHost' .ofm_agent.json)
 PORT=$(jq -r '.agentVars.ofmPort' .ofm_agent.json)
 ACCESS_TOKEN=$(jq -r '.agentVars.accessToken' .ofm_agent.json)
 TASK_ID=$(basename "$(pwd)" | sed 's/task-//')
-curl -X POST "http://$HOST:$PORT/api/tasks/$TASK_ID/agent-flags/{{action}}" \
-  -H "Authorization: Bearer $ACCESS_TOKEN"
+curl -X POST "http://$HOST:$PORT/api/tasks/$TASK_ID/{{action}}" \
+  -H "Authorization: Bearer $ACCESS_TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{{}}'
 ```
 
 ### Available Agent Flag Endpoints
 
 | Action | Endpoint | When to Call |
 |--------|----------|-------------|
-| Complete Plan | `POST .../agent-flags/complete-plan` | When planning is done and plan doc is written |
-| Complete Workflow | `POST .../agent-flags/complete-workflow` | When review passes and feature is READY |
-| Block Workflow | `POST .../agent-flags/block-workflow` | When review is BLOCKED (needs user input) |
-| Complete PR | `POST .../agent-flags/complete-pr` | When PR is created and CI passes |
+| Complete Plan | `POST .../complete-plan` | When planning is done and plan doc is written |
+| Complete Workflow | `POST .../complete-workflow` | When review passes and feature is READY |
+| Block Workflow | `POST .../block-workflow` | When review is BLOCKED (needs user input) |
+| Complete PR | `POST .../complete-pr` | When PR is created and CI passes |
 "#,
             worktree = worktree_path.display(),
         );

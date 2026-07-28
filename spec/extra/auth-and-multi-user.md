@@ -108,11 +108,27 @@ The system supports two modes:
   provider, not the local `expires_at` column, is the authority on whether the
   refresh token is still valid. The `expires_at` gate that previously
   short-circuited refreshes on past-expiry sessions has been removed.
+  On `invalid_grant`/`invalid_token` responses from the provider, the server
+  deletes the session row, clears the `ofm_session` cookie via
+  `jar.remove(Cookie::from("ofm_session"))`, and returns a 400 error with
+  `"session expired, please re-authenticate"`. The runtime JS handles this by
+  redirecting to the login page.
+- **Access token persistence**: the `access_token` is stored in the `sessions`
+  table alongside the `refresh_token`. On callback and on every successful
+  refresh, the new access token is written to the DB. This allows the server
+  to validate persisted tokens against the OIDC `userinfo_endpoint` on restart,
+  avoiding unnecessary refresh requests.
 - **Startup session refresh**: on server startup, all stored sessions are
   refreshed in background tasks. Each session's refresh token is presented to
   the OIDC provider; valid sessions are extended by `SESSION_DURATION`, and
   expired/revoked sessions are cleaned up. This means a server restart does not
-  force all users to re-authenticate.
+  force all users to re-authenticate. On startup, persisted access tokens are
+  validated via `userinfo_endpoint`; only invalid or missing tokens trigger a
+  full refresh.
+- **`JwtToken` retry**: transient `JwtToken` errors from Rauthy (clock skew,
+  internal propagation delay) are retried once with a 500ms backoff before the
+  session is considered invalid. This eliminates false session invalidation on
+  restart.
 - **Auto-login on page load**: the runtime JS calls `POST /api/auth/refresh` on
   every page load. If the refresh succeeds and the user is on the login or
   callback page, they are automatically redirected to `/webapp/`. This provides

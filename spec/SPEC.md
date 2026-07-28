@@ -235,13 +235,13 @@ this file and instructs agents to parse it with `jq` and derive the task ID from
 directory name. This avoids sending the credential to the LLM provider and prevents it from
 being persisted in the conversation transcript.
 
-Agents call the OFM server's `/api/tasks/{task_id}/agent-flags/{action}` endpoints via:
+Agents call the OFM server's `/api/tasks/{task_id}/{action}` endpoints via:
 ```bash
 HOST=$(jq -r '.agentVars.ofmHost' .ofm_agent.json)
 PORT=$(jq -r '.agentVars.ofmPort' .ofm_agent.json)
 ACCESS_TOKEN=$(jq -r '.agentVars.accessToken' .ofm_agent.json)
 TASK_ID=$(basename "$(pwd)" | sed 's/task-//')
-curl -X POST "http://$HOST:$PORT/api/tasks/$TASK_ID/agent-flags/{action}" \
+curl -X POST "http://$HOST:$PORT/api/tasks/$TASK_ID/{action}" \
   -H "Authorization: Bearer $ACCESS_TOKEN"
 ```
 

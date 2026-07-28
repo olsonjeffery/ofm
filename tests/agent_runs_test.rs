@@ -335,7 +335,7 @@ async fn test_agent_runs_test_list_agent_runs() -> reqwest::Result<()> {
             .unwrap();
         let resp_status = resp.status();
         let body: serde_json::Value = resp.json().await?;
-        assert_eq!(resp_status, 201, "error resp body: {}", body.to_string());
+        assert_eq!(resp_status, 201, "error resp body: {body}");
 
         let run_id = Uuid::parse_str(body["id"].as_str().unwrap()).unwrap();
         ofm::services::tasks::mark_agent_run_failed(&app.db, &run_id)

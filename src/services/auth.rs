@@ -118,6 +118,10 @@ pub async fn handle_callback(
         .await
         .map_err(|e| ServerError::Internal(format!("invalid token response: {e}")))?;
 
+    let access_token = token_data["access_token"]
+        .as_str()
+        .unwrap_or("")
+        .to_string();
     let refresh_token = token_data["refresh_token"]
         .as_str()
         .unwrap_or("")
@@ -183,8 +187,8 @@ pub async fn handle_callback(
 
     let session_id = Uuid::new_v4();
     db.execute(
-        "INSERT INTO sessions (id, user_id, refresh_token, id_token, expires_at, created_at, token_version) VALUES ($1, $2, $3, $4, $5, $6, $7)",
-        hiqlite::params!(session_id.to_string(), user_id.to_string(), refresh_token, id_token, expires_at, now, user_token_version),
+        "INSERT INTO sessions (id, user_id, access_token, refresh_token, id_token, expires_at, created_at, token_version) VALUES ($1, $2, $3, $4, $5, $6, $7, $8)",
+        hiqlite::params!(session_id.to_string(), user_id.to_string(), access_token, refresh_token, id_token, expires_at, now, user_token_version),
     )
     .await
     .map_err(|e| ServerError::Internal(e.to_string()))?;
@@ -254,8 +258,13 @@ pub async fn refresh_access_token(
     let new_expires_at = session_expires_at();
 
     db.execute(
-        "UPDATE sessions SET refresh_token = $1, expires_at = $2 WHERE id = $3",
-        hiqlite::params!(new_refresh_token, new_expires_at, session_id.to_string()),
+        "UPDATE sessions SET access_token = $1, refresh_token = $2, expires_at = $3 WHERE id = $4",
+        hiqlite::params!(
+            new_access_token.clone(),
+            new_refresh_token,
+            new_expires_at,
+            session_id.to_string()
+        ),
     )
     .await
     .map_err(|e| ServerError::Internal(e.to_string()))?;
@@ -486,6 +495,22 @@ fn client_secret_param(client_secret: &Option<String>) -> String {
         .unwrap_or_default()
 }
 
+pub async fn validate_access_token(oidc: &OidcEndpoints, token: &str) -> bool {
+    if token.is_empty() {
+        return false;
+    }
+    let client = reqwest::Client::new();
+    match client
+        .get(&oidc.userinfo_endpoint)
+        .header("Authorization", format!("Bearer {token}"))
+        .send()
+        .await
+    {
+        Ok(resp) => resp.status().is_success(),
+        Err(_) => false,
+    }
+}
+
 pub struct UpdateUserContext {
     pub user_id: Uuid,
 }
@@ -493,6 +518,9 @@ pub struct UpdateUserContext {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use axum::http::StatusCode;
+    use axum::routing::get;
+    use axum::Router;
 
     #[test]
     fn test_generate_code_verifier_length() {
@@ -830,6 +858,7 @@ mod tests {
             token_endpoint: "http://127.0.0.1:1/token".into(),
             end_session_endpoint: None,
             revocation_endpoint: None,
+            userinfo_endpoint: "http://127.0.0.1:1/userinfo".into(),
             client_id: "test".into(),
             client_secret: None,
             redirect_uri: "http://127.0.0.1:1/callback".into(),
@@ -876,6 +905,7 @@ mod tests {
             token_endpoint: "http://127.0.0.1:1/token".into(),
             end_session_endpoint: None,
             revocation_endpoint: None,
+            userinfo_endpoint: "http://127.0.0.1:1/userinfo".into(),
             client_id: "test".into(),
             client_secret: None,
             redirect_uri: "http://127.0.0.1:1/callback".into(),
@@ -892,5 +922,86 @@ mod tests {
             session.is_some(),
             "session should not be deleted on transient errors"
         );
+    }
+
+    #[tokio::test]
+    async fn test_validate_access_token_valid() {
+        let mock_app = Router::new().route("/userinfo", get(|| async { (StatusCode::OK, "ok") }));
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let addr = listener.local_addr().unwrap();
+        tokio::spawn(async move { axum::serve(listener, mock_app).await.unwrap() });
+
+        let oidc = OidcEndpoints {
+            authorization_endpoint: format!("http://{}/auth", addr),
+            token_endpoint: format!("http://{}/token", addr),
+            end_session_endpoint: None,
+            revocation_endpoint: None,
+            userinfo_endpoint: format!("http://{}/userinfo", addr),
+            client_id: "test".into(),
+            client_secret: None,
+            redirect_uri: format!("http://{}/callback", addr),
+            jwks_cache: None,
+            jwks_issuer: None,
+        };
+        assert!(validate_access_token(&oidc, "valid-token").await);
+    }
+
+    #[tokio::test]
+    async fn test_validate_access_token_invalid() {
+        let mock_app = Router::new().route(
+            "/userinfo",
+            get(|| async { (StatusCode::UNAUTHORIZED, "unauthorized") }),
+        );
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let addr = listener.local_addr().unwrap();
+        tokio::spawn(async move { axum::serve(listener, mock_app).await.unwrap() });
+
+        let oidc = OidcEndpoints {
+            authorization_endpoint: format!("http://{}/auth", addr),
+            token_endpoint: format!("http://{}/token", addr),
+            end_session_endpoint: None,
+            revocation_endpoint: None,
+            userinfo_endpoint: format!("http://{}/userinfo", addr),
+            client_id: "test".into(),
+            client_secret: None,
+            redirect_uri: format!("http://{}/callback", addr),
+            jwks_cache: None,
+            jwks_issuer: None,
+        };
+        assert!(!validate_access_token(&oidc, "invalid-token").await);
+    }
+
+    #[tokio::test]
+    async fn test_validate_access_token_network_error() {
+        let oidc = OidcEndpoints {
+            authorization_endpoint: "http://127.0.0.1:1/auth".into(),
+            token_endpoint: "http://127.0.0.1:1/token".into(),
+            end_session_endpoint: None,
+            revocation_endpoint: None,
+            userinfo_endpoint: "http://127.0.0.1:1/userinfo".into(),
+            client_id: "test".into(),
+            client_secret: None,
+            redirect_uri: "http://127.0.0.1:1/callback".into(),
+            jwks_cache: None,
+            jwks_issuer: None,
+        };
+        assert!(!validate_access_token(&oidc, "any-token").await);
+    }
+
+    #[tokio::test]
+    async fn test_validate_access_token_empty() {
+        let oidc = OidcEndpoints {
+            authorization_endpoint: "http://127.0.0.1:1/auth".into(),
+            token_endpoint: "http://127.0.0.1:1/token".into(),
+            end_session_endpoint: None,
+            revocation_endpoint: None,
+            userinfo_endpoint: "http://127.0.0.1:1/userinfo".into(),
+            client_id: "test".into(),
+            client_secret: None,
+            redirect_uri: "http://127.0.0.1:1/callback".into(),
+            jwks_cache: None,
+            jwks_issuer: None,
+        };
+        assert!(!validate_access_token(&oidc, "").await);
     }
 }

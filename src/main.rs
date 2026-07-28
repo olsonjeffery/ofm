@@ -18,7 +18,6 @@ mod rauthy;
 
 use clap::Parser;
 use server::ws::bus::BroadcastBus;
-use server::ws::message::{ServerMessage, TopicId, WsTopic, WsTopicKind};
 use std::collections::HashMap;
 use std::sync::Arc;
 use tokio::sync::Mutex;
@@ -46,7 +45,7 @@ fn ensure_secret_file(
     Ok(())
 }
 
-type OidcDiscoveryResult = (String, String, Option<String>, Option<String>);
+type OidcDiscoveryResult = (String, String, Option<String>, Option<String>, String);
 
 fn parse_oidc_discovery(
     disc: &serde_json::Value,
@@ -62,6 +61,10 @@ fn parse_oidc_discovery(
             .to_string(),
         disc["revocation_endpoint"].as_str().map(|s| s.to_string()),
         disc["end_session_endpoint"].as_str().map(|s| s.to_string()),
+        disc["userinfo_endpoint"]
+            .as_str()
+            .ok_or("missing userinfo_endpoint")?
+            .to_string(),
     ))
 }
 
@@ -182,8 +185,13 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         let discovery_url = format!("{}/.well-known/openid-configuration", direct_base);
         let disc: serde_json::Value = reqwest::get(&discovery_url).await?.json().await?;
         let issuer = disc["issuer"].as_str().ok_or("missing issuer")?.to_string();
-        let (authorization_endpoint, token_endpoint, revocation_endpoint, end_session_endpoint) =
-            parse_oidc_discovery(&disc)?;
+        let (
+            authorization_endpoint,
+            token_endpoint,
+            revocation_endpoint,
+            end_session_endpoint,
+            userinfo_endpoint,
+        ) = parse_oidc_discovery(&disc)?;
         let redirect_uri = format!("http://127.0.0.1:{}/api/auth/callback", cfg.port);
         let client_id = cfg.oidc_client_id.clone().unwrap_or_else(|| "ofm".into());
 
@@ -224,6 +232,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             token_endpoint,
             end_session_endpoint,
             revocation_endpoint,
+            userinfo_endpoint,
             client_id,
             client_secret: cfg.oidc_client_secret.clone(),
             redirect_uri,
@@ -256,8 +265,13 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             issuer_url.trim_end_matches('/')
         );
         let disc: serde_json::Value = reqwest::get(&discovery_url).await?.json().await?;
-        let (authorization_endpoint, token_endpoint, revocation_endpoint, end_session_endpoint) =
-            parse_oidc_discovery(&disc)?;
+        let (
+            authorization_endpoint,
+            token_endpoint,
+            revocation_endpoint,
+            end_session_endpoint,
+            userinfo_endpoint,
+        ) = parse_oidc_discovery(&disc)?;
         let redirect_uri = cfg.oidc_redirect_uri.clone().unwrap_or_else(|| {
             format!(
                 "{}/api/auth/callback",
@@ -272,6 +286,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             token_endpoint,
             end_session_endpoint,
             revocation_endpoint,
+            userinfo_endpoint,
             client_id: cfg.oidc_client_id.clone().unwrap_or_default(),
             client_secret: cfg.oidc_client_secret.clone(),
             redirect_uri,
@@ -308,7 +323,6 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         let db = state.db.clone();
         let oidc = oidc.clone();
         let access_tokens = state.access_tokens.clone();
-        let ws_bus = state.ws_bus.clone();
         tokio::spawn(async move {
             let mut rows = match db
                 .query_raw("SELECT * FROM sessions", hiqlite::params!())
@@ -329,7 +343,6 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 let db = db.clone();
                 let oidc = oidc.clone();
                 let access_tokens = access_tokens.clone();
-                let ws_bus = ws_bus.clone();
                 let user_id = session.user_id;
                 tokio::spawn(async move {
                     match crate::services::auth::refresh_access_token(&db, &oidc, session.id).await
@@ -338,35 +351,6 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                             {
                                 let mut cache = access_tokens.lock().await;
                                 cache.insert(user_id, token);
-                            }
-                            let conv_task_ids: Vec<i64> = match db
-                                .query_raw(
-                                    "SELECT DISTINCT c.task_id FROM conversations c JOIN tasks t ON c.task_id = t.id WHERE t.user_id = $1",
-                                    hiqlite::params!(user_id.to_string()),
-                                )
-                                .await
-                            {
-                                Ok(rows) => rows.into_iter().map(|mut row| row.get::<i64>("task_id")).collect(),
-                                Err(e) => {
-                                    tracing::warn!("Failed to query conversations for token refresh broadcast: {e}");
-                                    Vec::new()
-                                }
-                            };
-                            for task_id in conv_task_ids {
-                                let topic = WsTopic {
-                                    kind: WsTopicKind::Task,
-                                    id: TopicId(task_id),
-                                };
-                                let msg = ServerMessage::Event {
-                                    topic: topic.clone(),
-                                    event_type: "user_text".to_string(),
-                                    timestamp: chrono::Utc::now(),
-                                    payload: serde_json::json!({"text": "agent token refreshed"}),
-                                    html: Some(
-                                        r#"<div class="message-user"><div class="content"><p>agent token refreshed</p></div></div>"#.to_string(),
-                                    ),
-                                };
-                                ws_bus.broadcast(&topic, msg).await;
                             }
                             tracing::info!("Startup refresh succeeded for session {}", session.id)
                         }

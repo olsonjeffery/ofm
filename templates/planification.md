@@ -15,7 +15,7 @@ HOST=$(jq -r '.agentVars.ofmHost' .ofm_agent.json)
 PORT=$(jq -r '.agentVars.ofmPort' .ofm_agent.json)
 ACCESS_TOKEN=$(jq -r '.agentVars.accessToken' .ofm_agent.json)
 TASK_ID=$(basename "$(pwd)" | sed 's/task-//')
-curl -X POST "http://$HOST:$PORT/api/tasks/$TASK_ID/agent-flags/complete-plan" \
+curl -X POST "http://$HOST:$PORT/api/tasks/$TASK_ID/complete-plan" \
   -H "Authorization: Bearer $ACCESS_TOKEN"
 ```
 
@@ -89,6 +89,6 @@ HOST=$(jq -r '.agentVars.ofmHost' .ofm_agent.json)
 PORT=$(jq -r '.agentVars.ofmPort' .ofm_agent.json)
 ACCESS_TOKEN=$(jq -r '.agentVars.accessToken' .ofm_agent.json)
 TASK_ID=$(basename "$(pwd)" | sed 's/task-//')
-curl -X POST "http://$HOST:$PORT/api/tasks/$TASK_ID/agent-flags/complete-plan" \
+curl -X POST "http://$HOST:$PORT/api/tasks/$TASK_ID/complete-plan" \
   -H "Authorization: Bearer $ACCESS_TOKEN"
 ```

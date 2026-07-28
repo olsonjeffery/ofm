@@ -174,7 +174,7 @@ HOST=$(jq -r '.agentVars.ofmHost' .ofm_agent.json)
 PORT=$(jq -r '.agentVars.ofmPort' .ofm_agent.json)
 ACCESS_TOKEN=$(jq -r '.agentVars.accessToken' .ofm_agent.json)
 TASK_ID=$(basename "$(pwd)" | sed 's/task-//')
-curl -X POST "http://$HOST:$PORT/api/tasks/$TASK_ID/agent-flags/complete-workflow" \
+curl -X POST "http://$HOST:$PORT/api/tasks/$TASK_ID/complete-workflow" \
   -H "Authorization: Bearer $ACCESS_TOKEN"
 ```
 This stops the automated agent loop and awaits final user review.
@@ -187,7 +187,7 @@ HOST=$(jq -r '.agentVars.ofmHost' .ofm_agent.json)
 PORT=$(jq -r '.agentVars.ofmPort' .ofm_agent.json)
 ACCESS_TOKEN=$(jq -r '.agentVars.accessToken' .ofm_agent.json)
 TASK_ID=$(basename "$(pwd)" | sed 's/task-//')
-curl -X POST "http://$HOST:$PORT/api/tasks/$TASK_ID/agent-flags/block-workflow" \
+curl -X POST "http://$HOST:$PORT/api/tasks/$TASK_ID/block-workflow" \
   -H "Authorization: Bearer $ACCESS_TOKEN"
 ```
 This stops the automated agent loop until the user resumes it after providing the needed input.

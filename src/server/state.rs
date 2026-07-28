@@ -44,6 +44,7 @@ pub struct OidcEndpoints {
     pub token_endpoint: String,
     pub end_session_endpoint: Option<String>,
     pub revocation_endpoint: Option<String>,
+    pub userinfo_endpoint: String,
     pub client_id: String,
     pub client_secret: Option<String>,
     pub redirect_uri: String,

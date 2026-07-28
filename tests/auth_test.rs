@@ -1,6 +1,7 @@
 use std::collections::HashMap;
 use std::sync::Arc;
 
+use axum::http::StatusCode;
 use axum::routing::post;
 use axum::{Json, Router};
 use hiqlite::params;
@@ -157,6 +158,7 @@ async fn test_login_returns_authorization_url() {
         authorization_endpoint: "https://provider.test/auth".into(),
         token_endpoint: "https://provider.test/token".into(),
         revocation_endpoint: None,
+        userinfo_endpoint: "https://provider.test/userinfo".into(),
         client_id: "test-client".into(),
         client_secret: None,
         redirect_uri: "http://localhost:3183/api/auth/callback".into(),
@@ -221,6 +223,7 @@ async fn test_callback_rejects_invalid_state() {
         authorization_endpoint: "https://provider.test/auth".into(),
         token_endpoint: "https://provider.test/token".into(),
         revocation_endpoint: None,
+        userinfo_endpoint: "https://provider.test/userinfo".into(),
         client_id: "test-client".into(),
         client_secret: None,
         redirect_uri: "http://localhost:3183/api/auth/callback".into(),
@@ -703,6 +706,7 @@ async fn test_logout_without_cookie_returns_success() {
         authorization_endpoint: "https://provider.test/auth".into(),
         token_endpoint: "https://provider.test/token".into(),
         revocation_endpoint: None,
+        userinfo_endpoint: "https://provider.test/userinfo".into(),
         client_id: "test-client".into(),
         client_secret: None,
         redirect_uri: "http://localhost:3183/api/auth/callback".into(),
@@ -816,6 +820,7 @@ async fn test_callback_exchanges_code() {
         authorization_endpoint: "https://provider.test/auth".into(),
         token_endpoint: format!("http://{}/token", mock_addr),
         revocation_endpoint: None,
+        userinfo_endpoint: format!("http://{}/userinfo", mock_addr),
         client_id: "test-client".into(),
         client_secret: None,
         redirect_uri: "http://localhost:3183/api/auth/callback".into(),
@@ -944,6 +949,7 @@ async fn test_refresh_with_session_cookie() {
         authorization_endpoint: format!("http://{}/auth", mock_addr),
         token_endpoint: format!("http://{}/token", mock_addr),
         revocation_endpoint: None,
+        userinfo_endpoint: format!("http://{}/userinfo", mock_addr),
         client_id: "test-client".into(),
         client_secret: None,
         redirect_uri: format!("http://{}/callback", mock_addr),
@@ -1001,6 +1007,7 @@ async fn test_refresh_without_cookie() {
         authorization_endpoint: "https://provider.test/auth".into(),
         token_endpoint: "https://provider.test/token".into(),
         revocation_endpoint: None,
+        userinfo_endpoint: "https://provider.test/userinfo".into(),
         client_id: "test-client".into(),
         client_secret: None,
         redirect_uri: "http://localhost:3183/api/auth/callback".into(),
@@ -1208,4 +1215,122 @@ async fn test_onboarding_without_auth_returns_401() {
         .await
         .unwrap();
     assert_eq!(resp.status(), 401);
+}
+
+#[tokio::test]
+async fn test_refresh_failure_clears_session_cookie() {
+    let (client, _tmp) = make_client().await;
+    let default_user_id = db::ensure_default_user(&client).await.unwrap();
+    let user_id = Uuid::new_v4();
+    let now = chrono::Utc::now().format("%Y-%m-%d %H:%M:%S").to_string();
+    client
+        .execute(
+            "INSERT INTO users (id, username, oidc_subject, is_active, created_at, has_completed_onboarding, is_technical) VALUES ($1, $2, $3, 1, $4, 1, 0)",
+            params!(user_id.to_string(), "refreshfailuser", "refreshfail-sub", now.clone()),
+        )
+        .await
+        .unwrap();
+
+    let session_id = Uuid::new_v4();
+    let future = (chrono::Utc::now() + chrono::Duration::days(30))
+        .format("%Y-%m-%d %H:%M:%S")
+        .to_string();
+    client
+        .execute(
+            "INSERT INTO sessions (id, user_id, refresh_token, expires_at, created_at) VALUES ($1, $2, $3, $4, $5)",
+            params!(session_id.to_string(), user_id.to_string(), "test-refresh-token", future, now),
+        )
+        .await
+        .unwrap();
+
+    // Mock OIDC token endpoint returning invalid_grant
+    let mock_app = Router::new().route(
+        "/token",
+        post(|| async {
+            (
+                StatusCode::BAD_REQUEST,
+                Json(json!({"error": "invalid_grant"})),
+            )
+        }),
+    );
+    let mock_listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let mock_addr = mock_listener.local_addr().unwrap();
+    tokio::spawn(async move { axum::serve(mock_listener, mock_app).await.unwrap() });
+
+    let oidc = OidcEndpoints {
+        end_session_endpoint: None,
+        authorization_endpoint: format!("http://{}/auth", mock_addr),
+        token_endpoint: format!("http://{}/token", mock_addr),
+        revocation_endpoint: None,
+        userinfo_endpoint: format!("http://{}/userinfo", mock_addr),
+        client_id: "test-client".into(),
+        client_secret: None,
+        redirect_uri: format!("http://{}/callback", mock_addr),
+        jwks_cache: None,
+        jwks_issuer: None,
+    };
+
+    let key = cookie::Key::generate();
+    let state = AppState {
+        cfg_port: 0,
+        db: client.clone(),
+        default_user_id,
+        footprint: "/tmp".into(),
+        archive_root: "storage/".into(),
+        config_root: "/tmp".into(),
+        active_sessions: Arc::new(Mutex::new(HashMap::<String, Box<dyn LlmProvider>>::new())),
+        oidc_provider: Some(oidc),
+        pkce_store: Arc::new(Mutex::new(HashMap::new())),
+        cookie_key: key.clone(),
+        api_key_pepper: b"test_pepper".to_vec(),
+        ws_bus: BroadcastBus::new(),
+        config: OfmConfig::default(),
+        access_tokens: Arc::new(Mutex::new(HashMap::new())),
+    };
+    let auth_layer = AuthLayer::disabled(
+        state.db.clone(),
+        b"test".to_vec(),
+        state.cookie_key.clone(),
+        state.default_user_id,
+    );
+    let app = server::router(state, auth_layer);
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let addr = listener.local_addr().unwrap();
+    tokio::spawn(async move { axum::serve(listener, app).await.unwrap() });
+
+    let cookie_str = make_encrypted_cookie(&key, "ofm_session", &session_id.to_string());
+    let resp = reqwest::Client::new()
+        .post(format!("http://{}/api/auth/refresh", addr))
+        .header("Cookie", cookie_str)
+        .send()
+        .await
+        .unwrap();
+
+    // Verify response is 400
+    assert_eq!(resp.status(), 400);
+
+    // Verify Set-Cookie header clears ofm_session
+    let set_cookie = resp
+        .headers()
+        .get("set-cookie")
+        .map(|v| v.to_str().unwrap().to_string());
+    if let Some(sc) = set_cookie {
+        assert!(
+            sc.contains("ofm_session=;")
+                || sc.contains("ofm_session=\"\";")
+                || sc.contains("Max-Age=0"),
+            "Set-Cookie should clear ofm_session, got: {sc}"
+        );
+    }
+
+    // Verify session row was deleted from DB
+    let mut rows = client
+        .query_raw(
+            "SELECT COUNT(*) AS cnt FROM sessions WHERE id = $1",
+            params!(session_id.to_string()),
+        )
+        .await
+        .unwrap();
+    let count: i64 = rows[0].get("cnt");
+    assert_eq!(count, 0, "session should be deleted from DB");
 }

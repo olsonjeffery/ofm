@@ -108,7 +108,7 @@ The workspace has a single member crate (`ofm` binary) defined inline.
 
 ## OAuth Access Token Cache
 
-The `AppState` struct in `src/server/state.rs` now contains an in-memory access token cache:
+The `AppState` struct in `src/server/state.rs` contains an in-memory access token cache:
 ```rust
 pub access_tokens: Arc<Mutex<HashMap<Uuid, String>>>,
 ```
@@ -118,6 +118,34 @@ Maps `user_id → OAuth access_token`. Populated on every token refresh:
 - In the `POST /api/auth/refresh` handler in `src/server/routes/auth.rs`
 
 On successful refresh, the token is stored and a WS broadcast `"agent token refreshed"` is sent to all active conversation topics for that user.
+
+### Expiry-Aware Cache Access
+
+The `get_or_refresh_token` helper in `src/orchestration/mod.rs` centralizes cache access with JWT expiry validation and OIDC refresh fallback. Both `start_next_agent` and the `send_message` handler use it.
+
+Access pattern:
+1. Check cache — if the cached token's `exp` claim is in the past, treat as cache miss
+2. On miss, if OIDC provider is configured, query the full session row (including persisted `access_token`) from the DB
+3. If the persisted `access_token` is non-empty, call `validate_access_token` against the OIDC `userinfo_endpoint`:
+   - Valid (200) → seed cache with persisted token, return
+   - Invalid (401) or network error → fall through to step 4
+4. Call `auth::refresh_access_token` to obtain a fresh token:
+   - On success → seed cache, persist new `access_token` to DB, return
+   - On `JwtToken` error → retry once after 500ms backoff:
+     - Retry success → cache + persist + return
+     - Retry fail → delete session, return `None`
+   - On `invalid_grant`/`invalid_token` → session already deleted by refresh function, return `None`
+5. On all other failures, log `tracing::error!` and return `None` (caller skips `.ofm_agent.json` write)
+
+### `.ofm_agent.json` Write Guards
+
+The `write_ofm_agent_json` function in `src/orchestration/mod.rs` guards against writing invalid tokens:
+- **Empty token check**: returns early with `tracing::error!` if `access_token` is empty
+- **Expired token check**: decodes the JWT `exp` claim via `decode_jwt_exp`; returns early with `tracing::error!` if the token has expired past `chrono::Utc::now()`
+
+### Session Cookie Clearing on Invalidated Refresh
+
+When `refresh_access_token` receives `invalid_grant` or `invalid_token` from the OIDC provider, the session row is deleted from the DB. The `POST /api/auth/refresh` handler in `src/server/routes/auth.rs` now catches the error and clears the `ofm_session` cookie by calling `jar.remove(Cookie::from("ofm_session"))` before returning a 400 response with `"session expired, please re-authenticate"`.
 
 ## OFM Context Prompt Injection
 

@@ -1,6 +1,6 @@
 use axum::extract::{Query, State};
 use axum::http::StatusCode;
-use axum::response::IntoResponse;
+use axum::response::{IntoResponse, Response};
 use axum::routing::{get, patch, post};
 use axum::{Json, Router};
 use axum_extra::extract::cookie::{Cookie, PrivateCookieJar, SameSite};
@@ -11,7 +11,6 @@ use uuid::Uuid;
 use crate::auth::AuthUser;
 use crate::server::error::ServerError;
 use crate::server::state::AppState;
-use crate::server::ws::message::{ServerMessage, TopicId, WsTopic, WsTopicKind};
 use crate::services::auth::urlencoding;
 
 pub fn auth_router() -> Router<AppState> {
@@ -83,57 +82,46 @@ async fn callback(
     Ok((jar, (StatusCode::FOUND, [("Location", location)])))
 }
 
-async fn refresh(
-    State(state): State<AppState>,
-    jar: PrivateCookieJar,
-) -> Result<Json<serde_json::Value>, ServerError> {
-    let oidc = state
-        .oidc_provider
-        .as_ref()
-        .ok_or_else(|| ServerError::BadRequest("OIDC not configured".into()))?;
+async fn refresh(State(state): State<AppState>, jar: PrivateCookieJar) -> Response {
+    let oidc = match state.oidc_provider.as_ref() {
+        Some(o) => o,
+        None => return ServerError::BadRequest("OIDC not configured".into()).into_response(),
+    };
 
-    let session_id = parse_session_cookie(&jar)?;
+    let session_id = match parse_session_cookie(&jar) {
+        Ok(id) => id,
+        Err(e) => return e.into_response(),
+    };
 
     let access_token =
-        crate::services::auth::refresh_access_token(&state.db, oidc, session_id).await?;
+        match crate::services::auth::refresh_access_token(&state.db, oidc, session_id).await {
+            Ok(token) => token,
+            Err(_) => {
+                return (
+                    jar.remove(Cookie::from("ofm_session")),
+                    ServerError::BadRequest("session expired, please re-authenticate".into()),
+                )
+                    .into_response();
+            }
+        };
 
-    let session = crate::services::auth::find_session(&state.db, session_id)
-        .await?
-        .ok_or_else(|| ServerError::BadRequest("session not found".into()))?;
+    let session = match crate::services::auth::find_session(&state.db, session_id).await {
+        Ok(Some(s)) => s,
+        Ok(None) => {
+            return (
+                jar.remove(Cookie::from("ofm_session")),
+                ServerError::BadRequest("session expired, please re-authenticate".into()),
+            )
+                .into_response();
+        }
+        Err(e) => return e.into_response(),
+    };
     {
         let mut cache = state.access_tokens.lock().await;
         cache.insert(session.user_id, access_token.clone());
     }
 
-    let conv_task_ids: Vec<i64> = state
-        .db
-        .query_raw(
-            "SELECT DISTINCT c.task_id FROM conversations c JOIN tasks t ON c.task_id = t.id WHERE t.user_id = $1",
-            hiqlite::params!(session.user_id.to_string()),
-        )
-        .await
-        .map_err(|e| ServerError::Internal(e.to_string()))?
-        .into_iter()
-        .map(|mut row| row.get::<i64>("task_id"))
-        .collect();
-    for task_id in conv_task_ids {
-        let topic = WsTopic {
-            kind: WsTopicKind::Task,
-            id: TopicId(task_id),
-        };
-        let msg = ServerMessage::Event {
-            topic: topic.clone(),
-            event_type: "user_text".to_string(),
-            timestamp: chrono::Utc::now(),
-            payload: serde_json::json!({"text": "agent token refreshed"}),
-            html: Some(
-                r#"<div class="message-user"><div class="content"><p>agent token refreshed</p></div></div>"#.to_string(),
-            ),
-        };
-        state.ws_bus.broadcast(&topic, msg).await;
-    }
-
-    Ok(Json(json!({ "access_token": access_token })))
+    (jar, Json(json!({ "access_token": access_token }))).into_response()
 }
 
 async fn logout(

@@ -16,7 +16,7 @@ use crate::providers::registry;
 use crate::providers::types::{ProviderEvent, ResumeInput};
 use crate::server::ws::message::{ServerMessage, TopicId, WsTopic, WsTopicKind};
 use crate::server::{error::ServerError, state::AppState};
-use crate::services::{auth, session, tasks, transcript};
+use crate::services::{session, tasks, transcript};
 use futures_util::FutureExt;
 use std::panic::AssertUnwindSafe;
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -171,49 +171,22 @@ async fn send_message(
         .ok()
         .map(|w| w.worktree_path)
         .unwrap_or_else(|| "/tmp".to_string());
-    let access_token = {
-        let mut cache = state.access_tokens.lock().await;
-        if let Some(token) = cache.get(&task.user_id).cloned() {
-            token
-        } else if let Some(oidc) = state.oidc_provider.as_ref() {
-            // No cached token — try to find a DB session and refresh
-            let session_id = state
-                .db
-                .query_raw(
-                    "SELECT id FROM sessions WHERE user_id = $1 ORDER BY created_at DESC LIMIT 1",
-                    hiqlite::params!(task.user_id.to_string()),
-                )
-                .await
-                .ok()
-                .and_then(|mut rows| {
-                    rows.first_mut()
-                        .map(|r| r.get::<String>("id"))
-                        .and_then(|id| Uuid::parse_str(&id).ok())
-                });
-            if let Some(sid) = session_id {
-                match auth::refresh_access_token(&state.db, oidc, sid).await {
-                    Ok(token) => {
-                        cache.insert(task.user_id, token.clone());
-                        token
-                    }
-                    Err(e) => {
-                        tracing::warn!(user_id = %task.user_id, "Failed to refresh access token for agent file: {e:?}");
-                        String::new()
-                    }
-                }
-            } else {
-                String::new()
-            }
-        } else {
-            String::new()
-        }
-    };
-    crate::orchestration::write_ofm_agent_json(
-        &cwd,
-        &access_token,
-        &state.config.hostname,
-        state.cfg_port,
-    );
+    let access_token = crate::orchestration::get_or_refresh_token(
+        &state.db,
+        &state.access_tokens,
+        state.oidc_provider.as_ref(),
+        task.user_id,
+    )
+    .await
+    .unwrap_or_default();
+    if !access_token.is_empty() {
+        crate::orchestration::write_ofm_agent_json(
+            &cwd,
+            &access_token,
+            &state.config.hostname,
+            state.cfg_port,
+        );
+    }
 
     // Load transcript and resume the provider
     let mut sessions = state.active_sessions.lock().await;
@@ -258,6 +231,7 @@ async fn send_message(
                     let active_sessions = state.active_sessions.clone();
                     let access_tokens = state.access_tokens.clone();
                     let config = state.config.clone();
+                    let oidc_for_spawn = state.oidc_provider.clone();
                     let s_id = provider_session_id;
                     let c_id = conv_id;
                     let config_root = PathBuf::from(&state.config_root);
@@ -350,6 +324,7 @@ async fn send_message(
                                                     let ws_bus = ws_bus.clone();
                                                     let access_tokens = access_tokens.clone();
                                                     let config = config.clone();
+                                                    let oidc_for_spawn = oidc_for_spawn.clone();
                                                     let task_data = task_data.clone();
                                                     tokio::spawn(async move {
                                                         if let Some(task) = task_data {
@@ -357,7 +332,7 @@ async fn send_message(
                                                                 &db, &task, agent_type,
                                                                 &config_root, &footprint, &archive_root,
                                                                 &active_sessions, &ws_bus,
-                                                                &access_tokens, &config,
+                                                                &access_tokens, &oidc_for_spawn, &config,
                                                             ).await {
                                                                 tracing::warn!("Failed to auto-advance to next agent: {e:?}");
                                                             }
