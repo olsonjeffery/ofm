@@ -3,19 +3,33 @@ pub mod recovery;
 pub mod state_machine;
 
 use std::collections::HashMap;
+#[cfg(unix)]
+use std::os::unix::fs::PermissionsExt;
+use std::panic::AssertUnwindSafe;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 
+use base64::Engine;
 use hiqlite::Client;
 use tokio::sync::Mutex;
 use uuid::Uuid;
 
+use crate::agents::{self, pull_request::PullRequestStatus};
+use crate::config::OfmConfig;
 use crate::db::schema::{AgentType, RunStatus};
 use crate::providers::registry;
+use crate::providers::types::{ProviderEvent, TurnInput};
 use crate::providers::LlmProvider;
 use crate::server::error::ServerError;
+use crate::server::ws::bus::BroadcastBus;
+use crate::server::ws::message::{ServerMessage, TopicId, WsTopic, WsTopicKind};
 use crate::services::tasks;
+use futures_util::FutureExt;
 
 pub const MAX_WORKFLOW_RUNS: i32 = 25;
+
+type DynMap = Arc<Mutex<HashMap<String, Box<dyn LlmProvider>>>>;
+type TokenMap = Arc<Mutex<HashMap<Uuid, String>>>;
 
 pub enum NextAction {
     StartAgent(AgentType),
@@ -74,6 +88,336 @@ pub async fn completion_handler(
         &run.agent_type,
         &config_statuses,
     ))
+}
+
+#[allow(clippy::too_many_arguments)]
+pub fn start_next_agent<'a>(
+    db: &'a Client,
+    task: &'a crate::db::schema::Task,
+    agent_type: AgentType,
+    config_root: &'a std::path::Path,
+    footprint: &'a str,
+    archive_root: &'a str,
+    active_sessions: &'a DynMap,
+    ws_bus: &'a Arc<BroadcastBus>,
+    access_tokens: &'a TokenMap,
+    config: &'a OfmConfig,
+) -> std::pin::Pin<
+    Box<
+        dyn std::future::Future<Output = Result<crate::db::schema::TaskAgentRun, ServerError>>
+            + Send
+            + 'a,
+    >,
+> {
+    Box::pin(async move {
+        let harness_config = match registry::resolve_harness_config(
+            db,
+            &agent_type,
+            Some(&task.user_id),
+            Some(task.project_id),
+        )
+        .await
+        {
+            Ok(cfg) => cfg,
+            Err(e) => {
+                tracing::warn!(task_id = task.id, agent_type = %agent_type, error = %e, "No provider config found, creating blocked run");
+                let run = tasks::create_agent_run_blocked(db, task.id, &agent_type)
+                    .await
+                    .map_err(|e| ServerError::Internal(e.to_string()))?;
+                return Ok(run);
+            }
+        };
+
+        guards::one_running_per_task(db, task.id).await?;
+        guards::iteration_cap(task)?;
+
+        tasks::increment_workflow_run_count(db, task.id)
+            .await
+            .map_err(internal_err)?;
+
+        let model = harness_config
+            .model
+            .as_deref()
+            .unwrap_or("default")
+            .to_string();
+        let effort = harness_config
+            .effort
+            .as_deref()
+            .unwrap_or("balanced")
+            .to_string();
+
+        let session_result = crate::services::session::start_session(
+            db,
+            task.id,
+            &model,
+            &effort,
+            agent_type.clone(),
+        )
+        .await
+        .map_err(|e| ServerError::Internal(e.to_string()))?;
+
+        let mut provider = registry::resolve_provider_for_user(
+            &harness_config,
+            config_root,
+            task.user_id,
+            config.info_log_client_data,
+        )
+        .await
+        .map_err(|e| ServerError::Internal(format!("Failed to resolve provider: {e}")))?;
+
+        let working_dir = std::path::Path::new("/tmp");
+        provider
+            .start(working_dir)
+            .await
+            .map_err(|e| ServerError::Internal(format!("Failed to start provider: {e}")))?;
+
+        let conv_id_str = session_result.conversation_id.to_string();
+
+        let archive = crate::archive::ArchiveRoot::new(std::path::PathBuf::from(archive_root));
+        let worktree = tasks::get_worktree_by_task(db, task.id).await.ok();
+        let cwd = worktree
+            .as_ref()
+            .map(|w| w.worktree_path.clone())
+            .unwrap_or_else(|| "/tmp".to_string());
+
+        let task_str = task.id.to_string();
+        let doc_path = archive.task_doc_path(&task.project_id.to_string(), &task_str);
+
+        let access_token = {
+            let cache = access_tokens.lock().await;
+            cache.get(&task.user_id).cloned().unwrap_or_default()
+        };
+
+        write_ofm_agent_json(&cwd, &access_token, &config.hostname, config.port);
+
+        let context_prompt = archive
+            .build_context_prompt(
+                footprint,
+                task.project_id,
+                task.id,
+                &config.hostname,
+                config.port,
+                std::process::id(),
+            )
+            .ok()
+            .unwrap_or_default();
+
+        let prompt_text = {
+            let phase_prompt = match agent_type {
+                AgentType::Planification => agents::planning::build_planning_prompt(
+                    "",
+                    &doc_path.to_string_lossy(),
+                    &task_str,
+                    "",
+                ),
+                AgentType::Implementation => {
+                    agents::implementation::build_implementation_prompt(&doc_path.to_string_lossy())
+                }
+                AgentType::Review => {
+                    agents::review::build_review_prompt(task.id, &doc_path.to_string_lossy())
+                }
+                AgentType::Refinement => agents::refinement::build_refinement_prompt(
+                    task.id,
+                    &doc_path.to_string_lossy(),
+                ),
+                AgentType::Pr => agents::pull_request::build_pull_request_prompt(
+                    task.id,
+                    &doc_path.to_string_lossy(),
+                    &PullRequestStatus::NoPr,
+                ),
+                _ => String::new(),
+            };
+            [phase_prompt, context_prompt]
+                .into_iter()
+                .filter(|s| !s.is_empty())
+                .collect::<Vec<_>>()
+                .join("\n\n")
+        };
+
+        let turn_input = TurnInput::new(
+            prompt_text.clone(),
+            cwd,
+            model,
+            effort,
+            "auto".to_string(),
+            vec![],
+            String::new(),
+        )
+        .session_id(session_result.session_id.clone());
+
+        match provider.start_turn(turn_input).await {
+            Ok(mut rx) => {
+                active_sessions.lock().await.insert(conv_id_str, provider);
+
+                let db = db.clone();
+                let ws_bus = ws_bus.clone();
+                let active_sessions = active_sessions.clone();
+                let access_tokens = access_tokens.clone();
+                let config = config.clone();
+                let conversation_id = session_result.conversation_id;
+                let task_id = task.id;
+                let mut s_id = session_result.session_id;
+                let prompt_text = prompt_text.clone();
+                let config_root = config_root.to_path_buf();
+                let footprint = footprint.to_string();
+                let archive_root = archive_root.to_string();
+
+                tokio::spawn(async move {
+                    let completed_normally = Arc::new(AtomicBool::new(false));
+
+                    let broadcast_fut = AssertUnwindSafe(async {
+                        loop {
+                            tokio::select! {
+                                event = rx.recv() => {
+                                    let event = match event { Some(e) => e, None => break };
+
+                                    let topic = WsTopic { kind: WsTopicKind::Task, id: TopicId(task_id) };
+
+                                    if let Err(e) = crate::services::transcript::persist_event(&db, &event, &s_id, task_id).await {
+                                        tracing::error!("Failed to persist event: {e}");
+                                        let error_event = ProviderEvent::Error { error: format!("Failed to persist event: {e}"), timestamp: chrono::Utc::now().naive_utc() };
+                                        let (event_type, payload) = error_event.to_ws_event();
+                                        ws_bus.broadcast(&topic, ServerMessage::Event { topic: topic.clone(), event_type, timestamp: chrono::Utc::now(), payload, html: None }).await;
+                                        break;
+                                    }
+
+                                    if let ProviderEvent::SessionStart { session_id } = &event {
+                                        s_id = session_id.clone();
+                                        let _ = db.execute("UPDATE conversations SET provider_session_id = $1 WHERE id = $2", hiqlite::params!(session_id, conversation_id.to_string())).await;
+                                        let prompt_ts = chrono::Utc::now().naive_utc();
+                                        let prompt_event = ProviderEvent::UserText { text: prompt_text.clone(), timestamp: prompt_ts };
+                                        if let Err(e) = crate::services::transcript::persist_event(&db, &prompt_event, &s_id, task_id).await {
+                                            tracing::error!("Failed to persist initial prompt: {e}");
+                                            let error_event = ProviderEvent::Error { error: format!("Failed to persist initial prompt: {e}"), timestamp: chrono::Utc::now().naive_utc() };
+                                            let (event_type, payload) = error_event.to_ws_event();
+                                            ws_bus.broadcast(&topic, ServerMessage::Event { topic: topic.clone(), event_type, timestamp: chrono::Utc::now(), payload, html: None }).await;
+                                            break;
+                                        }
+                                        let prompt_ts_str = prompt_ts.format("%Y-%m-%d %H:%M:%S").to_string();
+                                        ws_bus.broadcast(&topic, ServerMessage::Event { topic: topic.clone(), event_type: "user_text".to_string(), timestamp: chrono::Utc::now(), payload: serde_json::json!({"text": prompt_text, "conversation_id": conversation_id.to_string(), "timestamp": prompt_ts_str}), html: Some(crate::webapp::components::message_stream::render_event(&prompt_event)) }).await;
+                                    }
+
+                                    let (event_type, payload) = event.to_ws_event();
+                                    let is_done = matches!(event, ProviderEvent::Done { .. });
+                                    let rendered = crate::webapp::components::message_stream::render_event(&event);
+                                    ws_bus.broadcast(&topic, ServerMessage::Event { topic: topic.clone(), event_type, timestamp: chrono::Utc::now(), payload, html: if rendered.is_empty() { None } else { Some(rendered) } }).await;
+
+                                    if is_done {
+                                        completed_normally.store(true, Ordering::SeqCst);
+                                        let done_now = chrono::Utc::now().naive_utc().to_string();
+                                        let _ = db.execute("UPDATE conversations SET updated_at = $1 WHERE id = $2", hiqlite::params!(&done_now, conversation_id.to_string())).await;
+                                        match completion_handler(&db, conversation_id, &active_sessions).await {
+                                            Ok(NextAction::StartAgent(agent_type)) => {
+                                                let db = db.clone();
+                                                let config_root = config_root.clone();
+                                                let footprint = footprint.clone();
+                                                let archive_root = archive_root.clone();
+                                                let active_sessions = active_sessions.clone();
+                                                let ws_bus = ws_bus.clone();
+                                                let access_tokens = access_tokens.clone();
+                                                let config = config.clone();
+                                                tokio::spawn(async move {
+                                                    if let Ok(task) = tasks::get_task(&db, task_id).await {
+                                                        if let Err(e) = start_next_agent(&db, &task, agent_type, &config_root, &footprint, &archive_root, &active_sessions, &ws_bus, &access_tokens, &config).await {
+                                                            tracing::warn!("Failed to auto-advance to next agent: {e:?}");
+                                                        }
+                                                    }
+                                                });
+                                            }
+                                            Ok(_) => {}
+                                            Err(e) => tracing::warn!("Error in completion handler: {e:?}"),
+                                        }
+                                        break;
+                                    }
+                                }
+                            }
+                        }
+                    });
+
+                    let result = broadcast_fut.catch_unwind().await;
+                    if let Err(ref panic) = result {
+                        tracing::error!("Broadcast task panicked: {panic:?}");
+                    }
+
+                    if !completed_normally.load(Ordering::SeqCst) {
+                        {
+                            let sessions = active_sessions.lock().await;
+                            if let Some(p) = sessions.get(&conversation_id.to_string()) {
+                                if let Err(e) = p.abort_turn().await {
+                                    tracing::warn!(conversation_id = %conversation_id, "Error aborting provider in broadcast cleanup: {e}");
+                                }
+                            }
+                        }
+                        let _ = db.execute("UPDATE task_agent_runs SET status = 'failed' WHERE conversation_id = $1", hiqlite::params!(conversation_id.to_string())).await;
+                        let topic = WsTopic {
+                            kind: WsTopicKind::Task,
+                            id: TopicId(task_id),
+                        };
+                        let error_event = ProviderEvent::Error {
+                            error: "Agent session ended unexpectedly. Send a message to resume."
+                                .into(),
+                            timestamp: chrono::Utc::now().naive_utc(),
+                        };
+                        ws_bus.broadcast(&topic, ServerMessage::Event { topic: topic.clone(), event_type: "error".to_string(), timestamp: chrono::Utc::now(), payload: serde_json::json!({"error": "Agent session ended unexpectedly. Send a message to resume."}), html: Some(crate::webapp::components::message_stream::render_event(&error_event)) }).await;
+                    }
+                });
+            }
+            Err(e) => {
+                tracing::warn!("Failed to start turn: {e}");
+                active_sessions.lock().await.insert(conv_id_str, provider);
+            }
+        }
+
+        let run = tasks::get_agent_run_by_conversation(db, &session_result.conversation_id)
+            .await
+            .map_err(internal_err)?;
+        Ok(run)
+    })
+}
+
+pub(crate) fn decode_jwt_exp(token: &str) -> Option<i64> {
+    let payload_part = token.split('.').nth(1)?;
+    let decoded = base64::engine::general_purpose::URL_SAFE_NO_PAD
+        .decode(payload_part)
+        .ok()?;
+    let claims: serde_json::Value = serde_json::from_slice(&decoded).ok()?;
+    claims.get("exp")?.as_i64()
+}
+
+pub(crate) fn write_ofm_agent_json(cwd: &str, access_token: &str, hostname: &str, port: u16) {
+    let token_expiration = if access_token.is_empty() {
+        0
+    } else {
+        decode_jwt_exp(access_token).unwrap_or(0)
+    };
+    let agent_vars = serde_json::json!({
+        "agentVars": {
+            "accessToken": access_token,
+            "tokenExpiration": token_expiration,
+            "ofmHost": hostname,
+            "ofmPort": port,
+            "ofmPid": std::process::id(),
+        }
+    });
+    let json_path = std::path::Path::new(cwd).join(".ofm_agent.json");
+    match serde_json::to_string_pretty(&agent_vars) {
+        Ok(json_str) => {
+            if let Err(e) = std::fs::write(&json_path, &json_str) {
+                tracing::warn!(path = %json_path.display(), "Failed to write .ofm_agent.json: {e}");
+            } else {
+                #[cfg(unix)]
+                {
+                    let _ = std::fs::set_permissions(
+                        &json_path,
+                        std::fs::Permissions::from_mode(0o600),
+                    );
+                }
+            }
+        }
+        Err(e) => {
+            tracing::warn!("Failed to serialize .ofm_agent.json: {e}");
+        }
+    }
 }
 
 #[cfg(test)]
@@ -282,5 +626,54 @@ mod tests {
 
         let task = tasks::get_task(&client, task_id).await.unwrap();
         assert!(task.workflow_blocked);
+    }
+
+    #[test]
+    fn test_decode_jwt_exp_valid_token() {
+        // Create a JWT with known exp claim
+        let header = base64::engine::general_purpose::URL_SAFE_NO_PAD.encode("{\"alg\":\"HS256\"}");
+        let payload = base64::engine::general_purpose::URL_SAFE_NO_PAD
+            .encode("{\"exp\":1700000000,\"sub\":\"test\"}");
+        let token = format!("{header}.{payload}.signature");
+        assert_eq!(decode_jwt_exp(&token), Some(1700000000_i64));
+    }
+
+    #[test]
+    fn test_decode_jwt_exp_missing_exp() {
+        let header = base64::engine::general_purpose::URL_SAFE_NO_PAD.encode("{\"alg\":\"HS256\"}");
+        let payload = base64::engine::general_purpose::URL_SAFE_NO_PAD.encode("{\"sub\":\"test\"}");
+        let token = format!("{header}.{payload}.signature");
+        assert_eq!(decode_jwt_exp(&token), None);
+    }
+
+    #[test]
+    fn test_decode_jwt_exp_invalid_token() {
+        assert_eq!(decode_jwt_exp("not-a-jwt"), None);
+    }
+
+    #[test]
+    fn test_decode_jwt_exp_empty_token() {
+        assert_eq!(decode_jwt_exp(""), None);
+    }
+
+    #[test]
+    fn test_ofm_agent_json_structure() {
+        // Validate the JSON structure matches expected schema
+        let agent_vars = serde_json::json!({
+            "agentVars": {
+                "accessToken": "test-token",
+                "tokenExpiration": 1700000000_i64,
+                "ofmHost": "127.0.0.1",
+                "ofmPort": 3183_u16,
+                "ofmPid": 12345_u32,
+            }
+        });
+        let json_str = serde_json::to_string_pretty(&agent_vars).unwrap();
+        let parsed: serde_json::Value = serde_json::from_str(&json_str).unwrap();
+        assert_eq!(parsed["agentVars"]["accessToken"], "test-token");
+        assert_eq!(parsed["agentVars"]["tokenExpiration"], 1700000000);
+        assert_eq!(parsed["agentVars"]["ofmHost"], "127.0.0.1");
+        assert_eq!(parsed["agentVars"]["ofmPort"], 3183);
+        assert_eq!(parsed["agentVars"]["ofmPid"], 12345);
     }
 }

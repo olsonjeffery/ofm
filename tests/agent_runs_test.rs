@@ -86,6 +86,9 @@ async fn setup_app() -> TestApp {
         cookie::Key::generate(),
         user_id,
     );
+    let mut access_tokens = HashMap::new();
+    access_tokens.insert(user_id, "".to_owned());
+
     let state = AppState {
         cfg_port: 0,
 
@@ -101,6 +104,7 @@ async fn setup_app() -> TestApp {
         api_key_pepper: b"test_pepper".to_vec(),
         ws_bus: BroadcastBus::new(),
         config: OfmConfig::default(),
+        access_tokens: Arc::new(Mutex::new(access_tokens)),
     };
 
     let app = server::router(state, auth_layer);
@@ -159,7 +163,7 @@ async fn create_task_seed_with_count(db: &hiqlite::Client, project_id: i64, run_
 }
 
 #[tokio::test]
-async fn test_create_agent_run_201() {
+async fn test_agent_runs_test_create_agent_run_201() {
     let app = setup_app().await;
     let task_id = create_task_seed(&app.db, app.project_id).await;
 
@@ -175,11 +179,11 @@ async fn test_create_agent_run_201() {
     assert_eq!(body["status"], "running");
     assert_eq!(body["task_id"].as_i64().unwrap(), task_id);
     assert_eq!(body["agent_type"], "implementation");
-    assert!(body["id"].as_str().unwrap().len() > 0);
+    assert!(!body["id"].as_str().unwrap().is_empty());
 }
 
 #[tokio::test]
-async fn test_create_agent_run_409_concurrent() {
+async fn test_agent_runs_test_create_agent_run_409_concurrent() {
     let app = setup_app().await;
     let task_id = create_task_seed(&app.db, app.project_id).await;
 
@@ -201,7 +205,7 @@ async fn test_create_agent_run_409_concurrent() {
 }
 
 #[tokio::test]
-async fn test_create_agent_run_404_task_not_found() {
+async fn test_agent_runs_test_create_agent_run_404_task_not_found() {
     let app = setup_app().await;
     let fake_id: i64 = 99999;
 
@@ -216,7 +220,7 @@ async fn test_create_agent_run_404_task_not_found() {
 }
 
 #[tokio::test]
-async fn test_create_agent_run_400_invalid_agent_type() {
+async fn test_agent_runs_test_create_agent_run_400_invalid_agent_type() {
     let app = setup_app().await;
     let task_id = create_task_seed(&app.db, app.project_id).await;
 
@@ -231,7 +235,7 @@ async fn test_create_agent_run_400_invalid_agent_type() {
 }
 
 #[tokio::test]
-async fn test_create_agent_run_409_iteration_cap() {
+async fn test_agent_runs_test_create_agent_run_409_iteration_cap() {
     let app = setup_app().await;
     let task_id = create_task_seed_with_count(&app.db, app.project_id, 25).await;
 
@@ -247,7 +251,7 @@ async fn test_create_agent_run_409_iteration_cap() {
 
 #[tokio::test]
 #[ignore = "This test consistently breaks CI; DO NOT REMOVE IGNORE ATTRIBUTE"]
-async fn test_stop_agent_runs_marks_running_as_failed() {
+async fn test_agent_runs_test_stop_agent_runs_marks_running_as_failed() {
     let app = setup_app().await;
     let task_id = create_task_seed(&app.db, app.project_id).await;
 
@@ -289,7 +293,7 @@ async fn test_stop_agent_runs_marks_running_as_failed() {
 }
 
 #[tokio::test]
-async fn test_stop_agent_runs_no_running_runs() {
+async fn test_agent_runs_test_stop_agent_runs_no_running_runs() {
     let app = setup_app().await;
     let task_id = create_task_seed(&app.db, app.project_id).await;
 
@@ -306,7 +310,7 @@ async fn test_stop_agent_runs_no_running_runs() {
 }
 
 #[tokio::test]
-async fn test_stop_agent_runs_task_not_found() {
+async fn test_agent_runs_test_stop_agent_runs_task_not_found() {
     let app = setup_app().await;
 
     let resp = client()
@@ -318,7 +322,7 @@ async fn test_stop_agent_runs_task_not_found() {
 }
 
 #[tokio::test]
-async fn test_list_agent_runs() {
+async fn test_agent_runs_test_list_agent_runs() -> reqwest::Result<()> {
     let app = setup_app().await;
     let task_id = create_task_seed(&app.db, app.project_id).await;
 
@@ -329,9 +333,10 @@ async fn test_list_agent_runs() {
             .send()
             .await
             .unwrap();
-        assert_eq!(resp.status(), 201);
+        let resp_status = resp.status();
+        let body: serde_json::Value = resp.json().await?;
+        assert_eq!(resp_status, 201, "error resp body: {}", body.to_string());
 
-        let body: serde_json::Value = resp.json().await.unwrap();
         let run_id = Uuid::parse_str(body["id"].as_str().unwrap()).unwrap();
         ofm::services::tasks::mark_agent_run_failed(&app.db, &run_id)
             .await
@@ -347,4 +352,5 @@ async fn test_list_agent_runs() {
     assert_eq!(resp.status(), 200);
     let body: Vec<serde_json::Value> = resp.json().await.unwrap();
     assert_eq!(body.len(), 3);
+    Ok(())
 }

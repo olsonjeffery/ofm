@@ -84,6 +84,24 @@ impl OpenCodeSdkProvider {
         }
     }
 
+    async fn patch_session_directory(&self, client: &OpencodeClient, session_id: &str) {
+        let dir = self.working_dir.lock().unwrap().clone().unwrap_or_default();
+        if !dir.as_os_str().is_empty() {
+            let patch = Session {
+                id: session_id.to_string(),
+                directory: dir.to_string_lossy().to_string(),
+                title: None,
+                model: None,
+                agent: None,
+                created: None,
+                updated: None,
+            };
+            if let Err(e) = client.session.patch(session_id, &patch).await {
+                tracing::warn!("Failed to PATCH session directory: {e}");
+            }
+        }
+    }
+
     fn build_server_config(&self) -> serde_json::Value {
         let mut base = serde_json::json!({
             "provider": {},
@@ -455,6 +473,8 @@ impl LlmProvider for OpenCodeSdkProvider {
 
         *self.session_id.lock().unwrap() = Some(session.id.clone());
 
+        self.patch_session_directory(&client, &session.id).await;
+
         let user_id = self
             .user_id
             .lock()
@@ -531,6 +551,8 @@ impl LlmProvider for OpenCodeSdkProvider {
         let rx = self
             .subscribe_and_spawn(&client, &session_id, user_id)
             .await?;
+
+        self.patch_session_directory(&client, &session_id).await;
 
         let body =
             self.build_prompt_body(&prompt, self.config.model.as_deref().unwrap_or("default"));

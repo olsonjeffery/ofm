@@ -25,5 +25,8 @@ data/
 .ofm/
 .ofm-review/
 
+# OAuth access token written to worktree root for agent sessions
+.ofm_agent.json
+
 # codecov artifacts
 *profraw

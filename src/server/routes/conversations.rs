@@ -16,7 +16,7 @@ use crate::providers::registry;
 use crate::providers::types::{ProviderEvent, ResumeInput};
 use crate::server::ws::message::{ServerMessage, TopicId, WsTopic, WsTopicKind};
 use crate::server::{error::ServerError, state::AppState};
-use crate::services::{session, tasks, transcript};
+use crate::services::{auth, session, tasks, transcript};
 use futures_util::FutureExt;
 use std::panic::AssertUnwindSafe;
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -121,6 +121,11 @@ async fn send_message(
         "Sending message to resume session"
     );
 
+    let _ = state.db.execute(
+        "UPDATE task_agent_runs SET status = 'running', completed_at = NULL WHERE conversation_id = $1 AND status IN ('completed', 'failed')",
+        hiqlite::params!(conv_id.to_string()),
+    ).await;
+
     if body.text.trim().is_empty() {
         return Err(ServerError::BadRequest("message text is required".into()));
     }
@@ -160,6 +165,55 @@ async fn send_message(
         )),
     };
     state.ws_bus.broadcast(&topic, msg).await;
+
+    let cwd = tasks::get_worktree_by_task(&state.db, task_id)
+        .await
+        .ok()
+        .map(|w| w.worktree_path)
+        .unwrap_or_else(|| "/tmp".to_string());
+    let access_token = {
+        let mut cache = state.access_tokens.lock().await;
+        if let Some(token) = cache.get(&task.user_id).cloned() {
+            token
+        } else if let Some(oidc) = state.oidc_provider.as_ref() {
+            // No cached token — try to find a DB session and refresh
+            let session_id = state
+                .db
+                .query_raw(
+                    "SELECT id FROM sessions WHERE user_id = $1 ORDER BY created_at DESC LIMIT 1",
+                    hiqlite::params!(task.user_id.to_string()),
+                )
+                .await
+                .ok()
+                .and_then(|mut rows| {
+                    rows.first_mut()
+                        .map(|r| r.get::<String>("id"))
+                        .and_then(|id| Uuid::parse_str(&id).ok())
+                });
+            if let Some(sid) = session_id {
+                match auth::refresh_access_token(&state.db, oidc, sid).await {
+                    Ok(token) => {
+                        cache.insert(task.user_id, token.clone());
+                        token
+                    }
+                    Err(e) => {
+                        tracing::warn!(user_id = %task.user_id, "Failed to refresh access token for agent file: {e:?}");
+                        String::new()
+                    }
+                }
+            } else {
+                String::new()
+            }
+        } else {
+            String::new()
+        }
+    };
+    crate::orchestration::write_ofm_agent_json(
+        &cwd,
+        &access_token,
+        &state.config.hostname,
+        state.cfg_port,
+    );
 
     // Load transcript and resume the provider
     let mut sessions = state.active_sessions.lock().await;
@@ -202,8 +256,14 @@ async fn send_message(
                     let db = state.db.clone();
                     let ws_bus = state.ws_bus.clone();
                     let active_sessions = state.active_sessions.clone();
+                    let access_tokens = state.access_tokens.clone();
+                    let config = state.config.clone();
                     let s_id = provider_session_id;
                     let c_id = conv_id;
+                    let config_root = PathBuf::from(&state.config_root);
+                    let footprint = state.footprint.clone();
+                    let archive_root = state.archive_root.clone();
+                    let task_data = tasks::get_task(&state.db, task_id).await.ok();
 
                     tokio::spawn(async move {
                         let completed_normally = Arc::new(AtomicBool::new(false));
@@ -278,10 +338,34 @@ async fn send_message(
                                                 "UPDATE conversations SET updated_at = $1 WHERE id = $2",
                                                 hiqlite::params!(&done_now, c_id.to_string()),
                                             ).await;
-                                            if let Err(e) = crate::orchestration::completion_handler(
+                                            match crate::orchestration::completion_handler(
                                                 &db, c_id, &active_sessions
                                             ).await {
-                                                tracing::warn!("Error in completion handler: {e:?}");
+                                                Ok(crate::orchestration::NextAction::StartAgent(agent_type)) => {
+                                                    let db = db.clone();
+                                                    let config_root = config_root.clone();
+                                                    let footprint = footprint.clone();
+                                                    let archive_root = archive_root.clone();
+                                                    let active_sessions = active_sessions.clone();
+                                                    let ws_bus = ws_bus.clone();
+                                                    let access_tokens = access_tokens.clone();
+                                                    let config = config.clone();
+                                                    let task_data = task_data.clone();
+                                                    tokio::spawn(async move {
+                                                        if let Some(task) = task_data {
+                                                            if let Err(e) = crate::orchestration::start_next_agent(
+                                                                &db, &task, agent_type,
+                                                                &config_root, &footprint, &archive_root,
+                                                                &active_sessions, &ws_bus,
+                                                                &access_tokens, &config,
+                                                            ).await {
+                                                                tracing::warn!("Failed to auto-advance to next agent: {e:?}");
+                                                            }
+                                                        }
+                                                    });
+                                                }
+                                                Ok(_) => {}
+                                                Err(e) => tracing::warn!("Error in completion handler: {e:?}"),
                                             }
                                             break;
                                         }

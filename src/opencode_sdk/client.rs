@@ -139,6 +139,26 @@ impl SessionApi {
         resp.json().await.map_err(SdkError::Http)
     }
 
+    pub async fn patch(&self, id: &str, session: &Session) -> Result<Session, SdkError> {
+        let resp = self
+            .0
+            .http_client
+            .patch(self.0.session_url(&format!("/{id}")))
+            .header("Authorization", self.0.auth_header())
+            .json(session)
+            .send()
+            .await
+            .map_err(SdkError::Http)?;
+        let status = resp.status();
+        if !status.is_success() {
+            let body = resp.text().await.unwrap_or_default();
+            return Err(SdkError::Protocol(format!(
+                "PATCH /session/{id} failed: {status} — {body}"
+            )));
+        }
+        resp.json().await.map_err(SdkError::Http)
+    }
+
     pub async fn list(&self) -> Result<Vec<Session>, SdkError> {
         let mut req = self
             .0
@@ -667,6 +687,24 @@ mod tests {
     }
 
     #[test]
+    fn test_session_api_patch_serialization() {
+        let patch = Session {
+            id: "sess1".into(),
+            directory: "/tmp/worktree".into(),
+            title: None,
+            model: None,
+            agent: None,
+            created: None,
+            updated: None,
+        };
+        let json = serde_json::to_value(&patch).unwrap();
+        assert_eq!(json["id"], "sess1");
+        assert_eq!(json["directory"], "/tmp/worktree");
+        // Ensure None fields are omitted (or null with serde default)
+        assert!(json.get("title").is_none() || json["title"].is_null());
+    }
+
+    #[test]
     fn test_opencode_sdk_session_abort_url() {
         let client = OpencodeClient::new("http://127.0.0.1:3183", None, false);
         let url = client.session.0.session_url("/sess1/abort");
@@ -731,7 +769,7 @@ mod tests {
 
             let client = reqwest::Client::new();
             let resp = client
-                .get(&format!("http://127.0.0.1:{port}/event"))
+                .get(format!("http://127.0.0.1:{port}/event"))
                 .send()
                 .await
                 .unwrap();

@@ -123,9 +123,8 @@ async fn test_opencode_sdk_server_shutdown_releases_port() {
     )
     .await;
 
-    match probe {
-        Ok(Ok(_)) => panic!("port {port} should be free after shutdown"),
-        _ => {} // connection refused or timed out = port is free
+    if let Ok(Ok(_)) = probe {
+        panic!("port {port} should be free after shutdown");
     }
 }
 
@@ -383,7 +382,7 @@ async fn test_opencode_sdk_unstructured_conversation() {
     tracing::info!("unstructured conversation received events: {received}");
 
     let _ = conv.abort().await;
-    let _ = client.session.delete(&conv.session_id()).await;
+    let _ = client.session.delete(conv.session_id()).await;
     server.shutdown().await.unwrap();
 }
 
@@ -411,7 +410,7 @@ async fn test_opencode_sdk_session_resume() {
     tracing::info!("session resume turn 2 received events: {turn2}");
 
     let _ = conv.abort().await;
-    let _ = client.session.delete(&conv.session_id()).await;
+    let _ = client.session.delete(conv.session_id()).await;
     server.shutdown().await.unwrap();
 }
 
@@ -435,9 +434,8 @@ async fn test_opencode_sdk_process_leak() {
         tokio::net::TcpStream::connect(&addr),
     )
     .await;
-    match probe {
-        Ok(Ok(_)) => panic!("port {port} should be free after shutdown"),
-        _ => {} // port is free or timed out
+    if let Ok(Ok(_)) = probe {
+        panic!("port {port} should be free after shutdown");
     }
 
     // Verify no orphan processes — we can't know the exact PID from outside
@@ -483,7 +481,7 @@ async fn test_opencode_sdk_multi_session_lifecycle() {
     // Clean up all conversations
     for conv in &conversations {
         let _ = conv.abort().await;
-        let _ = client.session.delete(&conv.session_id()).await;
+        let _ = client.session.delete(conv.session_id()).await;
     }
 
     server.shutdown().await.unwrap();

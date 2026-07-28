@@ -221,6 +221,61 @@ equivalent exists at `src/`, prefer that citation.
   or line ranges. Treat each as "here is how we solved it," not "copy this."
   **Prefer `src/` citations over `reference/` wherever Rust equivalents exist.**
 
+## OAuth Access Token Injection
+
+The `AppState` contains an in-memory `access_tokens: Arc<Mutex<HashMap<Uuid, String>>>`
+cache that maps `user_id → OAuth access_token`. Tokens are populated on every
+refresh (both the background startup task and the `POST /api/auth/refresh` handler).
+
+When an agent run is started, the user's access token is written as part of a structured
+`.ofm_agent.json` file in the worktree root (`0600` permissions) rather than embedded in
+the prompt text. The JSON structure contains `accessToken`, `tokenExpiration` (Unix timestamp
+from the JWT `exp` claim), `ofmHost`, `ofmPort`, and `ofmPid`. The context prompt references
+this file and instructs agents to parse it with `jq` and derive the task ID from the worktree
+directory name. This avoids sending the credential to the LLM provider and prevents it from
+being persisted in the conversation transcript.
+
+Agents call the OFM server's `/api/tasks/{task_id}/agent-flags/{action}` endpoints via:
+```bash
+HOST=$(jq -r '.agentVars.ofmHost' .ofm_agent.json)
+PORT=$(jq -r '.agentVars.ofmPort' .ofm_agent.json)
+ACCESS_TOKEN=$(jq -r '.agentVars.accessToken' .ofm_agent.json)
+TASK_ID=$(basename "$(pwd)" | sed 's/task-//')
+curl -X POST "http://$HOST:$PORT/api/tasks/$TASK_ID/agent-flags/{action}" \
+  -H "Authorization: Bearer $ACCESS_TOKEN"
+```
+
+The `.ofm_agent.json` file (.ofm_token previously) is listed in `.gitignore` so it is never checked into version control.
+
+### Session Directory Patching
+
+When `start_next_agent()` in `src/orchestration/mod.rs` creates a new agent session via the opencode SDK,
+the provider now also PATCHes the session to set its `directory` property to the task worktree path.
+This is done inside `OpenCodeSdkProvider::start_turn()` and `OpenCodeSdkProvider::resume_turn()` in
+`src/providers/opencode_sdk_provider.rs`, using the new `SessionApi::patch()` method added to
+`src/opencode_sdk/client.rs`. The PATCH ensures the opencode server knows the correct working directory
+for the task.
+
+### Token Expiration Awareness
+
+The `.ofm_agent.json` file includes a `tokenExpiration` field derived from the JWT access token's `exp`
+claim (decoded server-side with no signature verification). The context prompt instructs agents to check
+this expiration before making API calls. If the token has expired or the agent receives HTTP 401 responses,
+it should end its turn and ask the user to resume with a nudge to create a fresh file.
+
+## Auto-Advancement Wiring
+
+When an agent run completes and the `completion_handler` returns `StartAgent`,
+the broadcast task now calls `start_next_agent()` to automatically start the next
+phase agent. This wires the implementation → review → PR pipeline end-to-end
+without requiring the agent to call any completion endpoint (though curl-based
+flag endpoints remain available for `complete-plan`, `complete-workflow`,
+`block-workflow`, and `complete-pr`).
+
+The shared `start_next_agent()` function in `src/orchestration/mod.rs` contains
+all agent-run startup logic and is used by both the HTTP handler and
+auto-advancement callers.
+
 ## Non-goals
 
 - Supporting any coding harness beyond the built-in OpenCode provider. That is

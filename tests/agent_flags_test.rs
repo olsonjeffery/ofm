@@ -77,6 +77,7 @@ async fn setup_app() -> TestApp {
         api_key_pepper: b"test_pepper".to_vec(),
         ws_bus: BroadcastBus::new(),
         config: OfmConfig::default(),
+        access_tokens: Arc::new(Mutex::new(HashMap::new())),
     };
 
     let app = server::router(state, auth_layer);

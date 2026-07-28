@@ -59,6 +59,7 @@ async fn make_state_with_ports(raft_port: u16, api_port: u16) -> (AppState, Auth
         api_key_pepper: b"test_pepper".to_vec(),
         ws_bus: BroadcastBus::new(),
         config: OfmConfig::default(),
+        access_tokens: Arc::new(Mutex::new(HashMap::new())),
     };
     (state, auth_layer, tmp)
 }
@@ -106,18 +107,14 @@ async fn test_server_with_env_configured_hiqlite_ports() {
 
     // Health endpoint
     let resp = client
-        .get(&format!("http://{}/health", addr))
+        .get(format!("http://{}/health", addr))
         .send()
         .await
         .unwrap();
     assert_eq!(resp.status(), 200);
 
     // GET / should redirect to /webapp
-    let resp = client
-        .get(&format!("http://{}", addr))
-        .send()
-        .await
-        .unwrap();
+    let resp = client.get(format!("http://{}", addr)).send().await.unwrap();
     assert!(
         resp.status().is_redirection(),
         "expected redirect, got {}",
@@ -126,7 +123,7 @@ async fn test_server_with_env_configured_hiqlite_ports() {
 
     // GET /webapp should serve the shell page
     let resp = client
-        .get(&format!("http://{}/webapp", addr))
+        .get(format!("http://{}/webapp", addr))
         .send()
         .await
         .unwrap();
@@ -152,7 +149,7 @@ async fn test_hiqlite_ports_do_not_use_zero() {
 
     let client = reqwest::Client::new();
     let resp = client
-        .get(&format!("http://{}/health", addr))
+        .get(format!("http://{}/health", addr))
         .send()
         .await
         .unwrap();

@@ -154,3 +154,7 @@ Every task implementation **must**:
 6. **Leave a `FIXME` comment** in the doc for the next human pass if a citation needs updating but the implementation agent cannot verify correctness (e.g., line numbers).
 
 Documentation drift is unacceptable. If the implementation changes something the spec describes, update the spec in the same task.
+
+## Clippy Cleanliness
+
+All clippy warnings must be fixed before committing — regardless of whether they were introduced by the current task or pre-existing. Technical debt accrual is not permitted. Run `cargo clippy --all-targets` and fix every warning before the Commit Ritual Workflow.

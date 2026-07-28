@@ -71,6 +71,7 @@ async fn make_state_with_auth() -> (AppState, AuthLayer, String, tempfile::TempD
         api_key_pepper: b"test_pepper".to_vec(),
         ws_bus: BroadcastBus::new(),
         config: OfmConfig::default(),
+        access_tokens: Arc::new(Mutex::new(HashMap::new())),
     };
 
     (state, auth_layer, api_key_str, tmp)
@@ -115,6 +116,7 @@ async fn make_state_no_auth() -> (AppState, AuthLayer, tempfile::TempDir) {
         api_key_pepper: b"test_pepper".to_vec(),
         ws_bus: BroadcastBus::new(),
         config: OfmConfig::default(),
+        access_tokens: Arc::new(Mutex::new(HashMap::new())),
     };
     (state, auth_layer, tmp)
 }
@@ -365,6 +367,9 @@ async fn test_settings_config_body_user_isolation() {
         api_key_pepper: b"test_pepper".to_vec(),
         ws_bus: BroadcastBus::new(),
         config: OfmConfig::default(),
+        access_tokens: std::sync::Arc::new(tokio::sync::Mutex::new(
+            std::collections::HashMap::new(),
+        )),
     };
 
     let base_url = spawn_app(state, auth_layer).await;

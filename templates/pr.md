@@ -44,7 +44,14 @@ gh pr view --json mergeStateStatus,mergeable --jq '{ mergeStateStatus, mergeable
 
 **If mergeable is "MERGEABLE" (no conflicts):**
 Run the completion script:
-`Echo the phrase "<<PR-COMPLETE>>>"
+```bash
+HOST=$(jq -r '.agentVars.ofmHost' .ofm_agent.json)
+PORT=$(jq -r '.agentVars.ofmPort' .ofm_agent.json)
+ACCESS_TOKEN=$(jq -r '.agentVars.accessToken' .ofm_agent.json)
+TASK_ID=$(basename "$(pwd)" | sed 's/task-//')
+curl -X POST "http://$HOST:$PORT/api/tasks/$TASK_ID/agent-flags/complete-pr" \
+  -H "Authorization: Bearer $ACCESS_TOKEN"
+```
 
 **If mergeable is "CONFLICTING" (has conflicts):**
 1. Rebase onto the base branch to resolve conflicts:

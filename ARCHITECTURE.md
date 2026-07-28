@@ -106,6 +106,58 @@ The workspace has a single member crate (`ofm` binary) defined inline.
 7. **OpenCode provider sessions**: Spawn `opencode serve` subprocesses per turn, manage lifecycle, stream events.
 8. **Shutdown**: Graceful shutdown — stop accepting connections, kill subprocesses, stop rauthy, close DB.
 
+## OAuth Access Token Cache
+
+The `AppState` struct in `src/server/state.rs` now contains an in-memory access token cache:
+```rust
+pub access_tokens: Arc<Mutex<HashMap<Uuid, String>>>,
+```
+
+Maps `user_id → OAuth access_token`. Populated on every token refresh:
+- In the background startup task in `src/main.rs` (refreshes all stored sessions)
+- In the `POST /api/auth/refresh` handler in `src/server/routes/auth.rs`
+
+On successful refresh, the token is stored and a WS broadcast `"agent token refreshed"` is sent to all active conversation topics for that user.
+
+## OFM Context Prompt Injection
+
+The `build_context_prompt()` in `src/archive/mod.rs` appends an "OFM Environment" section to every agent turn's prompt. This section describes the `.ofm_agent.json` file structure and provides `jq`-based instructions for reading connection details and deriving the task ID from the worktree directory name. The OAuth access token is **not** embedded in the prompt text — instead it is written to `.ofm_agent.json` in the worktree root (with `0600` permissions) as part of a structured JSON object. Agents parse the file with `jq` and pass the access token in `Authorization: Bearer` headers when calling the `agent-flags` endpoints.
+
+The `.ofm_agent.json` file has the following schema:
+```json
+{
+  "agentVars": {
+    "accessToken": "...",
+    "tokenExpiration": 1234567890,
+    "ofmHost": "127.0.0.1",
+    "ofmPort": 3183,
+    "ofmPid": 12345
+  }
+}
+```
+
+### Session Directory Patching
+
+The `SessionApi::patch()` method in `src/opencode_sdk/client.rs` sends a `PATCH /session/{id}`
+request with a partial `Session` JSON body containing at least the `directory` field. This is
+called from `OpenCodeSdkProvider::start_turn()` after session creation and from
+`OpenCodeSdkProvider::resume_turn()` after re-subscribing, ensuring the opencode server knows
+the task worktree path as the session's working directory.
+
+### File Recreation on Resume
+
+In `src/server/routes/conversations.rs`, the `send_message()` handler recreates `.ofm_agent.json`
+with a fresh access token and expiration timestamp before resuming a provider turn. This ensures
+the agent always receives up-to-date credentials, even if the token expired between turns.
+
+## Shared Agent Run Starting
+
+The `start_next_agent()` function in `src/orchestration/mod.rs` consolidates all agent-run startup logic (config resolution, guard checks, session creation, provider startup, context-prompt building, turn initiation, and broadcast task spawning). Both the HTTP handler (`post_create_agent_run` in `src/server/routes/agent_runs.rs`) and auto-advancement callers use this shared function.
+
+## Auto-Advancement Wiring
+
+When an agent run completes and `completion_handler` returns `NextAction::StartAgent`, the broadcast task (in both `start_next_agent()` and the conversations broadcast task in `send_message()`) spawns a new task that calls `start_next_agent()` for the next phase. This wires auto-advancement through the implementation → review → PR pipeline without requiring the agent to signal completion via echo or curl (though curl-based flag endpoints are still available for specific phases like `complete-workflow` and `block-workflow`).
+
 ## WebSocket Real-Time Bus
 
 The server maintains a WebSocket hub for live UI updates. Clients subscribe to per-task channels. Events (streaming deltas, agent-run status changes, task-blocked signals) are broadcast to subscribers in real time. Subscription management handles reconnection and scoped interest sets (only the tasks currently visible on screen).

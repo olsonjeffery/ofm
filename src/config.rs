@@ -343,28 +343,24 @@ fn generate_yaml_template(cfg: &OfmConfigFile) -> String {
     use std::fmt::Write;
     let mut s = String::new();
 
-    writeln!(s, "# OFM configuration file").ok();
-    writeln!(
+    let _ = writeln!(s, "# OFM configuration file");
+    let _ = writeln!(
         s,
         "# Environment variables always take precedence over values in this file."
-    )
-    .ok();
-    writeln!(
+    );
+    let _ = writeln!(
         s,
         "# This file was auto-generated. You can edit it; changes are preserved on restart."
-    )
-    .ok();
-    writeln!(s, "#").ok();
-    writeln!(
+    );
+    let _ = writeln!(s, "#");
+    let _ = writeln!(
         s,
         "# Secrets (API_KEY, RAFT_SECRET, API_SECRET, OIDC_CLIENT_SECRET) are never"
-    )
-    .ok();
-    writeln!(
+    );
+    let _ = writeln!(
         s,
         "# written to this file \u{2014} they must be set via environment variables."
-    )
-    .ok();
+    );
     s.push('\n');
 
     let emit = |s: &mut String,
@@ -374,18 +370,18 @@ fn generate_yaml_template(cfg: &OfmConfigFile) -> String {
                 default: &str,
                 value: Option<String>,
                 optional: bool| {
-        writeln!(s, "  # {comment}").ok();
-        writeln!(s, "  # Env: {env} (default: {default})").ok();
+        let _ = writeln!(s, "  # {comment}");
+        let _ = writeln!(s, "  # Env: {env} (default: {default})");
         if let Some(v) = value {
-            writeln!(s, "  {key}: {v}").ok();
+            let _ = writeln!(s, "  {key}: {v}");
         } else if optional {
-            writeln!(s, "  # {key}: {default}").ok();
+            let _ = writeln!(s, "  # {key}: {default}");
         } else {
-            writeln!(s, "  {key}: {default}").ok();
+            let _ = writeln!(s, "  {key}: {default}");
         }
     };
 
-    writeln!(s, "server:").ok();
+    let _ = writeln!(s, "server:");
     emit(
         &mut s,
         "HOSTNAME",
@@ -416,7 +412,7 @@ fn generate_yaml_template(cfg: &OfmConfigFile) -> String {
         false,
     );
 
-    writeln!(s, "auth:").ok();
+    let _ = writeln!(s, "auth:");
     emit(
         &mut s,
         "OIDC_ISSUER_URL",
@@ -454,7 +450,7 @@ fn generate_yaml_template(cfg: &OfmConfigFile) -> String {
         true,
     );
 
-    writeln!(s, "raft:").ok();
+    let _ = writeln!(s, "raft:");
     emit(
         &mut s,
         "HIQLITE_RAFT_PORT",
@@ -478,7 +474,7 @@ fn generate_yaml_template(cfg: &OfmConfigFile) -> String {
         false,
     );
 
-    writeln!(s, "rauthy:").ok();
+    let _ = writeln!(s, "rauthy:");
     emit(
         &mut s,
         "RAUTHY_ENABLED",
@@ -762,7 +758,7 @@ rauthy:
         assert_eq!(cfg.url, "http://0.0.0.0:5500");
         assert_eq!(cfg.hiqlite_raft_port, 9100);
         assert_eq!(cfg.hiqlite_api_port, 9200);
-        assert_eq!(cfg.rauthy_enabled, true);
+        assert!(cfg.rauthy_enabled);
         assert_eq!(cfg.rauthy_port, 4444);
 
         clear_ofm_env();

@@ -50,6 +50,7 @@ async fn setup_app() -> (String, tokio::task::JoinHandle<()>) {
         api_key_pepper: b"test_pepper".to_vec(),
         ws_bus: BroadcastBus::new(),
         config: OfmConfig::default(),
+        access_tokens: Arc::new(Mutex::new(HashMap::new())),
     };
 
     let app = server::router(state, auth_layer);
@@ -143,7 +144,7 @@ async fn test_list_projects() {
 
     assert_eq!(resp.status(), 200);
     let body: serde_json::Value = resp.json().await.unwrap();
-    assert!(body.as_array().unwrap().len() >= 1);
+    assert!(!body.as_array().unwrap().is_empty());
     assert_eq!(body[0]["name"], "test-project");
 }
 

@@ -9,7 +9,15 @@ Read this file in full before doing anything else. Your output written to `{{tas
 
 **Original Request preservation:** Before you overwrite `{{taskDocPath}}`, you MUST first read it. Whatever it contains today is the user's original request as they wrote it (plus, if it's empty, the task title). The `## Original Request` section of the new plan MUST quote that pre-existing content verbatim as a Markdown blockquote — do not paraphrase, summarize, or omit any part of it.
 
-When the plan is written and verified, echo the following: `<<PLANNING-COMPLETE>>`
+When the plan is written and verified, signal completion by calling:
+```bash
+HOST=$(jq -r '.agentVars.ofmHost' .ofm_agent.json)
+PORT=$(jq -r '.agentVars.ofmPort' .ofm_agent.json)
+ACCESS_TOKEN=$(jq -r '.agentVars.accessToken' .ofm_agent.json)
+TASK_ID=$(basename "$(pwd)" | sed 's/task-//')
+curl -X POST "http://$HOST:$PORT/api/tasks/$TASK_ID/agent-flags/complete-plan" \
+  -H "Authorization: Bearer $ACCESS_TOKEN"
+```
 
 **Important**: Only YOU (the top-level agent) write the plan file and run the completion action. Sub-agents are for research only.
 
@@ -75,4 +83,12 @@ After writing, READ the file back to verify it was written correctly.
 
 ### Step 4: Complete (master agent — you)
 
-Only after verifying the file contents, you can stop work by echoing "<<PLANNING-COMPLETE>>" and then ceasing all further action.
+Only after verifying the file contents, signal completion and stop work:
+```bash
+HOST=$(jq -r '.agentVars.ofmHost' .ofm_agent.json)
+PORT=$(jq -r '.agentVars.ofmPort' .ofm_agent.json)
+ACCESS_TOKEN=$(jq -r '.agentVars.accessToken' .ofm_agent.json)
+TASK_ID=$(basename "$(pwd)" | sed 's/task-//')
+curl -X POST "http://$HOST:$PORT/api/tasks/$TASK_ID/agent-flags/complete-plan" \
+  -H "Authorization: Bearer $ACCESS_TOKEN"
+```

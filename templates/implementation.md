@@ -18,4 +18,4 @@ After implementing, check if ALL To-Do items (both Implementation and Testing se
 
 Start implementing now.
 
-When you have reached the end of your work, summarize your changes in a succinct list and then echo "<<IMPLEMENTATION-COMPLETE>>" and then cease all further action.
+When you have reached the end of your work, summarize your changes in a succinct list and then cease all further action. The orchestration engine will auto-advance to the review phase.

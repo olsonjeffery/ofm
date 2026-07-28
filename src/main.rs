@@ -18,9 +18,11 @@ mod rauthy;
 
 use clap::Parser;
 use server::ws::bus::BroadcastBus;
+use server::ws::message::{ServerMessage, TopicId, WsTopic, WsTopicKind};
 use std::collections::HashMap;
 use std::sync::Arc;
 use tokio::sync::Mutex;
+use uuid::Uuid;
 
 mod server;
 mod services;
@@ -280,6 +282,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         (auth_layer, oidc_provider)
     };
 
+    let access_tokens: Arc<Mutex<HashMap<Uuid, String>>> = Arc::new(Mutex::new(HashMap::new()));
+
     let state = server::state::AppState {
         db: client.clone(),
         default_user_id,
@@ -295,6 +299,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         cfg_port: cfg.port,
         ws_bus: BroadcastBus::new(),
         config: cfg.clone(),
+        access_tokens,
     };
     tracing::info!("Auth middleware: enabled");
 
@@ -302,6 +307,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     if let Some(ref oidc) = state.oidc_provider {
         let db = state.db.clone();
         let oidc = oidc.clone();
+        let access_tokens = state.access_tokens.clone();
+        let ws_bus = state.ws_bus.clone();
         tokio::spawn(async move {
             let mut rows = match db
                 .query_raw("SELECT * FROM sessions", hiqlite::params!())
@@ -321,10 +328,46 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             for session in sessions {
                 let db = db.clone();
                 let oidc = oidc.clone();
+                let access_tokens = access_tokens.clone();
+                let ws_bus = ws_bus.clone();
+                let user_id = session.user_id;
                 tokio::spawn(async move {
                     match crate::services::auth::refresh_access_token(&db, &oidc, session.id).await
                     {
-                        Ok(_) => {
+                        Ok(token) => {
+                            {
+                                let mut cache = access_tokens.lock().await;
+                                cache.insert(user_id, token);
+                            }
+                            let conv_task_ids: Vec<i64> = match db
+                                .query_raw(
+                                    "SELECT DISTINCT c.task_id FROM conversations c JOIN tasks t ON c.task_id = t.id WHERE t.user_id = $1",
+                                    hiqlite::params!(user_id.to_string()),
+                                )
+                                .await
+                            {
+                                Ok(rows) => rows.into_iter().map(|mut row| row.get::<i64>("task_id")).collect(),
+                                Err(e) => {
+                                    tracing::warn!("Failed to query conversations for token refresh broadcast: {e}");
+                                    Vec::new()
+                                }
+                            };
+                            for task_id in conv_task_ids {
+                                let topic = WsTopic {
+                                    kind: WsTopicKind::Task,
+                                    id: TopicId(task_id),
+                                };
+                                let msg = ServerMessage::Event {
+                                    topic: topic.clone(),
+                                    event_type: "user_text".to_string(),
+                                    timestamp: chrono::Utc::now(),
+                                    payload: serde_json::json!({"text": "agent token refreshed"}),
+                                    html: Some(
+                                        r#"<div class="message-user"><div class="content"><p>agent token refreshed</p></div></div>"#.to_string(),
+                                    ),
+                                };
+                                ws_bus.broadcast(&topic, msg).await;
+                            }
                             tracing::info!("Startup refresh succeeded for session {}", session.id)
                         }
                         Err(e) => {

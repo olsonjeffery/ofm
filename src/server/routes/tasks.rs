@@ -189,7 +189,14 @@ async fn get_task(
             .read_task_doc(&doc_path)
             .map_err(|e| ServerError::Internal(e.to_string()))?;
         let ctx = archive
-            .build_context_prompt(&state.footprint, w.project_id, w.task_id)
+            .build_context_prompt(
+                &state.footprint,
+                w.project_id,
+                w.task_id,
+                &state.config.hostname,
+                state.cfg_port,
+                std::process::id(),
+            )
             .map_err(|e| ServerError::Internal(e.to_string()))?;
         (
             (!doc.is_empty()).then_some(doc),

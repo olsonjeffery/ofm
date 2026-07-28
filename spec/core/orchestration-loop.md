@@ -48,14 +48,12 @@ job is to decide, each time an agent finishes, what should happen next.
 Four agents make up the core pipeline. Each has its own spec; here is only what
 the loop needs to know about them.
 
-NOTE: DO NOT RESTORE `ofm agent` INSTRUCTIONS IN CODE; DO NOT IMPLEMENT IT
-
 | Agent | Does | Signals "done" by (completion handler) |
 |---|---|---|
-| **planning** (`planification`) | Turns the task doc + original request into a structured plan, written back into the doc. Touches nothing but the doc. | Running `complete-plan.ts` (`bottega`) OR `ofm agent complete-plan <task-id>` → sets `planification_complete`. |
-| **implementation** | Implements the unchecked to-do items from the plan, inside the worktree. | Ending its turn. No script — completion is implicit. |
-| **review** | Verifies the implementation against the plan, runs tests, and decides READY / NEEDS_WORK / BLOCKED. | READY → `complete-workflow.ts` (`bottega`) OR `ofm agent complete-workflow <task-id>` (sets `workflow_complete`). BLOCKED → `block-workflow.ts` (`bottega`) OR `ofm agent block-workflow <task-id>` (sets `workflow_blocked`). NEEDS_WORK → no script, just ends. |
-| **PR** (`pr`) | Opens the pull request, drives CI to green, resolves conflicts. Terminal. | Running `complete-pr.ts` (`bottega`) OR `ofm agent complete-pr` → sets `pr_agent_complete`. |
+| **planning** (`planification`) | Turns the task doc + original request into a structured plan, written back into the doc. Touches nothing but the doc. | `curl POST .../agent-flags/complete-plan` → sets `planification_complete`. |
+| **implementation** | Implements the unchecked to-do items from the plan, inside the worktree. | Ending its turn — the completion handler auto-advances to review. |
+| **review** | Verifies the implementation against the plan, runs tests, and decides READY / NEEDS_WORK / BLOCKED. | READY → `curl POST .../agent-flags/complete-workflow` (sets `workflow_complete`). BLOCKED → `curl POST .../agent-flags/block-workflow` (sets `workflow_blocked`). NEEDS_WORK → no script, just ends → auto-advances back to implementation. |
+| **PR** (`pr`) | Opens the pull request, drives CI to green, resolves conflicts. Terminal. | `curl POST .../agent-flags/complete-pr` → sets `pr_agent_complete`. |
 
 The agent-type enum in the schema also contains `refinement` and `yolo`. Those
 are **extras** ([`refinement-agent.md`](../extra/refinement-agent.md),
@@ -140,23 +138,36 @@ model's prose for a verdict. Instead, agents are instructed (in their prompts)
 to run small CLI scripts that flip task flags, and the completion handler reads
 those flags after the turn ends.
 
-NOTE: DO NOT RESTORE `ofm agent` INSTRUCTIONS IN CODE; DO NOT IMPLEMENT IT
-
-| Script | Flag set | Run by |
+| Endpoint | Flag set | Called by |
 |---|---|---|
-| [`reference/scripts/complete-plan.ts`](../reference/scripts/complete-plan.ts) (`bottega`) OR `ofm agent complete-plan <task-id>` | `planification_complete` | planning agent |
-| [`reference/scripts/complete-workflow.ts`](../reference/scripts/complete-workflow.ts) (`bottega`) OR `ofm agent complete-workflow <task-id>` | `workflow_complete` | review agent, on READY |
-| [`reference/scripts/block-workflow.ts`](../reference/scripts/block-workflow.ts) (`bottega`) OR `ofm agent block-workflow <task-id>` | `workflow_blocked` | review agent, on BLOCKED |
-| [`reference/scripts/complete-pr.ts`](../reference/scripts/complete-pr.ts) (`bottega`) OR `ofm agent complete-pr <task-id>` | `pr_agent_complete` | PR agent |
+| `POST /api/tasks/{task_id}/agent-flags/complete-plan` | `planification_complete` | planning agent (via curl) |
+| `POST /api/tasks/{task_id}/agent-flags/complete-workflow` | `workflow_complete` | review agent, on READY (via curl) |
+| `POST /api/tasks/{task_id}/agent-flags/block-workflow` | `workflow_blocked` | review agent, on BLOCKED (via curl) |
+| `POST /api/tasks/{task_id}/agent-flags/complete-pr` | `pr_agent_complete` | PR agent (via curl) |
 
-NOTE: DO NOT RESTORE `ofm agent` INSTRUCTIONS IN CODE; DO NOT IMPLEMENT IT
+The `build_context_prompt()` function includes instructions for agents to read
+connection details from `.ofm_agent.json` in the worktree root and derive their task ID
+from the directory name. The OAuth access token is **not** embedded in the prompt — it is
+written as part of a structured `.ofm_agent.json` in the worktree root (`0600` permissions)
+to avoid leaking the credential to the LLM provider or the conversation transcript. Agents
+must ensure `.ofm_agent.json` is in the project's `.gitignore` — the token is short-lived but
+must never be committed.
 
-Each script is tiny: validate the task id, flip one boolean, exit. They run
-inside the agent's own sandbox (`bottega`; the agent has shell access) OR
-via the `ofm agent <action> <task-id>` command against the same
-database the server uses. Build them as standalone entry points in `ofm`
-an agent can invoke as `ofm agent <action> <task-id>`; the agent should
-have access to the `ofm` bin.
+Additionally, each time a turn is started or resumed, `OpenCodeSdkProvider` PATCHes the
+opencode session to set its `directory` to the task worktree path via the new
+`SessionApi::patch()` method in `src/opencode_sdk/client.rs`. This ensures the opencode
+server knows the correct working directory for the task.
+
+The payload is a single boolean flip against the task row. The agent has shell
+access (through the coding harness) and calls these endpoints with:
+```bash
+HOST=$(jq -r '.agentVars.ofmHost' .ofm_agent.json)
+PORT=$(jq -r '.agentVars.ofmPort' .ofm_agent.json)
+ACCESS_TOKEN=$(jq -r '.agentVars.accessToken' .ofm_agent.json)
+TASK_ID=$(basename "$(pwd)" | sed 's/task-//')
+curl -X POST "http://$HOST:$PORT/api/tasks/$TASK_ID/agent-flags/{action}" \
+  -H "Authorization: Bearer $ACCESS_TOKEN"
+```
 
 The payoff: the orchestrator stays dumb and robust. It does not need to
 understand what an agent decided — it only reads four booleans.

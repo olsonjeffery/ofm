@@ -116,11 +116,15 @@ impl ArchiveRoot {
             .join(format!("task-{task_id}.md"))
     }
 
+    #[allow(clippy::too_many_arguments)]
     pub fn build_context_prompt(
         &self,
         ofm_footprint_path: &str,
         project_id: i64,
         task_id: i64,
+        _ofm_host: &str,
+        _ofm_port: u16,
+        _ofm_pid: u32,
     ) -> Result<String, Box<dyn std::error::Error>> {
         let proj_str = project_id.to_string();
         let task_str = task_id.to_string();
@@ -246,6 +250,64 @@ When running the project's test suite:
         );
         sections.push(testing);
 
+        // OFM Environment section
+        let ofm_env = format!(
+            r#"
+## OFM Environment
+
+A JSON file at `{worktree}/.ofm_agent.json` contains connection details for the OFM server:
+
+| Field | Description |
+|-------|-------------|
+| `agentVars.accessToken` | OAuth access token for `Authorization: Bearer` headers |
+| `agentVars.tokenExpiration` | Token expiration as a Unix timestamp |
+| `agentVars.ofmHost` | OFM server hostname |
+| `agentVars.ofmPort` | OFM server port |
+| `agentVars.ofmPid` | OFM server PID — **NEVER kill this process** |
+
+**Important:** Ensure `.ofm_agent.json` is listed in the project's `.gitignore`. The token
+is short-lived but should never be committed to version control.
+
+### Deriving the Task ID
+
+The `OFM_TASK_ID` is **not** stored in the file. Derive it from the worktree directory name:
+```bash
+TASK_ID=$(basename "$(pwd)" | sed 's/task-//')
+```
+
+### Token Expiration
+
+The `tokenExpiration` field contains the Unix timestamp when the access token expires.
+Before making API calls, check if the current Unix time exceeds this value. If the token
+has expired or you receive HTTP 401 Unauthorized responses, end your turn with a message
+asking the user to "Resume the turn with any nudge message to create a fresh
+`.ofm_agent.json` so I can continue working."
+
+### Calling OFM Agent Flag Endpoints
+
+Read values from `.ofm_agent.json` before invoking endpoints:
+```bash
+HOST=$(jq -r '.agentVars.ofmHost' .ofm_agent.json)
+PORT=$(jq -r '.agentVars.ofmPort' .ofm_agent.json)
+ACCESS_TOKEN=$(jq -r '.agentVars.accessToken' .ofm_agent.json)
+TASK_ID=$(basename "$(pwd)" | sed 's/task-//')
+curl -X POST "http://$HOST:$PORT/api/tasks/$TASK_ID/agent-flags/{{action}}" \
+  -H "Authorization: Bearer $ACCESS_TOKEN"
+```
+
+### Available Agent Flag Endpoints
+
+| Action | Endpoint | When to Call |
+|--------|----------|-------------|
+| Complete Plan | `POST .../agent-flags/complete-plan` | When planning is done and plan doc is written |
+| Complete Workflow | `POST .../agent-flags/complete-workflow` | When review passes and feature is READY |
+| Block Workflow | `POST .../agent-flags/block-workflow` | When review is BLOCKED (needs user input) |
+| Complete PR | `POST .../agent-flags/complete-pr` | When PR is created and CI passes |
+"#,
+            worktree = worktree_path.display(),
+        );
+        sections.push(ofm_env);
+
         Ok(sections.join("\n\n---\n\n"))
     }
 }
@@ -351,13 +413,23 @@ mod tests {
         let dir = tempfile::TempDir::new().unwrap();
         let root = ArchiveRoot::new(dir.path().to_path_buf());
 
-        let prompt = root.build_context_prompt("/foo", 1, 42).unwrap();
+        let prompt = root
+            .build_context_prompt("/foo", 1, 42, "127.0.0.1", 3183, 12345)
+            .unwrap();
         assert!(prompt.contains("Task Plan File"));
         assert!(prompt.contains("task-42.md"));
         assert!(prompt.contains("Testing Configuration"));
         assert!(prompt.contains("**Task ID:** 42"));
         assert!(prompt.contains("**Dev Server Port:** 3142"));
         assert!(prompt.contains("---"));
+        assert!(prompt.contains("OFM Environment"));
+        assert!(prompt.contains(".ofm_agent.json"));
+        assert!(prompt.contains("jq -r '.agentVars.ofmHost'"));
+        assert!(prompt.contains("basename"));
+        assert!(prompt.contains("complete-plan"));
+        assert!(prompt.contains("complete-workflow"));
+        assert!(prompt.contains("block-workflow"));
+        assert!(prompt.contains("complete-pr"));
     }
 
     #[test]
@@ -365,8 +437,115 @@ mod tests {
         let dir = tempfile::TempDir::new().unwrap();
         let root = ArchiveRoot::new(dir.path().to_path_buf());
 
-        let prompt = root.build_context_prompt("/foo", 1, 1).unwrap();
+        let prompt = root
+            .build_context_prompt("/foo", 1, 1, "127.0.0.1", 3183, 12345)
+            .unwrap();
         assert!(!prompt.contains("Input Files"));
+    }
+
+    #[test]
+    fn test_build_context_prompt_contains_ofm_env() {
+        let dir = tempfile::TempDir::new().unwrap();
+        let root = ArchiveRoot::new(dir.path().to_path_buf());
+
+        let prompt = root
+            .build_context_prompt("/foo", 1, 7, "127.0.0.1", 3115, 99999)
+            .unwrap();
+        assert!(prompt.contains(".ofm_agent.json"));
+        assert!(prompt.contains("agentVars.accessToken"));
+        assert!(prompt.contains("agentVars.tokenExpiration"));
+        assert!(prompt.contains("agentVars.ofmPid"));
+        assert!(prompt.contains("NEVER kill this process"));
+        assert!(prompt.contains("Authorization: Bearer"));
+        assert!(prompt.contains("tokenExpiration"));
+        assert!(prompt.contains("basename"));
+        assert!(!prompt.contains("$OFM_HOST"));
+        assert!(!prompt.contains("$OFM_PORT"));
+        assert!(!prompt.contains("$OFM_TASK_ID"));
+        assert!(!prompt.contains(".ofm_token"));
+    }
+
+    #[test]
+    fn test_templates_no_stale_ofm_token_refs() {
+        let template_dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("templates");
+        for entry in std::fs::read_dir(&template_dir).unwrap() {
+            let entry = entry.unwrap();
+            let content = std::fs::read_to_string(entry.path()).unwrap();
+            assert!(
+                !content.contains(".ofm_token"),
+                "{} contains .ofm_token",
+                entry.path().display()
+            );
+            assert!(
+                !content.contains("$OFM_HOST"),
+                "{} contains $OFM_HOST",
+                entry.path().display()
+            );
+            assert!(
+                !content.contains("$OFM_PORT"),
+                "{} contains $OFM_PORT",
+                entry.path().display()
+            );
+            assert!(
+                !content.contains("$OFM_TASK_ID"),
+                "{} contains $OFM_TASK_ID",
+                entry.path().display()
+            );
+        }
+    }
+
+    #[test]
+    fn test_templates_contain_jq_and_basename() {
+        let template_dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("templates");
+        let curl_templates = ["planification.md", "review.md", "pr.md"];
+        for name in &curl_templates {
+            let content = std::fs::read_to_string(template_dir.join(name)).unwrap();
+            assert!(
+                content.contains("jq -r '.agentVars.ofmHost'"),
+                "{} missing ofmHost jq",
+                name
+            );
+            assert!(
+                content.contains("jq -r '.agentVars.ofmPort'"),
+                "{} missing ofmPort jq",
+                name
+            );
+            assert!(
+                content.contains("jq -r '.agentVars.accessToken'"),
+                "{} missing accessToken jq",
+                name
+            );
+            assert!(
+                content.contains(r#"basename "$(pwd)" | sed 's/task-//'"#),
+                "{} missing basename derivation",
+                name
+            );
+        }
+    }
+
+    #[test]
+    fn test_templates_implementation_no_curl() {
+        let impl_path = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("templates")
+            .join("implementation.md");
+        let content = std::fs::read_to_string(&impl_path).unwrap();
+        // Should not contain any curl or .ofm_token references
+        assert!(!content.contains("curl"));
+        assert!(!content.contains(".ofm_token"));
+    }
+
+    #[test]
+    fn test_gitignore_contains_ofm_agent_json() {
+        let gitignore_path = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join(".gitignore");
+        let content = std::fs::read_to_string(&gitignore_path).unwrap();
+        assert!(
+            content.contains(".ofm_agent.json"),
+            ".gitignore must contain .ofm_agent.json"
+        );
+        assert!(
+            !content.contains(".ofm_token"),
+            ".gitignore must not contain .ofm_token"
+        );
     }
 
     #[test]

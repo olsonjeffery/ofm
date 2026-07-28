@@ -87,7 +87,7 @@ mod tests {
         };
         let json = serde_json::to_string(&msg).unwrap();
         let deserialized: ClientMessage = serde_json::from_str(&json).unwrap();
-        assert_eq!(json.contains("\"type\":\"subscribe\""), true);
+        assert!(json.contains("\"type\":\"subscribe\""));
         match deserialized {
             ClientMessage::Subscribe { topics, since } => {
                 assert_eq!(topics.len(), 1);
