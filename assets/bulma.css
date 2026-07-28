@@ -7406,7 +7406,7 @@ button.tag:active,
   --bulma-card-color: var(--bulma-text);
   --bulma-card-background-color: var(--bulma-scheme-main);
   --bulma-card-shadow: var(--bulma-shadow);
-  --bulma-card-radius: 0.75rem;
+  --bulma-card-radius: var(--bulma-radius-large);
   --bulma-card-header-background-color: transparent;
   --bulma-card-header-color: var(--bulma-text-strong);
   --bulma-card-header-padding: 0.75rem 1rem;

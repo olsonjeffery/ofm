@@ -1,24 +1,24 @@
 use leptos::prelude::*;
 
-use crate::db::schema::{Project, Task};
-use crate::webapp::components::task_card::TaskCard;
+use crate::db::schema::Project;
+use crate::webapp::components::task_card::{TaskCard, TaskCardData};
 
-fn tasks_for_status(tasks: &[Task], status: &str) -> Vec<Task> {
+fn tasks_for_status(tasks: &[TaskCardData], status: &str) -> Vec<TaskCardData> {
     tasks
         .iter()
-        .filter(|t| t.status == status)
+        .filter(|t| t.task.status == status)
         .cloned()
         .collect()
 }
 
 #[component]
-pub fn BoardPage(project: Project, tasks: Vec<Task>) -> impl IntoView {
+pub fn BoardPage(project: Project, tasks: Vec<TaskCardData>) -> impl IntoView {
     let pending = tasks_for_status(&tasks, "pending");
     let in_progress = tasks_for_status(&tasks, "in_progress");
     let in_review = tasks_for_status(&tasks, "in_review");
     let completed = tasks_for_status(&tasks, "completed");
 
-    let render_column = |label: &str, color_class: &str, items: Vec<Task>, status: &str| {
+    let render_column = |label: &str, color_class: &str, items: Vec<TaskCardData>, status: &str| {
         view! {
             <div class="column" data-status={status.to_string()}>
                 <div class={format!("box {}", color_class)}>
@@ -28,8 +28,8 @@ pub fn BoardPage(project: Project, tasks: Vec<Task>) -> impl IntoView {
                     view! { <p class="has-text-grey is-size-7" style="padding: 0.5rem;">"No tasks"</p> }.into_any()
                 } else {
                     view! {
-                        {items.into_iter().map(|task| {
-                            view! { <TaskCard task /> }
+                        {items.into_iter().map(|td| {
+                            view! { <TaskCard data=td /> }
                         }).collect::<Vec<_>>()}
                     }.into_any()
                 }}
@@ -117,15 +117,9 @@ pub fn BoardPage(project: Project, tasks: Vec<Task>) -> impl IntoView {
                 });
                 // Drag-and-drop task cards via dragula
                 var containers=Array.from(document.querySelectorAll('.columns>.column[data-status]'));
-                var statusConfig={
-                    'pending':{label:'Pending',badgeClass:'is-light'},
-                    'in_progress':{label:'In Progress',badgeClass:'is-info is-light'},
-                    'in_review':{label:'In Review',badgeClass:'is-warning is-light'},
-                    'completed':{label:'Completed',badgeClass:'is-success is-light'}
-                };
                 var drake=dragula(containers,{
                     moves:function(el,source,handle,sibling){
-                        return el.tagName==='A'&&el.classList.contains('box')&&!handle.closest('[data-task-delete]');
+                        return el.tagName==='A'&&el.classList.contains('card')&&!handle.closest('[data-task-delete]');
                     }
                 });
                 drake.on('drop',function(el,target,source,sibling){
@@ -144,11 +138,6 @@ pub fn BoardPage(project: Project, tasks: Vec<Task>) -> impl IntoView {
                         body:JSON.stringify({status:newStatus})
                     }).then(function(r){
                         if(r.ok){
-                            var badge=el.querySelector('.tag');
-                            if(badge){
-                                var cfg=statusConfig[newStatus];
-                                if(cfg){badge.textContent=cfg.label;badge.className='tag '+cfg.badgeClass;}
-                            }
                             updateColumnCount(target);
                             updateColumnCount(source);
                         }else{
@@ -157,7 +146,7 @@ pub fn BoardPage(project: Project, tasks: Vec<Task>) -> impl IntoView {
                     }).catch(revertDrag);
                 });
                 function updateColumnCount(col){
-                    var cards=col.querySelectorAll('a.box');
+                    var cards=col.querySelectorAll('a.card');
                     var count=cards.length;
                     var title=col.querySelector('h3.title');
                     if(title){
@@ -188,6 +177,7 @@ pub fn BoardPage(project: Project, tasks: Vec<Task>) -> impl IntoView {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::db::schema::Task;
     use chrono::NaiveDateTime;
 
     fn make_project() -> Project {
@@ -221,6 +211,14 @@ mod tests {
         }
     }
 
+    fn make_data(status: &str) -> TaskCardData {
+        TaskCardData {
+            task: make_task(status),
+            agent_types_run: vec![],
+            running_agent: None,
+        }
+    }
+
     #[test]
     fn test_board_renders_four_columns() {
         let project = make_project();
@@ -238,10 +236,10 @@ mod tests {
     fn test_board_tasks_grouped_correctly() {
         let project = make_project();
         let tasks = vec![
-            make_task("pending"),
-            make_task("pending"),
-            make_task("in_progress"),
-            make_task("completed"),
+            make_data("pending"),
+            make_data("pending"),
+            make_data("in_progress"),
+            make_data("completed"),
         ];
         let html = leptos::view! { <BoardPage project tasks /> }.to_html();
         assert!(html.contains("Pending (2)"));

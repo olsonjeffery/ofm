@@ -24,6 +24,7 @@ use crate::services;
 use crate::services::{session, transcript};
 use crate::webapp::components::breadcrumb::{breadcrumb_registry, BreadcrumbItem};
 use crate::webapp::components::project_card::TaskCounts;
+use crate::webapp::components::task_card::TaskCardData;
 
 pub fn webapp_routes() -> Router<AppState> {
     Router::new()
@@ -121,11 +122,11 @@ async fn onboarding_handler(State(state): State<AppState>, auth: AuthUser) -> Ht
         }
     };
 
-    let git_name = user.git_name.unwrap_or_default();
-    let git_email = user.git_email.unwrap_or_default();
-    let is_technical = user.is_technical;
-
-    let form_html = pages::onboarding::render_onboarding_form(git_name, git_email, is_technical);
+    let form_html = pages::onboarding::render_onboarding_form(
+        user.git_name.unwrap_or_default(),
+        user.git_email.unwrap_or_default(),
+        user.is_technical,
+    );
     Html(render_shell(&form_html, Some(user_json), Vec::new()))
 }
 
@@ -189,11 +190,29 @@ async fn board_handler(
     let tasks = services::tasks::list_tasks(&state.db, project_id)
         .await
         .map_err(|e| ServerError::Internal(e.to_string()))?;
+
+    let run_summary = services::tasks::get_agent_run_summary_for_project(&state.db, project_id)
+        .await
+        .unwrap_or_default();
+
+    let task_data: Vec<TaskCardData> = tasks
+        .into_iter()
+        .map(|t| {
+            let (agent_types_run, running_agent) =
+                run_summary.get(&t.id).cloned().unwrap_or_default();
+            TaskCardData {
+                task: t,
+                agent_types_run,
+                running_agent,
+            }
+        })
+        .collect();
+
     let breadcrumbs = vec![
         breadcrumb_registry::all_projects(),
         breadcrumb_registry::project(&project.name, project.id),
     ];
-    let page_html = leptos::view! { <pages::board::BoardPage project tasks /> }.to_html();
+    let page_html = leptos::view! { <pages::board::BoardPage project tasks=task_data /> }.to_html();
     Ok(Html(render_shell(&page_html, Some(user_json), breadcrumbs)))
 }
 
@@ -260,7 +279,7 @@ async fn chat_handler(
         return Err(ServerError::NotFound("Project not found".into()));
     }
 
-    let _task = services::tasks::get_task(&state.db, task_id)
+    let task = services::tasks::get_task(&state.db, task_id)
         .await
         .map_err(|_| ServerError::NotFound("Task not found".into()))?;
 
@@ -282,7 +301,7 @@ async fn chat_handler(
     let breadcrumbs = vec![
         breadcrumb_registry::all_projects(),
         breadcrumb_registry::project(&project.name, project.id),
-        breadcrumb_registry::task(&_task.title, project.id, _task.id),
+        breadcrumb_registry::task(&task.title, project.id, task.id),
         breadcrumb_registry::chat(),
     ];
     let page_html = leptos::view! {
@@ -343,10 +362,6 @@ async fn chat_handler_with_conv(
     let agent_run = services::tasks::get_agent_run_by_conversation(&state.db, &conversation_id)
         .await
         .ok();
-    let breadcrumb_icon = agent_run
-        .as_ref()
-        .map(|r| r.agent_type.icon())
-        .unwrap_or("chat");
 
     let conv_name = conv.name.clone().unwrap_or_else(|| conv.model.clone());
 
@@ -359,19 +374,19 @@ async fn chat_handler_with_conv(
             project.id,
             task.id,
             conversation_id,
-            Some(breadcrumb_icon),
+            agent_run.as_ref().map(|r| r.agent_type.icon()),
         ),
     ];
     let page_html = leptos::view! {
-        <pages::chat::ChatPage
-            _project_id=project_id
-            task_id
-            active_conversation_id=Some(conversation_id)
-            initial_messages=messages
-            conversation_name=Some(conv_name)
-            current_run=current_run
-            conversation_created_at=Some(conv.created_at)
-        />
+    <pages::chat::ChatPage
+        _project_id=project_id
+        task_id
+        active_conversation_id=Some(conversation_id)
+        initial_messages=messages
+        conversation_name=Some(conv_name)
+        current_run
+        conversation_created_at=Some(conv.created_at)
+    />
     }
     .to_html();
     Ok(Html(render_shell(&page_html, Some(user_json), breadcrumbs)))

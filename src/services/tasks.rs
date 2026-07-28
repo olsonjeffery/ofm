@@ -1,3 +1,5 @@
+use std::collections::HashMap;
+
 use crate::db::schema::{
     AgentType, Conversation, ConversationWithRun, RunStatus, Task, TaskAgentRun, Worktree,
 };
@@ -212,6 +214,51 @@ pub async fn get_agent_run_by_conversation(
             hiqlite::params!(conversation_id.to_string()),
         )
         .await
+}
+
+pub async fn get_agent_run_summary_for_project(
+    client: &Client,
+    project_id: i64,
+) -> Result<HashMap<i64, (Vec<AgentType>, Option<AgentType>)>, hiqlite::Error> {
+    let distinct_rows = client
+        .query_raw(
+            "SELECT DISTINCT task_id, agent_type FROM task_agent_runs WHERE task_id IN (SELECT id FROM tasks WHERE project_id = $1)",
+            hiqlite::params!(project_id),
+        )
+        .await?;
+
+    let mut agent_types: HashMap<i64, Vec<AgentType>> = HashMap::new();
+    for mut row in distinct_rows {
+        let task_id: i64 = row.get("task_id");
+        let agent_type_str: String = row.get("agent_type");
+        if let Ok(at) = agent_type_str.parse::<AgentType>() {
+            agent_types.entry(task_id).or_default().push(at);
+        }
+    }
+
+    let running_rows = client
+        .query_raw(
+            "SELECT task_id, agent_type FROM task_agent_runs WHERE task_id IN (SELECT id FROM tasks WHERE project_id = $1) AND status = 'running'",
+            hiqlite::params!(project_id),
+        )
+        .await?;
+
+    let mut result: HashMap<i64, (Vec<AgentType>, Option<AgentType>)> = agent_types
+        .into_iter()
+        .map(|(id, types)| (id, (types, None)))
+        .collect();
+    for mut row in running_rows {
+        let task_id: i64 = row.get("task_id");
+        let agent_type_str: String = row.get("agent_type");
+        if let Ok(at) = agent_type_str.parse::<AgentType>() {
+            result
+                .entry(task_id)
+                .or_insert_with(|| (Vec::new(), None))
+                .1 = Some(at);
+        }
+    }
+
+    Ok(result)
 }
 
 pub async fn get_running_agent_for_task(

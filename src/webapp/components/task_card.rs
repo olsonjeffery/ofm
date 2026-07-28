@@ -1,46 +1,67 @@
-use crate::db::schema::Task;
+use crate::db::schema::{AgentType, Task};
 use leptos::prelude::*;
 
-fn status_badge_class(status: &str) -> &'static str {
-    match status {
-        "pending" => "is-light",
-        "in_progress" => "is-info is-light",
-        "in_review" => "is-warning is-light",
-        "completed" => "is-success is-light",
-        _ => "is-light",
-    }
+#[derive(Clone)]
+pub struct TaskCardData {
+    pub task: Task,
+    pub agent_types_run: Vec<AgentType>,
+    pub running_agent: Option<AgentType>,
 }
 
-fn status_label(status: &str) -> &'static str {
-    match status {
-        "pending" => "Pending",
-        "in_progress" => "In Progress",
-        "in_review" => "In Review",
-        "completed" => "Completed",
-        _ => "Unknown",
+const CANONICAL_PHASE_ORDER: &[AgentType] = &[
+    AgentType::Planification,
+    AgentType::Implementation,
+    AgentType::Review,
+    AgentType::Refinement,
+    AgentType::Pr,
+];
+
+fn phase_color(at: &AgentType) -> &'static str {
+    match at {
+        AgentType::Planification => "var(--bulma-info)",
+        AgentType::Implementation => "var(--bulma-purple)",
+        AgentType::Review => "var(--bulma-primary)",
+        AgentType::Refinement => "var(--bulma-danger)",
+        AgentType::Pr => "var(--bulma-success)",
+        _ => "var(--bulma-grey-dark)",
     }
 }
 
 #[component]
-pub fn TaskCard(task: Task) -> impl IntoView {
-    let badge_class = status_badge_class(&task.status);
-    let label = status_label(&task.status);
-    let created = task.created_at.format("%Y-%m-%d").to_string();
-
+pub fn TaskCard(data: TaskCardData) -> impl IntoView {
+    let created = data.task.created_at.format("%Y-%m-%d").to_string();
     view! {
-        <a href={format!("/webapp/projects/{}/tasks/{}", task.project_id, task.id)} class="box" style="display:block" data-task-id={task.id.to_string()}>
-            <p class="title is-6">{task.title.clone()}</p>
-            <div class="level">
-                <div class="level-left">
-                    <span class={format!("tag {}", badge_class)}>{label}</span>
+        <a href={format!("/webapp/projects/{}/tasks/{}", data.task.project_id, data.task.id)} class="card" style="display:block" data-task-id={data.task.id.to_string()}>
+            <div class="card-header">
+                <p class="card-header-title">{data.task.title.clone()}</p>
+            </div>
+            <div class="card-content" style="padding:0.5rem">
+                <div class="level is-mobile" style="margin-bottom:0">
+                    <div class="level-left">
+                        {CANONICAL_PHASE_ORDER.iter().filter(|at| data.agent_types_run.contains(at)).map(|at| {
+                            let icon = at.icon();
+                            let color = phase_color(at);
+                            let pulse = matches!(&data.running_agent, Some(r) if r == at);
+                            let pulse_class = if pulse { "is-pulse" } else { "" };
+                            view! {
+                                <span class={format!("icon is-small task-card-icon {}", pulse_class)} style={format!("color:{};margin:0.15rem", color)}>
+                                    <i class={format!("mdi mdi-{}", icon)}></i>
+                                </span>
+                            }
+                        }).collect::<Vec<_>>()}
+                    </div>
+                </div>
+            </div>
+            <div class="card-footer">
+                <div class="card-footer-item" style="justify-content:flex-start;border-right:none">
                     <small class="has-text-grey">{created}</small>
                 </div>
-                <div class="level-right">
+                <div class="card-footer-item" style="justify-content:flex-end">
                     <button
                         class="button is-small is-danger is-outlined"
                         data-task-delete=""
-                        data-task-id={task.id.to_string()}
-                        data-project-id={task.project_id.to_string()}
+                        data-task-id={data.task.id.to_string()}
+                        data-project-id={data.task.project_id.to_string()}
                         title="Delete task"
                     >
                         <span class="icon is-small"><i class="mdi mdi-trash-can"></i></span>
@@ -76,36 +97,33 @@ mod tests {
         }
     }
 
-    #[test]
-    fn test_task_card_renders_title_and_status() {
-        let task = make_task("pending");
-        let html = leptos::view! { <TaskCard task /> }.to_html();
-        assert!(html.contains("Test Task"));
-        assert!(html.contains("Pending"));
-        assert!(html.contains("2024-06-01"));
-        assert!(html.contains("is-light"));
-    }
-
-    #[test]
-    fn test_task_card_status_badges() {
-        let statuses = [
-            ("pending", "is-light", "Pending"),
-            ("in_progress", "is-info is-light", "In Progress"),
-            ("in_review", "is-warning is-light", "In Review"),
-            ("completed", "is-success is-light", "Completed"),
-        ];
-        for (status, expected_class, expected_label) in &statuses {
-            let task = make_task(status);
-            let html = leptos::view! { <TaskCard task /> }.to_html();
-            assert!(html.contains(expected_label), "label mismatch for {status}");
-            assert!(html.contains(expected_class), "class mismatch for {status}");
+    fn make_data(
+        status: &str,
+        agent_types: Vec<AgentType>,
+        running: Option<AgentType>,
+    ) -> TaskCardData {
+        TaskCardData {
+            task: make_task(status),
+            agent_types_run: agent_types,
+            running_agent: running,
         }
     }
 
     #[test]
+    fn test_task_card_renders_title_and_date() {
+        let data = make_data("pending", vec![], None);
+        let html = leptos::view! { <TaskCard data /> }.to_html();
+        assert!(html.contains("Test Task"));
+        assert!(html.contains("2024-06-01"));
+        assert!(html.contains(r#"class="card""#));
+        assert!(html.contains("card-header-title"));
+        assert!(html.contains("card-footer"));
+    }
+
+    #[test]
     fn test_task_card_has_delete_button() {
-        let task = make_task("pending");
-        let html = leptos::view! { <TaskCard task /> }.to_html();
+        let data = make_data("pending", vec![], None);
+        let html = leptos::view! { <TaskCard data /> }.to_html();
         assert!(html.contains("data-task-delete"));
         assert!(html.contains("mdi-trash-can"));
         assert!(html.contains("data-task-id=\"1\""));
@@ -114,8 +132,47 @@ mod tests {
 
     #[test]
     fn test_task_card_root_has_data_task_id() {
-        let task = make_task("pending");
-        let html = leptos::view! { <TaskCard task /> }.to_html();
+        let data = make_data("pending", vec![], None);
+        let html = leptos::view! { <TaskCard data /> }.to_html();
         assert!(html.contains(r#"data-task-id="1""#));
+        assert!(html.contains(r#"class="card""#));
+        assert!(!html.contains(r#"class="box""#));
+    }
+
+    #[test]
+    fn test_task_card_phase_icons() {
+        let data = make_data(
+            "pending",
+            vec![AgentType::Planification, AgentType::Implementation],
+            None,
+        );
+        let html = leptos::view! { <TaskCard data /> }.to_html();
+        assert!(html.contains("mdi-file-document-outline"));
+        assert!(html.contains("mdi-code-tags"));
+        assert!(!html.contains("mdi-checkbox-marked-circle-outline"));
+        assert!(!html.contains("mdi-creation-outline"));
+        assert!(!html.contains("mdi-source-branch-plus"));
+        assert!(html.contains("var(--bulma-info)"));
+        assert!(html.contains("var(--bulma-purple)"));
+    }
+
+    #[test]
+    fn test_task_card_pulse() {
+        let data = make_data(
+            "pending",
+            vec![AgentType::Planification, AgentType::Implementation],
+            Some(AgentType::Implementation),
+        );
+        let html = leptos::view! { <TaskCard data /> }.to_html();
+        assert!(html.contains("is-pulse"));
+        assert!(html.contains("mdi-code-tags"));
+        assert!(html.contains("mdi-file-document-outline"));
+    }
+
+    #[test]
+    fn test_task_card_no_pulse_when_not_running() {
+        let data = make_data("pending", vec![AgentType::Planification], None);
+        let html = leptos::view! { <TaskCard data /> }.to_html();
+        assert!(!html.contains("is-pulse"));
     }
 }

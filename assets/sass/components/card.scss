@@ -6,7 +6,7 @@
 $card-color: cv.getVar("text") !default;
 $card-background-color: cv.getVar("scheme-main") !default;
 $card-shadow: cv.getVar("shadow") !default;
-$card-radius: 0.75rem !default;
+$card-radius: cv.getVar("radius-large") !default;
 
 $card-header-background-color: transparent !default;
 $card-header-color: cv.getVar("text-strong") !default;
