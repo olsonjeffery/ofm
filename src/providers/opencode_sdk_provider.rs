@@ -204,7 +204,7 @@ impl OpenCodeSdkProvider {
             refresh_ticker.tick().await; // skip the first immediate tick
 
             tracing::info!(session_id = %s_id, "Event reader task started");
-            loop {
+            'reader: loop {
                 tokio::select! {
                     result = stream.next() => {
                         match result {
@@ -214,7 +214,7 @@ impl OpenCodeSdkProvider {
                                     event = ?global.payload,
                                     "SDK event received"
                                 );
-                                if let Some(provider_event) =
+                                for provider_event in
                                     map_sdk_event_to_provider_event(&global, &s_id)
                                 {
                                     if tx.send(provider_event).await.is_err() {
@@ -222,7 +222,7 @@ impl OpenCodeSdkProvider {
                                             session_id = %s_id,
                                             "Event channel closed by receiver, exiting reader task"
                                         );
-                                        break;
+                                        break 'reader;
                                     }
                                 }
                             }
@@ -274,104 +274,109 @@ fn deep_merge(base: &mut serde_json::Value, overlay: &serde_json::Value) {
     }
 }
 
-fn map_sdk_event_to_provider_event(
-    global: &GlobalEvent,
-    session_id: &str,
-) -> Option<ProviderEvent> {
+fn map_sdk_event_to_provider_event(global: &GlobalEvent, session_id: &str) -> Vec<ProviderEvent> {
     match &global.payload {
         Event::MessagePartUpdated(data) => {
             if data.session_id != *session_id {
-                return None;
+                return Vec::new();
             }
             match &data.part {
-                Part::Text(t) => Some(ProviderEvent::TextChunk {
-                    delta: data.delta.clone().unwrap_or_else(|| t.text.clone()),
-                }),
+                Part::Text(t) => {
+                    let text = t.text.trim().to_string();
+                    if text.is_empty() {
+                        Vec::new()
+                    } else {
+                        vec![ProviderEvent::Text {
+                            text,
+                            timestamp: chrono::Utc::now().naive_utc(),
+                        }]
+                    }
+                }
                 Part::Reasoning(r) => {
                     let text = r.text.trim().to_string();
                     if text.is_empty() {
-                        return None;
+                        return Vec::new();
                     }
-                    Some(ProviderEvent::Thinking {
+                    vec![ProviderEvent::Thinking {
                         thinking: text,
                         timestamp: chrono::Utc::now().naive_utc(),
-                    })
+                    }]
                 }
                 Part::Tool(tool_part) => match &tool_part.state {
-                    ToolState::Running(_) => Some(ProviderEvent::ToolUse {
+                    ToolState::Running(_) => vec![ProviderEvent::ToolUse {
                         tool_name: tool_part.tool.clone(),
                         tool_use_id: Some(tool_part.call_id.clone()),
                         input: tool_part.input.clone().unwrap_or(serde_json::Value::Null),
                         message_id: data.message_id.clone(),
                         timestamp: chrono::Utc::now().naive_utc(),
-                    }),
+                    }],
                     ToolState::Completed(state) => {
                         let output = state.output.trim().to_string();
                         if output == "null" || output.is_empty() {
-                            return None;
+                            return Vec::new();
                         }
-                        Some(ProviderEvent::ToolResult {
+                        vec![ProviderEvent::ToolResult {
                             tool_use_id: Some(tool_part.call_id.clone()),
                             result: output,
                             message_id: data.message_id.clone(),
                             timestamp: chrono::Utc::now().naive_utc(),
-                        })
+                        }]
                     }
-                    ToolState::Error(state) => Some(ProviderEvent::Error {
+                    ToolState::Error(state) => vec![ProviderEvent::Error {
                         error: state.error.clone(),
                         timestamp: chrono::Utc::now().naive_utc(),
-                    }),
-                    ToolState::Pending(_) => None,
+                    }],
+                    ToolState::Pending(_) => Vec::new(),
                 },
-                _ => None,
+                _ => Vec::new(),
             }
         }
         Event::SessionStatus(data) => {
             if data.session_id != *session_id {
-                return None;
+                return Vec::new();
             }
             match data.status.status_type.as_str() {
-                "error" => Some(ProviderEvent::Error {
+                "error" => vec![ProviderEvent::Error {
                     error: "session error".into(),
                     timestamp: chrono::Utc::now().naive_utc(),
-                }),
-                "idle" => Some(ProviderEvent::Done {
+                }],
+                "idle" => vec![ProviderEvent::Done {
                     data: serde_json::json!({}),
                     timestamp: chrono::Utc::now().naive_utc(),
-                }),
-                _ => None,
+                }],
+                _ => Vec::new(),
             }
         }
         Event::SessionIdle(data) => {
             if data.session_id != *session_id {
-                return None;
+                return Vec::new();
             }
-            Some(ProviderEvent::Done {
+            vec![ProviderEvent::Done {
                 data: serde_json::json!({}),
                 timestamp: chrono::Utc::now().naive_utc(),
-            })
+            }]
         }
         Event::SessionError(data) => {
             if data.session_id != *session_id {
-                return None;
+                return Vec::new();
             }
-            Some(ProviderEvent::Error {
+            vec![ProviderEvent::Error {
                 error: data.error_message(),
                 timestamp: chrono::Utc::now().naive_utc(),
-            })
+            }]
         }
-        Event::ServerConnected(_) => Some(ProviderEvent::Ready),
-        Event::ServerHeartbeat(_) => None,
-        Event::PluginAdded(_) => None,
-        Event::ReferenceUpdated(_) => None,
-        Event::IntegrationUpdated(_) => None,
-        Event::CatalogUpdated(_) => None,
-        Event::MessagePartDelta(_) => None,
+        Event::ServerConnected(_) => vec![ProviderEvent::Ready],
+        Event::ServerHeartbeat(_) => Vec::new(),
+        Event::PluginAdded(_) => Vec::new(),
+        Event::ReferenceUpdated(_) => Vec::new(),
+        Event::IntegrationUpdated(_) => Vec::new(),
+        Event::CatalogUpdated(_) => Vec::new(),
+        Event::MessagePartDelta(_) => Vec::new(),
         Event::QuestionAsked(data) => {
             if data.session_id != *session_id {
-                return None;
+                return Vec::new();
             }
-            Some(ProviderEvent::QuestionAsked {
+            vec![ProviderEvent::QuestionAsked {
                 session_id: data.session_id.clone(),
                 questions: data
                     .questions
@@ -392,19 +397,41 @@ fn map_sdk_event_to_provider_event(
                 tool_call_id: None,
                 message_id: None,
                 timestamp: chrono::Utc::now().naive_utc(),
-            })
+            }]
         }
         Event::MessageUpdated(data) => {
             if data.session_id != *session_id {
-                return None;
+                return Vec::new();
             }
-            let value = serde_json::to_value(data).unwrap_or_default();
-            Some(ProviderEvent::MessageUpdated {
-                data: value,
-                timestamp: chrono::Utc::now().naive_utc(),
-            })
+            tracing::warn!(
+                session_id = %data.session_id,
+                has_finish = %data.info.finish.is_some(),
+                info_parts = %data.info.parts.len(),
+                top_parts = %data.parts.as_ref().map_or(0, |v| v.len()),
+                payload = %serde_json::to_string(&data).unwrap_or_default(),
+                "MessageUpdated event"
+            );
+            let mut events = Vec::new();
+            let now = chrono::Utc::now().naive_utc();
+            let parts = data
+                .parts
+                .as_ref()
+                .filter(|p| !p.is_empty())
+                .unwrap_or(&data.info.parts);
+            for part in parts {
+                if let Part::Text(t) = part {
+                    let text = t.text.trim().to_string();
+                    if !text.is_empty() {
+                        events.push(ProviderEvent::Text {
+                            text,
+                            timestamp: now,
+                        });
+                    }
+                }
+            }
+            events
         }
-        _ => None,
+        _ => Vec::new(),
     }
 }
 
@@ -634,8 +661,9 @@ mod tests {
                 message_id: None,
             }),
         };
-        let event = map_sdk_event_to_provider_event(&global, "sess1");
-        assert!(matches!(event, Some(ProviderEvent::TextChunk { delta }) if delta == "Hello"));
+        let events = map_sdk_event_to_provider_event(&global, "sess1");
+        assert_eq!(events.len(), 1);
+        assert!(matches!(&events[0], ProviderEvent::Text { text, .. } if text == "Hello"));
     }
 
     #[test]
@@ -653,9 +681,10 @@ mod tests {
                 message_id: None,
             }),
         };
-        let event = map_sdk_event_to_provider_event(&global, "sess1");
+        let events = map_sdk_event_to_provider_event(&global, "sess1");
+        assert_eq!(events.len(), 1);
         assert!(
-            matches!(event, Some(ProviderEvent::Thinking { thinking, .. }) if thinking == "thinking...")
+            matches!(&events[0], ProviderEvent::Thinking { thinking, .. } if thinking == "thinking...")
         );
     }
 
@@ -678,9 +707,10 @@ mod tests {
                 message_id: None,
             }),
         };
-        let event = map_sdk_event_to_provider_event(&global, "sess1");
+        let events = map_sdk_event_to_provider_event(&global, "sess1");
+        assert_eq!(events.len(), 1);
         assert!(
-            matches!(event, Some(ProviderEvent::ToolUse { tool_name, .. }) if tool_name == "read")
+            matches!(&events[0], ProviderEvent::ToolUse { tool_name, .. } if tool_name == "read")
         );
     }
 
@@ -704,9 +734,10 @@ mod tests {
                 message_id: None,
             }),
         };
-        let event = map_sdk_event_to_provider_event(&global, "sess1");
+        let events = map_sdk_event_to_provider_event(&global, "sess1");
+        assert_eq!(events.len(), 1);
         assert!(
-            matches!(event, Some(ProviderEvent::ToolResult { result, .. }) if result == "file content")
+            matches!(&events[0], ProviderEvent::ToolResult { result, .. } if result == "file content")
         );
     }
 
@@ -719,9 +750,10 @@ mod tests {
                 error: serde_json::json!("something went wrong"),
             }),
         };
-        let event = map_sdk_event_to_provider_event(&global, "sess1");
+        let events = map_sdk_event_to_provider_event(&global, "sess1");
+        assert_eq!(events.len(), 1);
         assert!(
-            matches!(event, Some(ProviderEvent::Error { error, .. }) if error == "something went wrong")
+            matches!(&events[0], ProviderEvent::Error { error, .. } if error == "something went wrong")
         );
     }
 
@@ -734,8 +766,9 @@ mod tests {
                 session_id: "sess1".into(),
             }),
         };
-        let event = map_sdk_event_to_provider_event(&global, "sess1");
-        assert!(matches!(event, Some(ProviderEvent::Done { .. })));
+        let events = map_sdk_event_to_provider_event(&global, "sess1");
+        assert_eq!(events.len(), 1);
+        assert!(matches!(&events[0], ProviderEvent::Done { .. }));
     }
 
     #[test]
@@ -750,8 +783,9 @@ mod tests {
                 },
             }),
         };
-        let event = map_sdk_event_to_provider_event(&global, "sess1");
-        assert!(matches!(event, Some(ProviderEvent::Done { .. })));
+        let events = map_sdk_event_to_provider_event(&global, "sess1");
+        assert_eq!(events.len(), 1);
+        assert!(matches!(&events[0], ProviderEvent::Done { .. }));
     }
 
     #[test]
@@ -764,8 +798,9 @@ mod tests {
                 config: None,
             }),
         };
-        let event = map_sdk_event_to_provider_event(&global, "sess1");
-        assert!(matches!(event, Some(ProviderEvent::Ready)));
+        let events = map_sdk_event_to_provider_event(&global, "sess1");
+        assert_eq!(events.len(), 1);
+        assert!(matches!(&events[0], ProviderEvent::Ready));
     }
 
     #[test]
@@ -777,8 +812,8 @@ mod tests {
                 session_id: "other-session".into(),
             }),
         };
-        let event = map_sdk_event_to_provider_event(&global, "sess1");
-        assert!(event.is_none());
+        let events = map_sdk_event_to_provider_event(&global, "sess1");
+        assert!(events.is_empty());
     }
 
     #[test]
@@ -834,7 +869,7 @@ mod tests {
         ];
         for payload in cases {
             let global = GlobalEvent { id: None, payload };
-            assert!(map_sdk_event_to_provider_event(&global, "sess1").is_none());
+            assert!(map_sdk_event_to_provider_event(&global, "sess1").is_empty());
         }
     }
 
@@ -875,8 +910,8 @@ mod tests {
                 message_id: None,
             }),
         };
-        let event = map_sdk_event_to_provider_event(&global, "sess1");
-        assert!(event.is_none());
+        let events = map_sdk_event_to_provider_event(&global, "sess1");
+        assert!(events.is_empty());
     }
 
     #[test]
@@ -892,8 +927,9 @@ mod tests {
                 message_id: None,
             }),
         };
-        let event = map_sdk_event_to_provider_event(&global, "sess1");
-        assert!(matches!(event, Some(ProviderEvent::TextChunk { delta }) if delta == "Hello"));
+        let events = map_sdk_event_to_provider_event(&global, "sess1");
+        assert_eq!(events.len(), 1);
+        assert!(matches!(&events[0], ProviderEvent::Text { text, .. } if text == "Hello"));
     }
 
     #[test]
@@ -905,8 +941,8 @@ mod tests {
                 questions: vec![],
             }),
         };
-        let event = map_sdk_event_to_provider_event(&global, "sess1");
-        assert!(event.is_none());
+        let events = map_sdk_event_to_provider_event(&global, "sess1");
+        assert!(events.is_empty());
     }
 
     #[test]
@@ -933,8 +969,152 @@ mod tests {
                 parts: None,
             }),
         };
-        let event = map_sdk_event_to_provider_event(&global, "sess1");
-        assert!(event.is_none());
+        let events = map_sdk_event_to_provider_event(&global, "sess1");
+        assert!(events.is_empty());
+    }
+
+    #[test]
+    fn test_event_mapping_message_updated_with_text() {
+        let global = GlobalEvent {
+            id: None,
+            payload: Event::MessageUpdated(MessageUpdatedData {
+                session_id: "sess1".into(),
+                info: AssistantMessage {
+                    id: "msg1".into(),
+                    session_id: "sess1".into(),
+                    time: serde_json::Value::Null,
+                    error: None,
+                    parent_id: None,
+                    model_id: None,
+                    provider_id: None,
+                    mode: None,
+                    path: None,
+                    cost: None,
+                    tokens: None,
+                    finish: Some("stop".into()),
+                    parts: vec![
+                        Part::Text(TextPart {
+                            text: "Hello world".into(),
+                        }),
+                        Part::Reasoning(ReasoningPart {
+                            text: "thinking...".into(),
+                            signature: None,
+                        }),
+                    ],
+                },
+                parts: None,
+            }),
+        };
+        let events = map_sdk_event_to_provider_event(&global, "sess1");
+        assert_eq!(events.len(), 1);
+        assert!(matches!(&events[0], ProviderEvent::Text { text, .. } if text == "Hello world"));
+    }
+
+    #[test]
+    fn test_event_mapping_message_updated_with_no_text() {
+        let global = GlobalEvent {
+            id: None,
+            payload: Event::MessageUpdated(MessageUpdatedData {
+                session_id: "sess1".into(),
+                info: AssistantMessage {
+                    id: "msg1".into(),
+                    session_id: "sess1".into(),
+                    time: serde_json::Value::Null,
+                    error: None,
+                    parent_id: None,
+                    model_id: None,
+                    provider_id: None,
+                    mode: None,
+                    path: None,
+                    cost: None,
+                    tokens: None,
+                    finish: Some("stop".into()),
+                    parts: vec![
+                        Part::Reasoning(ReasoningPart {
+                            text: "thinking...".into(),
+                            signature: None,
+                        }),
+                        Part::Tool(ToolPart {
+                            tool: "read".into(),
+                            call_id: "call1".into(),
+                            state: ToolState::Completed(ToolStateCompleted {
+                                input: serde_json::json!({"path": "/tmp"}),
+                                output: "file content".into(),
+                            }),
+                            input: Some(serde_json::json!({"path": "/tmp"})),
+                        }),
+                    ],
+                },
+                parts: None,
+            }),
+        };
+        let events = map_sdk_event_to_provider_event(&global, "sess1");
+        // Has finish but no text parts → should still produce no events
+        assert!(events.is_empty());
+    }
+
+    #[test]
+    fn test_event_mapping_message_updated_text_from_info_parts() {
+        let global = GlobalEvent {
+            id: None,
+            payload: Event::MessageUpdated(MessageUpdatedData {
+                session_id: "sess1".into(),
+                info: AssistantMessage {
+                    id: "msg1".into(),
+                    session_id: "sess1".into(),
+                    time: serde_json::Value::Null,
+                    error: None,
+                    parent_id: None,
+                    model_id: None,
+                    provider_id: None,
+                    mode: None,
+                    path: None,
+                    cost: None,
+                    tokens: None,
+                    finish: None,
+                    parts: vec![Part::Text(TextPart {
+                        text: "Hello world".into(),
+                    })],
+                },
+                parts: None,
+            }),
+        };
+        let events = map_sdk_event_to_provider_event(&global, "sess1");
+        assert_eq!(events.len(), 1);
+        assert!(matches!(&events[0], ProviderEvent::Text { text, .. } if text == "Hello world"));
+    }
+
+    #[test]
+    fn test_event_mapping_message_updated_uses_top_level_parts() {
+        let global = GlobalEvent {
+            id: None,
+            payload: Event::MessageUpdated(MessageUpdatedData {
+                session_id: "sess1".into(),
+                info: AssistantMessage {
+                    id: "msg1".into(),
+                    session_id: "sess1".into(),
+                    time: serde_json::Value::Null,
+                    error: None,
+                    parent_id: None,
+                    model_id: None,
+                    provider_id: None,
+                    mode: None,
+                    path: None,
+                    cost: None,
+                    tokens: None,
+                    finish: Some("stop".into()),
+                    parts: vec![],
+                },
+                parts: Some(vec![Part::Text(TextPart {
+                    text: "from top-level parts".into(),
+                })]),
+            }),
+        };
+        let events = map_sdk_event_to_provider_event(&global, "sess1");
+        assert_eq!(events.len(), 1);
+        assert!(
+            matches!(&events[0], ProviderEvent::Text { text, .. } if text == "from top-level parts")
+        );
     }
 
     #[test]

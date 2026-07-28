@@ -717,21 +717,6 @@ mod tests {
     }
 
     #[test]
-    fn test_message_stream_has_start_timestamp_with_created_at() {
-        let ts = test_ts();
-        let messages = vec![ProviderEvent::UserText {
-            text: "hello".into(),
-            timestamp: ts,
-        }];
-        let html = leptos::view! {
-            <MessageStream messages=messages conversation_created_at=Some(ts) />
-        }
-        .to_html();
-        assert!(html.contains("timestamp-pill"));
-        assert!(html.contains("tag is-light"));
-    }
-
-    #[test]
     fn test_message_stream_has_newest_timestamp_pill() {
         let ts = test_ts();
         let messages = vec![
@@ -796,22 +781,9 @@ mod tests {
 }
 
 #[component]
-pub fn MessageStream(
-    messages: Vec<ProviderEvent>,
-    #[prop(default = None)] conversation_created_at: Option<NaiveDateTime>,
-) -> impl IntoView {
+pub fn MessageStream(messages: Vec<ProviderEvent>) -> impl IntoView {
     let mut seen = HashSet::new();
     let mut parts: Vec<String> = Vec::new();
-
-    // If conversation has a created_at, prepend the start-of-conversation timestamp pill
-    if let Some(created_at) = conversation_created_at {
-        if !messages.is_empty() {
-            parts.push(format!(
-                r#"<div class="timestamp-pill tag is-light">{start_ts}</div><hr class="timestamp-separator">"#,
-                start_ts = format_timestamp_pill(created_at)
-            ));
-        }
-    }
 
     for event in messages.iter() {
         // Dedup check
@@ -847,10 +819,7 @@ pub fn MessageStream(
 
         // Prepend timestamp pill before UserText events (including first one)
         if let ProviderEvent::UserText { timestamp, .. } = event {
-            parts.push(format!(
-                r#"<div class="timestamp-pill tag is-light">{ts}</div><hr class="timestamp-separator">"#,
-                ts = format_timestamp_pill(*timestamp)
-            ));
+            parts.push(build_timestmap_pill(timestamp));
         }
 
         let html = render_event(event);
@@ -889,10 +858,7 @@ pub fn MessageStream(
         });
 
         if let Some(ts) = newest_timestamp {
-            parts.push(format!(
-                r#"<hr class="timestamp-separator"><div id="newest-timestamp-pill" class="timestamp-pill tag is-light">{ts}</div>"#,
-                ts = format_timestamp_pill(*ts)
-            ));
+            parts.push(build_timestmap_pill(ts));
         }
     }
 
@@ -907,4 +873,13 @@ pub fn MessageStream(
             }}
         </div>
     }
+}
+
+fn build_timestmap_pill(timestamp: &NaiveDateTime) -> String {
+    format!(
+        r#"
+            <div class="timestamp-pill tag is-light">{ts}</div>
+        "#,
+        ts = format_timestamp_pill(*timestamp)
+    )
 }

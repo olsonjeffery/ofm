@@ -2,7 +2,6 @@ use crate::db::schema::TaskAgentRun;
 use crate::providers::types::ProviderEvent;
 use crate::webapp::components::chat_input::ChatInput;
 use crate::webapp::components::message_stream::MessageStream;
-use chrono::NaiveDateTime;
 use leptos::prelude::*;
 
 fn build_chat_js(active_id_str: &str, is_running: bool) -> String {
@@ -266,7 +265,6 @@ pub fn ChatPage(
     initial_messages: Vec<ProviderEvent>,
     #[allow(unused)] conversation_name: Option<String>,
     current_run: Option<TaskAgentRun>,
-    #[prop(default = None)] conversation_created_at: Option<NaiveDateTime>,
 ) -> impl IntoView {
     let is_running = current_run.as_ref().is_some_and(|r| {
         r.status == crate::db::schema::RunStatus::Running
@@ -290,7 +288,7 @@ pub fn ChatPage(
         </div>
         <div id="chat-layout" style="display:flex;flex-direction:column;height:calc(100vh - 3.75rem);overflow:hidden">
             <div id="message-stream-container" style="flex:1;overflow-y:auto;overflow-x:hidden">
-                <MessageStream messages=initial_messages conversation_created_at=conversation_created_at />
+                <MessageStream messages=initial_messages />
             </div>
             <div id="chat-footer" style="border-top:1px solid #ddd;background:#fff;padding:0.5rem 1rem;position:relative">
                 <div id="agent-thinking-bar"

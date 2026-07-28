@@ -385,7 +385,6 @@ async fn chat_handler_with_conv(
         initial_messages=messages
         conversation_name=Some(conv_name)
         current_run
-        conversation_created_at=Some(conv.created_at)
     />
     }
     .to_html();

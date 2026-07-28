@@ -16,7 +16,7 @@ main {
     width: 99%;
     margin: 0 auto;
     min-height: 100vh;
-    padding-top: 3.75rem;
+    padding-top: 3.25rem;
 }
 /* Chat page manages its own height via #chat-layout */
 main:has(#chat-layout) {
@@ -272,7 +272,6 @@ a.card .card-header-title {
 
 /* ===== Message stream content type styling ===== */
 .message-model {
-    font-weight: 600;
     margin-bottom:1.5em;
 }
 
@@ -374,7 +373,6 @@ hr.timestamp-separator {
 }
 
 #newest-timestamp-pill {
-    margin-top: 0.5rem;
     margin-bottom: 0.5rem;
 }
 
