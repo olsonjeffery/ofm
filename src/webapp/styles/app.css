@@ -272,18 +272,22 @@ a.card .card-header-title {
 
 /* ===== Message stream content type styling ===== */
 .message-model {
+    color: hsl(var(--bulma-black-h), var(--bulma-black-s), 30%);
     margin-bottom:1.5em;
+    padding: 0.75rem;
+}
+.message-model .icon {
+    color: hsl(var(--bulma-black-h), var(--bulma-black-s), 30%);
 }
 
 .message-thinking {
     display: flex;
     gap: 0.5rem;
     align-items: flex-start;
-    background: var(--bulma-purple-light);
+    background: hsl(var(--bulma-purple-h), 95%, 97%);
     color: var(--bulma-purple);
     border: 1px solid var(--bulma-purple);
     border-radius: 6px;
-    border-bottom-left-radius: 0px;
     padding: 0.75rem;
     margin-bottom:1.5em;
 }
@@ -302,7 +306,6 @@ a.card .card-header-title {
     color: var(--bulma-grey-darker);
     border: 1px solid var(--bulma-grey);
     border-radius: 6px;
-    border-bottom-left-radius: 0px;
     padding: 0.75rem;
     margin-bottom:1.5em;
 }
@@ -322,7 +325,6 @@ a.card .card-header-title {
     display: block;
     padding: 0.75rem;
     border-radius: 6px;
-    border-bottom-right-radius: 0px;
     margin-bottom:1.5em;
 }
 

@@ -1,4 +1,4 @@
-@agent-PR You are a PR agent responsible for managing the pull request for this task.
+You are a PR agent responsible for managing the pull request for this task.
 
 ## Context
 - Task Documentation: `{{taskDocPath}}`

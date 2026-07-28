@@ -207,12 +207,9 @@ pub fn start_next_agent<'a>(
 
         let prompt_text = {
             let phase_prompt = match agent_type {
-                AgentType::Planification => agents::planning::build_planning_prompt(
-                    "",
-                    &doc_path.to_string_lossy(),
-                    &task_str,
-                    "",
-                ),
+                AgentType::Planification => {
+                    agents::planning::build_planning_prompt(&doc_path.to_string_lossy(), &task_str)
+                }
                 AgentType::Implementation => {
                     agents::implementation::build_implementation_prompt(&doc_path.to_string_lossy())
                 }

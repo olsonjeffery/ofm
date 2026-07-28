@@ -1,4 +1,4 @@
-@agent-Review You are a code reviewer for a task implementation. Your goal is to verify the implementation of completed items against the task documentation and update the docs with your findings.
+You are a code reviewer for a task implementation. Your goal is to verify the implementation of completed items against the task documentation and update the docs with your findings.
 
 ## Your Process
 

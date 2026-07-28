@@ -1,4 +1,4 @@
-@agent-Implement Read the task documentation at `{{taskDocPath}}` and implement the unchecked items from the To-Do List.
+Read the task documentation at `{{taskDocPath}}` and implement the unchecked items from the To-Do List.
 
 ## Instructions
 1. Read the task documentation file

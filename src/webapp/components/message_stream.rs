@@ -199,7 +199,7 @@ pub fn render_event(event: &ProviderEvent) -> String {
             let id = next_id();
             let content = maybe_collapse_md(trimmed, &id);
             format!(
-                r#"<div class="message-thinking"><span class="icon"><i class="mdi mdi-head-snowflake-outline"></i></span><div class="content">{}</div></div>"#,
+                r#"<div class="message-thinking"><span class="icon"><i class="mdi mdi-flip-h mdi-head-snowflake-outline"></i></span><div class="content">{}</div></div>"#,
                 content
             )
         }
@@ -819,7 +819,7 @@ pub fn MessageStream(messages: Vec<ProviderEvent>) -> impl IntoView {
 
         // Prepend timestamp pill before UserText events (including first one)
         if let ProviderEvent::UserText { timestamp, .. } = event {
-            parts.push(build_timestmap_pill(timestamp));
+            parts.push(build_timestmap_pill(timestamp, false));
         }
 
         let html = render_event(event);
@@ -858,7 +858,7 @@ pub fn MessageStream(messages: Vec<ProviderEvent>) -> impl IntoView {
         });
 
         if let Some(ts) = newest_timestamp {
-            parts.push(build_timestmap_pill(ts));
+            parts.push(build_timestmap_pill(ts, true));
         }
     }
 
@@ -875,11 +875,17 @@ pub fn MessageStream(messages: Vec<ProviderEvent>) -> impl IntoView {
     }
 }
 
-fn build_timestmap_pill(timestamp: &NaiveDateTime) -> String {
+fn build_timestmap_pill(timestamp: &NaiveDateTime, is_newest: bool) -> String {
+    let newest_id = if is_newest {
+        r#"id="newest-timestamp-pill""#
+    } else {
+        ""
+    };
     format!(
         r#"
-            <div class="timestamp-pill tag is-light">{ts}</div>
+            <div {newest} class="level"><div class="timestamp-pill tag is-light">{ts}</div></div>
         "#,
-        ts = format_timestamp_pill(*timestamp)
+        newest = newest_id,
+        ts = format_timestamp_pill(*timestamp),
     )
 }

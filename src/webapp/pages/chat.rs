@@ -145,19 +145,17 @@ document.addEventListener('DOMContentLoaded', function() {{
                         // Remove old newest-timestamp pill + its separator before inserting new content
                         var oldNewestPill = document.getElementById('newest-timestamp-pill');
                         if (oldNewestPill) {{
-                            var prevSep = oldNewestPill.previousElementSibling;
-                            if (prevSep && prevSep.matches('hr.timestamp-separator')) prevSep.remove();
                             oldNewestPill.remove();
                         }}
                         // Prepend user-timestamp pill for user_text events
                         if (msg.event_type === 'user_text' && msg.payload && msg.payload.timestamp) {{
-                            var userTsHtml = '<div class="timestamp-pill tag is-light">' + formatTimestamp(msg.payload.timestamp) + '</div><hr class="timestamp-separator">';
+                            var userTsHtml = '<div class="level"><div class="timestamp-pill tag is-light">' + formatTimestamp(msg.payload.timestamp) + '</div></div>';
                             container.insertAdjacentHTML('beforeend', userTsHtml);
                         }}
                         container.insertAdjacentHTML('beforeend', eventHtml);
                         // Append newest-timestamp pill below the new event with separator
                         if (msg.payload && msg.payload.timestamp) {{
-                            var newTsHtml = '<hr class="timestamp-separator"><div id="newest-timestamp-pill" class="timestamp-pill tag is-light">' + formatTimestamp(msg.payload.timestamp) + '</div>';
+                            var newTsHtml = '<div id="newest-timestamp-pill" class="level"><div class="timestamp-pill tag is-light">' + formatTimestamp(msg.payload.timestamp) + '</div></div>';
                             container.insertAdjacentHTML('beforeend', newTsHtml);
                         }}
                         // Track message_id / tool_use_id for future dedup

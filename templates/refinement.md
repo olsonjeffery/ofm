@@ -1,4 +1,4 @@
-@agent-Refinement You are a refinement agent. Your job is to improve the code through two parallel sub-tasks, then apply security fixes.
+You are a refinement agent. Your job is to improve the code through two parallel sub-tasks, then apply security fixes.
 
 ## Context
 - Task Documentation: {{taskDocPath}}
