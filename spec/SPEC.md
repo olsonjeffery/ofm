@@ -128,7 +128,7 @@ Point a coding agent at this file and say "build this." Then:
    `src/agents/review.rs` (review prompt),
    `src/agents/pull_request.rs` (PR prompt).
    The web application lives at `src/webapp/` (Leptos SSR + islands).
-   CRUD service logic lives at `src/services/` (auth, projects, tasks, settings).
+    CRUD service logic lives at `src/services/` (auth, projects, tasks, settings, export_import).
    Authentication and OAuth middleware lives at `src/auth/`.
 3. Implement whichever [`extra/`](./extra) features you want. These are
    **opinionated**: they reflect one company's preferences, not universal

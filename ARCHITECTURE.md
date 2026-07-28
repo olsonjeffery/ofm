@@ -24,7 +24,7 @@ ofm/
 │   ├── orchestration/   # State machine, guards, recovery, completion
 │   ├── providers/       # LlmProvider trait, opencode_sdk-driven provider
 │   ├── agents/          # Prompt builders (planning, impl, review, PR)
-│   ├── services/        # Auth, projects, tasks, settings, session, transcript
+│   ├── services/        # Auth, projects, tasks, settings, session, transcript, export_import
 │   ├── archive/         # Task doc I/O, context prompt
 │   ├── worktree/        # Git worktree management
 │   ├── rauthy/          # Local rauthy lifecycle

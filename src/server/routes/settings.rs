@@ -1,8 +1,8 @@
 use std::collections::HashMap;
 
-use axum::extract::{Path, State};
+use axum::extract::{Path, Query, State};
 use axum::http::StatusCode;
-use axum::routing::{get, put};
+use axum::routing::{get, post, put};
 use axum::{Json, Router};
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
@@ -10,6 +10,7 @@ use uuid::Uuid;
 use crate::auth::AuthUser;
 use crate::db::schema::UserModelConfig;
 use crate::server::state::AppState;
+use crate::services::export_import;
 use crate::services::settings::{self, AgentModelSetting};
 
 pub fn settings_router() -> Router<AppState> {
@@ -25,6 +26,17 @@ pub fn settings_router() -> Router<AppState> {
         .route(
             "/agent-models",
             get(get_agent_models_handler).put(upsert_agent_models_handler),
+        )
+        .route("/export", get(export_handler))
+        .route(
+            "/import/preview",
+            post(import_preview_handler)
+                .layer(axum::extract::DefaultBodyLimit::max(1024 * 1024 * 10)),
+        )
+        .route(
+            "/import/execute",
+            post(import_execute_handler)
+                .layer(axum::extract::DefaultBodyLimit::max(1024 * 1024 * 10)),
         )
 }
 
@@ -151,4 +163,68 @@ async fn upsert_agent_models_handler(
         .await
         .map(Json)
         .map_err(|e| (StatusCode::BAD_REQUEST, Json(ErrorResponse::new(e))))
+}
+
+// ── Export handler ──────────────────────────────────────────────────────────
+
+#[derive(Deserialize)]
+struct ExportQuery {
+    project_ids: String,
+}
+
+async fn export_handler(
+    State(state): State<AppState>,
+    auth: AuthUser,
+    Query(query): Query<ExportQuery>,
+) -> Result<Json<export_import::ExportPayload>, (StatusCode, Json<ErrorResponse>)> {
+    let ids: Vec<i64> = query
+        .project_ids
+        .split(',')
+        .filter_map(|s| s.trim().parse().ok())
+        .collect();
+
+    if ids.is_empty() {
+        return Err((
+            StatusCode::BAD_REQUEST,
+            Json(ErrorResponse::new(
+                "at least one valid project_id is required",
+            )),
+        ));
+    }
+
+    let payload = export_import::build_export(
+        &state.db,
+        &state.archive_root,
+        auth.user_id,
+        &auth.username,
+        &ids,
+    )
+    .await
+    .map_err(|e| (StatusCode::BAD_REQUEST, Json(ErrorResponse::new(e))))?;
+
+    Ok(Json(payload))
+}
+
+// ── Import preview handler ──────────────────────────────────────────────────
+
+async fn import_preview_handler(
+    body: String,
+) -> Result<Json<export_import::ImportPreview>, (StatusCode, Json<ErrorResponse>)> {
+    let preview = export_import::preview_import(&body)
+        .map_err(|e| (StatusCode::BAD_REQUEST, Json(ErrorResponse::new(e))))?;
+    Ok(Json(preview))
+}
+
+// ── Import execute handler ──────────────────────────────────────────────────
+
+async fn import_execute_handler(
+    State(state): State<AppState>,
+    auth: AuthUser,
+    Json(request): Json<export_import::ImportExecuteRequest>,
+) -> Result<Json<serde_json::Value>, (StatusCode, Json<ErrorResponse>)> {
+    export_import::execute_import(&state.db, &state.archive_root, auth.user_id, request)
+        .await
+        .map_err(|e| (StatusCode::BAD_REQUEST, Json(ErrorResponse::new(e))))?;
+
+    Ok(Json(serde_json::json!({ "success": true })))
 }

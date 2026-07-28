@@ -20,7 +20,7 @@ pub fn BoardPage(project: Project, tasks: Vec<TaskCardData>) -> impl IntoView {
 
     let render_column = |label: &str, color_class: &str, items: Vec<TaskCardData>, status: &str| {
         view! {
-            <div class="column" data-status={status.to_string()}>
+            <div class="column is-one-quarter" data-status={status.to_string()}>
                 <div class={format!("box {}", color_class)}>
                     <h3 class="title is-5">{format!("{} ({})", label, items.len())}</h3>
                 </div>

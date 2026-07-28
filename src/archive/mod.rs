@@ -109,6 +109,8 @@ impl ArchiveRoot {
     }
 
     pub fn task_doc_path(&self, project_id: &str, task_id: &str) -> PathBuf {
+        let project_id = paths::sanitize_id(project_id).unwrap_or("__invalid__");
+        let task_id = paths::sanitize_id(task_id).unwrap_or("__invalid__");
         self.root
             .join("projects")
             .join(project_id)

@@ -201,6 +201,7 @@ a.card .card-header-title {
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
+    display: block;
 }
 
 /* ===== Remove all drop shadows ===== */
