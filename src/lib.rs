@@ -10,6 +10,7 @@ pub mod logging;
 pub mod opencode_sdk;
 pub mod orchestration;
 pub mod providers;
+pub mod ramalama;
 pub mod rauthy;
 pub mod server;
 pub mod services;

@@ -142,6 +142,10 @@ At this point, you should have a server bounding to `0.0.0.0` and reachable at
 `localhost:3183` running on your machine (`3183` is the default port; Set the `OFM_PORT`
 environment variable if you wish for it to run on another port).
 
+### System Dependencies
+
+- **ramalama** (optional): Required for on-device SLM inference (`phi4-mini`). Enable via `OFM_RAMALAMA_PHI4_MINI_ENABLED=true` or `RAMALAMA_PHI4_MINI_ENABLED: true` in `ofm.yml`. When enabled, `ramalama` must be available on `PATH`. If not found, a `tracing::error!` is logged. See `src/ramalama/`.
+
 > ℹ️`ofm` itself _does not_ consider running with a certificate/TLS+SSL as in-scope.
 > It is also recommend, if planning to expose `ofm` on the public internet, to
 > place `ofm` behind a reverse proxy such as `nginx`/`haproxy` etc and doing SSL

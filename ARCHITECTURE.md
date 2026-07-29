@@ -27,6 +27,7 @@ ofm/
 │   ├── services/        # Auth, projects, tasks, settings, session, transcript, export_import
 │   ├── archive/         # Task doc I/O, context prompt
 │   ├── worktree/        # Git worktree management
+│   ├── ramalama/        # One-shot SLM queries via ramalama sub-process (phi4-mini)
 │   ├── rauthy/          # Local rauthy lifecycle
 │   └── cli/             # CLI subcommands
 ├── tests/               # 13 integration test files

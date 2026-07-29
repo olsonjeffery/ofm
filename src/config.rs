@@ -18,6 +18,8 @@ pub struct OfmConfigFile {
 pub struct GroupBehavior {
     #[serde(rename = "INFO_LOG_CLIENT_DATA")]
     log_data: Option<bool>,
+    #[serde(rename = "RAMALAMA_PHI4_MINI_ENABLED")]
+    pub ramalama_phi4_mini_enabled: Option<bool>,
 }
 
 #[derive(Debug, Default, Serialize, Deserialize, PartialEq)]
@@ -85,6 +87,7 @@ pub struct OfmConfig {
     pub rauthy_port: u16,
     pub logging_config_path: Option<String>,
     pub info_log_client_data: bool,
+    pub ramalama_phi4_mini_enabled: bool,
 }
 
 const OFM_OIDC_ISSUER_URL: &str = "OFM_OIDC_ISSUER_URL";
@@ -131,6 +134,7 @@ impl OfmConfig {
             rauthy_port: env_u16("OFM_RAUTHY_PORT").unwrap_or(0),
             logging_config_path,
             info_log_client_data: env_bool("OFM_INFO_LOG_CLIENT_DATA").unwrap_or(false),
+            ramalama_phi4_mini_enabled: env_bool("OFM_RAMALAMA_PHI4_MINI_ENABLED").unwrap_or(false),
         }
     }
 
@@ -241,6 +245,14 @@ impl OfmConfig {
                 .and_then(|y| y.behavior.as_ref()?.log_data)
         });
 
+        let ramalama_phi4_mini_enabled = env_bool("OFM_RAMALAMA_PHI4_MINI_ENABLED").or_else(|| {
+            yaml_cfg
+                .as_ref()?
+                .behavior
+                .as_ref()?
+                .ramalama_phi4_mini_enabled
+        });
+
         // Check for logging config file
         let logging_config_path = env_opt_or("OFM_LOGGING_CONFIG").or_else(|| {
             let log_config = format!("{config_root}/logging.json");
@@ -274,6 +286,7 @@ impl OfmConfig {
                 }),
                 behavior: Some(GroupBehavior {
                     log_data: info_log_client_data,
+                    ramalama_phi4_mini_enabled,
                 }),
             };
             let template = generate_yaml_template(&yaml_out);
@@ -301,6 +314,7 @@ impl OfmConfig {
             rauthy_port,
             logging_config_path,
             info_log_client_data: info_log_client_data.unwrap_or(false),
+            ramalama_phi4_mini_enabled: ramalama_phi4_mini_enabled.unwrap_or(false),
         }
     }
 }
@@ -498,6 +512,30 @@ fn generate_yaml_template(cfg: &OfmConfigFile) -> String {
         false,
     );
 
+    let _ = writeln!(s, "behavior:");
+    emit(
+        &mut s,
+        "INFO_LOG_CLIENT_DATA",
+        "Log client IP and User-Agent for all requests.",
+        "OFM_INFO_LOG_CLIENT_DATA",
+        "false",
+        cfg.behavior
+            .as_ref()
+            .and_then(|g| g.log_data.map(|v| v.to_string())),
+        false,
+    );
+    emit(
+        &mut s,
+        "RAMALAMA_PHI4_MINI_ENABLED",
+        "Enable the on-device SLM (ramalama + phi4-mini) for quick inference tasks.",
+        "OFM_RAMALAMA_PHI4_MINI_ENABLED",
+        "false",
+        cfg.behavior
+            .as_ref()
+            .and_then(|g| g.ramalama_phi4_mini_enabled.map(|v| v.to_string())),
+        false,
+    );
+
     s
 }
 
@@ -526,6 +564,7 @@ mod tests {
             "OFM_HIQLITE_API_PORT",
             "OFM_RAUTHY_ENABLED",
             "OFM_RAUTHY_PORT",
+            "OFM_RAMALAMA_PHI4_MINI_ENABLED",
         ] {
             std::env::remove_var(key);
         }
@@ -920,6 +959,32 @@ rauthy:
         let cfg = OfmConfig::load();
         assert_eq!(cfg.url, "http://0.0.0.0:5555");
 
+        clear_ofm_env();
+    }
+
+    #[test]
+    fn test_config_ramalama_yaml() {
+        let yaml = r#"
+behavior:
+  RAMALAMA_PHI4_MINI_ENABLED: true
+"#;
+        let cfg: OfmConfigFile = serde_yaml::from_str(yaml).unwrap();
+        let behavior = cfg.behavior.as_ref().unwrap();
+        assert_eq!(behavior.ramalama_phi4_mini_enabled, Some(true));
+    }
+
+    #[test]
+    fn test_config_ramalama_env_var() {
+        let _guard = ENV_LOCK.lock().unwrap();
+        set_ofm_env(&[
+            (
+                "OFM_FOOTPRINT",
+                tempfile::tempdir().unwrap().path().to_str().unwrap(),
+            ),
+            ("OFM_RAMALAMA_PHI4_MINI_ENABLED", "true"),
+        ]);
+        let cfg = OfmConfig::load();
+        assert!(cfg.ramalama_phi4_mini_enabled);
         clear_ofm_env();
     }
 }

@@ -15,8 +15,8 @@ use axum::{
 use serde::Deserialize;
 use uuid::Uuid;
 
-const MAX_TITLE_LENGTH: usize = 200;
-const MAX_ORIGINAL_REQUEST_LENGTH: usize = 10_240;
+const MAX_TITLE_LENGTH: usize = 256;
+const MAX_ORIGINAL_REQUEST_LENGTH: usize = 1_001_240;
 const MAX_DOC_CONTENT_LENGTH: usize = 1_000_000;
 
 #[derive(Debug, Deserialize)]
