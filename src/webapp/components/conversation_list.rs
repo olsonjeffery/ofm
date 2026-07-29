@@ -21,7 +21,7 @@ fn run_status_label(status: &RunStatus) -> &'static str {
     }
 }
 
-fn is_valid_name(name: &str) -> bool {
+pub fn is_valid_name(name: &str) -> bool {
     name.len() >= 3
         && !name.starts_with("Generate a 1-3 word title")
         && !name.starts_with("generate a 1-3 word title")

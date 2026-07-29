@@ -403,14 +403,6 @@ fn map_sdk_event_to_provider_event(global: &GlobalEvent, session_id: &str) -> Ve
             if data.session_id != *session_id {
                 return Vec::new();
             }
-            tracing::warn!(
-                session_id = %data.session_id,
-                has_finish = %data.info.finish.is_some(),
-                info_parts = %data.info.parts.len(),
-                top_parts = %data.parts.as_ref().map_or(0, |v| v.len()),
-                payload = %serde_json::to_string(&data).unwrap_or_default(),
-                "MessageUpdated event"
-            );
             let mut events = Vec::new();
             let now = chrono::Utc::now().naive_utc();
             let parts = data
@@ -614,16 +606,40 @@ impl LlmProvider for OpenCodeSdkProvider {
     }
 
     async fn one_shot_prompt(&self, prompt: &str, model: &str) -> Result<String, ProviderError> {
-        let (client, mut server) = self.spawn_transient().await?;
+        tracing::info!(
+            prompt_len = prompt.len(),
+            prompt_preview = %prompt.chars().take(120).collect::<String>(),
+            model = %model,
+            "one_shot_prompt: spawning transient server"
+        );
 
+        let (client, mut server) = self.spawn_transient().await.map_err(|e| {
+            tracing::warn!(error = %e, "one_shot_prompt: spawn_transient failed");
+            e
+        })?;
+        tracing::info!("one_shot_prompt: transient server started");
+
+        let provider_id = self
+            .extract_provider_id()
+            .unwrap_or_else(|| "default".to_string());
         let config = opencode_sdk::conversation::OneShotConfig {
             model: model.to_string(),
+            provider_id,
             ..Default::default()
         };
 
         let result = opencode_sdk::conversation::one_shot(&client, prompt, &config)
             .await
-            .map_err(|e| ProviderError::Protocol(e.to_string()))?;
+            .map_err(|e| {
+                tracing::warn!(error = %e, "one_shot_prompt: one_shot call failed");
+                ProviderError::Protocol(e.to_string())
+            })?;
+
+        tracing::info!(
+            result_len = result.len(),
+            result_preview = %result.chars().take(200).collect::<String>(),
+            "one_shot_prompt: shutting down transient server"
+        );
 
         let _ = server.shutdown().await;
         Ok(result)

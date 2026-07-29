@@ -36,7 +36,7 @@ pub fn projects_router() -> Router<AppState> {
         )
 }
 
-async fn create_project(
+pub async fn create_project(
     auth: AuthUser,
     State(state): State<AppState>,
     Json(body): Json<CreateProjectRequest>,

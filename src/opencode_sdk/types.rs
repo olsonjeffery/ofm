@@ -427,6 +427,7 @@ pub struct FilePart {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct StepStartPart {
+    #[serde(default)]
     pub name: String,
     #[serde(default)]
     pub label: Option<String>,
@@ -434,6 +435,7 @@ pub struct StepStartPart {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct StepFinishPart {
+    #[serde(default)]
     pub name: String,
     #[serde(default)]
     pub result: Option<String>,

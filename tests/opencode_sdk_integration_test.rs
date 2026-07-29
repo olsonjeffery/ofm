@@ -199,6 +199,7 @@ async fn test_opencode_sdk_one_shot_pattern() {
 
     let config = OneShotConfig {
         model: "test-model".into(),
+        provider_id: "default".into(),
         agent: None,
         system: None,
         cwd: None,

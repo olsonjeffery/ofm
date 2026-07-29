@@ -20,11 +20,11 @@ const MAX_ORIGINAL_REQUEST_LENGTH: usize = 10_240;
 const MAX_DOC_CONTENT_LENGTH: usize = 1_000_000;
 
 #[derive(Debug, Deserialize)]
-struct CreateTaskRequest {
-    project_id: i64,
-    title: String,
-    status: Option<String>,
-    original_request: String,
+pub struct CreateTaskRequest {
+    pub project_id: i64,
+    pub title: String,
+    pub status: Option<String>,
+    pub original_request: String,
 }
 
 #[derive(Debug, Deserialize)]
@@ -61,7 +61,7 @@ pub fn tasks_router() -> Router<AppState> {
         .nest("/{id}", super::agent_flags::agent_flags_router())
 }
 
-async fn create_task(
+pub async fn create_task(
     auth: AuthUser,
     State(state): State<AppState>,
     Json(body): Json<CreateTaskRequest>,

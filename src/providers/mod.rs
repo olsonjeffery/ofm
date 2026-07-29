@@ -70,37 +70,100 @@ pub async fn generate_conversation_title(
     first_message: &str,
     log_data: bool,
 ) {
+    tracing::info!(
+        conversation_id = %conversation_id,
+        first_message_len = first_message.len(),
+        first_message_preview = %first_message.chars().take(120).collect::<String>(),
+        provider_config_ref = %harness_config.provider_config_ref,
+        model = ?harness_config.model,
+        harness = %harness_config.harness,
+        "generate_conversation_title: starting"
+    );
+
     let truncated: String = first_message.chars().take(500).collect();
+    tracing::info!(
+        conversation_id = %conversation_id,
+        truncated_len = truncated.len(),
+        "generate_conversation_title: truncated input"
+    );
+
     let title_prompt = format!(
         "Generate a 1-3 word title summarizing this message. Output ONLY the title, nothing else. What follows is context for creating the title: {truncated} {RESPONSE_FOLLOWS_TOKEN}"
+    );
+    tracing::info!(
+        conversation_id = %conversation_id,
+        title_prompt_len = title_prompt.len(),
+        title_prompt_preview = %title_prompt.chars().take(200).collect::<String>(),
+        "generate_conversation_title: built prompt"
     );
 
     let provider = match registry::resolve_provider(harness_config, config_root, log_data).await {
         Ok(p) => p,
         Err(e) => {
-            tracing::warn!("Failed to create provider for title generation: {e}");
+            tracing::warn!(
+                conversation_id = %conversation_id,
+                error = %e,
+                "generate_conversation_title: resolve_provider failed"
+            );
             return;
         }
     };
+    tracing::info!(
+        conversation_id = %conversation_id,
+        "generate_conversation_title: provider resolved"
+    );
 
     let model = harness_config.model.as_deref().unwrap_or("default");
+    tracing::info!(
+        conversation_id = %conversation_id,
+        model = %model,
+        "generate_conversation_title: calling one_shot_prompt"
+    );
+
     match provider.one_shot_prompt(&title_prompt, model).await {
         Ok(response) => {
-            let split_resp = response.split(RESPONSE_FOLLOWS_TOKEN);
-            let resp_chunk = split_resp.last().unwrap_or("None");
+            tracing::info!(
+                conversation_id = %conversation_id,
+                response_len = response.len(),
+                response_preview = %response.chars().take(200).collect::<String>(),
+                "generate_conversation_title: one_shot_prompt succeeded"
+            );
+
+            let split_resp: Vec<&str> = response.split(RESPONSE_FOLLOWS_TOKEN).collect();
+            let resp_chunk = split_resp.last().copied().unwrap_or("None");
+            tracing::info!(
+                conversation_id = %conversation_id,
+                split_parts = split_resp.len(),
+                resp_chunk = %resp_chunk.chars().take(100).collect::<String>(),
+                "generate_conversation_title: after RESPONSE_FOLLOWS split"
+            );
+
             if let Some(title) = sanitize_title(resp_chunk) {
-                tracing::info!("Generated conversation title: {title}");
-                tracing::info!("full response: {response}");
+                tracing::info!(
+                    conversation_id = %conversation_id,
+                    title = %title,
+                    "generate_conversation_title: sanitized title, updating DB"
+                );
                 let _ = db
                     .execute(
                         "UPDATE conversations SET name = $1 WHERE id = $2",
                         hiqlite::params!(title, conversation_id.to_string()),
                     )
                     .await;
+            } else {
+                tracing::warn!(
+                    conversation_id = %conversation_id,
+                    resp_chunk = %resp_chunk.chars().take(100).collect::<String>(),
+                    "generate_conversation_title: sanitize_title returned None"
+                );
             }
         }
         Err(e) => {
-            tracing::warn!("Failed to generate conversation title: {e}");
+            tracing::warn!(
+                conversation_id = %conversation_id,
+                error = %e,
+                "generate_conversation_title: one_shot_prompt failed"
+            );
         }
     }
 }

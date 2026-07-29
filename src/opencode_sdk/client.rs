@@ -215,7 +215,18 @@ impl SessionApi {
                 "POST /session/{id}/message failed: {status} — {body_text}"
             )));
         }
-        resp.json().await.map_err(SdkError::Http)
+        let body_bytes = resp.bytes().await.map_err(SdkError::Http)?;
+        serde_json::from_slice(&body_bytes).map_err(|e| {
+            let preview = String::from_utf8_lossy(&body_bytes[..body_bytes.len().min(5000)]);
+            tracing::error!(
+                error = %e,
+                body_preview = %preview,
+                "prompt: failed to decode response body"
+            );
+            SdkError::Protocol(format!(
+                "failed to decode prompt response: {e} — body: {preview}"
+            ))
+        })
     }
 
     pub async fn prompt_async(&self, id: &str, body: &PromptBody) -> Result<(), SdkError> {
@@ -384,16 +395,10 @@ fn parse_sse_lines(buf: &mut Vec<u8>, log_data: bool) -> (Vec<GlobalEvent>, Opti
             tracing::info!("data received: {}", trimmed);
         }
         if let Some(data) = trimmed.strip_prefix("data: ") {
-            match serde_json::from_str::<GlobalEvent>(data) {
-                Ok(global) => events.push(global),
-                Err(e) => {
-                    let truncated: String = data.chars().take(1024).collect();
-                    tracing::warn!(
-                        error = %e,
-                        raw_data = %truncated,
-                        "Failed to parse SSE data as GlobalEvent"
-                    );
-                }
+            // if/when one is hunting for the most obscure
+            // deserilaize issue that is being swallowed; this is it
+            if let Ok(global) = serde_json::from_str::<GlobalEvent>(data) {
+                events.push(global)
             }
         } else if let Some(val) = trimmed.strip_prefix("retry: ") {
             if let Ok(ms) = val.trim().parse::<u64>() {

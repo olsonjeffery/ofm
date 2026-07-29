@@ -165,6 +165,13 @@ logs and returns — the conversation is unaffected.
 > The reference titler shells out to the `claude` CLI directly rather than going
 > through the streaming runtime. For `ofm`, route title generation through
 > the opencode provider session instead. It is a cosmetic nicety either way.
+>
+> **ofm call sites:** `generate_conversation_title()` is called from
+> `orchestration/mod.rs` (on `SessionStart` in the auto-start path) and
+> `server/routes/conversations.rs` (on first user message in a resumed
+> conversation, gated on `conv.name.is_none()`). Both are fire-and-forget
+> `tokio::spawn` calls. A `conversation-name-updated` WS event is broadcast
+> on the task topic after the title is persisted.
 
 ## Context-usage meter
 
@@ -211,7 +218,8 @@ break.
       a browser recorder, requiring `OPENAI_API_KEY`.
 - [x] Fire-and-forget title generation on first message, writing to the
       conversation row; never blocking the turn.
-      → `generate_conversation_title` in `src/providers/mod.rs`
+      → Called from `src/orchestration/mod.rs` (SessionStart) and
+      `src/server/routes/conversations.rs` (first user message on resume)
 - [ ] A per-session context-usage tracker with a baseline-from-`result` path and
       an optional breakdown folded in when the control call wins; persist +
       broadcast; gate the detailed breakdown on `supportsContextUsageBreakdown`.

@@ -1,8 +1,19 @@
+use axum::{extract::State, Json};
 use hiqlite::Client;
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
-use crate::archive::ArchiveRoot;
+use crate::{
+    archive::ArchiveRoot,
+    auth::AuthUser,
+    server::{
+        routes::{
+            projects::{create_project, CreateProjectRequest},
+            tasks::{create_task, CreateTaskRequest},
+        },
+        state::AppState,
+    },
+};
 
 // ── Export types ────────────────────────────────────────────────────────────
 
@@ -264,15 +275,12 @@ fn matches_source_id(id: &serde_json::Value, target: &str) -> bool {
 }
 
 pub async fn execute_import(
-    client: &Client,
-    archive_root: &str,
-    user_id: Uuid,
+    state: &AppState,
+    auth: &AuthUser,
     request: ImportExecuteRequest,
 ) -> Result<(), String> {
     let payload: ImportPayload =
         serde_json::from_str(&request.raw_json).map_err(|e| format!("invalid JSON: {e}"))?;
-
-    let archive = ArchiveRoot::new(std::path::PathBuf::from(archive_root));
 
     for item in &request.imports {
         let source_proj = payload
@@ -286,168 +294,60 @@ pub async fn execute_import(
                 )
             })?;
 
-        match item.target_type.as_str() {
+        let project_id = match item.target_type.as_str() {
             "create_new" => {
                 let name = item
                     .name
                     .as_deref()
                     .unwrap_or(&source_proj.name)
                     .to_string();
-                let repo_path = item
+                let repo_folder_path = item
                     .repo_folder_path
                     .as_deref()
                     .unwrap_or(source_proj.repo_folder_path.as_deref().unwrap_or(""))
                     .to_string();
 
-                let project_id =
-                    create_project_for_import(client, &user_id, &name, &repo_path).await?;
-
-                for source_task in &source_proj.tasks {
-                    import_task(client, &archive, project_id, &user_id, source_task).await?;
-                }
+                let json = CreateProjectRequest {
+                    name,
+                    repo_folder_path,
+                    subproject_path: None,
+                };
+                let p = create_project(auth.clone(), State(state.clone()), Json(json))
+                    .await
+                    .map_err(|e| format!("Failed to create project as part of import: {:?}", e))?;
+                p.1.id
             }
             "add_to_existing" => {
-                let target_id = item.target_project_id.ok_or_else(|| {
+                let project_id = item.target_project_id.ok_or_else(|| {
                     "target_project_id is required for add_to_existing".to_string()
                 })?;
 
                 // Verify project exists and belongs to user
-                client
+                state
+                    .db
                     .query_map_one::<crate::db::schema::Project, _>(
                         "SELECT id, user_id, name, repo_folder_path, subproject_path, created_at \
                          FROM projects WHERE id = $1 AND user_id = $2",
-                        hiqlite::params!(target_id, user_id.to_string()),
+                        hiqlite::params!(project_id, auth.user_id.to_string()),
                     )
                     .await
-                    .map_err(|e| format!("target project {target_id} not found: {e}"))?;
-
-                for source_task in &source_proj.tasks {
-                    import_task(client, &archive, target_id, &user_id, source_task).await?;
-                }
+                    .map_err(|e| format!("target project {project_id} not found: {e}"))?;
+                project_id
             }
             other => return Err(format!("unknown target_type: {other}")),
-        }
-    }
+        };
 
-    Ok(())
-}
-
-async fn create_project_for_import(
-    client: &Client,
-    user_id: &Uuid,
-    name: &str,
-    repo_folder_path: &str,
-) -> Result<i64, String> {
-    let id: i64 = {
-        let mut rows = client
-            .query_raw(
-                "SELECT COALESCE(MAX(id), 0) + 1 AS next_id FROM projects",
-                hiqlite::params!(),
-            )
-            .await
-            .map_err(|e| format!("failed to get next project id: {e}"))?;
-        rows.first_mut()
-            .map(|r| r.get::<i64>("next_id"))
-            .unwrap_or(1)
-    };
-    let now = chrono::Utc::now().format("%Y-%m-%d %H:%M:%S").to_string();
-    client
-        .execute(
-            "INSERT INTO projects (id, user_id, name, repo_folder_path, created_at) \
-             VALUES ($1, $2, $3, $4, $5)",
-            hiqlite::params!(id, user_id.to_string(), name, repo_folder_path, &now),
-        )
-        .await
-        .map_err(|e| format!("failed to create project: {e}"))?;
-    Ok(id)
-}
-
-async fn import_task(
-    client: &Client,
-    archive: &ArchiveRoot,
-    project_id: i64,
-    user_id: &Uuid,
-    source_task: &ImportSourceTask,
-) -> Result<(), String> {
-    let id: i64 = {
-        let mut rows = client
-            .query_raw(
-                "SELECT COALESCE(MAX(id), 0) + 1 AS next_id FROM tasks",
-                hiqlite::params!(),
-            )
-            .await
-            .map_err(|e| format!("failed to get next task id: {e}"))?;
-        rows.first_mut()
-            .map(|r| r.get::<i64>("next_id"))
-            .unwrap_or(1)
-    };
-
-    let status = source_task.status.as_deref().unwrap_or("pending");
-    let now_default = || chrono::Utc::now().format("%Y-%m-%d %H:%M:%S").to_string();
-    let created_at = source_task.created_at.clone().unwrap_or_else(now_default);
-
-    client
-        .execute(
-            "INSERT INTO tasks (id, project_id, user_id, title, status, created_at) \
-             VALUES ($1, $2, $3, $4, $5, $6)",
-            hiqlite::params!(
-                id,
+        for source_task in &source_proj.tasks {
+            let source_task = source_task.clone();
+            let json = Json(CreateTaskRequest {
                 project_id,
-                user_id.to_string(),
-                &source_task.title,
-                status,
-                &created_at
-            ),
-        )
-        .await
-        .map_err(|e| format!("failed to create task: {e}"))?;
-
-    // Write task doc if description is provided
-    if let Some(ref desc) = source_task.description {
-        if !desc.trim().is_empty() {
-            let doc_path = archive.task_doc_path(&project_id.to_string(), &id.to_string());
-            if let Some(parent) = doc_path.parent() {
-                std::fs::create_dir_all(parent)
-                    .map_err(|e| format!("failed to create task doc dir: {e}"))?;
-            }
-            std::fs::write(&doc_path, desc)
-                .map_err(|e| format!("failed to write task doc: {e}"))?;
-        }
-    }
-
-    // Import conversations
-    if let Some(ref convs) = source_task.conversations {
-        for conv in convs {
-            let conv_id = Uuid::new_v4();
-            let model = conv.model.as_deref().unwrap_or("unknown");
-            let effort = conv.effort.as_deref().unwrap_or("auto");
-            let conv_created = conv
-                .created_at
-                .clone()
-                .unwrap_or_else(|| created_at.clone());
-            let conv_updated = conv
-                .updated_at
-                .clone()
-                .unwrap_or_else(|| conv_created.clone());
-
-            client
-                .execute(
-                    "INSERT INTO conversations (id, task_id, provider_session_id, model, \
-                             effort, name, created_at, updated_at) \
-                             VALUES ($1, $2, $3, $4, $5, $6, $7, $8)",
-                    hiqlite::params!(
-                        conv_id.to_string(),
-                        id,
-                        conv.provider_session_id.clone(),
-                        model,
-                        effort,
-                        conv.name.clone(),
-                        &conv_created,
-                        &conv_updated
-                    ),
-                )
+                title: source_task.title,
+                status: source_task.status,
+                original_request: source_task.description.unwrap_or(String::new()),
+            });
+            let _ = create_task(auth.clone(), State(state.clone()), json)
                 .await
-                .map_err(|e| format!("failed to create conversation: {e}"))?;
+                .map_err(|e| format!("Failed to create task as part of import: {:?}", e))?;
         }
     }
 

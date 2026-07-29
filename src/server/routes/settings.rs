@@ -222,7 +222,8 @@ async fn import_execute_handler(
     auth: AuthUser,
     Json(request): Json<export_import::ImportExecuteRequest>,
 ) -> Result<Json<serde_json::Value>, (StatusCode, Json<ErrorResponse>)> {
-    export_import::execute_import(&state.db, &state.archive_root, auth.user_id, request)
+    //export_import::execute_import(&state.db, &state.archive_root, auth.user_id, request)
+    export_import::execute_import(&state, &auth, request)
         .await
         .map_err(|e| (StatusCode::BAD_REQUEST, Json(ErrorResponse::new(e))))?;
 

@@ -14,6 +14,7 @@ use crate::auth::AuthUser;
 use crate::db::schema::{AgentType, Conversation, ConversationWithRun, TaskAgentRun};
 use crate::providers::registry;
 use crate::providers::types::{ProviderEvent, ResumeInput};
+use crate::providers::HarnessConfig;
 use crate::server::ws::message::{ServerMessage, TopicId, WsTopic, WsTopicKind};
 use crate::server::{error::ServerError, state::AppState};
 use crate::services::{session, tasks, transcript};
@@ -148,6 +149,146 @@ async fn send_message(
             hiqlite::params!(&now, conv_id.to_string()),
         )
         .await;
+
+    // Fire-and-forget title generation if conversation doesn't have one yet
+    if conv.name.is_none() {
+        tracing::info!(
+            conversation_id = %conv_id,
+            task_id = task_id,
+            model = %conv.model,
+            text_preview = %body.text.chars().take(120).collect::<String>(),
+            "send_message: spawning title generation"
+        );
+        let db = state.db.clone();
+        let config_root = PathBuf::from(&state.config_root);
+        let harness_config = match registry::resolve_harness_config(
+            &state.db,
+            &AgentType::from_str(&conv.model).unwrap_or(AgentType::Implementation),
+            Some(&task.user_id),
+            Some(task.project_id),
+        )
+        .await
+        {
+            Ok(cfg) => {
+                tracing::info!(
+                    conversation_id = %conv_id,
+                    provider_config_ref = %cfg.provider_config_ref,
+                    "send_message: harness_config resolved from conv.model"
+                );
+                cfg
+            }
+            Err(e1) => {
+                tracing::warn!(
+                    conversation_id = %conv_id,
+                    model = %conv.model,
+                    error = %e1,
+                    "send_message: resolve_harness_config failed for conv.model, trying agent_run"
+                );
+                let run = tasks::get_agent_run_by_conversation(&state.db, &conv_id)
+                    .await
+                    .ok();
+                let agent_type = run
+                    .as_ref()
+                    .and_then(|r| AgentType::from_str(&r.agent_type.to_string()).ok())
+                    .unwrap_or(AgentType::Implementation);
+                tracing::info!(
+                    conversation_id = %conv_id,
+                    agent_type = %agent_type,
+                    "send_message: retrying with agent_type from run"
+                );
+                registry::resolve_harness_config(
+                    &state.db,
+                    &agent_type,
+                    Some(&task.user_id),
+                    Some(task.project_id),
+                )
+                .await
+                .unwrap_or_else(|e2| {
+                    tracing::warn!(
+                        conversation_id = %conv_id,
+                        agent_type = %agent_type,
+                        error = %e2,
+                        "send_message: fallback resolve_harness_config also failed, using empty HarnessConfig"
+                    );
+                    HarnessConfig {
+                        agent_type: agent_type.to_string(),
+                        harness: "opencode".to_string(),
+                        provider_config_ref: String::new(),
+                        model: None,
+                        effort: None,
+                        scope: crate::db::schema::ScopeType::Global,
+                    }
+                })
+            }
+        };
+        let _log_data = state.config.info_log_client_data;
+        let _c_id = conv_id;
+        let _task_id = task_id;
+        let _text = body.text.clone();
+        let _ws_bus = state.ws_bus.clone();
+        tokio::spawn(async move {
+            tracing::info!(
+                conversation_id = %_c_id,
+                "send_message: title generation task started"
+            );
+            crate::providers::generate_conversation_title(
+                &db,
+                &config_root,
+                &harness_config,
+                _c_id,
+                &_text,
+                _log_data,
+            )
+            .await;
+            tracing::info!(
+                conversation_id = %_c_id,
+                "send_message: generate_conversation_title returned"
+            );
+            match crate::services::session::resume_session(&db, _c_id).await {
+                Ok(conv) => {
+                    tracing::info!(
+                        conversation_id = %_c_id,
+                        name = ?conv.name,
+                        is_valid = conv.name.as_deref().map(crate::webapp::components::conversation_list::is_valid_name).unwrap_or(false),
+                        "send_message: resumed conversation after title generation"
+                    );
+                    if let Some(ref name) = conv.name {
+                        if crate::webapp::components::conversation_list::is_valid_name(name) {
+                            tracing::info!(conversation_id = %_c_id, name = %name, "send_message: broadcasting conversation-name-updated");
+                            _ws_bus
+                                .broadcast(
+                                    &WsTopic {
+                                        kind: WsTopicKind::Task,
+                                        id: TopicId(_task_id),
+                                    },
+                                    ServerMessage::Event {
+                                        topic: WsTopic {
+                                            kind: WsTopicKind::Task,
+                                            id: TopicId(_task_id),
+                                        },
+                                        event_type: "conversation-name-updated".to_string(),
+                                        timestamp: chrono::Utc::now(),
+                                        payload: serde_json::json!({
+                                            "conversation_id": _c_id.to_string(),
+                                            "name": name,
+                                        }),
+                                        html: None,
+                                    },
+                                )
+                                .await;
+                        }
+                    }
+                }
+                Err(e) => {
+                    tracing::warn!(
+                        conversation_id = %_c_id,
+                        error = %e,
+                        "send_message: resume_session failed after title generation"
+                    );
+                }
+            }
+        });
+    }
 
     // Broadcast user message via WS
     let topic = WsTopic {

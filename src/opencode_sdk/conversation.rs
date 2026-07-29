@@ -25,6 +25,7 @@ pub struct PhaseConfig {
 #[derive(Debug, Clone)]
 pub struct OneShotConfig {
     pub model: String,
+    pub provider_id: String,
     pub agent: Option<String>,
     pub system: Option<String>,
     pub cwd: Option<String>,
@@ -34,6 +35,7 @@ impl Default for OneShotConfig {
     fn default() -> Self {
         Self {
             model: "default".into(),
+            provider_id: "default".into(),
             agent: None,
             system: None,
             cwd: None,
@@ -142,10 +144,21 @@ pub async fn one_shot(
     prompt: &str,
     config: &OneShotConfig,
 ) -> Result<String, SdkError> {
-    let session = client.session.create("one-shot").await?;
+    tracing::info!(
+        prompt_len = prompt.len(),
+        prompt_preview = %prompt.chars().take(120).collect::<String>(),
+        model = %config.model,
+        "one_shot: creating session"
+    );
+
+    let session = client.session.create("one-shot").await.map_err(|e| {
+        tracing::warn!(error = %e, "one_shot: session.create failed");
+        e
+    })?;
+    tracing::info!(session_id = %session.id, "one_shot: session created");
 
     let model_ref = crate::opencode_sdk::types::ModelRef {
-        provider_id: "default".into(),
+        provider_id: config.provider_id.clone(),
         model_id: config.model.clone(),
     };
 
@@ -161,7 +174,20 @@ pub async fn one_shot(
         })],
     };
 
-    let response = client.session.prompt(&session.id, &body).await?;
+    tracing::info!(session_id = %session.id, "one_shot: calling session.prompt");
+    let response = client
+        .session
+        .prompt(&session.id, &body)
+        .await
+        .map_err(|e| {
+            tracing::warn!(session_id = %session.id, error = %e, "one_shot: session.prompt failed");
+            e
+        })?;
+    tracing::info!(
+        session_id = %session.id,
+        num_parts = response.parts.len(),
+        "one_shot: prompt returned"
+    );
 
     let text: String = response
         .parts
@@ -172,6 +198,13 @@ pub async fn one_shot(
         })
         .collect::<Vec<_>>()
         .join("");
+
+    tracing::info!(
+        session_id = %session.id,
+        text_len = text.len(),
+        text_preview = %text.chars().take(200).collect::<String>(),
+        "one_shot: extracted text from response"
+    );
 
     let _ = client.session.delete(&session.id).await;
 
@@ -358,6 +391,7 @@ mod tests {
     fn test_opencode_sdk_one_shot_config_default() {
         let config = OneShotConfig::default();
         assert_eq!(config.model, "default");
+        assert_eq!(config.provider_id, "default");
         assert!(config.agent.is_none());
     }
 
