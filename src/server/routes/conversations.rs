@@ -397,24 +397,42 @@ async fn send_message(
                                             id: TopicId(task_id),
                                         };
 
-                                        if let Err(e) = transcript::persist_event(
-                                            &db, &event, &s_id, task_id
-                                        ).await {
-                                            tracing::error!("Failed to persist event: {e}");
-                                            let error_event = ProviderEvent::Error {
-                                                error: format!("Failed to persist event: {e}"),
-                                                timestamp: chrono::Utc::now().naive_utc(),
+                                        // Merged ToolUse with result → update existing row instead of inserting new one
+                                        let is_merged_tool = matches!(&event, ProviderEvent::ToolUse { result: Some(..), .. });
+
+                                        if !is_merged_tool {
+                                            if let Err(e) = transcript::persist_event(
+                                                &db, &event, &s_id, task_id
+                                            ).await {
+                                                tracing::error!("Failed to persist event: {e}");
+                                                let error_event = ProviderEvent::Error {
+                                                    error: format!("Failed to persist event: {e}"),
+                                                    timestamp: chrono::Utc::now().naive_utc(),
+                                                };
+                                                let (event_type, payload) = error_event.to_ws_event();
+                                                let msg = ServerMessage::Event {
+                                                    topic: topic.clone(),
+                                                    event_type,
+                                                    timestamp: chrono::Utc::now(),
+                                                    payload,
+                                                    html: None,
+                                                };
+                                                ws_bus.broadcast(&topic, msg).await;
+                                                break;
+                                            }
+                                        } else {
+                                            // Try to update existing ToolUse row with completed data
+                                            let tool_use_id = match &event {
+                                                ProviderEvent::ToolUse { tool_use_id: Some(id), .. } => id.clone(),
+                                                _ => String::new(),
                                             };
-                                            let (event_type, payload) = error_event.to_ws_event();
-                                            let msg = ServerMessage::Event {
-                                                topic: topic.clone(),
-                                                event_type,
-                                                timestamp: chrono::Utc::now(),
-                                                payload,
-                                                html: None,
-                                            };
-                                            ws_bus.broadcast(&topic, msg).await;
-                                            break;
+                                            if !tool_use_id.is_empty() {
+                                                if let Err(e) = transcript::update_tool_event(
+                                                    &db, &tool_use_id, &event, &s_id, task_id
+                                                ).await {
+                                                    tracing::error!("Failed to update tool event: {e}");
+                                                }
+                                            }
                                         }
 
                                         if let ProviderEvent::SessionStart { session_id } = &event {

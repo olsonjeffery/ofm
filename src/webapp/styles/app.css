@@ -313,6 +313,20 @@ a.card .card-header-title {
     padding: 0.1rem;
     font-family: var(--bulma-family-code);
 }
+
+.tool-section-label {
+    font-size: 0.85em;
+    color: #888;
+    margin-bottom: 0.25em;
+    display: block;
+}
+
+.message-tool pre hr {
+    border: none;
+    border-top: 1px solid #ddd;
+    margin: 0.5em 0;
+    opacity: 0.5;
+}
 .message-tool .icon {
     color: var(--bulma-grey);
 }

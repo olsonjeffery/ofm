@@ -41,6 +41,42 @@ fn event_timestamp(event: &ProviderEvent) -> Option<chrono::NaiveDateTime> {
     }
 }
 
+pub async fn update_tool_event(
+    client: &Client,
+    tool_use_id: &str,
+    merged_event: &ProviderEvent,
+    session_id: &str,
+    project_key: i64,
+) -> Result<(), hiqlite::Error> {
+    let messages = client
+        .query_map::<Message, _>(
+            "SELECT project_key, session_id, seq, entry_json FROM messages WHERE project_key = $1 AND session_id = $2 ORDER BY seq ASC",
+            hiqlite::params!(project_key, session_id),
+        )
+        .await?;
+
+    for m in &messages {
+        if let Ok(ProviderEvent::ToolUse {
+            tool_use_id: Some(ref id),
+            ..
+        }) = serde_json::from_value::<ProviderEvent>(m.entry_json.clone())
+        {
+            if id == tool_use_id {
+                let entry_json = serde_json::to_value(merged_event)
+                    .map_err(|e| hiqlite::Error::new(format!("serialize event: {e}")))?;
+                client
+                    .execute(
+                        "UPDATE messages SET entry_json = $1 WHERE project_key = $2 AND session_id = $3 AND seq = $4",
+                        hiqlite::params!(entry_json.to_string(), project_key, session_id, m.seq),
+                    )
+                    .await?;
+                return Ok(());
+            }
+        }
+    }
+    Ok(())
+}
+
 pub async fn load_transcript(
     client: &Client,
     session_id: &str,
@@ -110,6 +146,7 @@ mod tests {
                 tool_name: "read".into(),
                 tool_use_id: Some("id1".into()),
                 input: serde_json::json!({"path": "/tmp"}),
+                result: None,
                 message_id: None,
                 timestamp: ts,
             },
@@ -305,6 +342,97 @@ mod tests {
 
         for (i, m) in messages.iter().enumerate() {
             assert_eq!(m.seq, (i + 1) as i32, "seq values must be 1..{count}");
+        }
+    }
+
+    #[tokio::test]
+    async fn test_update_tool_event_updates_row() {
+        let (client, _tmp) = make_client().await;
+        let session_id = "sess-update";
+        let project_key = 10i64;
+        let ts = test_ts();
+
+        let original = ProviderEvent::ToolUse {
+            tool_name: "read".into(),
+            tool_use_id: Some("call1".into()),
+            input: serde_json::json!({"path": "/tmp"}),
+            result: None,
+            message_id: None,
+            timestamp: ts,
+        };
+
+        persist_event(&client, &original, session_id, project_key)
+            .await
+            .unwrap();
+
+        let merged = ProviderEvent::ToolUse {
+            tool_name: "read".into(),
+            tool_use_id: Some("call1".into()),
+            input: serde_json::json!({"path": "/tmp"}),
+            result: Some("file content".into()),
+            message_id: None,
+            timestamp: ts,
+        };
+
+        update_tool_event(&client, "call1", &merged, session_id, project_key)
+            .await
+            .unwrap();
+
+        let loaded = load_transcript(&client, session_id, project_key)
+            .await
+            .unwrap();
+        assert_eq!(loaded.len(), 1);
+        match &loaded[0] {
+            ProviderEvent::ToolUse { result, .. } => {
+                assert_eq!(result, &Some("file content".into()));
+            }
+            _ => panic!("expected ToolUse"),
+        }
+    }
+
+    #[tokio::test]
+    async fn test_update_tool_event_nonexistent_id() {
+        let (client, _tmp) = make_client().await;
+        let session_id = "sess-noexist";
+        let project_key = 11i64;
+        let ts = test_ts();
+
+        let original = ProviderEvent::ToolUse {
+            tool_name: "read".into(),
+            tool_use_id: Some("call1".into()),
+            input: serde_json::json!({"path": "/tmp"}),
+            result: None,
+            message_id: None,
+            timestamp: ts,
+        };
+
+        persist_event(&client, &original, session_id, project_key)
+            .await
+            .unwrap();
+
+        let merged = ProviderEvent::ToolUse {
+            tool_name: "read".into(),
+            tool_use_id: Some("call_notfound".into()),
+            input: serde_json::json!({"path": "/tmp"}),
+            result: Some("output".into()),
+            message_id: None,
+            timestamp: ts,
+        };
+
+        // Should not crash, just return Ok(()) without modifying anything
+        update_tool_event(&client, "call_notfound", &merged, session_id, project_key)
+            .await
+            .unwrap();
+
+        let loaded = load_transcript(&client, session_id, project_key)
+            .await
+            .unwrap();
+        assert_eq!(loaded.len(), 1);
+        match &loaded[0] {
+            ProviderEvent::ToolUse { result, .. } => {
+                assert!(result.is_none(), "should not have been updated");
+            }
+            _ => panic!("expected ToolUse"),
         }
     }
 }

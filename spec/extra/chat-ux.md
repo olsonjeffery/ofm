@@ -248,7 +248,7 @@ The conversation message stream applies distinct visual styling per content type
 |---|---|---|---|---|
 | Model statement | `.message-model` | None | Default text, semi-bold (600) |
 | Thinking | `.message-thinking` | `mdi-snowflake-outline` | Purple background/border/text, flexbox icon+content layout |
-| Tool usage | `.message-tool` | `mdi-cog-outline` | Gray background/border/text |
+| Tool usage (unified card) | `.message-tool` | `mdi-cog-outline` | Gray background/border/text. Shows Input and Result sections with `tool-section-label` labels, separated by `<hr>`. Each section independently collapsible. |
 | User input | `.message-user` | None | Blue (#1565c0) background, white text, right-aligned, 45% max-width |
 | Question asked | `.message-question` | `mdi-help-circle-outline` | `is-info is-light` notification (blue info palette) |
 
@@ -261,8 +261,31 @@ The conversation message stream applies distinct visual styling per content type
 
 **Deduplication** — both server-side and client-side dedup prevent duplicate content:
 
-- **Server-side (SSR):** `MessageStream` in `message_stream.rs` applies a `HashSet` fingerprint before calling `render_event()`. Fingerprint keys mirror the JS pattern: `"text:{text}"`, `"user_text:{text}"`, `"thinking:{thinking}"`, and `tool_use_id`/`message_id` for tool events. This benefits both initial SSR rendering and (via WS pre-rendered HTML) streamed content.
-- **Client-side (WS fallback):** JS in `chat.rs` maintains a `renderedMessageIds` map for the same event types, used only for `updateToolCallContent` streaming tool result merging (dead code `renderEvent` and fallback `renderServerEvent` switch removed).
+- **Server-side (SSR):** `MessageStream` in `message_stream.rs` applies a `HashSet` fingerprint before calling `render_event()`. Fingerprint keys mirror the JS pattern: `"text:{text}"`, `"user_text:{text}"`, `"thinking:{thinking}"`. Tool events use **prefixed keys** (`"use:{tool_use_id}"` for ToolUse, `"result:{tool_use_id}"` for ToolResult) so that both variants survive dedup independently (fixed in Task 67). After dedup, a **merge pass** iterates the dedup'd events and combines adjacent ToolUse+ToolResult pairs by matching `tool_use_id` into a single unified ToolUse card with both input and result. This handles old-format DB rows (separate ToolUse+ToolResult).
+- **Client-side (WS fallback):** JS in `chat.rs` maintains a `renderedMessageIds` map for `tool_use_id` dedup. For `tool_updated` events, the entire card's `outerHTML` is replaced with server-rendered HTML. For `tool_use` and `tool_result` events without pre-rendered HTML, the old `updateToolCallContent` merge logic is kept as a fallback.
+
+### `tool_updated` Event Type
+
+ToolUse events with a populated `result` field emit a `tool_updated` WS event type (instead of `tool_use`). The client JS detects `tool_updated` in the WS handler and replaces the tool card's `outerHTML` with the server-rendered unified HTML from `msg.html`. This ensures the client view matches what a page reload would show.
+
+### Unified Tool Card Merging
+
+Tool cards (`.message-tool`) now display tool name, input, and result in a single layout:
+
+```
+[icon] tool_name
+  Input:
+    {prettified input JSON}
+  ---
+  Result:
+    {result content}
+```
+
+- If input is null and result is `None`: the card is suppressed entirely (Phase 2a).
+- If `result` is `Some`: both Input and Result sections render with independent collapse/show-more logic, separated by an `<hr>`.
+- If `result` is `None`: only the Input section renders.
+
+The `.tool-section-label` CSS class styles the "Input:" / "Result:" labels at 0.85em with muted color.
 
 ## Boundaries (not in this spec)
 

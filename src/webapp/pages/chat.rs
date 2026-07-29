@@ -92,6 +92,9 @@ document.addEventListener('DOMContentLoaded', function() {{
     // Streaming tool-result dedup tracker
     var renderedMessageIds = {{}};
 
+    // Track tool_updated keys separately for outerHTML replacement
+    var toolUpdatedKeys = {{}};
+
     // Stop agent
     window.stopAgent = function() {{
         if (!taskId) return;
@@ -134,6 +137,22 @@ document.addEventListener('DOMContentLoaded', function() {{
                 if (container) {{
                     // dedup by message_id: merge into existing entry
                     var dedupKey = msg.payload.message_id || msg.payload.tool_use_id || '';
+                    if (msg.event_type === 'tool_updated' && dedupKey) {{
+                        var el = renderedMessageIds[dedupKey];
+                        if (el && msg.html) {{
+                            // Replace existing card with server-rendered HTML
+                            el.outerHTML = msg.html;
+                            var newEl = document.querySelector('[data-tool-use-id="' + dedupKey + '"]');
+                            if (newEl) renderedMessageIds[dedupKey] = newEl;
+                        }} else if (msg.html) {{
+                            // No prior element (Running was suppressed) — append as new content
+                            container.insertAdjacentHTML('beforeend', msg.html);
+                            renderedMessageIds[dedupKey] = container.lastElementChild;
+                        }}
+                        if (isAtBottom) {{ scrollToBottom(); }}
+                        else {{ updateJumpPill(); }}
+                        return;
+                    }}
                     if (dedupKey && renderedMessageIds[dedupKey]) {{
                         updateToolCallContent(dedupKey, msg);
                         if (isAtBottom) {{ scrollToBottom(); }}
@@ -212,6 +231,14 @@ document.addEventListener('DOMContentLoaded', function() {{
     }}
 
     function updateToolCallContent(dedupKey, msg) {{
+        if (msg.html) {{
+            var el = renderedMessageIds[dedupKey];
+            if (!el) return;
+            el.outerHTML = msg.html;
+            var newEl = document.querySelector('[data-tool-use-id="' + dedupKey + '"]');
+            if (newEl) renderedMessageIds[dedupKey] = newEl;
+            return;
+        }}
         var el = renderedMessageIds[dedupKey];
         if (!el || !el.querySelector) return;
         var pre = el.querySelector('pre');

@@ -275,6 +275,7 @@ fn deep_merge(base: &mut serde_json::Value, overlay: &serde_json::Value) {
 }
 
 fn map_sdk_event_to_provider_event(global: &GlobalEvent, session_id: &str) -> Vec<ProviderEvent> {
+    let now = chrono::Utc::now().naive_utc();
     match &global.payload {
         Event::MessagePartUpdated(data) => {
             if data.session_id != *session_id {
@@ -288,7 +289,7 @@ fn map_sdk_event_to_provider_event(global: &GlobalEvent, session_id: &str) -> Ve
                     } else {
                         vec![ProviderEvent::Text {
                             text,
-                            timestamp: chrono::Utc::now().naive_utc(),
+                            timestamp: now,
                         }]
                     }
                 }
@@ -299,32 +300,43 @@ fn map_sdk_event_to_provider_event(global: &GlobalEvent, session_id: &str) -> Ve
                     }
                     vec![ProviderEvent::Thinking {
                         thinking: text,
-                        timestamp: chrono::Utc::now().naive_utc(),
+                        timestamp: now,
                     }]
                 }
                 Part::Tool(tool_part) => match &tool_part.state {
-                    ToolState::Running(_) => vec![ProviderEvent::ToolUse {
-                        tool_name: tool_part.tool.clone(),
-                        tool_use_id: Some(tool_part.call_id.clone()),
-                        input: tool_part.input.clone().unwrap_or(serde_json::Value::Null),
-                        message_id: data.message_id.clone(),
-                        timestamp: chrono::Utc::now().naive_utc(),
-                    }],
+                    ToolState::Running(_) => {
+                        let input = tool_part.input.clone().unwrap_or(serde_json::Value::Null);
+                        if input.is_null() {
+                            Vec::new()
+                        } else {
+                            vec![ProviderEvent::ToolUse {
+                                tool_name: tool_part.tool.clone(),
+                                tool_use_id: Some(tool_part.call_id.clone()),
+                                input,
+                                result: None,
+                                message_id: data.message_id.clone(),
+                                timestamp: now,
+                            }]
+                        }
+                    }
                     ToolState::Completed(state) => {
                         let output = state.output.trim().to_string();
                         if output == "null" || output.is_empty() {
                             return Vec::new();
                         }
-                        vec![ProviderEvent::ToolResult {
+                        let input = tool_part.input.clone().unwrap_or(serde_json::Value::Null);
+                        vec![ProviderEvent::ToolUse {
+                            tool_name: tool_part.tool.clone(),
                             tool_use_id: Some(tool_part.call_id.clone()),
-                            result: output,
+                            input,
+                            result: Some(output),
                             message_id: data.message_id.clone(),
-                            timestamp: chrono::Utc::now().naive_utc(),
+                            timestamp: now,
                         }]
                     }
                     ToolState::Error(state) => vec![ProviderEvent::Error {
                         error: state.error.clone(),
-                        timestamp: chrono::Utc::now().naive_utc(),
+                        timestamp: now,
                     }],
                     ToolState::Pending(_) => Vec::new(),
                 },
@@ -338,11 +350,11 @@ fn map_sdk_event_to_provider_event(global: &GlobalEvent, session_id: &str) -> Ve
             match data.status.status_type.as_str() {
                 "error" => vec![ProviderEvent::Error {
                     error: "session error".into(),
-                    timestamp: chrono::Utc::now().naive_utc(),
+                    timestamp: now,
                 }],
                 "idle" => vec![ProviderEvent::Done {
                     data: serde_json::json!({}),
-                    timestamp: chrono::Utc::now().naive_utc(),
+                    timestamp: now,
                 }],
                 _ => Vec::new(),
             }
@@ -353,7 +365,7 @@ fn map_sdk_event_to_provider_event(global: &GlobalEvent, session_id: &str) -> Ve
             }
             vec![ProviderEvent::Done {
                 data: serde_json::json!({}),
-                timestamp: chrono::Utc::now().naive_utc(),
+                timestamp: now,
             }]
         }
         Event::SessionError(data) => {
@@ -362,7 +374,7 @@ fn map_sdk_event_to_provider_event(global: &GlobalEvent, session_id: &str) -> Ve
             }
             vec![ProviderEvent::Error {
                 error: data.error_message(),
-                timestamp: chrono::Utc::now().naive_utc(),
+                timestamp: now,
             }]
         }
         Event::ServerConnected(_) => vec![ProviderEvent::Ready],
@@ -396,7 +408,7 @@ fn map_sdk_event_to_provider_event(global: &GlobalEvent, session_id: &str) -> Ve
                     .collect(),
                 tool_call_id: None,
                 message_id: None,
-                timestamp: chrono::Utc::now().naive_utc(),
+                timestamp: now,
             }]
         }
         Event::MessageUpdated(data) => {
@@ -404,21 +416,40 @@ fn map_sdk_event_to_provider_event(global: &GlobalEvent, session_id: &str) -> Ve
                 return Vec::new();
             }
             let mut events = Vec::new();
-            let now = chrono::Utc::now().naive_utc();
             let parts = data
                 .parts
                 .as_ref()
                 .filter(|p| !p.is_empty())
                 .unwrap_or(&data.info.parts);
             for part in parts {
-                if let Part::Text(t) = part {
-                    let text = t.text.trim().to_string();
-                    if !text.is_empty() {
-                        events.push(ProviderEvent::Text {
-                            text,
-                            timestamp: now,
-                        });
+                match part {
+                    Part::Text(t) => {
+                        let text = t.text.trim().to_string();
+                        if !text.is_empty() {
+                            events.push(ProviderEvent::Text {
+                                text,
+                                timestamp: now,
+                            });
+                        }
                     }
+                    Part::Tool(tool_part) => {
+                        if let ToolState::Completed(state) = &tool_part.state {
+                            let output = state.output.trim().to_string();
+                            if output == "null" || output.is_empty() {
+                                continue;
+                            }
+                            let input = tool_part.input.clone().unwrap_or(serde_json::Value::Null);
+                            events.push(ProviderEvent::ToolUse {
+                                tool_name: tool_part.tool.clone(),
+                                tool_use_id: Some(tool_part.call_id.clone()),
+                                input,
+                                result: Some(output),
+                                message_id: Some(data.info.id.clone()),
+                                timestamp: now,
+                            });
+                        }
+                    }
+                    _ => {}
                 }
             }
             events
@@ -753,7 +784,7 @@ mod tests {
         let events = map_sdk_event_to_provider_event(&global, "sess1");
         assert_eq!(events.len(), 1);
         assert!(
-            matches!(&events[0], ProviderEvent::ToolResult { result, .. } if result == "file content")
+            matches!(&events[0], ProviderEvent::ToolUse { result, .. } if result == &Some("file content".to_string()))
         );
     }
 
@@ -1065,8 +1096,17 @@ mod tests {
             }),
         };
         let events = map_sdk_event_to_provider_event(&global, "sess1");
-        // Has finish but no text parts → should still produce no events
-        assert!(events.is_empty());
+        // Has finish with a tool part → should produce a merged ToolUse
+        assert_eq!(events.len(), 1);
+        match &events[0] {
+            ProviderEvent::ToolUse {
+                tool_name, result, ..
+            } => {
+                assert_eq!(tool_name, "read");
+                assert_eq!(result, &Some("file content".into()));
+            }
+            _ => panic!("expected ToolUse with result"),
+        }
     }
 
     #[test]
@@ -1131,6 +1171,210 @@ mod tests {
         assert!(
             matches!(&events[0], ProviderEvent::Text { text, .. } if text == "from top-level parts")
         );
+    }
+
+    #[test]
+    fn test_running_with_null_input_suppressed() {
+        let global = GlobalEvent {
+            id: None,
+            payload: Event::MessagePartUpdated(MessagePartUpdatedData {
+                session_id: "sess1".into(),
+                part: Part::Tool(ToolPart {
+                    tool: "read".into(),
+                    call_id: "call1".into(),
+                    state: ToolState::Running(ToolStateRunning {
+                        input: serde_json::Value::Null,
+                    }),
+                    input: None,
+                }),
+                delta: None,
+                message_id: None,
+            }),
+        };
+        let events = map_sdk_event_to_provider_event(&global, "sess1");
+        assert!(
+            events.is_empty(),
+            "Running with null input should be suppressed"
+        );
+    }
+
+    #[test]
+    fn test_running_with_input_emits_tool_use() {
+        let global = GlobalEvent {
+            id: None,
+            payload: Event::MessagePartUpdated(MessagePartUpdatedData {
+                session_id: "sess1".into(),
+                part: Part::Tool(ToolPart {
+                    tool: "read".into(),
+                    call_id: "call1".into(),
+                    state: ToolState::Running(ToolStateRunning {
+                        input: serde_json::json!({"path": "/tmp"}),
+                    }),
+                    input: Some(serde_json::json!({"path": "/tmp"})),
+                }),
+                delta: None,
+                message_id: None,
+            }),
+        };
+        let events = map_sdk_event_to_provider_event(&global, "sess1");
+        assert_eq!(events.len(), 1);
+        match &events[0] {
+            ProviderEvent::ToolUse {
+                tool_name,
+                tool_use_id,
+                input,
+                result,
+                ..
+            } => {
+                assert_eq!(tool_name, "read");
+                assert_eq!(tool_use_id, &Some("call1".into()));
+                assert_eq!(input, &serde_json::json!({"path": "/tmp"}));
+                assert!(result.is_none(), "Running should not have result");
+            }
+            _ => panic!("expected ToolUse"),
+        }
+    }
+
+    #[test]
+    fn test_completed_emits_merged_tool_use() {
+        let global = GlobalEvent {
+            id: None,
+            payload: Event::MessagePartUpdated(MessagePartUpdatedData {
+                session_id: "sess1".into(),
+                part: Part::Tool(ToolPart {
+                    tool: "read".into(),
+                    call_id: "call1".into(),
+                    state: ToolState::Completed(ToolStateCompleted {
+                        input: serde_json::json!({"path": "/tmp"}),
+                        output: "file content".into(),
+                    }),
+                    input: Some(serde_json::json!({"path": "/tmp"})),
+                }),
+                delta: None,
+                message_id: None,
+            }),
+        };
+        let events = map_sdk_event_to_provider_event(&global, "sess1");
+        assert_eq!(events.len(), 1);
+        match &events[0] {
+            ProviderEvent::ToolUse {
+                tool_name,
+                tool_use_id,
+                input,
+                result,
+                ..
+            } => {
+                assert_eq!(tool_name, "read");
+                assert_eq!(tool_use_id, &Some("call1".into()));
+                assert_eq!(input, &serde_json::json!({"path": "/tmp"}));
+                assert_eq!(result, &Some("file content".into()));
+            }
+            _ => panic!("expected ToolUse with result"),
+        }
+    }
+
+    #[test]
+    fn test_message_updated_with_tool_part_emits_merged_tool_use() {
+        let global = GlobalEvent {
+            id: None,
+            payload: Event::MessageUpdated(MessageUpdatedData {
+                session_id: "sess1".into(),
+                info: AssistantMessage {
+                    id: "msg1".into(),
+                    session_id: "sess1".into(),
+                    time: serde_json::Value::Null,
+                    error: None,
+                    parent_id: None,
+                    model_id: None,
+                    provider_id: None,
+                    mode: None,
+                    path: None,
+                    cost: None,
+                    tokens: None,
+                    finish: Some("stop".into()),
+                    parts: vec![Part::Tool(ToolPart {
+                        tool: "bash".into(),
+                        call_id: "call2".into(),
+                        state: ToolState::Completed(ToolStateCompleted {
+                            input: serde_json::json!({"command": "ls"}),
+                            output: "src/\ntarget/".into(),
+                        }),
+                        input: Some(serde_json::json!({"command": "ls"})),
+                    })],
+                },
+                parts: None,
+            }),
+        };
+        let events = map_sdk_event_to_provider_event(&global, "sess1");
+        assert_eq!(events.len(), 1);
+        match &events[0] {
+            ProviderEvent::ToolUse {
+                tool_name,
+                tool_use_id,
+                input,
+                result,
+                ..
+            } => {
+                assert_eq!(tool_name, "bash");
+                assert_eq!(tool_use_id, &Some("call2".into()));
+                assert_eq!(input, &serde_json::json!({"command": "ls"}));
+                assert_eq!(result, &Some("src/\ntarget/".into()));
+            }
+            _ => panic!("expected ToolUse with result"),
+        }
+    }
+
+    #[test]
+    fn test_message_updated_with_both_text_and_tool() {
+        let global = GlobalEvent {
+            id: None,
+            payload: Event::MessageUpdated(MessageUpdatedData {
+                session_id: "sess1".into(),
+                info: AssistantMessage {
+                    id: "msg1".into(),
+                    session_id: "sess1".into(),
+                    time: serde_json::Value::Null,
+                    error: None,
+                    parent_id: None,
+                    model_id: None,
+                    provider_id: None,
+                    mode: None,
+                    path: None,
+                    cost: None,
+                    tokens: None,
+                    finish: Some("stop".into()),
+                    parts: vec![
+                        Part::Text(TextPart {
+                            text: "Here is the result".into(),
+                        }),
+                        Part::Tool(ToolPart {
+                            tool: "read".into(),
+                            call_id: "call3".into(),
+                            state: ToolState::Completed(ToolStateCompleted {
+                                input: serde_json::json!({"path": "./src"}),
+                                output: "mod.rs".into(),
+                            }),
+                            input: Some(serde_json::json!({"path": "./src"})),
+                        }),
+                    ],
+                },
+                parts: None,
+            }),
+        };
+        let events = map_sdk_event_to_provider_event(&global, "sess1");
+        assert_eq!(events.len(), 2);
+        assert!(
+            matches!(&events[0], ProviderEvent::Text { text, .. } if text == "Here is the result")
+        );
+        match &events[1] {
+            ProviderEvent::ToolUse {
+                tool_name, result, ..
+            } => {
+                assert_eq!(tool_name, "read");
+                assert_eq!(result, &Some("mod.rs".into()));
+            }
+            _ => panic!("expected ToolUse with result"),
+        }
     }
 
     #[test]

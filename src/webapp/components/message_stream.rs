@@ -159,18 +159,51 @@ pub fn render_event(event: &ProviderEvent) -> String {
             tool_name,
             tool_use_id,
             input,
+            result,
             message_id,
             ..
         } => {
-            let input_str = serde_json::to_string_pretty(input).unwrap_or_default();
             let id_str = tool_use_id.as_deref().unwrap_or("");
-            let content = maybe_collapse(&input_str, &collapse_id(id_str));
             let data_attrs = build_data_attrs(id_str, message_id);
+
+            // Suppress if both input is null and no result
+            if input.is_null() && result.is_none() {
+                return String::new();
+            }
+
+            let input_str = serde_json::to_string_pretty(input).unwrap_or_default();
+            let input_html = if input.is_null() {
+                String::new()
+            } else {
+                format!(
+                    r#"<span class="tool-section-label">Input:</span>{}"#,
+                    maybe_collapse(&input_str, &format!("i_{}", collapse_id(id_str)))
+                )
+            };
+
+            let result_html = match result {
+                Some(r) if !r.is_empty() && r != "null" => format!(
+                    r#"<hr><span class="tool-section-label">Result:</span>{}"#,
+                    maybe_collapse(r, &format!("r_{}", collapse_id(id_str)))
+                ),
+                _ => String::new(),
+            };
+
+            let inner = if !input_html.is_empty() && !result_html.is_empty() {
+                format!(r#"<pre>{}{}</pre>"#, input_html, result_html)
+            } else if !input_html.is_empty() {
+                format!(r#"<pre>{}</pre>"#, input_html)
+            } else if !result_html.is_empty() {
+                format!(r#"<pre>{}</pre>"#, result_html)
+            } else {
+                return String::new();
+            };
+
             format!(
                 r#"<div class="message-tool"{}><span class="icon"><i class="mdi mdi-cog-outline"></i></span> <code>{}</code>{}</div>"#,
                 data_attrs,
                 esc(tool_name),
-                content
+                inner
             )
         }
         ProviderEvent::ToolResult {
@@ -313,6 +346,7 @@ mod tests {
             tool_name: "read".into(),
             tool_use_id: Some("id1".into()),
             input: serde_json::json!({"path": "/tmp"}),
+            result: None,
             message_id: None,
             timestamp: ts,
         }];
@@ -490,6 +524,7 @@ mod tests {
             tool_name: "read".into(),
             tool_use_id: Some("id1".into()),
             input: serde_json::json!({"path": "/tmp"}),
+            result: None,
             message_id: Some("msg123".into()),
             timestamp: ts,
         }];
@@ -504,6 +539,7 @@ mod tests {
             tool_name: "read".into(),
             tool_use_id: Some("id1".into()),
             input: serde_json::json!({"path": "/tmp"}),
+            result: None,
             message_id: None,
             timestamp: ts,
         }];
@@ -538,6 +574,7 @@ mod tests {
                 tool_name: "read".into(),
                 tool_use_id: Some("id1".into()),
                 input: serde_json::json!({"path": "/tmp"}),
+                result: None,
                 message_id: None,
                 timestamp: ts,
             },
@@ -545,6 +582,7 @@ mod tests {
                 tool_name: "read".into(),
                 tool_use_id: Some("id1".into()),
                 input: serde_json::json!({"path": "/tmp"}),
+                result: None,
                 message_id: None,
                 timestamp: ts,
             },
@@ -561,6 +599,7 @@ mod tests {
                 tool_name: "read".into(),
                 tool_use_id: Some("id1".into()),
                 input: serde_json::json!({"path": "/tmp"}),
+                result: None,
                 message_id: None,
                 timestamp: ts,
             },
@@ -568,6 +607,7 @@ mod tests {
                 tool_name: "write".into(),
                 tool_use_id: Some("id2".into()),
                 input: serde_json::json!({"path": "/tmp/test.txt"}),
+                result: None,
                 message_id: None,
                 timestamp: ts,
             },
@@ -778,15 +818,130 @@ mod tests {
         let result = format_timestamp_pill(ts);
         assert_eq!(result, "Dec 25, 08:05");
     }
+
+    #[test]
+    fn test_tool_use_with_null_input_not_rendered() {
+        let ts = test_ts();
+        let messages = vec![ProviderEvent::ToolUse {
+            tool_name: "read".into(),
+            tool_use_id: Some("id1".into()),
+            input: serde_json::Value::Null,
+            result: None,
+            message_id: None,
+            timestamp: ts,
+        }];
+        let html = leptos::view! { <MessageStream messages=messages /> }.to_html();
+        assert!(
+            !html.contains("message-tool"),
+            "null-input ToolUse without result should not render"
+        );
+    }
+
+    #[test]
+    fn test_tool_use_with_result_renders_both_sections() {
+        let ts = test_ts();
+        let messages = vec![ProviderEvent::ToolUse {
+            tool_name: "read".into(),
+            tool_use_id: Some("id1".into()),
+            input: serde_json::json!({"path": "/tmp"}),
+            result: Some("file content".into()),
+            message_id: None,
+            timestamp: ts,
+        }];
+        let html = leptos::view! { <MessageStream messages=messages /> }.to_html();
+        assert!(
+            html.contains("tool-section-label"),
+            "merged card should have section labels"
+        );
+        assert!(html.contains("Input:"), "should show Input section");
+        assert!(html.contains("Result:"), "should show Result section");
+        assert!(html.contains("mdi-cog-outline"), "should have tool icon");
+    }
+
+    #[test]
+    fn test_tool_use_tool_result_merged_on_ssr() {
+        let ts = test_ts();
+        let messages = vec![
+            ProviderEvent::ToolUse {
+                tool_name: "read".into(),
+                tool_use_id: Some("id1".into()),
+                input: serde_json::json!({"path": "/tmp"}),
+                result: None,
+                message_id: None,
+                timestamp: ts,
+            },
+            ProviderEvent::ToolResult {
+                tool_use_id: Some("id1".into()),
+                result: "file content".into(),
+                message_id: None,
+                timestamp: ts,
+            },
+        ];
+        let html = leptos::view! { <MessageStream messages=messages /> }.to_html();
+        // Should produce exactly one message-tool with both Input and Result sections
+        assert_eq!(
+            html.matches("message-tool").count(),
+            1,
+            "should merge into one card"
+        );
+        assert!(html.contains("Input:"), "merged card should have Input");
+        assert!(html.contains("Result:"), "merged card should have Result");
+        assert!(
+            html.contains("mdi-cog-outline"),
+            "merged card should have icon"
+        );
+    }
+
+    #[test]
+    fn test_dedup_preserves_tool_use_and_result() {
+        let ts = test_ts();
+        let messages = vec![
+            ProviderEvent::ToolUse {
+                tool_name: "read".into(),
+                tool_use_id: Some("id1".into()),
+                input: serde_json::json!({"path": "/tmp"}),
+                result: None,
+                message_id: None,
+                timestamp: ts,
+            },
+            ProviderEvent::ToolResult {
+                tool_use_id: Some("id1".into()),
+                result: "output".into(),
+                message_id: None,
+                timestamp: ts,
+            },
+        ];
+        let html = leptos::view! { <MessageStream messages=messages /> }.to_html();
+        // prefixed keys should let both survive dedup (merge combines them into one)
+        assert!(html.contains("Input:"));
+        assert!(html.contains("Result:"));
+        assert_eq!(html.matches("message-tool").count(), 1);
+    }
+
+    #[test]
+    fn test_tool_result_standalone_renders() {
+        let ts = test_ts();
+        let messages = vec![ProviderEvent::ToolResult {
+            tool_use_id: Some("orphan".into()),
+            result: "standalone result".into(),
+            message_id: None,
+            timestamp: ts,
+        }];
+        let html = leptos::view! { <MessageStream messages=messages /> }.to_html();
+        assert!(
+            html.contains("standalone result"),
+            "standalone ToolResult should render content"
+        );
+    }
 }
 
 #[component]
 pub fn MessageStream(messages: Vec<ProviderEvent>) -> impl IntoView {
     let mut seen = HashSet::new();
-    let mut parts: Vec<String> = Vec::new();
+    let mut deduped: Vec<&ProviderEvent> = Vec::new();
 
     for event in messages.iter() {
-        // Dedup check
+        // Dedup check — use prefixed keys so ToolUse and ToolResult don't suppress each other
         let key = match event {
             ProviderEvent::Text { text, .. } => Some(format!("text:{text}")),
             ProviderEvent::UserText { text, .. } => Some(format!("user_text:{text}")),
@@ -798,7 +953,7 @@ pub fn MessageStream(messages: Vec<ProviderEvent>) -> impl IntoView {
             } => tool_use_id
                 .as_deref()
                 .or(message_id.as_deref())
-                .map(|s| s.to_string()),
+                .map(|s| format!("use:{s}")),
             ProviderEvent::ToolResult {
                 tool_use_id,
                 message_id,
@@ -806,20 +961,77 @@ pub fn MessageStream(messages: Vec<ProviderEvent>) -> impl IntoView {
             } => tool_use_id
                 .as_deref()
                 .or(message_id.as_deref())
-                .map(|s| s.to_string()),
+                .map(|s| format!("result:{s}")),
             _ => None,
         };
         let is_new = match key {
             Some(k) => seen.insert(k),
             None => true,
         };
-        if !is_new {
-            continue;
+        if is_new {
+            deduped.push(event);
         }
+    }
 
+    // Merge pass: combine adjacent ToolUse+ToolResult pairs by tool_use_id
+    let mut merged: Vec<ProviderEvent> = Vec::new();
+    let mut pending_tool_use_index: Option<usize> = None;
+    for event in deduped {
+        match event {
+            ProviderEvent::ToolResult {
+                tool_use_id,
+                result,
+                message_id,
+                timestamp,
+            } => {
+                // Look back for a pending ToolUse with the same tool_use_id
+                let tid = tool_use_id.as_deref();
+                if let Some(idx) = pending_tool_use_index {
+                    if let Some(ProviderEvent::ToolUse {
+                        ref tool_name,
+                        ref tool_use_id,
+                        ref input,
+                        result: _,
+                        message_id: _,
+                        timestamp: _,
+                    }) = merged.get(idx)
+                    {
+                        if tool_use_id.as_deref() == tid {
+                            // Merge: set result on the existing ToolUse
+                            let merged_event = ProviderEvent::ToolUse {
+                                tool_name: tool_name.clone(),
+                                tool_use_id: tool_use_id.clone(),
+                                input: input.clone(),
+                                result: Some(result.clone()),
+                                message_id: message_id.clone(),
+                                timestamp: *timestamp,
+                            };
+                            merged[idx] = merged_event;
+                            pending_tool_use_index = None;
+                            continue;
+                        }
+                    }
+                }
+                // No matching ToolUse found — insert as-is for backward compat
+                merged.push(event.clone());
+            }
+            ProviderEvent::ToolUse { result: None, .. } => {
+                pending_tool_use_index = Some(merged.len());
+                merged.push(event.clone());
+            }
+            _ => {
+                pending_tool_use_index = None;
+                merged.push(event.clone());
+            }
+        }
+    }
+
+    let mut parts: Vec<String> = Vec::new();
+
+    for event in merged.iter() {
         // Prepend timestamp pill before UserText events (including first one)
         if let ProviderEvent::UserText { timestamp, .. } = event {
-            parts.push(build_timestmap_pill(timestamp, false));
+            parts.push(build_timestamp_pill(timestamp, false));
         }
 
         let html = render_event(event);
@@ -829,7 +1041,7 @@ pub fn MessageStream(messages: Vec<ProviderEvent>) -> impl IntoView {
     }
 
     // Append newest-message timestamp pill (skip for single-event conversations to avoid overlap)
-    let event_count_with_timestamp = messages
+    let event_count_with_timestamp = merged
         .iter()
         .filter(|e| {
             matches!(
@@ -846,7 +1058,7 @@ pub fn MessageStream(messages: Vec<ProviderEvent>) -> impl IntoView {
         .count();
 
     if event_count_with_timestamp > 1 {
-        let newest_timestamp = messages.iter().rev().find_map(|e| match e {
+        let newest_timestamp = merged.iter().rev().find_map(|e| match e {
             ProviderEvent::UserText { timestamp, .. }
             | ProviderEvent::Text { timestamp, .. }
             | ProviderEvent::ToolUse { timestamp, .. }
@@ -858,7 +1070,7 @@ pub fn MessageStream(messages: Vec<ProviderEvent>) -> impl IntoView {
         });
 
         if let Some(ts) = newest_timestamp {
-            parts.push(build_timestmap_pill(ts, true));
+            parts.push(build_timestamp_pill(ts, true));
         }
     }
 
@@ -875,7 +1087,7 @@ pub fn MessageStream(messages: Vec<ProviderEvent>) -> impl IntoView {
     }
 }
 
-fn build_timestmap_pill(timestamp: &NaiveDateTime, is_newest: bool) -> String {
+fn build_timestamp_pill(timestamp: &NaiveDateTime, is_newest: bool) -> String {
     let newest_id = if is_newest {
         r#"id="newest-timestamp-pill""#
     } else {

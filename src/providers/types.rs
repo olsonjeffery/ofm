@@ -42,6 +42,8 @@ pub enum ProviderEvent {
         tool_use_id: Option<String>,
         input: serde_json::Value,
         #[serde(default)]
+        result: Option<String>,
+        #[serde(default)]
         message_id: Option<String>,
         #[serde(default)]
         timestamp: NaiveDateTime,
@@ -176,15 +178,11 @@ impl ProviderEvent {
                 "session_start".to_string(),
                 serde_json::json!({"session_id": session_id}),
             ),
-            ProviderEvent::UserText {
-                text, timestamp, ..
-            } => (
+            ProviderEvent::UserText { text, timestamp } => (
                 "user_text".to_string(),
                 serde_json::json!({"text": text, "timestamp": ts_string(*timestamp)}),
             ),
-            ProviderEvent::Text {
-                text, timestamp, ..
-            } => (
+            ProviderEvent::Text { text, timestamp } => (
                 "text".to_string(),
                 serde_json::json!({"text": text, "timestamp": ts_string(*timestamp)}),
             ),
@@ -196,18 +194,27 @@ impl ProviderEvent {
                 tool_name,
                 tool_use_id,
                 input,
+                result,
                 message_id,
                 timestamp,
-            } => (
-                "tool_use".to_string(),
-                serde_json::json!({
-                    "tool_name": tool_name,
-                    "tool_use_id": tool_use_id,
-                    "input": input,
-                    "message_id": message_id,
-                    "timestamp": ts_string(*timestamp),
-                }),
-            ),
+            } => {
+                let event_type = if result.is_some() {
+                    "tool_updated"
+                } else {
+                    "tool_use"
+                };
+                (
+                    event_type.to_string(),
+                    serde_json::json!({
+                        "tool_name": tool_name,
+                        "tool_use_id": tool_use_id,
+                        "input": input,
+                        "result": result,
+                        "message_id": message_id,
+                        "timestamp": ts_string(*timestamp),
+                    }),
+                )
+            }
             ProviderEvent::ToolResult {
                 tool_use_id,
                 result,
@@ -225,7 +232,6 @@ impl ProviderEvent {
             ProviderEvent::Thinking {
                 thinking,
                 timestamp,
-                ..
             } => (
                 "thinking".to_string(),
                 serde_json::json!({"thinking": thinking, "timestamp": ts_string(*timestamp)}),
@@ -245,15 +251,11 @@ impl ProviderEvent {
                 ("available_commands_update".to_string(), data.clone())
             }
             ProviderEvent::Response(data) => ("response".to_string(), data.clone()),
-            ProviderEvent::Error {
-                error, timestamp, ..
-            } => (
+            ProviderEvent::Error { error, timestamp } => (
                 "error".to_string(),
                 serde_json::json!({"error": error, "timestamp": ts_string(*timestamp)}),
             ),
-            ProviderEvent::Done {
-                data, timestamp, ..
-            } => (
+            ProviderEvent::Done { data, timestamp } => (
                 "done".to_string(),
                 serde_json::json!({"data": data, "timestamp": ts_string(*timestamp)}),
             ),
