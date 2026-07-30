@@ -56,4 +56,5 @@ pub struct PkceEntry {
     pub code_verifier: String,
     pub csrf_state: String,
     pub created_at: Instant,
+    pub return_to: Option<String>,
 }

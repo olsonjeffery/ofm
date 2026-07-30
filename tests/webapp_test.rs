@@ -361,7 +361,7 @@ async fn test_webapp_protected_route_redirects_without_session() {
     assert_eq!(resp.status(), 302);
     assert_eq!(
         resp.headers().get("location").unwrap().to_str().unwrap(),
-        "/webapp/login"
+        "/webapp/login?return_to=%2Fwebapp"
     );
 }
 
@@ -850,6 +850,6 @@ async fn test_webapp_protected_route_redirects_with_expired_session() {
     assert_eq!(resp.status(), 302);
     assert_eq!(
         resp.headers().get("location").unwrap().to_str().unwrap(),
-        "/webapp/login"
+        "/webapp/login?return_to=%2Fwebapp"
     );
 }

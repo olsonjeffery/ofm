@@ -31,13 +31,22 @@ pub fn auth_protected_router() -> Router<AppState> {
         )
 }
 
-async fn login(State(state): State<AppState>) -> Result<Json<serde_json::Value>, ServerError> {
+#[derive(Deserialize)]
+struct LoginQuery {
+    return_to: Option<String>,
+}
+
+async fn login(
+    State(state): State<AppState>,
+    Query(query): Query<LoginQuery>,
+) -> Result<Json<serde_json::Value>, ServerError> {
     let oidc = state
         .oidc_provider
         .as_ref()
         .ok_or_else(|| ServerError::BadRequest("OIDC not configured".into()))?;
 
-    let auth_url = crate::services::auth::initiate_login(oidc, &state.pkce_store).await?;
+    let auth_url =
+        crate::services::auth::initiate_login(oidc, &state.pkce_store, query.return_to).await?;
     Ok(Json(json!({ "authorization_url": auth_url })))
 }
 
@@ -77,7 +86,12 @@ async fn callback(
     let location = if !result.has_completed_onboarding {
         "/webapp/callback".to_string()
     } else {
-        "/webapp/".to_string()
+        result
+            .return_to
+            .as_ref()
+            .filter(|rt| rt.starts_with('/') && !rt.starts_with("//"))
+            .cloned()
+            .unwrap_or_else(|| "/webapp/".to_string())
     };
     Ok((jar, (StatusCode::FOUND, [("Location", location)])))
 }

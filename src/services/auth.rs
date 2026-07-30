@@ -45,6 +45,7 @@ fn sweep_expired_pkce(store: &mut HashMap<String, PkceEntry>) {
 pub async fn initiate_login(
     oidc: &OidcEndpoints,
     pkce_store: &Arc<Mutex<HashMap<String, PkceEntry>>>,
+    return_to: Option<String>,
 ) -> Result<String, ServerError> {
     let code_verifier = generate_code_verifier();
     let code_challenge = compute_code_challenge(&code_verifier);
@@ -54,6 +55,7 @@ pub async fn initiate_login(
         code_verifier,
         csrf_state: state.clone(),
         created_at: Instant::now(),
+        return_to,
     };
 
     let mut store = pkce_store.lock().await;
@@ -76,6 +78,7 @@ pub async fn initiate_login(
 pub struct CallbackResult {
     pub session_id: Uuid,
     pub has_completed_onboarding: bool,
+    pub return_to: Option<String>,
 }
 
 pub async fn handle_callback(
@@ -94,6 +97,8 @@ pub async fn handle_callback(
     if entry.created_at.elapsed() > PKCE_TTL {
         return Err(ServerError::BadRequest("state parameter expired".into()));
     }
+
+    let return_to = entry.return_to.clone();
 
     let token_body = format!(
         "grant_type=authorization_code&code={}&client_id={}&redirect_uri={}&code_verifier={}{}",
@@ -196,6 +201,7 @@ pub async fn handle_callback(
     Ok(CallbackResult {
         session_id,
         has_completed_onboarding,
+        return_to,
     })
 }
 
@@ -610,12 +616,94 @@ mod tests {
             code_verifier: "test-verifier".into(),
             csrf_state: "test-state".into(),
             created_at: Instant::now(),
+            return_to: None,
         };
         store.lock().await.insert("test-state".into(), entry);
 
         let removed = store.lock().await.remove("test-state");
         assert!(removed.is_some());
         assert_eq!(removed.unwrap().code_verifier, "test-verifier");
+    }
+
+    #[tokio::test]
+    async fn test_pkce_store_with_return_to() {
+        let store: Arc<Mutex<HashMap<String, PkceEntry>>> = Arc::new(Mutex::new(HashMap::new()));
+        let entry = PkceEntry {
+            code_verifier: "test-verifier".into(),
+            csrf_state: "test-state".into(),
+            created_at: Instant::now(),
+            return_to: Some("/webapp/settings".into()),
+        };
+        store.lock().await.insert("test-state".into(), entry);
+
+        let removed = store.lock().await.remove("test-state");
+        assert!(removed.is_some());
+        let entry = removed.unwrap();
+        assert_eq!(entry.return_to, Some("/webapp/settings".into()));
+    }
+
+    #[tokio::test]
+    async fn test_initiate_login_round_trips_return_to() {
+        let store: Arc<Mutex<HashMap<String, PkceEntry>>> = Arc::new(Mutex::new(HashMap::new()));
+        let oidc = OidcEndpoints {
+            authorization_endpoint: "http://127.0.0.1:1/auth".into(),
+            token_endpoint: "http://127.0.0.1:1/token".into(),
+            end_session_endpoint: None,
+            revocation_endpoint: None,
+            userinfo_endpoint: "http://127.0.0.1:1/userinfo".into(),
+            client_id: "test".into(),
+            client_secret: None,
+            redirect_uri: "http://127.0.0.1:1/callback".into(),
+            jwks_cache: None,
+            jwks_issuer: None,
+        };
+
+        let auth_url = initiate_login(&oidc, &store, Some("/webapp/settings".into()))
+            .await
+            .unwrap();
+
+        let state_param = auth_url.split("state=").nth(1).unwrap_or("");
+        assert!(
+            !state_param.is_empty(),
+            "state should be present in auth URL"
+        );
+
+        let store_guard = store.lock().await;
+        let entry = store_guard
+            .get(state_param)
+            .expect("entry should exist in PKCE store");
+        assert_eq!(entry.return_to, Some("/webapp/settings".into()));
+    }
+
+    #[tokio::test]
+    async fn test_initiate_login_round_trips_no_return_to() {
+        let store: Arc<Mutex<HashMap<String, PkceEntry>>> = Arc::new(Mutex::new(HashMap::new()));
+        let oidc = OidcEndpoints {
+            authorization_endpoint: "http://127.0.0.1:1/auth".into(),
+            token_endpoint: "http://127.0.0.1:1/token".into(),
+            end_session_endpoint: None,
+            revocation_endpoint: None,
+            userinfo_endpoint: "http://127.0.0.1:1/userinfo".into(),
+            client_id: "test".into(),
+            client_secret: None,
+            redirect_uri: "http://127.0.0.1:1/callback".into(),
+            jwks_cache: None,
+            jwks_issuer: None,
+        };
+
+        let auth_url = initiate_login(&oidc, &store, None).await.unwrap();
+
+        let state_param = auth_url.split("state=").nth(1).unwrap_or("");
+        assert!(
+            !state_param.is_empty(),
+            "state should be present in auth URL"
+        );
+
+        let store_guard = store.lock().await;
+        let entry = store_guard
+            .get(state_param)
+            .expect("entry should exist in PKCE store");
+        assert_eq!(entry.return_to, None);
     }
 
     #[tokio::test]

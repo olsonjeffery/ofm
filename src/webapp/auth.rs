@@ -12,6 +12,7 @@ use uuid::Uuid;
 
 use crate::auth::AuthUser;
 use crate::db::schema::SessionDb;
+use crate::services::auth::urlencoding;
 
 fn lookup_session(
     db: &hiqlite::Client,
@@ -131,11 +132,13 @@ where
         let mut inner = self.inner.clone();
 
         Box::pin(async move {
+            let request_uri = request.uri().clone();
+
             let session_id = match extract_session_from_cookies(request.headers(), &cookie_key) {
                 Some(id) => id,
                 None => {
                     warn!("WebappAuth: no valid session cookie found in request");
-                    return Ok(redirect_to_login());
+                    return Ok(redirect_to_login(&request_uri));
                 }
             };
 
@@ -143,7 +146,7 @@ where
                 Some(s) => s,
                 None => {
                     warn!("WebappAuth: session {session_id} not found in DB");
-                    return Ok(redirect_to_login());
+                    return Ok(redirect_to_login(&request_uri));
                 }
             };
 
@@ -153,7 +156,7 @@ where
                     "WebappAuth: session {session_id} expired (expires_at={}, now={})",
                     session.expires_at, now
                 );
-                return Ok(redirect_to_login());
+                return Ok(redirect_to_login(&request_uri));
             }
 
             let auth_user = match lookup_user_active(&db, session.user_id).await {
@@ -163,7 +166,7 @@ where
                         "WebappAuth: user {} for session {session_id} not found or inactive",
                         session.user_id
                     );
-                    return Ok(redirect_to_login());
+                    return Ok(redirect_to_login(&request_uri));
                 }
             };
 
@@ -175,8 +178,10 @@ where
     }
 }
 
-fn redirect_to_login() -> Response {
-    (StatusCode::FOUND, [("Location", "/webapp/login")]).into_response()
+fn redirect_to_login(original_uri: &axum::http::Uri) -> Response {
+    let return_to = urlencoding(&original_uri.to_string());
+    let location = format!("/webapp/login?return_to={return_to}");
+    (StatusCode::FOUND, [("Location", location)]).into_response()
 }
 
 fn extract_session_from_cookies(headers: &axum::http::HeaderMap, key: &Key) -> Option<Uuid> {
@@ -255,10 +260,15 @@ mod tests {
             .unwrap();
         let resp = app.oneshot(req).await.unwrap();
         assert_eq!(resp.status(), StatusCode::FOUND);
-        assert_eq!(
-            resp.headers().get("location").unwrap().to_str().unwrap(),
-            "/webapp/login"
-        );
+        let location = resp
+            .headers()
+            .get("location")
+            .unwrap()
+            .to_str()
+            .unwrap()
+            .to_string();
+        assert!(location.starts_with("/webapp/login?return_to="));
+        assert!(location.contains("%2Fprotected"));
     }
 
     #[tokio::test]
@@ -331,9 +341,14 @@ mod tests {
             .unwrap();
         let resp = app.oneshot(req).await.unwrap();
         assert_eq!(resp.status(), StatusCode::FOUND);
-        assert_eq!(
-            resp.headers().get("location").unwrap().to_str().unwrap(),
-            "/webapp/login"
-        );
+        let location = resp
+            .headers()
+            .get("location")
+            .unwrap()
+            .to_str()
+            .unwrap()
+            .to_string();
+        assert!(location.starts_with("/webapp/login?return_to="));
+        assert!(location.contains("%2Fprotected"));
     }
 }
