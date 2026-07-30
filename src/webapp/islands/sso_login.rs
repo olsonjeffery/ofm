@@ -3,7 +3,7 @@ use leptos::prelude::*;
 #[component]
 pub fn SsoLoginButton(label: &'static str) -> impl IntoView {
     view! {
-        <button class="button is-primary sso-login-btn">
+        <button class="button is-small is-primary sso-login-btn">
             <span class="icon is-small"><i class="mdi mdi-login"></i></span>
             <span>{label}</span>
         </button>

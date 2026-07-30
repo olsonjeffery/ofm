@@ -44,7 +44,7 @@ pub fn BoardPage(project: Project, tasks: Vec<TaskCardData>) -> impl IntoView {
                     <h1 class="title">{project.name.clone()}</h1>
                 </div>
                 <div class="level-right">
-                    <button id="new-task-btn" class="button is-primary">
+                    <button id="new-task-btn" class="button is-small is-primary">
                         <span class="icon is-small"><i class="mdi mdi-plus"></i></span>
                         <span>"New Task"</span>
                     </button>
@@ -67,8 +67,8 @@ pub fn BoardPage(project: Project, tasks: Vec<TaskCardData>) -> impl IntoView {
                     </div>
                     <div class="field">
                         <div class="control">
-                            <button type="submit" class="button is-success">"Create Task"</button>
-                            <button type="button" id="cancel-task-btn" class="button is-light">"Cancel"</button>
+                            <button type="submit" class="button is-small is-success">"Create Task"</button>
+                            <button type="button" id="cancel-task-btn" class="button is-small is-light">"Cancel"</button>
                         </div>
                     </div>
                 </form>
@@ -247,6 +247,25 @@ mod tests {
         assert!(html.contains("Completed (1)"));
         assert!(html.contains("In Review (0)"));
         assert!(html.contains("No tasks"));
+    }
+
+    #[test]
+    fn test_board_buttons_have_is_small() {
+        let project = make_project();
+        let tasks = vec![];
+        let html = leptos::view! { <BoardPage project tasks /> }.to_html();
+        assert!(
+            html.contains(r#"class="button is-small is-primary""#),
+            "New Task button should have is-small"
+        );
+        assert!(
+            html.contains(r#"class="button is-small is-success""#),
+            "Create Task button should have is-small"
+        );
+        assert!(
+            html.contains(r#"class="button is-small is-light""#),
+            "Cancel button should have is-small"
+        );
     }
 
     #[test]

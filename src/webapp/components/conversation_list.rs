@@ -43,6 +43,7 @@ pub fn ConversationList(
     active_id: Option<uuid::Uuid>,
     task_id: String,
 ) -> impl IntoView {
+    let _ = &active_id;
     view! {
         <div class="conversation-list">
             <div class="buttons is-centered" id="agent-run-buttons">
@@ -68,7 +69,6 @@ pub fn ConversationList(
                 view! {
                     {conversations.iter().map(|cwr| {
                         let conv_id = cwr.conversation.id;
-                        let is_active = active_id.map(|id| id == conv_id).unwrap_or(false);
                         let agent_type = cwr.run.as_ref().map(|r| &r.agent_type);
                         let icon = agent_type.map(AgentType::icon).unwrap_or("chat-outline");
                         let raw_name = cwr.conversation.name.clone().unwrap_or_default();
@@ -79,8 +79,6 @@ pub fn ConversationList(
                         };
                         let date_str = format_conversation_date(&cwr.conversation.created_at, &cwr.conversation.updated_at);
                         let status = cwr.run.as_ref().map(|r| &r.status);
-                        let active_style = if is_active { "border-color:var(--bulma-primary)" } else { "" };
-
                         let curr_agent_color = match agent_type {
                             Some(AgentType::Planification) => "var(--bulma-info)",
                             Some(AgentType::Implementation) => "var(--bulma-purple)",
@@ -91,10 +89,11 @@ pub fn ConversationList(
                         };
 
                         view! {
-                            <div class="box is-light" style={format!("padding:0.4rem;margin-bottom:0.25rem;cursor:pointer;overflow-wrap:break-word;word-break:break-word;{};border: solid 1px var(--bulma-grey);", active_style)}
+                            <div class="card"
                                 data-conversation-id={conv_id.to_string()}
                                 onclick="window.handleConversationClick(event)"
                             >
+                                <div class="card-content" style="padding:0.5rem">
                                 <div class="level is-mobile" style="margin-bottom:0">
                                     <div class="level-left" style="display:flex;align-items:center;gap:0.5rem;min-width:0;flex-shrink:1;overflow-wrap:break-word;word-break:break-word">
                                         <span class="icon" style={format!("flex-shrink:0;color:{};", curr_agent_color)}>
@@ -107,18 +106,15 @@ pub fn ConversationList(
                                     </div>
                                     <div class="level-right" style="display:flex;flex-direction:column;align-items:flex-end;gap:0.15rem;flex-shrink:0">
                                         {status.map(|s| view! {
-                                        <div>
                                             <span class={format!("tag {}", run_status_class(s))}>{run_status_label(s)}</span>
-                                        </div>
                                         })}
-                                        <div>
-                                            <span class="has-text-grey conversation-date" data-conv-id={conv_id.to_string()}
-                                                   style="white-space:nowrap;font-size:0.65rem">
-                                                {date_str}
-                                            </span>
-                                        </div>
+                                        <span class="has-text-grey conversation-date" data-conv-id={conv_id.to_string()}
+                                               style="white-space:nowrap;font-size:0.65rem">
+                                            {date_str}
+                                        </span>
                                     </div>
                                 </div>
+                            </div>
                             </div>
                         }
                     }).collect::<Vec<_>>()}
@@ -241,6 +237,38 @@ mod tests {
             leptos::view! { <ConversationList conversations=convs active_id=None task_id="1".to_owned() /> }.to_html();
         assert!(html.contains("Running"));
         assert!(html.contains("mdi-file-document-outline"));
+    }
+
+    #[test]
+    fn test_conversation_list_items_use_card_structure() {
+        let conv_id = uuid::Uuid::new_v4();
+        let convs = vec![ConversationWithRun {
+            conversation: make_conversation(conv_id, "Card Chat"),
+            run: None,
+        }];
+        let html =
+            leptos::view! { <ConversationList conversations=convs active_id=None task_id="1".to_owned() /> }.to_html();
+        assert!(html.contains(r#"class="card""#), "should use card class");
+        assert!(html.contains("card-content"), "should have card-content");
+        assert!(
+            !html.contains("box is-light"),
+            "should not use box is-light"
+        );
+    }
+
+    #[test]
+    fn test_conversation_list_agent_buttons_have_is_small() {
+        let html = leptos::view! { <ConversationList conversations=Vec::new() active_id=None task_id="1".to_owned() /> }
+            .to_html();
+        assert!(
+            html.contains(r#"class="button level-item is-small is-light""#),
+            "agent buttons should have is-small"
+        );
+        assert!(html.contains("Plan"), "should have Plan button");
+        assert!(html.contains("Impl"), "should have Impl button");
+        assert!(html.contains("Rev"), "should have Rev button");
+        assert!(html.contains("Ref"), "should have Ref button");
+        assert!(html.contains("PR"), "should have PR button");
     }
 
     #[test]

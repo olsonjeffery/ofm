@@ -17,7 +17,7 @@ pub fn ApiKeyManager() -> impl IntoView {
                 <p id="api-key-empty">"No API key generated yet."</p>
             </div>
             <div class="field is-grouped">
-                <button class="button is-primary" id="btn-generate-key">
+                <button class="button is-small is-primary" id="btn-generate-key">
                     <span class="icon is-small"><i class="mdi mdi-key-plus"></i></span>
                     <span>"Generate New API Key"</span>
                 </button>

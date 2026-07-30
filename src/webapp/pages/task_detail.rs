@@ -87,8 +87,8 @@ pub fn TaskDetailPage(
                     </div>
                     <div class="field">
                         <div class="control">
-                            <button type="submit" class="button is-success">"Save"</button>
-                            <button type="button" id="cancel-edit-task-btn" class="button is-light">"Cancel"</button>
+                            <button type="submit" class="button is-small is-success">"Save"</button>
+                            <button type="button" id="cancel-edit-task-btn" class="button is-small is-light">"Cancel"</button>
                         </div>
                     </div>
                 </form>
@@ -98,7 +98,7 @@ pub fn TaskDetailPage(
                         <h2 class="title is-4 has-text-danger">"Danger Zone"</h2>
                     </div>
                     <div class="level-right">
-                        <button id="delete-task-btn" class="button is-danger">
+                        <button id="delete-task-btn" class="button is-small is-danger">
                             <span class="icon is-small"><i class="mdi mdi-delete"></i></span>
                             <span>"Delete Task"</span>
                         </button>

@@ -39,7 +39,7 @@ pub fn OnboardingForm(git_name: String, git_email: String, is_technical: bool) -
                                     </label>
                                 </div>
                             </div>
-                            <button type="submit" class="button is-primary">
+                            <button type="submit" class="button is-small is-primary">
                                 <span class="icon is-small"><i class="mdi mdi-account-check"></i></span>
                                 <span>"Save"</span>
                             </button>

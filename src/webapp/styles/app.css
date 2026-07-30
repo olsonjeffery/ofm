@@ -36,14 +36,11 @@ nav.navbar .navbar-brand strong {
 }
 
 /* Dark theme: blue navbar, white text */
-[data-theme="dark"] nav.navbar,
-.theme-dark nav.navbar {
+[data-theme="dark"] nav.navbar {
     background-color: rgb(50, 152, 220) !important;
 }
 [data-theme="dark"] nav.navbar .navbar-item,
-.theme-dark nav.navbar .navbar-item,
 [data-theme="dark"] nav.navbar .navbar-link,
-.theme-dark nav.navbar .navbar-link,
 [data-theme="dark"] nav.navbar .navbar-brand strong {
     color: var(--bulma-white) !important;
 }
@@ -57,8 +54,7 @@ img.header-logo {
 }
 
 /* ===== Box/card visibility ===== */
-.box,
-a.card {
+.box {
     --bulma-box-link-hover-shadow: none;
     --bulma-box-link-active-shadow: none;
     border: 1px solid var(--bulma-border);
@@ -67,14 +63,83 @@ a.card {
     word-break: break-word;
 }
 
+.card {
+    border: 1px solid var(--bulma-border);
+    overflow-wrap: break-word;
+    word-break: break-word;
+    transition: transform 0.2s ease, box-shadow 0.2s ease, background-color 0.2s ease;
+}
+
+a.card {
+    will-change: transform, box-shadow;
+}
+
 a.box:hover,
 a.box:focus,
-a.box:active,
-a.card:hover,
-a.card:focus,
-a.card:active {
+a.box:active {
     border-color: var(--bulma-primary);
     box-shadow: none !important;
+}
+
+.card:hover,
+.card:focus {
+    box-shadow: 0 4px 16px rgba(0, 0, 0, 0.12);
+    background-color: var(--bulma-white-bis);
+    border-color: var(--bulma-primary);
+}
+
+a.card:hover,
+a.card:focus {
+    transform: scale(1.02);
+}
+
+.card:active {
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.15);
+    background-color: var(--bulma-white-ter);
+    border-color: var(--bulma-link);
+}
+
+a.card:active {
+    transform: scale(1.01);
+}
+
+.card-header {
+    box-shadow: none;
+}
+
+.card-footer {
+    border-top: none;
+}
+
+.card-footer-item:not(:last-child) {
+    border-inline-end: none;
+}
+
+.conversation-list .card {
+    cursor: pointer;
+}
+
+.conversation-list .card:hover,
+.conversation-list .card:focus {
+    transform: scale(1.02);
+}
+
+.conversation-list .card:active {
+    transform: scale(1.01);
+}
+
+.button {
+    transition: box-shadow 0.2s ease;
+}
+
+.button:hover,
+.button:focus-visible {
+    box-shadow: 0 0 0 0.25em hsla(var(--bulma-button-h), var(--bulma-button-s), var(--bulma-button-l), 0.25);
+}
+
+div.buttons.has-addons:hover,
+div.buttons.has-addons:focus-visible {
+    box-shadow: 0 0 0 0.25em hsla(var(--bulma-button-h), var(--bulma-button-s), var(--bulma-button-l), 0.25);
 }
 
 /* ===== Content word-wrap ===== */
@@ -209,9 +274,6 @@ a.card .card-header-title {
 .navbar.has-shadow,
 .navbar.is-fixed-top.has-shadow,
 .navbar.is-fixed-bottom.has-shadow,
-.card,
-.card-header,
-.button,
 .pagination-link,
 .pagination-previous,
 .pagination-next,
