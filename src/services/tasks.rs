@@ -1,7 +1,8 @@
 use std::collections::HashMap;
 
 use crate::db::schema::{
-    AgentType, Conversation, ConversationWithRun, RunStatus, Task, TaskAgentRun, Worktree,
+    ActiveAgent, AgentType, Conversation, ConversationWithRun, RunStatus, Task, TaskAgentRun,
+    Worktree,
 };
 use hiqlite::Client;
 use uuid::Uuid;
@@ -276,6 +277,36 @@ pub async fn get_running_agent_for_task(
     } else {
         Ok(Some(TaskAgentRun::from(&mut rows[0])))
     }
+}
+
+pub async fn get_running_agents(
+    client: &Client,
+    user_id: &Uuid,
+) -> Result<Vec<ActiveAgent>, hiqlite::Error> {
+    let rows = client
+        .query_raw(
+            "SELECT
+                tar.agent_type,
+                t.project_id,
+                p.name AS project_title,
+                t.id AS task_id,
+                t.title AS task_title,
+                c.id AS conversation_id,
+                c.name AS conversation_name
+            FROM task_agent_runs tar
+            JOIN tasks t ON t.id = tar.task_id
+            JOIN projects p ON p.id = t.project_id
+            LEFT JOIN conversations c ON c.id = tar.conversation_id
+            WHERE tar.status = 'running' AND t.user_id = $1
+            ORDER BY t.project_id, t.id",
+            hiqlite::params!(user_id.to_string()),
+        )
+        .await?;
+    let mut agents = Vec::with_capacity(rows.len());
+    for mut row in rows {
+        agents.push(ActiveAgent::from(&mut row));
+    }
+    Ok(agents)
 }
 
 pub async fn list_agent_runs_for_task(

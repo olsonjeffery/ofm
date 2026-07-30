@@ -427,10 +427,26 @@ async fn send_message(
                                                 _ => String::new(),
                                             };
                                             if !tool_use_id.is_empty() {
-                                                if let Err(e) = transcript::update_tool_event(
+                                                match transcript::update_tool_event(
                                                     &db, &tool_use_id, &event, &s_id, task_id
                                                 ).await {
-                                                    tracing::error!("Failed to update tool event: {e}");
+                                                    Ok(false) => {
+                                                        // No prior ToolUse row found — persist as new event
+                                                        if let Err(e) = transcript::persist_event(
+                                                            &db, &event, &s_id, task_id
+                                                        ).await {
+                                                            tracing::error!("Failed to persist merged tool event: {e}");
+                                                        }
+                                                    }
+                                                    Err(e) => tracing::error!("Failed to update tool event: {e}"),
+                                                    _ => {}
+                                                }
+                                            } else {
+                                                // No tool_use_id — persist as normal event
+                                                if let Err(e) = transcript::persist_event(
+                                                    &db, &event, &s_id, task_id
+                                                ).await {
+                                                    tracing::error!("Failed to persist tool event: {e}");
                                                 }
                                             }
                                         }
@@ -472,7 +488,7 @@ async fn send_message(
                                                 hiqlite::params!(&done_now, c_id.to_string()),
                                             ).await;
                                             match crate::orchestration::completion_handler(
-                                                &db, c_id, &active_sessions
+                                                &db, c_id, &active_sessions, &ws_bus
                                             ).await {
                                                 Ok(crate::orchestration::NextAction::StartAgent(agent_type)) => {
                                                     let db = db.clone();
@@ -523,6 +539,11 @@ async fn send_message(
                                 }
                             }
 
+                            let _ = db.execute(
+                                "UPDATE task_agent_runs SET status = 'failed' WHERE conversation_id = $1",
+                                hiqlite::params!(c_id.to_string()),
+                            ).await;
+
                             let topic = WsTopic {
                                 kind: WsTopicKind::Task,
                                 id: TopicId(task_id),
@@ -545,6 +566,23 @@ async fn send_message(
                                 ),
                             };
                             ws_bus.broadcast(&topic, msg).await;
+
+                            let sys_topic = WsTopic {
+                                kind: WsTopicKind::System,
+                                id: TopicId(0),
+                            };
+                            ws_bus
+                                .broadcast(
+                                    &sys_topic,
+                                    ServerMessage::Event {
+                                        topic: sys_topic.clone(),
+                                        event_type: "agent_status".to_string(),
+                                        timestamp: chrono::Utc::now(),
+                                        payload: serde_json::json!({"action": "refresh"}),
+                                        html: None,
+                                    },
+                                )
+                                .await;
                         }
                     });
 

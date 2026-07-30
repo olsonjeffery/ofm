@@ -25,6 +25,8 @@ struct TestApp {
 
 async fn setup_app() -> TestApp {
     let db_dir = TempDir::new().unwrap();
+    let git_dir = TempDir::new().unwrap();
+    let git_path = git_dir.path().to_string_lossy().to_string();
     let config = hiqlite::NodeConfig {
         node_id: 1,
         nodes: vec![hiqlite::Node {
@@ -42,16 +44,11 @@ async fn setup_app() -> TestApp {
     db::run_migrations(&client).await.unwrap();
     let user_id = db::ensure_default_user(&client).await.unwrap();
 
-    let project_id = ofm::services::projects::create_project(
-        &client,
-        &user_id,
-        "test-project",
-        "/tmp/test-repo",
-        None,
-    )
-    .await
-    .unwrap()
-    .id;
+    let project_id =
+        ofm::services::projects::create_project(&client, &user_id, "test-project", &git_path, None)
+            .await
+            .unwrap()
+            .id;
 
     let auth_layer = AuthLayer::disabled(
         client.clone(),
@@ -91,7 +88,7 @@ async fn setup_app() -> TestApp {
         project_id,
         archive_root: "storage/".into(),
         _db_dir: db_dir,
-        _git_dir: None,
+        _git_dir: Some(git_dir),
         _archive_dir: None,
     }
 }

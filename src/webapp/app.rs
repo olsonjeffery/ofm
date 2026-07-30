@@ -1,10 +1,15 @@
+use crate::db::schema::ActiveAgent;
 use crate::webapp::components::breadcrumb::BreadcrumbItem;
 use crate::webapp::components::navbar::Navbar;
 use crate::webapp::shim::runtime::global_runtime_script;
 use leptos::prelude::*;
 
 #[component]
-pub fn ShellPage(user_json: Option<String>, breadcrumbs: Vec<BreadcrumbItem>) -> impl IntoView {
+pub fn ShellPage(
+    user_json: Option<String>,
+    breadcrumbs: Vec<BreadcrumbItem>,
+    active_agents: Vec<ActiveAgent>,
+) -> impl IntoView {
     view! {
         <!DOCTYPE html>
         <html lang="en">
@@ -21,7 +26,7 @@ pub fn ShellPage(user_json: Option<String>, breadcrumbs: Vec<BreadcrumbItem>) ->
             <script>{global_runtime_script()}</script>
         </head>
         <body>
-            <Navbar user_json breadcrumbs />
+            <Navbar user_json breadcrumbs active_agents />
             <main></main>
         </body>
         </html>
@@ -36,7 +41,8 @@ mod tests {
     fn test_shell_page_contains_html_and_script() {
         let user_json: Option<String> = None;
         let breadcrumbs = Vec::new();
-        let html = leptos::view! { <ShellPage user_json breadcrumbs /> }.to_html();
+        let html = leptos::view! { <ShellPage user_json breadcrumbs active_agents=Vec::new() /> }
+            .to_html();
         assert!(html.contains("<html"));
         assert!(html.contains("data-island-url"));
         assert!(html.contains("ofm"));
@@ -48,7 +54,8 @@ mod tests {
     fn test_shell_page_main_tag_exact_match() {
         let user_json: Option<String> = None;
         let breadcrumbs = Vec::new();
-        let html = leptos::view! { <ShellPage user_json breadcrumbs /> }.to_html();
+        let html = leptos::view! { <ShellPage user_json breadcrumbs active_agents=Vec::new() /> }
+            .to_html();
         let search = "<main></main>";
         assert!(
             html.contains(search),

@@ -27,6 +27,13 @@ use crate::server::ws::message::{ServerMessage, TopicId, WsTopic, WsTopicKind};
 use crate::services::tasks;
 use futures_util::FutureExt;
 
+fn system_topic() -> WsTopic {
+    WsTopic {
+        kind: WsTopicKind::System,
+        id: TopicId(0),
+    }
+}
+
 pub const MAX_WORKFLOW_RUNS: i32 = 25;
 
 type DynMap = Arc<Mutex<HashMap<String, Box<dyn LlmProvider>>>>;
@@ -46,6 +53,7 @@ pub async fn completion_handler(
     client: &Client,
     conversation_id: Uuid,
     active_sessions: &Arc<Mutex<HashMap<String, Box<dyn LlmProvider>>>>,
+    ws_bus: &Arc<BroadcastBus>,
 ) -> Result<NextAction, ServerError> {
     // Provider shutdown is deferred to process exit (see `src/main.rs`).
     // `active_sessions` is retained in the signature for API stability and
@@ -62,6 +70,20 @@ pub async fn completion_handler(
     tasks::mark_agent_run_completed(client, &run.id)
         .await
         .map_err(internal_err)?;
+
+    let topic = system_topic();
+    ws_bus
+        .broadcast(
+            &topic,
+            ServerMessage::Event {
+                topic: topic.clone(),
+                event_type: "agent_status".to_string(),
+                timestamp: chrono::Utc::now(),
+                payload: serde_json::json!({"action": "completed", "conversation_id": run.id.to_string()}),
+                html: None,
+            },
+        )
+        .await;
 
     // Do NOT shut down the provider here. The opencode server is persistent
     // across turn completion (mirrors the reference implementation's
@@ -157,6 +179,20 @@ pub fn start_next_agent<'a>(
         )
         .await
         .map_err(|e| ServerError::Internal(e.to_string()))?;
+
+        let topic = system_topic();
+        ws_bus
+            .broadcast(
+                &topic,
+                ServerMessage::Event {
+                    topic: topic.clone(),
+                    event_type: "agent_status".to_string(),
+                    timestamp: chrono::Utc::now(),
+                    payload: serde_json::json!({"action": "refresh"}),
+                    html: None,
+                },
+            )
+            .await;
 
         let mut provider = registry::resolve_provider_for_user(
             &harness_config,
@@ -377,7 +413,7 @@ pub fn start_next_agent<'a>(
                                         completed_normally.store(true, Ordering::SeqCst);
                                         let done_now = chrono::Utc::now().naive_utc().to_string();
                                         let _ = db.execute("UPDATE conversations SET updated_at = $1 WHERE id = $2", hiqlite::params!(&done_now, conversation_id.to_string())).await;
-                                        match completion_handler(&db, conversation_id, &active_sessions).await {
+                                        match completion_handler(&db, conversation_id, &active_sessions, &ws_bus).await {
                                             Ok(NextAction::StartAgent(agent_type)) => {
                                                 let db = db.clone();
                                                 let config_root = config_root.clone();
@@ -431,6 +467,19 @@ pub fn start_next_agent<'a>(
                             timestamp: chrono::Utc::now().naive_utc(),
                         };
                         ws_bus.broadcast(&topic, ServerMessage::Event { topic: topic.clone(), event_type: "error".to_string(), timestamp: chrono::Utc::now(), payload: serde_json::json!({"error": "Agent session ended unexpectedly. Send a message to resume."}), html: Some(crate::webapp::components::message_stream::render_event(&error_event)) }).await;
+                        let sys_topic = system_topic();
+                        ws_bus
+                            .broadcast(
+                                &sys_topic,
+                                ServerMessage::Event {
+                                    topic: sys_topic.clone(),
+                                    event_type: "agent_status".to_string(),
+                                    timestamp: chrono::Utc::now(),
+                                    payload: serde_json::json!({"action": "refresh"}),
+                                    html: None,
+                                },
+                            )
+                            .await;
                     }
                 });
             }
@@ -572,6 +621,7 @@ mod tests {
     use crate::db;
     use crate::db::schema::AgentType;
     use crate::server::state::OidcEndpoints;
+    use crate::server::ws::bus::BroadcastBus;
     use crate::services::session;
     use axum::http::StatusCode;
     use axum::routing::{get, post};
@@ -687,7 +737,8 @@ mod tests {
             .unwrap();
 
         let sessions = empty_sessions();
-        let action = completion_handler(&client, result.conversation_id, &sessions)
+        let ws_bus = BroadcastBus::new();
+        let action = completion_handler(&client, result.conversation_id, &sessions, &ws_bus)
             .await
             .unwrap();
 
@@ -718,7 +769,8 @@ mod tests {
         .unwrap();
 
         let sessions = empty_sessions();
-        let action = completion_handler(&client, result.conversation_id, &sessions)
+        let ws_bus = BroadcastBus::new();
+        let action = completion_handler(&client, result.conversation_id, &sessions, &ws_bus)
             .await
             .unwrap();
 
@@ -740,7 +792,8 @@ mod tests {
         .unwrap();
 
         let sessions = empty_sessions();
-        let action = completion_handler(&client, result.conversation_id, &sessions)
+        let ws_bus = BroadcastBus::new();
+        let action = completion_handler(&client, result.conversation_id, &sessions, &ws_bus)
             .await
             .unwrap();
 
@@ -770,7 +823,8 @@ mod tests {
         .unwrap();
 
         let sessions = empty_sessions();
-        let action = completion_handler(&client, result.conversation_id, &sessions)
+        let ws_bus = BroadcastBus::new();
+        let action = completion_handler(&client, result.conversation_id, &sessions, &ws_bus)
             .await
             .unwrap();
 

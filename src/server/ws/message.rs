@@ -7,6 +7,7 @@ use serde_json::Value;
 pub enum WsTopicKind {
     Task,
     Project,
+    System,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]

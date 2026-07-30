@@ -1,9 +1,14 @@
+use crate::db::schema::ActiveAgent;
 use crate::webapp::components::breadcrumb::BreadcrumbItem;
 use crate::webapp::components::breadcrumb::Breadcrumbs;
 use leptos::prelude::*;
 
 #[component]
-pub fn Navbar(user_json: Option<String>, breadcrumbs: Vec<BreadcrumbItem>) -> impl IntoView {
+pub fn Navbar(
+    user_json: Option<String>,
+    breadcrumbs: Vec<BreadcrumbItem>,
+    active_agents: Vec<ActiveAgent>,
+) -> impl IntoView {
     let is_logged_in = user_json.is_some();
     let username = user_json
         .as_ref()
@@ -24,7 +29,7 @@ pub fn Navbar(user_json: Option<String>, breadcrumbs: Vec<BreadcrumbItem>) -> im
             </div>
             <div class="navbar-menu">
                 <div class="navbar-start">
-                    <crate::webapp::components::ws_status::WsStatus />
+                    <crate::webapp::components::agent_dropdown::AgentDropdown active_agents />
                     <Breadcrumbs breadcrumbs />
                 </div>
                 <div class="navbar-end">
@@ -91,7 +96,8 @@ mod tests {
     fn test_navbar_renders_login_button_when_anonymous() {
         let user_json: Option<String> = None;
         let breadcrumbs = Vec::new();
-        let html = leptos::view! { <Navbar user_json breadcrumbs /> }.to_html();
+        let html =
+            leptos::view! { <Navbar user_json breadcrumbs active_agents=Vec::new() /> }.to_html();
         assert!(html.contains("Login"));
         assert!(html.contains("/webapp/login"));
         assert!(html.contains("mdi-login"));
@@ -103,7 +109,8 @@ mod tests {
         let user = serde_json::json!({ "username": "test@example.com" });
         let user_json = Some(user.to_string());
         let breadcrumbs = Vec::new();
-        let html = leptos::view! { <Navbar user_json breadcrumbs /> }.to_html();
+        let html =
+            leptos::view! { <Navbar user_json breadcrumbs active_agents=Vec::new() /> }.to_html();
         assert!(html.contains("test@example.com"));
         assert!(html.contains("Logout"));
         assert!(html.contains("Settings"));
@@ -116,7 +123,8 @@ mod tests {
     fn test_navbar_contains_logo_link() {
         let user_json: Option<String> = None;
         let breadcrumbs = Vec::new();
-        let html = leptos::view! { <Navbar user_json breadcrumbs /> }.to_html();
+        let html =
+            leptos::view! { <Navbar user_json breadcrumbs active_agents=Vec::new() /> }.to_html();
         assert!(html.contains("/webapp"));
         assert!(html.contains("ofm-logo-white-no-bg.png"));
     }
@@ -126,9 +134,21 @@ mod tests {
         let user_json: Option<String> = None;
         let breadcrumbs =
             vec![crate::webapp::components::breadcrumb::breadcrumb_registry::all_projects()];
-        let html = leptos::view! { <Navbar user_json breadcrumbs /> }.to_html();
+        let html =
+            leptos::view! { <Navbar user_json breadcrumbs active_agents=Vec::new() /> }.to_html();
         assert!(html.contains("All Projects"));
         assert!(html.contains("mdi-home"));
         assert!(html.contains("breadcrumb"));
+    }
+
+    #[test]
+    fn test_navbar_renders_agent_dropdown() {
+        let user_json: Option<String> = None;
+        let breadcrumbs = Vec::new();
+        let html =
+            leptos::view! { <Navbar user_json breadcrumbs active_agents=Vec::new() /> }.to_html();
+        assert!(html.contains("mdi-message-outline"));
+        assert!(html.contains("agent-dropdown"));
+        assert!(html.contains("ws-status-entry"));
     }
 }

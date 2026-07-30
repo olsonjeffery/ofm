@@ -114,6 +114,7 @@ pub fn global_runtime_script() -> String {
         _pingInterval: null,
         _pongTimeout: null,
         _intentionalClose: false,
+        _lastPayloadTime: null,
 
         connect: function() {
             if (this._ws && (this._ws.readyState === WebSocket.OPEN || this._ws.readyState === WebSocket.CONNECTING)) return;
@@ -202,6 +203,10 @@ pub fn global_runtime_script() -> String {
         },
 
         _handleMessage: function(data) {
+            this._lastPayloadTime = Date.now();
+            document.dispatchEvent(new CustomEvent('ws-payload-received', {
+                detail: { timestamp: this._lastPayloadTime }
+            }));
             var msg;
             try { msg = JSON.parse(data); } catch(e) { return; }
             switch (msg.type) {

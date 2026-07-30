@@ -171,6 +171,24 @@ async fn reset_agent_runs(
     };
     state.ws_bus.broadcast(&topic, msg).await;
 
+    let sys_topic = WsTopic {
+        kind: WsTopicKind::System,
+        id: TopicId(0),
+    };
+    state
+        .ws_bus
+        .broadcast(
+            &sys_topic,
+            ServerMessage::Event {
+                topic: sys_topic.clone(),
+                event_type: "agent_status".to_string(),
+                timestamp: chrono::Utc::now(),
+                payload: serde_json::json!({"action": "refresh"}),
+                html: None,
+            },
+        )
+        .await;
+
     Ok(StatusCode::OK)
 }
 

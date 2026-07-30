@@ -47,7 +47,7 @@ pub async fn update_tool_event(
     merged_event: &ProviderEvent,
     session_id: &str,
     project_key: i64,
-) -> Result<(), hiqlite::Error> {
+) -> Result<bool, hiqlite::Error> {
     let messages = client
         .query_map::<Message, _>(
             "SELECT project_key, session_id, seq, entry_json FROM messages WHERE project_key = $1 AND session_id = $2 ORDER BY seq ASC",
@@ -70,11 +70,11 @@ pub async fn update_tool_event(
                         hiqlite::params!(entry_json.to_string(), project_key, session_id, m.seq),
                     )
                     .await?;
-                return Ok(());
+                return Ok(true);
             }
         }
     }
-    Ok(())
+    Ok(false)
 }
 
 pub async fn load_transcript(
@@ -374,9 +374,10 @@ mod tests {
             timestamp: ts,
         };
 
-        update_tool_event(&client, "call1", &merged, session_id, project_key)
+        let updated = update_tool_event(&client, "call1", &merged, session_id, project_key)
             .await
             .unwrap();
+        assert!(updated, "should have found and updated the row");
 
         let loaded = load_transcript(&client, session_id, project_key)
             .await
@@ -419,10 +420,11 @@ mod tests {
             timestamp: ts,
         };
 
-        // Should not crash, just return Ok(()) without modifying anything
-        update_tool_event(&client, "call_notfound", &merged, session_id, project_key)
+        // Should return Ok(false) without modifying anything
+        let updated = update_tool_event(&client, "call_notfound", &merged, session_id, project_key)
             .await
             .unwrap();
+        assert!(!updated, "should not have found a matching row");
 
         let loaded = load_transcript(&client, session_id, project_key)
             .await

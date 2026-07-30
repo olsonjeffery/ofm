@@ -53,6 +53,7 @@ pub async fn handle_socket(
 
                         for topic in topics {
                             let authorized = match topic.kind {
+                                WsTopicKind::System => true,
                                 WsTopicKind::Project => {
                                     services::projects::get_project(&db, topic.id.0)
                                         .await

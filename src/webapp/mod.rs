@@ -18,6 +18,7 @@ use leptos::prelude::*;
 use uuid::Uuid;
 
 use crate::auth::AuthUser;
+use crate::db::schema::ActiveAgent;
 use crate::server::error::ServerError;
 use crate::server::state::AppState;
 use crate::services;
@@ -25,6 +26,12 @@ use crate::services::{session, transcript};
 use crate::webapp::components::breadcrumb::{breadcrumb_registry, BreadcrumbItem};
 use crate::webapp::components::project_card::TaskCounts;
 use crate::webapp::components::task_card::TaskCardData;
+
+async fn active_agents(db: &hiqlite::Client, user_id: &Uuid) -> Vec<ActiveAgent> {
+    services::tasks::get_running_agents(db, user_id)
+        .await
+        .unwrap_or_default()
+}
 
 pub fn webapp_routes() -> Router<AppState> {
     Router::new()
@@ -58,8 +65,9 @@ fn render_shell(
     page_html: &str,
     user_json: Option<String>,
     breadcrumbs: Vec<BreadcrumbItem>,
+    active_agents: Vec<ActiveAgent>,
 ) -> String {
-    let shell = leptos::view! { <app::ShellPage user_json breadcrumbs /> }.to_html();
+    let shell = leptos::view! { <app::ShellPage user_json breadcrumbs active_agents /> }.to_html();
     if shell.contains("<main></main>") {
         shell.replace("<main></main>", &format!("<main>{}</main>", page_html))
     } else {
@@ -70,7 +78,7 @@ fn render_shell(
 
 async fn login_handler() -> Html<String> {
     let login_html = pages::login::render_login_page();
-    Html(render_shell(&login_html, None, Vec::new()))
+    Html(render_shell(&login_html, None, Vec::new(), Vec::new()))
 }
 
 async fn callback_handler(
@@ -82,6 +90,7 @@ async fn callback_handler(
         Html(render_shell(
             &format!("<script>window.location.href='{path}';</script>"),
             None,
+            Vec::new(),
             Vec::new(),
         ))
     };
@@ -110,6 +119,7 @@ async fn callback_handler(
 
 async fn onboarding_handler(State(state): State<AppState>, auth: AuthUser) -> Html<String> {
     let user_json = serde_json::to_string(&auth).unwrap_or_default();
+    let agents = active_agents(&state.db, &auth.user_id).await;
 
     let user = match crate::services::auth::current_user(&state.db, auth.user_id).await {
         Ok(u) => u,
@@ -117,6 +127,7 @@ async fn onboarding_handler(State(state): State<AppState>, auth: AuthUser) -> Ht
             return Html(render_shell(
                 r#"<script>window.location.href='/webapp/login';</script>"#,
                 None,
+                Vec::new(),
                 Vec::new(),
             ))
         }
@@ -127,7 +138,12 @@ async fn onboarding_handler(State(state): State<AppState>, auth: AuthUser) -> Ht
         user.git_email.unwrap_or_default(),
         user.is_technical,
     );
-    Html(render_shell(&form_html, Some(user_json), Vec::new()))
+    Html(render_shell(
+        &form_html,
+        Some(user_json),
+        Vec::new(),
+        agents,
+    ))
 }
 
 async fn resolve_user_id_from_session(db: &hiqlite::Client, session_id: Uuid) -> Option<Uuid> {
@@ -149,15 +165,21 @@ async fn resolve_user_id_from_session(db: &hiqlite::Client, session_id: Uuid) ->
     Some(session_db.user_id)
 }
 
-async fn settings_handler(auth: AuthUser) -> Html<String> {
+async fn settings_handler(auth: AuthUser, State(state): State<AppState>) -> Html<String> {
     let user_json = serde_json::to_string(&auth).unwrap_or_default();
+    let agents = active_agents(&state.db, &auth.user_id).await;
     let settings_html =
         leptos::view! { <pages::settings::SettingsPage access_token=String::new() /> }.to_html();
     let breadcrumbs = vec![
         breadcrumb_registry::all_projects(),
         breadcrumb_registry::settings(),
     ];
-    Html(render_shell(&settings_html, Some(user_json), breadcrumbs))
+    Html(render_shell(
+        &settings_html,
+        Some(user_json),
+        breadcrumbs,
+        agents,
+    ))
 }
 
 async fn dashboard_handler(
@@ -165,6 +187,7 @@ async fn dashboard_handler(
     State(state): State<AppState>,
 ) -> Result<Html<String>, ServerError> {
     let user_json = serde_json::to_string(&auth).unwrap_or_default();
+    let agents = active_agents(&state.db, &auth.user_id).await;
     let projects = services::projects::list_projects(&state.db, &auth.user_id)
         .await
         .map_err(|e| ServerError::Internal(e.to_string()))?;
@@ -172,7 +195,12 @@ async fn dashboard_handler(
     let page_html =
         leptos::view! { <pages::dashboard::DashboardPage projects task_counts /> }.to_html();
     let breadcrumbs = vec![breadcrumb_registry::all_projects()];
-    Ok(Html(render_shell(&page_html, Some(user_json), breadcrumbs)))
+    Ok(Html(render_shell(
+        &page_html,
+        Some(user_json),
+        breadcrumbs,
+        agents,
+    )))
 }
 
 async fn board_handler(
@@ -181,6 +209,7 @@ async fn board_handler(
     Path(project_id): Path<i64>,
 ) -> Result<Html<String>, ServerError> {
     let user_json = serde_json::to_string(&auth).unwrap_or_default();
+    let agents = active_agents(&state.db, &auth.user_id).await;
     let project = services::projects::get_project(&state.db, project_id)
         .await
         .map_err(|_| ServerError::NotFound("Project not found".into()))?;
@@ -213,7 +242,12 @@ async fn board_handler(
         breadcrumb_registry::project(&project.name, project.id),
     ];
     let page_html = leptos::view! { <pages::board::BoardPage project tasks=task_data /> }.to_html();
-    Ok(Html(render_shell(&page_html, Some(user_json), breadcrumbs)))
+    Ok(Html(render_shell(
+        &page_html,
+        Some(user_json),
+        breadcrumbs,
+        agents,
+    )))
 }
 
 async fn task_detail_handler(
@@ -222,6 +256,7 @@ async fn task_detail_handler(
     Path((project_id, task_id)): Path<(i64, i64)>,
 ) -> Result<Html<String>, ServerError> {
     let user_json = serde_json::to_string(&auth).unwrap_or_default();
+    let agents = active_agents(&state.db, &auth.user_id).await;
 
     let project = services::projects::get_project(&state.db, project_id)
         .await
@@ -264,7 +299,12 @@ async fn task_detail_handler(
             />
     }
     .to_html();
-    Ok(Html(render_shell(&page_html, Some(user_json), breadcrumbs)))
+    Ok(Html(render_shell(
+        &page_html,
+        Some(user_json),
+        breadcrumbs,
+        agents,
+    )))
 }
 
 async fn chat_handler(
@@ -298,6 +338,7 @@ async fn chat_handler(
     }
 
     let user_json = serde_json::to_string(&auth).unwrap_or_default();
+    let agents = active_agents(&state.db, &auth.user_id).await;
     let breadcrumbs = vec![
         breadcrumb_registry::all_projects(),
         breadcrumb_registry::project(&project.name, project.id),
@@ -315,7 +356,12 @@ async fn chat_handler(
         />
     }
     .to_html();
-    Ok(Html(render_shell(&page_html, Some(user_json), breadcrumbs)))
+    Ok(Html(render_shell(
+        &page_html,
+        Some(user_json),
+        breadcrumbs,
+        agents,
+    )))
 }
 
 async fn chat_handler_with_conv(
@@ -324,6 +370,7 @@ async fn chat_handler_with_conv(
     Path((project_id, task_id, conversation_id)): Path<(i64, i64, uuid::Uuid)>,
 ) -> Result<Html<String>, ServerError> {
     let user_json = serde_json::to_string(&auth).unwrap_or_default();
+    let agents = active_agents(&state.db, &auth.user_id).await;
 
     let project = services::projects::get_project(&state.db, project_id)
         .await
@@ -388,7 +435,12 @@ async fn chat_handler_with_conv(
     />
     }
     .to_html();
-    Ok(Html(render_shell(&page_html, Some(user_json), breadcrumbs)))
+    Ok(Html(render_shell(
+        &page_html,
+        Some(user_json),
+        breadcrumbs,
+        agents,
+    )))
 }
 
 async fn compute_task_counts(

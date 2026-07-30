@@ -155,6 +155,17 @@ pub struct ConversationWithRun {
     pub run: Option<TaskAgentRun>,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ActiveAgent {
+    pub agent_type: AgentType,
+    pub project_id: i64,
+    pub project_title: String,
+    pub task_id: i64,
+    pub task_title: String,
+    pub conversation_id: Uuid,
+    pub conversation_name: Option<String>,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "snake_case")]
 pub enum ScopeType {
@@ -454,6 +465,25 @@ impl From<&mut Row<'_>> for TaskAgentRun {
             completed_at: row
                 .get::<Option<String>>("completed_at")
                 .map(|s| parse_naive_datetime(&s)),
+        }
+    }
+}
+
+impl From<&mut Row<'_>> for ActiveAgent {
+    fn from(row: &mut Row<'_>) -> Self {
+        let agent_type_str: String = row.get("agent_type");
+        let agent_type = agent_type_str.parse().unwrap_or(AgentType::Implementation);
+        Self {
+            agent_type,
+            project_id: row.get::<i64>("project_id"),
+            project_title: row.get("project_title"),
+            task_id: row.get::<i64>("task_id"),
+            task_title: row.get("task_title"),
+            conversation_id: row
+                .get::<String>("conversation_id")
+                .parse()
+                .expect("invalid UUID in database"),
+            conversation_name: row.get("conversation_name"),
         }
     }
 }

@@ -1,6 +1,6 @@
 use crate::archive;
 use crate::auth::AuthUser;
-use crate::db::schema::Task;
+use crate::db::schema::{ActiveAgent, Task};
 use crate::server::error::ServerError;
 use crate::server::state::AppState;
 use crate::server::ws::message::{ServerMessage, TopicId, WsTopic, WsTopicKind};
@@ -52,6 +52,7 @@ const VALID_STATUSES: &[&str] = &["pending", "in_progress", "in_review", "comple
 pub fn tasks_router() -> Router<AppState> {
     Router::new()
         .route("/", get(list_tasks).post(create_task))
+        .route("/active-agents", get(active_agents_handler))
         .route("/{id}", get(get_task).put(update_task).delete(delete_task))
         .nest("/{id}/agent-runs", super::agent_runs::agent_runs_router())
         .nest(
@@ -59,6 +60,16 @@ pub fn tasks_router() -> Router<AppState> {
             super::conversations::conversations_router(),
         )
         .nest("/{id}", super::agent_flags::agent_flags_router())
+}
+
+async fn active_agents_handler(
+    auth: AuthUser,
+    State(state): State<AppState>,
+) -> Result<Json<Vec<ActiveAgent>>, ServerError> {
+    let agents = services::tasks::get_running_agents(&state.db, &auth.user_id)
+        .await
+        .map_err(|e| ServerError::Internal(e.to_string()))?;
+    Ok(Json(agents))
 }
 
 pub async fn create_task(
