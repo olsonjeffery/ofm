@@ -21,9 +21,10 @@ pub async fn resolve_provider(
     config: &HarnessConfig,
     config_root: &Path,
     log_data: bool,
+    footprint: &Path,
 ) -> Result<Box<dyn LlmProvider>, ProviderError> {
     match config.harness.as_str() {
-        "opencode" => OpenCodeSdkProvider::new(config, config_root, log_data)
+        "opencode" => OpenCodeSdkProvider::new(config, config_root, log_data, footprint)
             .await
             .map(|p| Box::new(p) as Box<dyn LlmProvider>),
         other => Err(ProviderError::Protocol(format!("unknown harness: {other}"))),
@@ -38,10 +39,11 @@ pub async fn resolve_provider_for_user(
     config_root: &Path,
     user_id: Uuid,
     log_data: bool,
+    footprint: &Path,
 ) -> Result<Box<dyn LlmProvider>, ProviderError> {
     match config.harness.as_str() {
         "opencode" => {
-            let p = OpenCodeSdkProvider::new(config, config_root, log_data).await?;
+            let p = OpenCodeSdkProvider::new(config, config_root, log_data, footprint).await?;
             p.set_user_id(user_id);
             Ok(Box::new(p) as Box<dyn LlmProvider>)
         }
@@ -159,7 +161,7 @@ pub async fn get_models_for_config(
         effort: None,
         scope: ScopeType::Project,
     };
-    let provider = resolve_provider(&config, config_root, log_data).await?;
+    let provider = resolve_provider(&config, config_root, log_data, Path::new("")).await?;
     provider.get_models_list().await
 }
 

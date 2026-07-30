@@ -148,6 +148,56 @@ The `write_ofm_agent_json` function in `src/orchestration/mod.rs` guards against
 
 When `refresh_access_token` receives `invalid_grant` or `invalid_token` from the OIDC provider, the session row is deleted from the DB. The `POST /api/auth/refresh` handler in `src/server/routes/auth.rs` now catches the error and clears the `ofm_session` cookie by calling `jar.remove(Cookie::from("ofm_session"))` before returning a 400 response with `"session expired, please re-authenticate"`.
 
+## `external_directory` Allowlist
+
+The opencode server's config includes an `external_directory` permission that controls
+which filesystem paths agent tools (read, edit, write, glob, grep, bash) can access.
+This was previously set to `"allow"` (unrestricted), which allowed agents to write
+anywhere on the filesystem — including the main git repository outside their task
+worktree.
+
+As of Task 185, `external_directory` is an object allowlisting three path patterns:
+
+```
+{footprint}/worktrees/**   → allow  (task worktrees — read+write)
+{footprint}/archive/**     → allow  (task docs, spec files — read+write)
+/tmp/**                    → allow  (scratch/temp files — read+write)
+```
+
+Everything else is blocked. This is configured at server-start-time in three places:
+
+1. **`src/opencode_sdk/pool.rs:build_server_config()`** — used when spawning pooled
+   opencode servers via `OpenCodeServerPool::spawn_entry()`. Receives the footprint
+   from the provider, which received it from `orchestration/mod.rs`.
+2. **`src/providers/opencode_sdk_provider.rs:build_server_config()`** — used for
+   transient servers (model listing, one-shot prompts). Falls back to `"allow"`
+   when no footprint is available.
+3. **`src/opencode_sdk/server.rs:create_opencode_server()`** — fallback default
+   config when `ServerOptions.config` is `None`. Falls back to `"allow` when no
+   footprint is provided.
+
+### Footprint plumbing chain
+
+The footprint value (`OFM_FOOTPRINT`) is plumbed through the provider chain:
+
+1. `orchestration/mod.rs:start_next_agent()` passes `footprint` to
+   `registry::resolve_provider_for_user()`.
+2. `providers/registry.rs:resolve_provider_for_user()` passes it to
+   `OpenCodeSdkProvider::new()`.
+3. `OpenCodeSdkProvider` stores it as `self.footprint: PathBuf`.
+4. `OpenCodeSdkProvider::start()` passes `&self.footprint` to
+   `OpenCodeServerPool::get_or_spawn()`.
+5. `get_or_spawn()` → `spawn_entry()` → `build_server_config()` templates the
+   three-path allowlist.
+
+### Hardcoded `/tmp` fix
+
+Previously, `provider.start()` was called with `Path::new("/tmp")` *before* the
+worktree path was resolved from the database. This caused `patch_session_directory()`
+to set the opencode session's directory to `/tmp` instead of the correct worktree
+path. The fix moves `provider.start()` to *after* worktree resolution, using the
+correct worktree path. See `src/orchestration/mod.rs`.
+
 ## OFM Context Prompt Injection
 
 The `build_context_prompt()` in `src/archive/mod.rs` appends an "OFM Environment" section to every agent turn's prompt. This section describes the `.ofm_agent.json` file structure and provides `jq`-based instructions for reading connection details and deriving the task ID from the worktree directory name. The OAuth access token is **not** embedded in the prompt text — instead it is written to `.ofm_agent.json` in the worktree root (with `0600` permissions) as part of a structured JSON object. Agents parse the file with `jq` and pass the access token in `Authorization: Bearer` headers when calling the `agent-flags` endpoints.

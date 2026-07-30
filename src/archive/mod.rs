@@ -137,17 +137,29 @@ impl ArchiveRoot {
 
         let worktree_path = get_worktree_path(ofm_footprint_path, project_id, task_id);
 
-        // Task Plan File section
-        let task_plan = format!(
+        // Working Directory section
+        let fp = ofm_footprint_path.trim_end_matches('/');
+        let workdir_section = format!(
             r#"
+## Working Directory
+
+Your **authoratative** working directory (your CWD) is:
+  {}
+
+This is a git worktree, so you can do normal git lifecycle actions within it.
+
+### Allowed paths
+
+- **{}** — your assigned worktree (read+write)
+- **{fp}/archive/** — task documentation, spec files (read+write)
+- **/tmp/** — scratch/temporary files (read+write)
+
+You MUST NOT read, edit, or write files outside these paths.
+
 ## Task Plan File
 
 The canonical task plan — also known as the specification for this task — is stored at:
 `{}`
-
-While working on this task, your **authoratative** working directly (Which should also
-be your CWD) is {}. It is a git worktree, so you can do normal git lifecycle actions within
-it. **You are not permitted to make changes outside of this directory**.
 
 **At the start of this conversation, before answering the user's first message, you MUST
 read this file in full using the Read tool.** It contains the requirements, constraints,
@@ -158,10 +170,11 @@ When the user refers to the "task plan", "task doc", "task spec", "specification
 or asks you to read or update the task documentation, this is the file — read or edit it
 directly with the Read/Edit tool. Do NOT search for it elsewhere; the path above is authoritative.
 "#,
-            task_doc_path.display(),
             worktree_path.display(),
+            worktree_path.display(),
+            task_doc_path.display(),
         );
-        sections.push(task_plan);
+        sections.push(workdir_section);
 
         let commit_ritual = r#"
 ## Commit Ritual Workflow
@@ -420,6 +433,10 @@ mod tests {
         let prompt = root
             .build_context_prompt("/foo", 1, 42, "127.0.0.1", 3183, 12345)
             .unwrap();
+        assert!(prompt.contains("Working Directory"));
+        assert!(prompt.contains("Allowed paths"));
+        assert!(prompt.contains("/foo/archive/"));
+        assert!(prompt.contains("/tmp/**"));
         assert!(prompt.contains("Task Plan File"));
         assert!(prompt.contains("task-42.md"));
         assert!(prompt.contains("Testing Configuration"));
@@ -444,6 +461,7 @@ mod tests {
         let prompt = root
             .build_context_prompt("/foo", 1, 1, "127.0.0.1", 3183, 12345)
             .unwrap();
+        assert!(prompt.contains("Working Directory"));
         assert!(!prompt.contains("Input Files"));
     }
 

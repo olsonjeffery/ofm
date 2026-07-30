@@ -83,6 +83,7 @@ fn server_options() -> ServerOptions {
         })),
         password: None,
         log_data: false,
+        footprint: None,
     }
 }
 

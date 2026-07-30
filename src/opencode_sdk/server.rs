@@ -17,6 +17,9 @@ pub struct ServerOptions {
     pub config: Option<serde_json::Value>,
     pub password: Option<String>,
     pub log_data: bool,
+    /// OFM footprint used to template `external_directory` in the default
+    /// server config. When empty, falls back to `"allow"` (backwards compat).
+    pub footprint: Option<PathBuf>,
 }
 
 impl Default for ServerOptions {
@@ -29,6 +32,7 @@ impl Default for ServerOptions {
             config: None,
             password: None,
             log_data: false,
+            footprint: None,
         }
     }
 }
@@ -120,6 +124,17 @@ pub async fn create_opencode_server(options: ServerOptions) -> Result<OpenCodeSe
     let config = match options.config {
         Some(cfg) => cfg.to_string(),
         None => {
+            let ext_dir = match &options.footprint {
+                Some(fp) if !fp.as_os_str().is_empty() => {
+                    let fp_str = fp.to_string_lossy();
+                    serde_json::json!({
+                        format!("{fp_str}/worktrees/**"): "allow",
+                        format!("{fp_str}/archive/**"): "allow",
+                        "/tmp/**": "allow"
+                    })
+                }
+                _ => serde_json::json!("allow"),
+            };
             let default = serde_json::json!({
                 "provider": {},
                 "permission": {
@@ -127,7 +142,7 @@ pub async fn create_opencode_server(options: ServerOptions) -> Result<OpenCodeSe
                     "bash": "allow",
                     "webfetch": "allow",
                     "doom_loop": "allow",
-                    "external_directory": "allow"
+                    "external_directory": ext_dir
                 }
             });
             default.to_string()

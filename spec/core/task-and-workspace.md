@@ -135,7 +135,27 @@ from the archive (`build_context_prompt` in `src/archive/mod.rs`). It:
   full first**,
 - lists any input files to read for additional context,
 - includes the testing configuration (task id, the assigned dev-server port,
-  and test-execution best practices).
+  and test-execution best practices),
+- lists **allowed paths** for file operations: the worktree, the archive, and
+  `/tmp/` for scratch files,
+- instructs the agent not to write anywhere else.
+
+## Filesystem access restrictions
+
+The opencode server's `external_directory` permission is set to an allowlist of
+three path patterns (not `"allow"` — which was unrestricted):
+
+| Pattern | Access | Purpose |
+|---------|--------|---------|
+| `{footprint}/worktrees/**` | read+write | Task worktrees |
+| `{footprint}/archive/**` | read+write | Task docs, spec files |
+| `/tmp/**` | read+write | Scratch / temp files |
+
+These patterns are templated at server-start-time in `build_server_config()` in
+`src/opencode_sdk/pool.rs` (and equivalently in
+`src/providers/opencode_sdk_provider.rs` and
+`src/opencode_sdk/server.rs`). The footprint is plumbed from
+`orchestration/mod.rs` through the provider to the pool.
 
 The agent then reads and edits the doc directly with its own file tools. The doc
 path in the prompt is authoritative — agents are told not to look elsewhere.

@@ -228,8 +228,7 @@ and the obvious "pass success/failure into the handler" design is the wrong one.
 
 ## What `startAgentRun` is responsible for
 
-One function, in order (study
-[`reference/server/services/agentRunner.ts`](../reference/server/services/agentRunner.ts)):
+One function, in order (see `start_next_agent()` in `src/orchestration/mod.rs`):
 
 1. Resolve the task and its effective working directory (the worktree if it
    exists, else the repo path).
@@ -238,8 +237,30 @@ One function, in order (study
 3. Increment the task's run counter.
 4. Create the `task_agent_runs` row (`running`) and a linked conversation.
 5. Flip task status `pending → in_progress` on first activity.
-6. Start the conversation/turn through the harness contract, wiring the
+6. **Start the provider** with the worktree path as the working directory
+   (resolved in step 1). This must happen *after* worktree resolution so that
+   `patch_session_directory()` sets the correct path. See `src/orchestration/mod.rs`.
+7. Start the conversation/turn through the harness contract, wiring the
    completion handler as the stream's on-complete hook.
+
+### Footprint plumbing
+
+The `start_next_agent()` function receives the `footprint` (OFM footprint path)
+and passes it through to the provider and pool chain:
+- `registry::resolve_provider_for_user()` receives `footprint` and passes it to
+  the `OpenCodeSdkProvider` constructor.
+- The provider passes `footprint` to `OpenCodeServerPool::get_or_spawn()`, which
+  templates the `external_directory` allowlist in the opencode server config.
+- See `src/providers/opencode_sdk_provider.rs`, `src/opencode_sdk/pool.rs`.
+
+### Prompt context: working directory and allowed paths
+
+The context prompt built by `build_context_prompt()` in `src/archive/mod.rs` now
+includes a **Working Directory** section that tells the agent:
+- Its authoritative working directory (the worktree path).
+- Which paths it is allowed to read/write: the worktree, the archive (for task
+  docs), and `/tmp/` for scratch files.
+- That it MUST NOT write anywhere else.
 
 The model and credential resolution that step 6 depends on are an
 extra ([`prompt-and-model-customization.md`](../extra/prompt-and-model-customization.md)).

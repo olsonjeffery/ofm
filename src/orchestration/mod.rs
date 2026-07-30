@@ -199,15 +199,10 @@ pub fn start_next_agent<'a>(
             config_root,
             task.user_id,
             config.info_log_client_data,
+            std::path::Path::new(footprint),
         )
         .await
         .map_err(|e| ServerError::Internal(format!("Failed to resolve provider: {e}")))?;
-
-        let working_dir = std::path::Path::new("/tmp");
-        provider
-            .start(working_dir)
-            .await
-            .map_err(|e| ServerError::Internal(format!("Failed to start provider: {e}")))?;
 
         let conv_id_str = session_result.conversation_id.to_string();
 
@@ -217,6 +212,11 @@ pub fn start_next_agent<'a>(
             .as_ref()
             .map(|w| w.worktree_path.clone())
             .unwrap_or_else(|| "/tmp".to_string());
+
+        provider
+            .start(std::path::Path::new(&cwd))
+            .await
+            .map_err(|e| ServerError::Internal(format!("Failed to start provider: {e}")))?;
 
         let task_str = task.id.to_string();
         let doc_path = archive.task_doc_path(&task.project_id.to_string(), &task_str);
@@ -349,6 +349,7 @@ pub fn start_next_agent<'a>(
                                         let _title_log_data = config.info_log_client_data;
                                         let _title_ws_bus = ws_bus.clone();
                                         let _title_task_id = task_id;
+                                        let _title_footprint = footprint.to_string();
                                         tokio::spawn(async move {
                                             tracing::info!(
                                                 conversation_id = %_title_conv_id,
@@ -361,6 +362,7 @@ pub fn start_next_agent<'a>(
                                                 _title_conv_id,
                                                 &_title_prompt,
                                                 _title_log_data,
+                                                std::path::Path::new(&_title_footprint),
                                             ).await;
                                             tracing::info!(
                                                 conversation_id = %_title_conv_id,

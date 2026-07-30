@@ -226,6 +226,7 @@ async fn send_message(
         let _task_id = task_id;
         let _text = body.text.clone();
         let _ws_bus = state.ws_bus.clone();
+        let _footprint = state.footprint.clone();
         tokio::spawn(async move {
             tracing::info!(
                 conversation_id = %_c_id,
@@ -238,6 +239,7 @@ async fn send_message(
                 _c_id,
                 &_text,
                 _log_data,
+                std::path::Path::new(&_footprint),
             )
             .await;
             tracing::info!(
@@ -651,6 +653,7 @@ async fn send_message(
                 &config_root,
                 task.user_id,
                 state.config.info_log_client_data,
+                std::path::Path::new(&state.footprint),
             )
             .await
             .map_err(|e| ServerError::Internal(format!("Failed to resolve provider: {e}")))?;

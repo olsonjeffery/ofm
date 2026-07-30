@@ -85,6 +85,7 @@ impl OpenCodeServerPool {
         harness_config: &HarnessConfig,
         config_root: &Path,
         log_data: bool,
+        footprint: &Path,
     ) -> Result<OpencodeClient, crate::providers::ProviderError> {
         // Fast path: if an entry already exists in the pool, refresh its
         // last_used_at and return the cached client immediately — no spawn needed.
@@ -110,7 +111,7 @@ impl OpenCodeServerPool {
             return Ok(client.clone());
         }
         let client = self
-            .spawn_entry(user_id, harness_config, config_root, log_data)
+            .spawn_entry(user_id, harness_config, config_root, log_data, footprint)
             .await?;
         *pending_guard = Some(client.clone());
         self.pending.lock().await.remove(&user_id);
@@ -173,6 +174,7 @@ impl OpenCodeServerPool {
         harness_config: &HarnessConfig,
         config_root: &Path,
         log_data: bool,
+        footprint: &Path,
     ) -> Result<OpencodeClient, crate::providers::ProviderError> {
         // Build the server config from the harness config's provider
         // snippet (loaded from disk by the provider at construction time).
@@ -180,10 +182,11 @@ impl OpenCodeServerPool {
         let provider_cfg = provider_config_dir
             .load_provider_config(&harness_config.provider_config_ref)
             .map_err(|e| crate::providers::ProviderError::Config(e.to_string()))?;
-        let server_config = build_server_config(&provider_cfg.raw_snippet);
+        let server_config = build_server_config(&provider_cfg.raw_snippet, footprint);
 
         let options = ServerOptions {
             config: Some(server_config),
+            footprint: Some(footprint.to_path_buf()),
             ..Default::default()
         };
         let (client, server) = opencode_sdk::create_opencode(options, log_data)
@@ -217,10 +220,20 @@ impl OpenCodeServerPool {
 }
 
 /// Build the `opencode.json` server config from the user's provider
-/// snippet. Mirrors `OpenCodeSdkProvider::build_server_config` but lives
-/// in the pool module so the pool can spawn servers without going through
-/// a provider instance.
-fn build_server_config(provider_snippet: &str) -> serde_json::Value {
+/// snippet and OFM footprint. The `external_directory` is set to an
+/// allowlist of three path patterns:
+/// - `{footprint}/worktrees/**` — task worktrees (read+write)
+/// - `{footprint}/archive/**` — task docs, spec files (read+write)
+/// - `/tmp/**` — scratch/temp files (read+write)
+///
+/// Everything else is blocked.
+fn build_server_config(provider_snippet: &str, footprint: &Path) -> serde_json::Value {
+    let fp = footprint.to_string_lossy();
+    let ext_dir = serde_json::json!({
+        format!("{fp}/worktrees/**"): "allow",
+        format!("{fp}/archive/**"): "allow",
+        "/tmp/**": "allow"
+    });
     let mut base = serde_json::json!({
         "provider": {},
         "permission": {
@@ -228,7 +241,7 @@ fn build_server_config(provider_snippet: &str) -> serde_json::Value {
             "bash": "allow",
             "webfetch": "allow",
             "doom_loop": "allow",
-            "external_directory": "allow"
+            "external_directory": ext_dir
         }
     });
     if let Ok(snippet) = serde_json::from_str::<serde_json::Value>(provider_snippet) {
@@ -324,7 +337,7 @@ mod tests {
         };
         let config_root = std::path::Path::new("/tmp");
         let result = pool
-            .get_or_spawn(uid2, &harness_config, config_root, false)
+            .get_or_spawn(uid2, &harness_config, config_root, false, Path::new("/tmp"))
             .await;
         assert!(result.is_ok());
 
@@ -340,19 +353,33 @@ mod tests {
 
     #[test]
     fn test_build_server_config_base_permissions() {
-        let cfg = build_server_config("{}");
+        let cfg = build_server_config("{}", Path::new("/tmp/.ofm"));
         assert_eq!(cfg["permission"]["edit"], "allow");
         assert_eq!(cfg["permission"]["bash"], "allow");
         assert_eq!(cfg["provider"], serde_json::json!({}));
+        // external_directory should be an object with three path patterns
+        let ext = &cfg["permission"]["external_directory"];
+        assert!(ext.is_object(), "external_directory should be an object");
+        assert_eq!(ext["/tmp/**"], "allow");
     }
 
     #[test]
     fn test_build_server_config_merges_provider() {
         let snippet = r#"{"provider": {"anthropic": {"apiKey": "sk-xxx"}}}"#;
-        let cfg = build_server_config(snippet);
+        let cfg = build_server_config(snippet, Path::new("/tmp/.ofm"));
         assert_eq!(cfg["provider"]["anthropic"]["apiKey"], "sk-xxx");
         // Base permissions preserved.
         assert_eq!(cfg["permission"]["edit"], "allow");
+    }
+
+    #[test]
+    fn test_build_server_config_external_directory_allowlist() {
+        let cfg = build_server_config("{}", Path::new("/home/test/.ofm"));
+        let ext = &cfg["permission"]["external_directory"];
+        assert!(ext.is_object());
+        assert_eq!(ext["/home/test/.ofm/worktrees/**"], "allow");
+        assert_eq!(ext["/home/test/.ofm/archive/**"], "allow");
+        assert_eq!(ext["/tmp/**"], "allow");
     }
 
     #[test]

@@ -69,6 +69,7 @@ pub async fn generate_conversation_title(
     conversation_id: Uuid,
     first_message: &str,
     log_data: bool,
+    _footprint: &std::path::Path,
 ) {
     tracing::info!(
         conversation_id = %conversation_id,
@@ -97,17 +98,18 @@ pub async fn generate_conversation_title(
         "generate_conversation_title: built prompt"
     );
 
-    let provider = match registry::resolve_provider(harness_config, config_root, log_data).await {
-        Ok(p) => p,
-        Err(e) => {
-            tracing::warn!(
-                conversation_id = %conversation_id,
-                error = %e,
-                "generate_conversation_title: resolve_provider failed"
-            );
-            return;
-        }
-    };
+    let provider =
+        match registry::resolve_provider(harness_config, config_root, log_data, _footprint).await {
+            Ok(p) => p,
+            Err(e) => {
+                tracing::warn!(
+                    conversation_id = %conversation_id,
+                    error = %e,
+                    "generate_conversation_title: resolve_provider failed"
+                );
+                return;
+            }
+        };
     tracing::info!(
         conversation_id = %conversation_id,
         "generate_conversation_title: provider resolved"

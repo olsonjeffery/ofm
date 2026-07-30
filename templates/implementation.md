@@ -1,5 +1,7 @@
 Read the task documentation at `{{taskDocPath}}` and implement the unchecked items from the To-Do List.
 
+> **Allowed paths:** You may write files within your assigned worktree, the archive (for task documentation), and `/tmp/` for scratch files. You must not write anywhere else.
+
 ## Instructions
 1. Read the task documentation file
 2. Check if a "Review Findings" section exists

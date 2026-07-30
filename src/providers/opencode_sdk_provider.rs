@@ -44,6 +44,9 @@ pub struct OpenCodeSdkProvider {
     working_dir: Mutex<Option<PathBuf>>,
     /// Whether we will trace log every line that comes into the OpenCode SDK client as INFO
     log_data: bool,
+    /// OFM footprint directory used to template the `external_directory` allowlist
+    /// in the opencode server config. Empty means no restriction (backwards compat).
+    footprint: PathBuf,
 }
 
 impl OpenCodeSdkProvider {
@@ -51,6 +54,7 @@ impl OpenCodeSdkProvider {
         config: &HarnessConfig,
         config_root: &Path,
         log_data: bool,
+        footprint: &Path,
     ) -> Result<Self, ProviderError> {
         let cfg_dir = ProviderConfigDir::new(config_root);
         let provider_cfg = cfg_dir.load_provider_config(&config.provider_config_ref)?;
@@ -65,6 +69,7 @@ impl OpenCodeSdkProvider {
             user_id: Mutex::new(None),
             working_dir: Mutex::new(None),
             log_data,
+            footprint: footprint.to_path_buf(),
         })
     }
 
@@ -103,6 +108,16 @@ impl OpenCodeSdkProvider {
     }
 
     fn build_server_config(&self) -> serde_json::Value {
+        let ext_dir = if self.footprint.as_os_str().is_empty() {
+            serde_json::json!("allow")
+        } else {
+            let fp = self.footprint.to_string_lossy();
+            serde_json::json!({
+                format!("{fp}/worktrees/**"): "allow",
+                format!("{fp}/archive/**"): "allow",
+                "/tmp/**": "allow"
+            })
+        };
         let mut base = serde_json::json!({
             "provider": {},
             "permission": {
@@ -110,7 +125,7 @@ impl OpenCodeSdkProvider {
                 "bash": "allow",
                 "webfetch": "allow",
                 "doom_loop": "allow",
-                "external_directory": "allow"
+                "external_directory": ext_dir
             }
         });
         if let Ok(snippet) = serde_json::from_str::<serde_json::Value>(&self.provider_snippet) {
@@ -496,7 +511,13 @@ impl LlmProvider for OpenCodeSdkProvider {
             .unwrap()
             .ok_or_else(|| ProviderError::Protocol("user_id not set on provider".into()))?;
         let client = OpenCodeServerPool::instance()
-            .get_or_spawn(user_id, &self.config, &self.config_root, self.log_data)
+            .get_or_spawn(
+                user_id,
+                &self.config,
+                &self.config_root,
+                self.log_data,
+                &self.footprint,
+            )
             .await?;
         *self.client.lock().unwrap() = Some(client);
         *self.working_dir.lock().unwrap() = Some(working_dir.to_path_buf());
@@ -894,6 +915,7 @@ mod tests {
             user_id: Mutex::new(None),
             working_dir: Mutex::new(None),
             log_data: false,
+            footprint: PathBuf::default(),
         };
         assert_eq!(provider.extract_provider_id(), Some("anthropic".into()));
     }
@@ -940,6 +962,7 @@ mod tests {
             user_id: Mutex::new(None),
             working_dir: Mutex::new(None),
             log_data: false,
+            footprint: PathBuf::default(),
         };
         assert_eq!(provider.extract_provider_id(), None);
     }
@@ -1425,6 +1448,7 @@ mod tests {
             user_id: Mutex::new(None),
             working_dir: Mutex::new(None),
             log_data: false,
+            footprint: PathBuf::default(),
         };
 
         provider.cancel_inflight();
