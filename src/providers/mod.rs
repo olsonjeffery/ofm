@@ -168,6 +168,8 @@ pub async fn generate_conversation_title(
     }
 }
 
+const MAX_TITLE_LENGTH: usize = 50;
+
 pub fn sanitize_title(raw: &str) -> Option<String> {
     let trimmed = raw.trim();
     if trimmed.len() < 2 {
@@ -181,7 +183,12 @@ pub fn sanitize_title(raw: &str) -> Option<String> {
     if stripped.len() < 2 {
         return None;
     }
-    Some(stripped.to_owned())
+    let result = if stripped.len() > MAX_TITLE_LENGTH {
+        format!("{}...", &stripped[..MAX_TITLE_LENGTH.saturating_sub(3)])
+    } else {
+        stripped.to_owned()
+    };
+    Some(result)
 }
 
 #[cfg(test)]
@@ -230,10 +237,20 @@ mod tests {
     }
 
     #[test]
-    fn test_sanitize_title_caps_at_50() {
+    fn test_sanitize_title_truncates_at_max() {
         let long = "a".repeat(60);
         let result = sanitize_title(&long);
-        assert_eq!(result.as_deref(), Some("a".repeat(60).as_str()));
+        assert_eq!(
+            result.as_deref(),
+            Some(format!("{}...", "a".repeat(47)).as_str())
+        );
+    }
+
+    #[test]
+    fn test_sanitize_title_at_max_boundary() {
+        let exact = "a".repeat(50);
+        let result = sanitize_title(&exact);
+        assert_eq!(result.as_deref(), Some(exact.as_str()));
     }
 
     #[test]
