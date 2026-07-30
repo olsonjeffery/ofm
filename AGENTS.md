@@ -142,6 +142,24 @@ CSS imports are fine in the shell (`<head>`) since CSS is declarative and inert 
 
 Example: dragula.js is loaded via `<script src="...">` in `board.rs`, while dragula.css is loaded via `<link>` in `app.rs`.
 
+## SASS / Bulma Customization
+
+Global theme changes (font size, component padding, spacing variables) are made
+in the SASS source files under `assets/sass/`. The compiled output at
+`assets/bulma.css` is **never edited directly**.
+
+**Workflow:**
+1. Edit the relevant SASS partial (e.g., `assets/sass/base/generic.scss` for body
+   font size, `assets/sass/elements/box.scss` for `.box` padding).
+2. Recompile: `sass assets/bulma.scss assets/bulma.css`
+3. Verify the output is correct — `git diff assets/bulma.css` should show only
+   the intended value changes, not structural diffs.
+
+Component-level or page-specific style changes go in
+`src/webapp/styles/app.css`. Only use inline styles when CSS precedence
+makes it unavoidable (e.g., override Bulma component padding in a specific
+context).
+
 ## Documentation Updates
 
 Every task implementation **must**:

@@ -10,7 +10,7 @@ $card-radius: cv.getVar("radius-large") !default;
 
 $card-header-background-color: transparent !default;
 $card-header-color: cv.getVar("text-strong") !default;
-$card-header-padding: 0.75rem 1rem !default;
+$card-header-padding: 0.5rem 0.75rem !default;
 $card-header-shadow: 0 0.125em 0.25em
   hsla(
     #{cv.getVar("scheme-h")},
@@ -21,11 +21,11 @@ $card-header-shadow: 0 0.125em 0.25em
 $card-header-weight: cv.getVar("weight-bold") !default;
 
 $card-content-background-color: transparent !default;
-$card-content-padding: 1.5rem !default;
+$card-content-padding: 0.75rem !default;
 
 $card-footer-background-color: transparent !default;
 $card-footer-border-top: 1px solid cv.getVar("border-weak") !default;
-$card-footer-padding: 0.75rem !default;
+$card-footer-padding: 0.5rem !default;
 
 $card-media-margin: cv.getVar("block-spacing") !default;
 

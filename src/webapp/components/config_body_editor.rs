@@ -33,7 +33,7 @@ pub fn ConfigBodyEditor() -> impl IntoView {
                         <textarea class="textarea" id="new-config-body" rows="8" placeholder="Paste JSON configuration here..."></textarea>
                     </div>
                 </div>
-                <button class="button is-primary" id="btn-add-config">
+                <button class="button is-small is-primary" id="btn-add-config">
                     <span class="icon is-small"><i class="mdi mdi-plus"></i></span>
                     <span>"Add Configuration"</span>
                 </button>
@@ -73,8 +73,8 @@ pub fn ConfigBodyEditor() -> impl IntoView {
                     </div>
                 </section>
                 <footer class="modal-card-foot">
-                    <button class="button is-primary" id="btn-save-edit-config">"Save Changes"</button>
-                    <button class="button" id="btn-cancel-edit-config">"Cancel"</button>
+                    <button class="button is-small is-primary" id="btn-save-edit-config">"Save Changes"</button>
+                    <button class="button is-small" id="btn-cancel-edit-config">"Cancel"</button>
                 </footer>
             </div>
         </div>

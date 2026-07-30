@@ -6,7 +6,7 @@ $box-background-color: cv.getVar("scheme-main") !default;
 $box-color: cv.getVar("text") !default;
 $box-radius: cv.getVar("radius-large") !default;
 $box-shadow: cv.getVar("shadow") !default;
-$box-padding: 1.25rem !default;
+$box-padding: 0.75rem !default;
 
 $box-link-hover-shadow:
   0 0.5em 1em -0.125em hsla(#{cv.getVar("scheme-h")}, #{cv.getVar("scheme-s")}, #{cv.getVar(

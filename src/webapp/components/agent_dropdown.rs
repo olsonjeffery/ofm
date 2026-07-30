@@ -34,15 +34,25 @@ pub fn AgentDropdown(active_agents: Vec<ActiveAgent>) -> impl IntoView {
         <div class="navbar-item">
             <div class="dropdown" id="agent-dropdown">
                 <div class="dropdown-trigger">
-                    <button
-                        class="button is-small"
-                        aria-haspopup="true"
-                        aria-controls="agent-dropdown-menu"
-                        id="agent-dropdown-trigger"
-                    >
-                        <span class="icon is-small"><i class="mdi mdi-message-outline"></i></span>
-                        <span id="agent-count">{format!("{} Agents", count)}</span>
-                    </button>
+                    <div class="buttons has-addons">
+                        <button
+                                class="button is-small"
+                                aria-haspopup="true"
+                                aria-controls="agent-dropdown-menu"
+                                id="agent-dropdown-trigger"
+                            >
+                            <span class="icon"><i class="mdi mdi-message-outline"></i></span>
+                            <span id="agent-count">{format!("{} Agents", count)}</span>
+                        </button>
+                        <button
+                                class="button is-small is-outline"
+                                aria-haspopup="true"
+                                aria-controls="agent-dropdown-menu"
+                                id="agent-dropdown-trigger-2"
+                            >
+                                <span class="icon"><i class="mdi mdi-arrow-down-bold"></i></span>
+                        </button>
+                    </div>
                 </div>
                 <div class="dropdown-menu" id="agent-dropdown-menu" role="menu">
                     <div class="dropdown-content">
@@ -69,6 +79,13 @@ pub fn AgentDropdown(active_agents: Vec<ActiveAgent>) -> impl IntoView {
             {r#"(function(){
                 var dd = document.getElementById('agent-dropdown');
                 var trigger = document.getElementById('agent-dropdown-trigger');
+                if (trigger) {
+                    trigger.addEventListener('click', function(ev) {
+                        ev.stopPropagation();
+                        dd.classList.toggle('is-active');
+                    });
+                }
+                trigger = document.getElementById('agent-dropdown-trigger-2');
                 if (trigger) {
                     trigger.addEventListener('click', function(ev) {
                         ev.stopPropagation();

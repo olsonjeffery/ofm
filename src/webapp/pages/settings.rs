@@ -73,7 +73,7 @@ pub fn SettingsPage(access_token: String) -> impl IntoView {
                     <div id="export-project-list" class="mb-4">
                         <p class="has-text-grey">"Loading projects..."</p>
                     </div>
-                    <button class="button is-primary" id="btn-export">
+                    <button class="button is-small is-primary" id="btn-export">
                         <span class="icon is-small"><i class="mdi mdi-download"></i></span>
                         <span>"Export Selected"</span>
                     </button>
@@ -102,7 +102,7 @@ pub fn SettingsPage(access_token: String) -> impl IntoView {
                         <h4 class="title is-5">"Preview"</h4>
                         <p class="mb-3 has-text-grey">"The following projects were found in the import file. Enable the ones you want to import and choose an import target for each."</p>
                         <div id="import-project-cards"></div>
-                        <button class="button is-primary" id="btn-import">
+                        <button class="button is-small is-primary" id="btn-import">
                             <span class="icon is-small" id="import-spinner" style="display:none"><i class="mdi mdi-loading mdi-spin"></i></span>
                             <span>"Import"</span>
                         </button>
@@ -142,7 +142,6 @@ document.addEventListener('DOMContentLoaded', function() {
 
     loadConfigList();
     loadAgentModels();
-    checkApiKey();
 });
 
 window.__CONFIGS__ = [];
@@ -359,13 +358,6 @@ document.addEventListener('DOMContentLoaded', function() {
         });
     }
 });
-
-function checkApiKey() {
-    var display = document.getElementById('api-key-display');
-    var empty = document.getElementById('api-key-empty');
-    var generateBtn = document.getElementById('btn-generate-key');
-    var revokeBtn = document.getElementById('btn-revoke-key');
-}
 
 document.addEventListener('DOMContentLoaded', function() {
     var generateBtn = document.getElementById('btn-generate-key');

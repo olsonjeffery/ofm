@@ -15,27 +15,37 @@ pub fn ProjectCard(project: Project, task_counts: TaskCounts) -> impl IntoView {
         + task_counts.in_progress
         + task_counts.in_review
         + task_counts.completed;
+    let created = project.created_at.format("%Y-%m-%d").to_string();
     view! {
-        <a href={format!("/webapp/projects/{}", project.id)} class="box">
-            <p class="title is-6">{project.name.clone()}</p>
-            <p class="subtitle is-7">{project.repo_folder_path.clone()}</p>
-            <div class="level">
-                <div class="level-left">
-                    <span class="tag">{format!("{} tasks", total)}</span>
-                    {if task_counts.pending > 0 {
-                        view! { <span class="tag is-light">{format!("{} pending", task_counts.pending)}</span> }.into_any()
-                    } else { "".into_any() }}
-                    {if task_counts.in_progress > 0 {
-                        view! { <span class="tag is-info is-light">{format!("{} in progress", task_counts.in_progress)}</span> }.into_any()
-                    } else { "".into_any() }}
-                    {if task_counts.in_review > 0 {
-                        view! { <span class="tag is-warning is-light">{format!("{} in review", task_counts.in_review)}</span> }.into_any()
-                    } else { "".into_any() }}
-                    {if task_counts.completed > 0 {
-                        view! { <span class="tag is-success is-light">{format!("{} completed", task_counts.completed)}</span> }.into_any()
-                    } else { "".into_any() }}
+        <a href={format!("/webapp/projects/{}", project.id)} class="card" style="display:block">
+            <div class="card-header">
+                <p class="card-header-title">{project.name.clone()}</p>
+            </div>
+            <div class="card-content" style="padding:0.5rem">
+                <p class="subtitle is-7">{project.repo_folder_path.clone()}</p>
+                <div class="level is-mobile" style="margin-bottom:0">
+                    <div class="level-left" style="flex-wrap:wrap;gap:0.25rem">
+                        <span class="tag">{format!("{} tasks", total)}</span>
+                        {if task_counts.pending > 0 {
+                            view! { <span class="tag is-light">{format!("{} pending", task_counts.pending)}</span> }.into_any()
+                        } else { "".into_any() }}
+                        {if task_counts.in_progress > 0 {
+                            view! { <span class="tag is-info is-light">{format!("{} in progress", task_counts.in_progress)}</span> }.into_any()
+                        } else { "".into_any() }}
+                        {if task_counts.in_review > 0 {
+                            view! { <span class="tag is-warning is-light">{format!("{} in review", task_counts.in_review)}</span> }.into_any()
+                        } else { "".into_any() }}
+                        {if task_counts.completed > 0 {
+                            view! { <span class="tag is-success is-light">{format!("{} completed", task_counts.completed)}</span> }.into_any()
+                        } else { "".into_any() }}
+                    </div>
                 </div>
-                <div class="level-right">
+            </div>
+            <div class="card-footer">
+                <div class="card-footer-item" style="justify-content:flex-start;border-right:none">
+                    <small class="has-text-grey">{created}</small>
+                </div>
+                <div class="card-footer-item" style="justify-content:flex-end">
                     <button
                         class="button is-small is-danger is-outlined"
                         data-project-delete=""
@@ -96,6 +106,37 @@ mod tests {
         assert!(html.contains("mdi-trash-can"));
         assert!(html.contains("data-project-id=\"1\""));
         assert!(html.contains("Delete project"));
+    }
+
+    #[test]
+    fn test_project_card_is_card_structure() {
+        let project = make_project();
+        let counts = TaskCounts::default();
+        let html = leptos::view! { <ProjectCard project task_counts=counts /> }.to_html();
+        assert!(html.contains(r#"class="card""#), "should use card class");
+        assert!(html.contains("card-header"), "should have card-header");
+        assert!(
+            html.contains("card-header-title"),
+            "should have card-header-title"
+        );
+        assert!(html.contains("card-content"), "should have card-content");
+        assert!(html.contains("card-footer"), "should have card-footer");
+        assert!(
+            html.contains("card-footer-item"),
+            "should have card-footer-item"
+        );
+        assert!(!html.contains(r#"class="box""#), "should not use box class");
+    }
+
+    #[test]
+    fn test_project_card_delete_button_has_is_small() {
+        let project = make_project();
+        let counts = TaskCounts::default();
+        let html = leptos::view! { <ProjectCard project task_counts=counts /> }.to_html();
+        assert!(
+            html.contains("button is-small is-danger is-outlined"),
+            "delete button should have is-small"
+        );
     }
 
     #[test]

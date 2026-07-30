@@ -3,7 +3,7 @@
 @use "../utilities/mixins" as mx;
 
 $body-background-color: cv.getVar("scheme-main") !default;
-$body-size: 1em !default;
+$body-size: 0.875em !default;
 $body-min-width: 300px !default;
 $body-rendering: optimizeLegibility !default;
 $body-family: cv.getVar("family-primary") !default;

@@ -17,7 +17,7 @@ pub fn DashboardPage(
                     <h1 class="title">"Projects"</h1>
                 </div>
                 <div class="level-right">
-                    <button id="new-project-btn" class="button is-primary">
+                    <button id="new-project-btn" class="button is-small is-primary">
                         <span class="icon is-small"><i class="mdi mdi-plus"></i></span>
                         <span>"New Project"</span>
                     </button>
@@ -46,8 +46,8 @@ pub fn DashboardPage(
                     </div>
                     <div class="field">
                         <div class="control">
-                            <button type="submit" class="button is-success">"Create Project"</button>
-                            <button type="button" id="cancel-project-btn" class="button is-light">"Cancel"</button>
+                            <button type="submit" class="button is-small is-success">"Create Project"</button>
+                            <button type="button" id="cancel-project-btn" class="button is-small is-light">"Cancel"</button>
                         </div>
                     </div>
                 </form>
@@ -120,6 +120,25 @@ mod tests {
         assert!(html.contains("New Project"));
         assert!(html.contains("Projects"));
         assert!(html.contains("No projects yet"));
+    }
+
+    #[test]
+    fn test_dashboard_buttons_have_is_small() {
+        let projects = vec![];
+        let task_counts = HashMap::new();
+        let html = leptos::view! { <DashboardPage projects task_counts /> }.to_html();
+        assert!(
+            html.contains(r#"class="button is-small is-primary""#),
+            "New Project button should have is-small"
+        );
+        assert!(
+            html.contains(r#"class="button is-small is-success""#),
+            "Create Project button should have is-small"
+        );
+        assert!(
+            html.contains(r#"class="button is-small is-light""#),
+            "Cancel button should have is-small"
+        );
     }
 
     #[test]
