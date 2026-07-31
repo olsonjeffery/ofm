@@ -324,6 +324,13 @@ pub fn start_next_agent<'a>(
                                         tracing::error!("Failed to persist event: {e}");
                                         let error_event = ProviderEvent::Error { error: format!("Failed to persist event: {e}"), timestamp: chrono::Utc::now().naive_utc() };
                                         let (event_type, payload) = error_event.to_ws_event();
+                                        let payload = if let Some(obj) = payload.as_object() {
+                                            let mut map = obj.clone();
+                                            map.insert("conversation_id".to_string(), serde_json::json!(conversation_id.to_string()));
+                                            serde_json::Value::Object(map)
+                                        } else {
+                                            serde_json::json!({"conversation_id": conversation_id.to_string()})
+                                        };
                                         ws_bus.broadcast(&topic, ServerMessage::Event { topic: topic.clone(), event_type, timestamp: chrono::Utc::now(), payload, html: None }).await;
                                         break;
                                     }
@@ -337,6 +344,13 @@ pub fn start_next_agent<'a>(
                                             tracing::error!("Failed to persist initial prompt: {e}");
                                             let error_event = ProviderEvent::Error { error: format!("Failed to persist initial prompt: {e}"), timestamp: chrono::Utc::now().naive_utc() };
                                             let (event_type, payload) = error_event.to_ws_event();
+                                            let payload = if let Some(obj) = payload.as_object() {
+                                                let mut map = obj.clone();
+                                                map.insert("conversation_id".to_string(), serde_json::json!(conversation_id.to_string()));
+                                                serde_json::Value::Object(map)
+                                            } else {
+                                                serde_json::json!({"conversation_id": conversation_id.to_string()})
+                                            };
                                             ws_bus.broadcast(&topic, ServerMessage::Event { topic: topic.clone(), event_type, timestamp: chrono::Utc::now(), payload, html: None }).await;
                                             break;
                                         }
@@ -416,6 +430,13 @@ pub fn start_next_agent<'a>(
                                     }
 
                                     let (event_type, payload) = event.to_ws_event();
+                                    let payload = if let Some(obj) = payload.as_object() {
+                                        let mut map = obj.clone();
+                                        map.insert("conversation_id".to_string(), serde_json::json!(conversation_id.to_string()));
+                                        serde_json::Value::Object(map)
+                                    } else {
+                                        serde_json::json!({"conversation_id": conversation_id.to_string()})
+                                    };
                                     let is_done = matches!(event, ProviderEvent::Done { .. });
                                     let rendered = crate::webapp::components::message_stream::render_event(&event);
                                     ws_bus.broadcast(&topic, ServerMessage::Event { topic: topic.clone(), event_type, timestamp: chrono::Utc::now(), payload, html: if rendered.is_empty() { None } else { Some(rendered) } }).await;
@@ -477,7 +498,7 @@ pub fn start_next_agent<'a>(
                                 .into(),
                             timestamp: chrono::Utc::now().naive_utc(),
                         };
-                        ws_bus.broadcast(&topic, ServerMessage::Event { topic: topic.clone(), event_type: "error".to_string(), timestamp: chrono::Utc::now(), payload: serde_json::json!({"error": "Agent session ended unexpectedly. Send a message to resume."}), html: Some(crate::webapp::components::message_stream::render_event(&error_event)) }).await;
+                        ws_bus.broadcast(&topic, ServerMessage::Event { topic: topic.clone(), event_type: "error".to_string(), timestamp: chrono::Utc::now(), payload: serde_json::json!({"error": "Agent session ended unexpectedly. Send a message to resume.", "conversation_id": conversation_id.to_string()}), html: Some(crate::webapp::components::message_stream::render_event(&error_event)) }).await;
                         let sys_topic = system_topic();
                         ws_bus
                             .broadcast(
@@ -1400,5 +1421,62 @@ mod tests {
             .unwrap();
         let count: i64 = rows[0].get("cnt");
         assert_eq!(count, 0, "session should be deleted after retry exhaustion");
+    }
+
+    #[tokio::test]
+    async fn test_orchestration_broadcast_includes_conversation_id() {
+        let ws_bus = BroadcastBus::new();
+        let task_id: i64 = 42;
+        let topic = WsTopic {
+            kind: WsTopicKind::Task,
+            id: TopicId(task_id),
+        };
+        let conversation_id = uuid::Uuid::new_v4();
+
+        let mut rx = ws_bus.subscribe(&topic).await;
+
+        let (event_type, payload) = crate::providers::types::ProviderEvent::Error {
+            error: "test error".into(),
+            timestamp: chrono::Utc::now().naive_utc(),
+        }
+        .to_ws_event();
+
+        let payload = if let Some(obj) = payload.as_object() {
+            let mut map = obj.clone();
+            map.insert(
+                "conversation_id".to_string(),
+                serde_json::json!(conversation_id.to_string()),
+            );
+            serde_json::Value::Object(map)
+        } else {
+            serde_json::json!({"conversation_id": conversation_id.to_string()})
+        };
+
+        ws_bus
+            .broadcast(
+                &topic,
+                ServerMessage::Event {
+                    topic: topic.clone(),
+                    event_type,
+                    timestamp: chrono::Utc::now(),
+                    payload: payload.clone(),
+                    html: None,
+                },
+            )
+            .await;
+
+        let received = rx.recv().await.unwrap();
+        match &*received {
+            ServerMessage::Event { payload: p, .. } => {
+                assert_eq!(
+                    p.get("conversation_id")
+                        .and_then(|v| v.as_str())
+                        .unwrap_or(""),
+                    conversation_id.to_string(),
+                    "broadcast payload must include conversation_id"
+                );
+            }
+            _ => panic!("expected ServerMessage::Event"),
+        }
     }
 }
