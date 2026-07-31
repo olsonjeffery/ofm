@@ -365,7 +365,7 @@ async fn test_agent_runs_test_list_agent_runs() -> reqwest::Result<()> {
 /// `PoolCleanupGuard`'s `Drop`), so pooled `opencode serve` subprocesses
 /// never outlive the test binary.
 #[tokio::test]
-async fn test_pool_cleanup_guard_drains_pool_on_drop() {
+async fn test_agent_runs_test_pool_cleanup_guard_drains_pool_on_drop() {
     let app = setup_app().await;
     let user_id = default_user_id(&app.db).await;
     let task_id = create_task_seed(&app.db, app.project_id).await;

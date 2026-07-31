@@ -145,7 +145,7 @@ impl OpenCodeServerPool {
         match self.inner.try_lock() {
             Ok(mut inner) => {
                 let count = inner.len();
-                for (_, entry) in inner.iter_mut() {
+                for entry in inner.values_mut() {
                     entry._server.kill();
                 }
                 inner.clear();
