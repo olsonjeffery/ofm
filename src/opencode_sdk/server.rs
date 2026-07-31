@@ -44,6 +44,10 @@ pub struct OpenCodeServer {
     hostname: String,
     password: Option<String>,
     _temp_dir: TempDir,
+    /// Whether `kill()` has already run. Prevents a second process-group
+    /// SIGKILL after the child was reaped and its PID freed for reuse — the
+    /// stale PID must never be used for a targeted kill.
+    killed: bool,
 }
 
 impl OpenCodeServer {
@@ -63,12 +67,36 @@ impl OpenCodeServer {
         &self.hostname
     }
 
-    pub async fn shutdown(&mut self) -> Result<bool, SdkError> {
-        let pid = self.child.id();
-        // Close stdin to signal the process, then kill + wait to reap it.
+    /// PID of the underlying `opencode serve` subprocess. Used by tests to
+    /// precisely verify teardown.
+    pub fn pid(&self) -> u32 {
+        self.child.id()
+    }
+
+    /// Kill the subprocess and its entire process group (the group is ours —
+    /// created via `process_group(0)` — so this is precise), then reap it.
+    /// Synchronous and idempotent, so it is safe to call from `Drop`.
+    pub(crate) fn kill(&mut self) {
+        if self.killed {
+            return;
+        }
+        self.killed = true;
+        // Close stdin first so the child sees EOF on its input pipe.
         let _ = self.child.stdin.take();
+        #[cfg(unix)]
+        {
+            let pid = self.child.id() as i32;
+            // SIGKILL the process group; this covers the child itself plus
+            // any grandchildren it forked. ESRCH (no such group) is harmless.
+            unsafe { libc::kill(-pid, libc::SIGKILL) };
+        }
         let _ = self.child.kill();
         let _ = self.child.wait();
+    }
+
+    pub async fn shutdown(&mut self) -> Result<bool, SdkError> {
+        let pid = self.pid();
+        self.kill();
 
         // Port-probe to confirm the subprocess is no longer listening. This
         // is a best-effort check — the port may be released slightly after
@@ -111,9 +139,7 @@ impl OpenCodeServer {
 
 impl Drop for OpenCodeServer {
     fn drop(&mut self) {
-        let _ = self.child.stdin.take();
-        let _ = self.child.kill();
-        let _ = self.child.wait();
+        self.kill();
     }
 }
 
@@ -186,7 +212,7 @@ pub async fn create_opencode_server(options: ServerOptions) -> Result<OpenCodeSe
     if let Some(dir) = &options.working_dir {
         cmd.current_dir(dir);
     }
-    let mut child = cmd.spawn().map_err(|e| {
+    let child = cmd.spawn().map_err(|e| {
         if e.kind() == std::io::ErrorKind::NotFound {
             SdkError::Protocol("opencode binary not found in PATH".to_string())
         } else {
@@ -194,24 +220,36 @@ pub async fn create_opencode_server(options: ServerOptions) -> Result<OpenCodeSe
         }
     })?;
 
-    let base_url = format!("http://{hostname}:{port}");
-    let http_client = reqwest::Client::new();
-    wait_for_health(
-        &http_client,
-        &base_url,
-        &password,
-        Some(&mut child),
-        health_timeout,
-    )
-    .await?;
-
-    Ok(OpenCodeServer {
+    // Wrap the child immediately so its `Drop` (process-group SIGKILL + reap)
+    // protects it from being orphaned on ANY early exit below: a health-check
+    // `Err` (handled explicitly) or the caller's task being aborted while we
+    // await (the raw `std::process::Child` does not kill on drop).
+    let mut server = OpenCodeServer {
         child,
         port,
         hostname,
         password: Some(password),
         _temp_dir: temp_dir,
-    })
+        killed: false,
+    };
+
+    let base_url = format!("http://{}:{}", server.hostname, server.port);
+    let http_client = reqwest::Client::new();
+    if let Err(e) = wait_for_health(
+        &http_client,
+        &base_url,
+        server.password.as_deref().expect("password always set"),
+        Some(&mut server.child),
+        health_timeout,
+    )
+    .await
+    {
+        // The child may still be starting up; don't leave an orphan behind.
+        server.kill();
+        return Err(e);
+    }
+
+    Ok(server)
 }
 
 fn basic_auth_header(password: &str) -> String {
@@ -277,6 +315,7 @@ impl OpenCodeServer {
             hostname: String::new(),
             password: None,
             _temp_dir: TempDir::new().expect("test temp dir"),
+            killed: false,
         }
     }
 }
@@ -349,6 +388,7 @@ mod tests {
             hostname: "127.0.0.1".to_string(),
             password: Some("pw".to_string()),
             _temp_dir: temp_dir,
+            killed: false,
         };
         assert_eq!(server.url(), "http://127.0.0.1:3183");
         assert_eq!(server.password(), Some("pw"));
@@ -365,8 +405,47 @@ mod tests {
             hostname: "127.0.0.1".to_string(),
             password: None,
             _temp_dir: temp_dir,
+            killed: false,
         };
         let result = server.shutdown().await.unwrap();
         assert!(result);
+    }
+
+    #[test]
+    fn test_opencode_sdk_pid_accessor() {
+        let child = std::process::Command::new("true").spawn().unwrap();
+        let server = OpenCodeServer::test_dummy(child);
+        assert_eq!(server.pid(), server.child.id());
+    }
+
+    /// `kill()` must SIGKILL the child's own process group (so any
+    /// grandchildren die too) and reap the child, leaving no orphan behind.
+    #[cfg(unix)]
+    #[test]
+    fn test_opencode_sdk_kill_reaps_child() {
+        use std::os::unix::process::CommandExt;
+
+        let child = std::process::Command::new("sleep")
+            .arg("30")
+            .process_group(0)
+            .spawn()
+            .unwrap();
+        let pid = child.id();
+        let mut server = OpenCodeServer::test_dummy(child);
+
+        server.kill();
+
+        // `kill()` reaps the child — its exit status is available (cached by
+        // the internal `wait()`), which `try_wait` reports as `Some`.
+        assert!(
+            matches!(server.child.try_wait(), Ok(Some(_))),
+            "child was not reaped by kill()"
+        );
+        // The PID is gone once the process is killed + reaped; libc::kill
+        // returns -1 (ESRCH) for a nonexistent process.
+        let alive = unsafe { libc::kill(pid as i32, 0) == 0 };
+        assert!(!alive, "child process {pid} still alive after kill()");
+        // Idempotent: a second kill (as `Drop` performs) must be a no-op.
+        server.kill();
     }
 }

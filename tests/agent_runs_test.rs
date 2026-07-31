@@ -13,12 +13,17 @@ use tempfile::TempDir;
 use tokio::sync::Mutex;
 use uuid::Uuid;
 
+mod common;
+
 struct TestApp {
     addr: String,
     _handle: tokio::task::JoinHandle<()>,
     db: hiqlite::Client,
     project_id: i64,
     _db_dir: TempDir,
+    /// Drains the process-wide opencode server pool on drop so pooled
+    /// `opencode serve` subprocesses spawned by these tests never leak.
+    _pool_guard: common::PoolCleanupGuard,
 }
 
 async fn setup_app() -> TestApp {
@@ -120,6 +125,7 @@ async fn setup_app() -> TestApp {
         db: client,
         project_id,
         _db_dir: db_dir,
+        _pool_guard: common::pool_cleanup_guard(),
     }
 }
 
@@ -353,4 +359,37 @@ async fn test_agent_runs_test_list_agent_runs() -> reqwest::Result<()> {
     let body: Vec<serde_json::Value> = resp.json().await.unwrap();
     assert_eq!(body.len(), 3);
     Ok(())
+}
+
+/// Dropping `TestApp` must drain the process-wide opencode server pool (via
+/// `PoolCleanupGuard`'s `Drop`), so pooled `opencode serve` subprocesses
+/// never outlive the test binary.
+#[tokio::test]
+async fn test_pool_cleanup_guard_drains_pool_on_drop() {
+    let app = setup_app().await;
+    let user_id = default_user_id(&app.db).await;
+    let task_id = create_task_seed(&app.db, app.project_id).await;
+
+    let resp = client()
+        .post(format!("{}/api/tasks/{}/agent-runs", app.addr, task_id))
+        .json(&serde_json::json!({ "agent_type": "implementation" }))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(resp.status(), 201);
+
+    let pool = ofm::opencode_sdk::pool::OpenCodeServerPool::instance();
+    // The agent run spawns a real `opencode serve` pooled for this user.
+    assert!(
+        pool.status(user_id).await,
+        "expected a pooled opencode server for the test user"
+    );
+
+    // Dropping `TestApp` runs the guard's `Drop`, which drains the pool.
+    drop(app);
+
+    assert!(
+        !pool.status(user_id).await,
+        "pooled opencode server should be drained after TestApp drop"
+    );
 }

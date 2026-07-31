@@ -74,6 +74,9 @@ leptos_styling = { version = "0.3", features = ["ssr"] }
 bytes = "1"
 http-body-util = "0.1"
 
+# Precise process-group teardown of spawned subprocesses (kill(-pgid))
+libc = "0.2"
+
 # Markdown rendering (server-side)
 pulldown-cmark = "0.13"
 

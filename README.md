@@ -119,6 +119,12 @@ OFM_RAUTHY_ENABLED=true
 > login; After that, the user can change their password by going to the "User
 > Settings" page linked from the `ofm` top navbar)
 
+> ℹ️**RAUTHY CLEANUP**: Stopping `ofm` removes its rauthy container
+> (`docker rm -f ofm-rauthy-<footprint-hash>`). If `ofm` is SIGKILLed, the
+> container is left behind but is automatically reaped on the next start of
+> the same `OFM_FOOTPRINT`. Leftover containers can be listed with
+> `docker ps --filter name=ofm-rauthy`.
+
 **Installations using an OAuth provider will want to provide:**
 
 ```bash

@@ -11,6 +11,33 @@
   `tokio::task::spawn_blocking`. The blocking task reads from the I/O source
   and sends events through an `mpsc::Sender` via `blocking_send`.
 
+## Sub-process Lifecycle & Cleanup
+
+`ofm` spawns long-lived subprocesses in two places: `opencode serve` (per-user
+pool, `src/opencode_sdk/`) and the rauthy Docker container (`src/rauthy/`).
+Rules that keep them from leaking:
+
+- **Every long-lived subprocess is owned by exactly one RAII owner whose
+  `Drop` kills *and reaps* it.** Never spawn-and-forget;
+  `std::process::Child`/`tokio::process::Child` do not kill on drop by default.
+- **Spawn children into their own process group** (`process_group(0)`), so a
+  Ctrl-C to the ofm process group cannot orphan them, and teardown can target
+  `kill(-pgid)` — covering any grandchildren — precisely.
+- **Never bulk-kill** with `grep`/`sed`/`killall`/`pkill`. Kill precisely by
+  PID, by process group you created, or by named container (`docker rm -f <name>`).
+- **Integration tests reaching the opencode server pool must hold a
+  `tests/common::PoolCleanupGuard`** (or call
+  `OpenCodeServerPool::instance().shutdown_all()`); the process-wide pool
+  `static` is otherwise never drained in test binaries.
+- **The rauthy container name is footprint-derived** (`ofm-rauthy-<hash>`);
+  `ofm` reaps a stale container for its footprint on startup. To clean up
+  leftovers manually (e.g., pre-change or SIGKILL remnants): list with
+  `docker ps --filter name=ofm-rauthy`, then `docker rm -f` each named
+  container individually.
+- **SIGKILL caveat**: no in-process cleanup runs on SIGKILL. Plan recovery
+  into the *next startup* (reaping), not shutdown, for any long-lived
+  subprocess/container.
+
 ## UI Conventions
 
 - Content containers use Bulma `.box` for block-level content, `.card` for sub-units / grid items (e.g., kanban boards).

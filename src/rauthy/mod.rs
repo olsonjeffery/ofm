@@ -10,14 +10,27 @@ const RAUTHY_IMAGE: &str = "ghcr.io/sebadob/rauthy:latest";
 const HEALTH_POLL_INTERVAL: Duration = Duration::from_millis(500);
 const HEALTH_TIMEOUT: Duration = Duration::from_secs(120);
 
-fn container_name(port: u16) -> String {
-    format!("ofm-rauthy-{}", port)
+/// Deterministic, footprint-unique container name. Stable across restarts
+/// of the same footprint so a stale container (e.g., left by a SIGKILLed
+/// instance) is reaped by the startup `docker rm -f` below; unique across
+/// worktree footprints so concurrent ofm instances do not collide.
+///
+/// Deliberately not `DefaultHasher` (stability is unspecified); this is a
+/// self-contained FNV-1a 64-bit hash.
+fn container_name(footprint: &str) -> String {
+    let mut hash: u64 = 0xcbf2_9ce4_8422_2325; // FNV-1a 64-bit offset basis
+    for b in footprint.as_bytes() {
+        hash ^= *b as u64;
+        hash = hash.wrapping_mul(0x0000_0100_0000_01b3);
+    }
+    format!("ofm-rauthy-{hash:016x}")
 }
 
 type BoxError = Box<dyn std::error::Error>;
 
 pub struct RauthyInstance {
     port: u16,
+    container_name: String,
     child: Option<Child>,
 }
 
@@ -25,12 +38,25 @@ impl RauthyInstance {
     pub fn port(&self) -> u16 {
         self.port
     }
+
+    pub fn container_name(&self) -> &str {
+        &self.container_name
+    }
 }
 
 impl Drop for RauthyInstance {
     fn drop(&mut self) {
+        // SIGKILLing the `docker run` CLI alone leaves the container
+        // running. Remove our named container precisely — `--rm` on the
+        // run command only fires after the container's own process exits.
+        let _ = std::process::Command::new("docker")
+            .args(["rm", "-f", &self.container_name])
+            .status();
         if let Some(mut child) = self.child.take() {
             let _ = child.start_kill();
+            // `wait()` is async and cannot be awaited from `Drop`; dropping
+            // the handle is fine — init reaps the SIGKILLed CLI.
+            std::mem::drop(child);
         }
     }
 }
@@ -69,8 +95,12 @@ pub async fn start_rauthy(
     port: u16,
     proxy_port: u16,
 ) -> Result<RauthyInstance, BoxError> {
+    let name = container_name(footprint);
+    // Reap any stale container left behind by a previously SIGKILLed ofm
+    // instance for this footprint. The footprint-derived name is stable, so
+    // this precisely targets only our own leftovers.
     tokio::process::Command::new("docker")
-        .args(["rm", "-f", &container_name(port)])
+        .args(["rm", "-f", &name])
         .stdout(Stdio::null())
         .stderr(Stdio::null())
         .status()
@@ -114,7 +144,7 @@ pub async fn start_rauthy(
     )?;
 
     let mut cmd = Command::new("docker");
-    cmd.args(["run", "--rm", "--name", &container_name(port)]);
+    cmd.args(["run", "--rm", "--name", &name]);
 
     cmd.arg("-v");
     cmd.arg(format!("{}:/app/data", data_dir));
@@ -151,11 +181,12 @@ pub async fn start_rauthy(
 
     Ok(RauthyInstance {
         port,
+        container_name: name,
         child: Some(child),
     })
 }
 
-pub async fn wait_until_healthy(port: u16) -> Result<(), BoxError> {
+pub async fn wait_until_healthy(port: u16, container_name: &str) -> Result<(), BoxError> {
     let client = reqwest::Client::builder()
         .timeout(Duration::from_secs(5))
         .build()?;
@@ -164,7 +195,7 @@ pub async fn wait_until_healthy(port: u16) -> Result<(), BoxError> {
     loop {
         if start.elapsed() > HEALTH_TIMEOUT {
             let logs = Command::new("docker")
-                .args(["logs", &container_name(port), "--tail", "50"])
+                .args(["logs", container_name, "--tail", "50"])
                 .output()
                 .await
                 .ok();
@@ -218,5 +249,31 @@ mod tests {
         assert_eq!(uid, actual_uid, "UID should match current user");
         assert_eq!(gid, actual_gid, "GID should match current user");
         assert_ne!(uid, 0, "should not run tests as root");
+    }
+
+    #[test]
+    fn test_container_name_deterministic_per_footprint() {
+        let fp_a = "/home/test/worktrees/project-1";
+        let fp_b = "/home/test/worktrees/project-2";
+
+        // Same footprint → identical name; stable across calls.
+        let name_a1 = super::container_name(fp_a);
+        let name_a2 = super::container_name(fp_a);
+        assert_eq!(name_a1, name_a2);
+
+        // Different footprints → different names.
+        let name_b = super::container_name(fp_b);
+        assert_ne!(name_a1, name_b);
+
+        // Names are prefixed and hex-suffixed.
+        for name in [&name_a1, &name_b] {
+            assert!(name.starts_with("ofm-rauthy-"), "unexpected name: {name}");
+            let suffix = name.trim_start_matches("ofm-rauthy-");
+            assert_eq!(suffix.len(), 16, "expected 16 hex chars in {name}");
+            assert!(
+                u64::from_str_radix(suffix, 16).is_ok(),
+                "suffix not hex in {name}"
+            );
+        }
     }
 }
