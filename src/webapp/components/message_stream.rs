@@ -75,49 +75,8 @@ fn render_markdown(text: &str) -> String {
         .to_string()
 }
 
-fn maybe_collapse(content: &str, html_id: &str) -> String {
-    if content.len() <= 256 {
-        esc(content)
-    } else {
-        let truncated_content = content.chars().take(256).collect::<String>();
-        let truncated_lines = truncated_content.lines().count();
-        let full_lines = content.lines().count();
-        let more_lines = full_lines - truncated_lines;
-        format!(
-            r##"<pre id="preview-{}">{}</pre>
-                <pre id="full-{}" style="display:none">{}</pre>
-                <a href="#" id="btn-{}" class="show-more-btn" onclick="toggleShowMoreLines('{}', {});return false">show {} more lines</a>
-            "##,
-            esc(html_id),
-            esc(&format!("{}…", truncated_content)),
-            esc(html_id),
-            esc(content),
-            esc(html_id),
-            esc(html_id),
-            more_lines,
-            more_lines,
-        )
-    }
-}
-
-fn maybe_collapse_md(content: &str, html_id: &str) -> String {
-    if content.len() <= 256 {
-        render_markdown(content)
-    } else {
-        let truncated_content: String = content.chars().take(256).collect();
-        let more_lines = content.lines().count() - truncated_content.lines().count();
-        format!(
-            r##"<span id="preview-{}">{}</span><span id="full-{}" style="display:none">{}</span><a href="#" id="btn-{}" class="show-more-btn" onclick="toggleShowMoreLines('{}', {});return false">show {} more lines</a>"##,
-            esc(html_id),
-            render_markdown(&format!("{}…", truncated_content)),
-            esc(html_id),
-            render_markdown(content),
-            esc(html_id),
-            esc(html_id),
-            more_lines,
-            more_lines,
-        )
-    }
+fn content_len(s: &str) -> usize {
+    s.len()
 }
 
 fn build_data_attrs(id_str: &str, message_id: &Option<String>) -> String {
@@ -147,11 +106,9 @@ pub fn render_event(event: &ProviderEvent) -> String {
             if text.trim().is_empty() {
                 return String::new();
             }
-            let id = next_id();
-            let content = maybe_collapse_md(text, &id);
             format!(
                 r#"<div class="message-model"><div class="content">{}</div></div>"#,
-                content
+                render_markdown(text)
             )
         }
         ProviderEvent::TextChunk { .. } => String::new(),
@@ -166,44 +123,78 @@ pub fn render_event(event: &ProviderEvent) -> String {
             let id_str = tool_use_id.as_deref().unwrap_or("");
             let data_attrs = build_data_attrs(id_str, message_id);
 
-            // Suppress if both input is null and no result
             if input.is_null() && result.is_none() {
                 return String::new();
             }
 
-            let input_str = serde_json::to_string_pretty(input).unwrap_or_default();
-            let input_html = if input.is_null() {
-                String::new()
-            } else {
-                format!(
-                    r#"<span class="tool-section-label">Input:</span>{}"#,
-                    maybe_collapse(&input_str, &format!("i_{}", collapse_id(id_str)))
-                )
-            };
+            let msg_id = collapse_id(id_str);
 
-            let result_html = match result {
-                Some(r) if !r.is_empty() && r != "null" => format!(
-                    r#"<hr><span class="tool-section-label">Result:</span>{}"#,
-                    maybe_collapse(r, &format!("r_{}", collapse_id(id_str)))
-                ),
-                _ => String::new(),
-            };
+            let mut content_parts: Vec<String> = Vec::new();
 
-            let inner = if !input_html.is_empty() && !result_html.is_empty() {
-                format!(r#"<pre>{}{}</pre>"#, input_html, result_html)
-            } else if !input_html.is_empty() {
-                format!(r#"<pre>{}</pre>"#, input_html)
-            } else if !result_html.is_empty() {
-                format!(r#"<pre>{}</pre>"#, result_html)
-            } else {
+            if !input.is_null() {
+                let input_str = serde_json::to_string_pretty(input).unwrap_or_default();
+                content_parts.push(format!(
+                    r#"<span class="tool-section-label">Input:</span><pre>{}</pre>"#,
+                    esc(&input_str)
+                ));
+            }
+
+            if let Some(r) = result {
+                if !r.is_empty() && r != "null" {
+                    content_parts.push(format!(
+                        r#"<hr><span class="tool-section-label">Result:</span><pre>{}</pre>"#,
+                        esc(r)
+                    ));
+                }
+            }
+
+            let content_str = content_parts.join("");
+            let needs_collapse = content_len(&content_str) > 256;
+
+            let inner = if needs_collapse {
+                format!(r#"<div class="collapse-content">{}</div>"#, content_str)
+            } else if content_str.is_empty() {
                 return String::new();
+            } else {
+                format!("<pre>{}</pre>", content_str)
+            };
+
+            let mut parts: Vec<String> = Vec::new();
+
+            if needs_collapse {
+                parts.push(format!(
+                    r##"<a href="#" class="collapse-toggle" onclick="toggleCollapse('{}');return false"><span class="icon"><i class="mdi mdi-play collapse-icon" id="icon-{}"></i></span></a>"##,
+                    esc(&msg_id),
+                    esc(&msg_id),
+                ));
+            }
+
+            parts.push(format!(
+                r#"<span class="icon"><i class="mdi mdi-cog-outline"></i></span> <code>{}</code>{}"#,
+                esc(tool_name),
+                inner,
+            ));
+
+            if needs_collapse {
+                parts.push(format!(
+                    r##"<div class="collapse-footer"><a href="#" onclick="toggleCollapse('{}');return false"><span class="icon"><i class="mdi mdi-drag-horizontal-variant"></i></span> show less <span class="icon"><i class="mdi mdi-drag-horizontal-variant"></i></span></a></div>"##,
+                    esc(&msg_id),
+                ));
+            }
+
+            let collapse_class = if needs_collapse { " is-collapsed" } else { "" };
+            let msg_id_attr = if needs_collapse {
+                format!(r#" data-msg-id="{}""#, esc(&msg_id))
+            } else {
+                String::new()
             };
 
             format!(
-                r#"<div class="message-tool"{}><span class="icon"><i class="mdi mdi-cog-outline"></i></span> <code>{}</code>{}</div>"#,
+                r#"<div class="message-tool{}"{}{}>{}</div>"#,
+                collapse_class,
+                msg_id_attr,
                 data_attrs,
-                esc(tool_name),
-                inner
+                parts.join(""),
             )
         }
         ProviderEvent::ToolResult {
@@ -217,11 +208,53 @@ pub fn render_event(event: &ProviderEvent) -> String {
                 return String::new();
             }
             let id_str = tool_use_id.as_deref().unwrap_or("");
-            let content = maybe_collapse(result, &collapse_id(id_str));
+            let msg_id = collapse_id(id_str);
             let data_attrs = build_data_attrs(id_str, message_id);
+
+            let needs_collapse = content_len(result) > 256;
+
+            let mut parts: Vec<String> = Vec::new();
+
+            if needs_collapse {
+                parts.push(format!(
+                    r##"<a href="#" class="collapse-toggle" onclick="toggleCollapse('{}');return false"><span class="icon"><i class="mdi mdi-play collapse-icon" id="icon-{}"></i></span></a>"##,
+                    esc(&msg_id),
+                    esc(&msg_id),
+                ));
+            }
+
+            parts.push(format!(
+                r#"<span class="icon"><i class="mdi mdi-cog-outline"></i></span>{}"#,
+                if needs_collapse {
+                    format!(
+                        "<div class=\"collapse-content\"><pre>{}</pre></div>",
+                        esc(result)
+                    )
+                } else {
+                    format!("<pre>{}</pre>", esc(result))
+                },
+            ));
+
+            if needs_collapse {
+                parts.push(format!(
+                    r##"<div class="collapse-footer"><a href="#" onclick="toggleCollapse('{}');return false"><span class="icon"><i class="mdi mdi-drag-horizontal-variant"></i></span> show less <span class="icon"><i class="mdi mdi-drag-horizontal-variant"></i></span></a></div>"##,
+                    esc(&msg_id),
+                ));
+            }
+
+            let collapse_class = if needs_collapse { " is-collapsed" } else { "" };
+            let msg_id_attr = if needs_collapse {
+                format!(r#" data-msg-id="{}""#, esc(&msg_id))
+            } else {
+                String::new()
+            };
+
             format!(
-                r#"<div class="message-tool"{}><span class="icon"><i class="mdi mdi-cog-outline"></i></span>{}</div>"#,
-                data_attrs, content
+                r#"<div class="message-tool{}"{}{}>{}</div>"#,
+                collapse_class,
+                msg_id_attr,
+                data_attrs,
+                parts.join(""),
             )
         }
         ProviderEvent::Thinking { thinking, .. } => {
@@ -229,11 +262,50 @@ pub fn render_event(event: &ProviderEvent) -> String {
             if trimmed.is_empty() {
                 return String::new();
             }
-            let id = next_id();
-            let content = maybe_collapse_md(trimmed, &id);
+            let msg_id = next_id();
+            let md_html = render_markdown(trimmed);
+            let needs_collapse = content_len(trimmed) > 256;
+
+            let mut parts: Vec<String> = Vec::new();
+
+            if needs_collapse {
+                parts.push(format!(
+                    r##"<a href="#" class="collapse-toggle" onclick="toggleCollapse('{}');return false"><span class="icon"><i class="mdi mdi-play collapse-icon" id="icon-{}"></i></span></a>"##,
+                    esc(&msg_id),
+                    esc(&msg_id),
+                ));
+            }
+
+            parts.push(r#"<span class="icon"><i class="mdi mdi-flip-h mdi-head-snowflake-outline"></i></span>"#.to_string());
+
+            if needs_collapse {
+                parts.push(format!(
+                    "<div class=\"collapse-content\"><div class=\"content\">{}</div></div>",
+                    md_html
+                ));
+            } else {
+                parts.push(format!("<div class=\"content\">{}</div>", md_html));
+            }
+
+            if needs_collapse {
+                parts.push(format!(
+                    r##"<div class="collapse-footer"><a href="#" onclick="toggleCollapse('{}');return false"><span class="icon"><i class="mdi mdi-drag-horizontal-variant"></i></span> show less <span class="icon"><i class="mdi mdi-drag-horizontal-variant"></i></span></a></div>"##,
+                    esc(&msg_id),
+                ));
+            }
+
+            let collapse_class = if needs_collapse { " is-collapsed" } else { "" };
+            let msg_id_attr = if needs_collapse {
+                format!(r#" data-msg-id="{}""#, esc(&msg_id))
+            } else {
+                String::new()
+            };
+
             format!(
-                r#"<div class="message-thinking"><span class="icon"><i class="mdi mdi-flip-h mdi-head-snowflake-outline"></i></span><div class="content">{}</div></div>"#,
-                content
+                r#"<div class="message-thinking{}"{}>{}</div>"#,
+                collapse_class,
+                msg_id_attr,
+                parts.join(""),
             )
         }
         ProviderEvent::ThinkingChunk { .. } => String::new(),
@@ -265,11 +337,9 @@ pub fn render_event(event: &ProviderEvent) -> String {
             if txt.trim().is_empty() {
                 String::new()
             } else {
-                let id = next_id();
-                let content = maybe_collapse_md(txt, &id);
                 format!(
                     r#"<div class="message-model"><div class="content">{}</div></div>"#,
-                    content
+                    render_markdown(txt)
                 )
             }
         }
@@ -448,11 +518,27 @@ mod tests {
         let ts = test_ts();
         let long = "x".repeat(257);
         let messages = vec![ProviderEvent::Text {
-            text: long,
+            text: long.clone(),
             timestamp: ts,
         }];
         let html = leptos::view! { <MessageStream messages=messages /> }.to_html();
-        assert!(html.contains("show-more-btn"));
+        assert!(html.contains(&long));
+        assert!(
+            !html.contains("is-collapsed"),
+            "message-model should not be collapsible"
+        );
+        assert!(
+            !html.contains("mdi-play"),
+            "message-model should not have toggle icon"
+        );
+        assert!(
+            !html.contains("collapse-toggle"),
+            "message-model should not have collapse-toggle"
+        );
+        assert!(
+            !html.contains("collapse-footer"),
+            "message-model should not have footer"
+        );
     }
 
     #[test]
@@ -464,8 +550,19 @@ mod tests {
             timestamp: ts,
         }];
         let html = leptos::view! { <MessageStream messages=messages /> }.to_html();
-        assert!(html.contains("show-more-btn"));
-        assert!(html.contains("…"));
+        assert!(html.contains(&long));
+        assert!(
+            !html.contains("is-collapsed"),
+            "message-model should not be collapsible"
+        );
+        assert!(
+            !html.contains("collapse-preview"),
+            "message-model should not have preview"
+        );
+        assert!(
+            !html.contains("…"),
+            "message-model should not have ellipsis"
+        );
     }
 
     #[test]
@@ -933,6 +1030,139 @@ mod tests {
             "standalone ToolResult should render content"
         );
     }
+
+    #[test]
+    fn test_thinking_long_content_collapsible() {
+        let ts = test_ts();
+        let long = "x".repeat(300);
+        let messages = vec![ProviderEvent::Thinking {
+            thinking: long,
+            timestamp: ts,
+        }];
+        let html = leptos::view! { <MessageStream messages=messages /> }.to_html();
+        assert!(html.contains("is-collapsed"));
+        assert!(html.contains("mdi-play"));
+        assert!(html.contains("collapse-toggle"));
+        assert!(html.contains("collapse-footer"));
+        assert!(html.contains("collapse-content"));
+        assert!(html.contains("data-msg-id"));
+    }
+
+    #[test]
+    fn test_tool_use_long_content_collapsible() {
+        let ts = test_ts();
+        let long_input = serde_json::json!({"path": "x".repeat(300)});
+        let messages = vec![ProviderEvent::ToolUse {
+            tool_name: "read".into(),
+            tool_use_id: Some("id1".into()),
+            input: long_input,
+            result: None,
+            message_id: None,
+            timestamp: ts,
+        }];
+        let html = leptos::view! { <MessageStream messages=messages /> }.to_html();
+        assert!(html.contains("is-collapsed"));
+        assert!(html.contains("mdi-play"));
+        assert!(html.contains("collapse-toggle"));
+        assert!(html.contains("collapse-footer"));
+        assert!(html.contains("data-msg-id"));
+        assert!(html.contains("mdi-cog-outline"));
+        assert!(html.contains("collapse-content"));
+    }
+
+    #[test]
+    fn test_message_model_long_text_no_toggle() {
+        let ts = test_ts();
+        let long = "x".repeat(300);
+        let messages = vec![ProviderEvent::Text {
+            text: long,
+            timestamp: ts,
+        }];
+        let html = leptos::view! { <MessageStream messages=messages /> }.to_html();
+        assert!(!html.contains("is-collapsed"));
+        assert!(!html.contains("mdi-play"));
+        assert!(!html.contains("collapse-toggle"));
+        assert!(!html.contains("collapse-footer"));
+        assert!(!html.contains("collapse-content"));
+    }
+
+    #[test]
+    fn test_merged_tool_use_result_single_toggle() {
+        let ts = test_ts();
+        let long_input = serde_json::json!({"path": "x".repeat(300)});
+        let messages = vec![
+            ProviderEvent::ToolUse {
+                tool_name: "read".into(),
+                tool_use_id: Some("id1".into()),
+                input: long_input,
+                result: None,
+                message_id: None,
+                timestamp: ts,
+            },
+            ProviderEvent::ToolResult {
+                tool_use_id: Some("id1".into()),
+                result: "y".repeat(300),
+                message_id: None,
+                timestamp: ts,
+            },
+        ];
+        let html = leptos::view! { <MessageStream messages=messages /> }.to_html();
+        assert!(html.contains("is-collapsed"));
+        assert!(html.contains("mdi-play"));
+        assert!(html.contains("collapse-toggle"));
+        assert!(html.contains("collapse-footer"));
+        assert_eq!(
+            html.matches("collapse-toggle").count(),
+            1,
+            "single toggle for merged card"
+        );
+        assert_eq!(
+            html.matches("collapse-footer").count(),
+            1,
+            "single footer for merged card"
+        );
+        assert_eq!(
+            html.matches("message-tool").count(),
+            1,
+            "merged into one card"
+        );
+        assert!(html.contains("Input:"), "merged card has Input section");
+        assert!(html.contains("Result:"), "merged card has Result section");
+        assert!(html.contains("collapse-content"));
+    }
+
+    #[test]
+    fn test_collapsible_messages_have_data_msg_id() {
+        let ts = test_ts();
+        // ToolUse with long content
+        let long_input = serde_json::json!({"path": "x".repeat(300)});
+        let messages = vec![ProviderEvent::ToolUse {
+            tool_name: "read".into(),
+            tool_use_id: Some("dataid1".into()),
+            input: long_input,
+            result: None,
+            message_id: None,
+            timestamp: ts,
+        }];
+        let html = leptos::view! { <MessageStream messages=messages /> }.to_html();
+        assert!(html.contains(r#"data-msg-id="dataid1""#));
+    }
+
+    #[test]
+    fn test_thinking_short_content_not_collapsible() {
+        let ts = test_ts();
+        let short = "hello".repeat(20); // ~100 chars
+        let messages = vec![ProviderEvent::Thinking {
+            thinking: short,
+            timestamp: ts,
+        }];
+        let html = leptos::view! { <MessageStream messages=messages /> }.to_html();
+        assert!(!html.contains("is-collapsed"));
+        assert!(!html.contains("mdi-play"));
+        assert!(!html.contains("collapse-toggle"));
+        assert!(!html.contains("collapse-footer"));
+        assert!(!html.contains("collapse-content"));
+    }
 }
 
 #[component]
@@ -1077,7 +1307,7 @@ pub fn MessageStream(messages: Vec<ProviderEvent>) -> impl IntoView {
     let rendered = parts.join("\n");
 
     view! {
-        <div id="message-stream" class="message-stream" style="padding:1rem;overflow-wrap:break-word">
+        <div id="message-stream" class="message-stream" style="padding:0.75rem;overflow-wrap:break-word">
             {if messages.is_empty() {
                 view! { <p class="has-text-grey">"No messages yet. Start a conversation to see messages here."</p> }.into_any()
             } else {

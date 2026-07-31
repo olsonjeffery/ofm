@@ -23,6 +23,15 @@ use std::panic::AssertUnwindSafe;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 
+/// Returns true if `candidate` is likely an echo of `reference` based on
+/// normalized Levenshtein distance > 0.9 (i.e., strings are at least 90% similar).
+pub(crate) fn is_text_echo(candidate: &str, reference: &str) -> bool {
+    if candidate.is_empty() || reference.is_empty() {
+        return false;
+    }
+    strsim::normalized_levenshtein(candidate, reference) > 0.9
+}
+
 #[derive(Debug, Serialize)]
 pub struct ConversationDetail {
     pub conversation: Conversation,
@@ -393,6 +402,14 @@ async fn send_message(
                                             Some(e) => e,
                                             None => break,
                                         };
+
+                                        // Skip echoed user input — Text events > 90% similar to last_user_text
+                                        if let ProviderEvent::Text { text, .. } = &event {
+                                            if is_text_echo(text, &body.text) {
+                                                tracing::debug!(session_id = %s_id, "Skipping echoed user input Text event");
+                                                continue;
+                                            }
+                                        }
 
                                         let topic = WsTopic {
                                             kind: WsTopicKind::Task,

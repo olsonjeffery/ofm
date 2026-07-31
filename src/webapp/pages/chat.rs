@@ -188,38 +188,11 @@ document.addEventListener('DOMContentLoaded', function() {{
         }});
     }}
 
-    // Only used by updateToolCallContent for streaming tool result merging.
-    // All primary rendering uses server-pre-rendered HTML (msg.html).
-    function maybeCollapse(content, id) {{
-        if (content.length <= 256) {{
-            return escapeHtml(content);
-        }}
-        return '<span id="preview-' + id + '">' + escapeHtml(content.substring(0, 256)) + '…</span>' +
-               '<a href="#" id="btn-' + id + '" class="show-more-btn" onclick="toggleShowMore(\'' + id + '\');return false">show more</a>' +
-               '<span id="full-' + id + '" style="display:none">' + escapeHtml(content) + '</span>';
-    }}
-
-    window.toggleShowMoreLines = function(id, linesCount) {{
-        var preview = document.getElementById('preview-' + id);
-        var full = document.getElementById('full-' + id);
-        var btn = document.getElementById('btn-' + id);
-        if (preview && full && btn) {{
-            var isHidden = full.style.display === 'none';
-            full.style.display = isHidden ? 'block' : 'none';
-            preview.style.display = isHidden ? 'none' : 'inline';
-            btn.textContent = isHidden ? 'show less' : 'show ' + linesCount + ' more lines';
-        }}
-    }};
-    window.toggleShowMore = function(id) {{
-        var preview = document.getElementById('preview-' + id);
-        var full = document.getElementById('full-' + id);
-        var btn = document.getElementById('btn-' + id);
-        if (preview && full && btn) {{
-            var isHidden = full.style.display === 'none';
-            full.style.display = isHidden ? 'block' : 'none';
-            preview.style.display = isHidden ? 'none' : 'inline';
-            btn.textContent = isHidden ? 'show less' : 'show more';
-        }}
+    window.toggleCollapse = function(msgId) {{
+        var container = document.querySelector('[data-msg-id="' + msgId + '"]');
+        if (!container) return;
+        container.classList.toggle('is-collapsed');
+        container.classList.toggle('is-expanded');
     }};
 
     function renderServerEvent(msg) {{
@@ -237,26 +210,7 @@ document.addEventListener('DOMContentLoaded', function() {{
             el.outerHTML = msg.html;
             var newEl = document.querySelector('[data-tool-use-id="' + dedupKey + '"]');
             if (newEl) renderedMessageIds[dedupKey] = newEl;
-            return;
         }}
-        var el = renderedMessageIds[dedupKey];
-        if (!el || !el.querySelector) return;
-        var pre = el.querySelector('pre');
-        if (!pre) return;
-        var existingContent = pre.innerHTML;
-        var newContent = '';
-        if (msg.event_type === 'tool_result') {{
-            if (!msg.payload.result || msg.payload.result.trim() === 'null' || !msg.payload.result.trim()) return;
-            var collapseId = dedupKey;
-            var resultContent = maybeCollapse(msg.payload.result, collapseId);
-            newContent = existingContent + '<hr>' + resultContent;
-        }} else if (msg.event_type === 'tool_use') {{
-            var inputStr = JSON.stringify(msg.payload.input, null, 2);
-            var collapseId = dedupKey;
-            var inputContent = maybeCollapse(inputStr, collapseId);
-            newContent = inputContent;
-        }}
-        if (newContent) pre.innerHTML = newContent;
     }}
 
     function escapeHtml(str) {{

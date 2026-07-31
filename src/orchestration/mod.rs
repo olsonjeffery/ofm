@@ -21,6 +21,7 @@ use crate::providers::registry;
 use crate::providers::types::{ProviderEvent, TurnInput};
 use crate::providers::LlmProvider;
 use crate::server::error::ServerError;
+use crate::server::routes::conversations::is_text_echo;
 use crate::server::state::OidcEndpoints;
 use crate::server::ws::bus::BroadcastBus;
 use crate::server::ws::message::{ServerMessage, TopicId, WsTopic, WsTopicKind};
@@ -308,6 +309,14 @@ pub fn start_next_agent<'a>(
                             tokio::select! {
                                 event = rx.recv() => {
                                     let event = match event { Some(e) => e, None => break };
+
+                                    // Skip echoed prompt text — Text events > 90% similar to prompt_text
+                                    if let ProviderEvent::Text { text, .. } = &event {
+                                        if is_text_echo(text, &prompt_text) {
+                                            tracing::debug!(session_id = %s_id, "Skipping echoed prompt Text event");
+                                            continue;
+                                        }
+                                    }
 
                                     let topic = WsTopic { kind: WsTopicKind::Task, id: TopicId(task_id) };
 

@@ -81,5 +81,8 @@ pulldown-cmark = "0.13"
 ammonia = "4"
 html-escape = "0.2"
 
+# String similarity for echo detection
+strsim = "0.11"
+
 [features]
 ssr = ["leptos/ssr", "leptos_styling/ssr"]
