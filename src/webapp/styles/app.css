@@ -567,3 +567,12 @@ hr.timestamp-separator {
 .danger-zone-corner-tr { top: -0.25rem; right: 0.5rem; }
 .danger-zone-corner-bl { bottom: -0.25rem; left: 0.5rem; }
 .danger-zone-corner-br { bottom: -0.25rem; right: 0.5rem; }
+
+/* ===== Config editor modal footer ===== */
+/* .modal-card-foot is display:flex with justify-content:flex-start; the
+   .field.is-grouped.is-grouped-right child is a content-width flex item that
+   does not stretch, so its internal right-alignment never engages. Push the
+   group to the right edge of the footer directly. */
+#edit-config-modal .modal-card-foot {
+    justify-content: flex-end;
+}
