@@ -348,6 +348,24 @@ async fn send_message(
     Ok(StatusCode::OK)
 }
 
+/// Load the conversation transcript for a provider session and wrap it in a
+/// `ResumeInput`.
+async fn load_resume_input(
+    db: &hiqlite::Client,
+    provider_session_id: &str,
+    task_id: i64,
+) -> Result<ResumeInput, ServerError> {
+    let messages = transcript::load_transcript(db, provider_session_id, task_id)
+        .await
+        .map_err(|e| ServerError::Internal(e.to_string()))?;
+    let messages_json =
+        serde_json::to_value(&messages).map_err(|e| ServerError::Internal(e.to_string()))?;
+    Ok(ResumeInput::new(
+        provider_session_id.to_string(),
+        messages_json,
+    ))
+}
+
 /// Attempt to resume an existing provider turn or recreate one.
 /// Returns Ok(()) if the broadcast task was spawned, or an error.
 /// Does NOT persist UserText or broadcast user_text WS events —
@@ -364,8 +382,7 @@ async fn resume_or_recreate(
     let mut sessions = state.active_sessions.lock().await;
 
     // Step 1: try to resume an existing active provider for this conversation.
-    let active_provider = sessions.remove(&conv_id.to_string());
-    if let Some(p) = active_provider {
+    if let Some(p) = sessions.remove(&conv_id.to_string()) {
         tracing::info!(
             task_id = %task_id,
             conversation_id = %conv_id,
@@ -373,21 +390,12 @@ async fn resume_or_recreate(
             "Found active provider, loading transcript"
         );
 
-        let messages = transcript::load_transcript(&state.db, &provider_session_id, task_id)
-            .await
-            .map_err(|e| ServerError::Internal(e.to_string()))?;
-
+        let resume_input = load_resume_input(&state.db, &provider_session_id, task_id).await?;
         tracing::info!(
             task_id = %task_id,
             conversation_id = %conv_id,
-            message_count = messages.len(),
             "Loaded transcript"
         );
-
-        let messages_json =
-            serde_json::to_value(&messages).map_err(|e| ServerError::Internal(e.to_string()))?;
-
-        let resume_input = ResumeInput::new(provider_session_id.clone(), messages_json);
 
         match p.resume_turn(resume_input).await {
             Ok(rx) => {
@@ -426,8 +434,7 @@ async fn resume_or_recreate(
 
     // Step 2: recreate the provider (no recursion — the previous recursion
     // into `send_message` re-persisted and re-broadcast the user message).
-    let psid = conv.provider_session_id.as_deref().unwrap_or("");
-    if psid.starts_with("UNSET_") {
+    if provider_session_id.starts_with("UNSET_") {
         return Err(ServerError::NotFound(
             "Session was never started. Start a new agent run.".into(),
         ));
@@ -460,9 +467,9 @@ async fn resume_or_recreate(
     .await
     .map_err(|e| ServerError::Internal(format!("Failed to resolve provider: {e}")))?;
 
-    let worktree = tasks::get_worktree_by_task(&state.db, task_id).await.ok();
-    let working_dir = worktree
-        .as_ref()
+    let working_dir = tasks::get_worktree_by_task(&state.db, task_id)
+        .await
+        .ok()
         .map(|w| PathBuf::from(&w.worktree_path))
         .unwrap_or_else(|| PathBuf::from("/tmp"));
 
@@ -473,14 +480,7 @@ async fn resume_or_recreate(
 
     // The provider is now running — build the ResumeInput and resume the turn
     // here, instead of re-entering `send_message`.
-    let messages = transcript::load_transcript(&state.db, &provider_session_id, task_id)
-        .await
-        .map_err(|e| ServerError::Internal(e.to_string()))?;
-
-    let messages_json =
-        serde_json::to_value(&messages).map_err(|e| ServerError::Internal(e.to_string()))?;
-
-    let resume_input = ResumeInput::new(provider_session_id.clone(), messages_json);
+    let resume_input = load_resume_input(&state.db, &provider_session_id, task_id).await?;
 
     match provider.resume_turn(resume_input).await {
         Ok(rx) => {
@@ -504,8 +504,8 @@ async fn spawn_broadcast_task(
     state: &AppState,
     mut rx: mpsc::Receiver<ProviderEvent>,
     task_id: i64,
-    conv_id: Uuid,
-    session_id: String,
+    c_id: Uuid,
+    s_id: String,
     body_text: String,
 ) {
     let db = state.db.clone();
@@ -514,8 +514,6 @@ async fn spawn_broadcast_task(
     let access_tokens = state.access_tokens.clone();
     let config = state.config.clone();
     let oidc_for_spawn = state.oidc_provider.clone();
-    let s_id = session_id;
-    let c_id = conv_id;
     let config_root = PathBuf::from(&state.config_root);
     let footprint = state.footprint.clone();
     let archive_root = state.archive_root.clone();
