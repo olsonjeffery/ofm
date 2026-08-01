@@ -262,7 +262,7 @@ The conversation message stream applies distinct visual styling per content type
 **Deduplication** — both server-side and client-side dedup prevent duplicate content:
 
 - **Server-side (SSR):** `MessageStream` in `message_stream.rs` applies a `HashSet` fingerprint before calling `render_event()`. Fingerprint keys mirror the JS pattern: `"text:{text}"`, `"user_text:{text}"`, `"thinking:{thinking}"`. Tool events use **prefixed keys** (`"use:{tool_use_id}"` for ToolUse, `"result:{tool_use_id}"` for ToolResult) so that both variants survive dedup independently (fixed in Task 67). After dedup, a **merge pass** iterates the dedup'd events and combines adjacent ToolUse+ToolResult pairs by matching `tool_use_id` into a single unified ToolUse card with both input and result. This handles old-format DB rows (separate ToolUse+ToolResult).
-- **Client-side (WS fallback):** JS in `chat.rs` maintains a `renderedMessageIds` map for `tool_use_id` dedup. For `tool_updated` events, the entire card's `outerHTML` is replaced with server-rendered HTML. For `tool_use` and `tool_result` events without pre-rendered HTML, the old `updateToolCallContent` merge logic is kept as a fallback.
+- **Client-side (WS fallback):** JS in `chat.rs` maintains a `renderedMessageIds` map for `tool_use_id` dedup. For `tool_updated` events, the entire card's `outerHTML` is replaced with server-rendered HTML. For `tool_use` and `tool_result` events without pre-rendered HTML, the old `updateToolCallContent` merge logic is kept as a fallback. Duplicate `user_text` broadcasts are dropped by a `lastUserText` text-match guard in the JS WS handler, immediately after the `conversation_id` filter (Task 81).
 
 ### `tool_updated` Event Type
 

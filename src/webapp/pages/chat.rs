@@ -95,6 +95,9 @@ document.addEventListener('DOMContentLoaded', function() {{
     // Track tool_updated keys separately for outerHTML replacement
     var toolUpdatedKeys = {{}};
 
+    // Dedup repeated user_text broadcasts by text content
+    var lastUserText = '';
+
     // Stop agent
     window.stopAgent = function() {{
         if (!taskId) return;
@@ -131,6 +134,14 @@ document.addEventListener('DOMContentLoaded', function() {{
             if (msg.type === 'event') {{
                 var convId = msg.payload && msg.payload.conversation_id;
                 if (convId && convId !== currentConversationId) return;
+                // Skip duplicate user_text events (same text back-to-back)
+                if (msg.event_type === 'user_text') {{
+                    var incomingText = msg.payload && msg.payload.text;
+                    if (incomingText && incomingText === lastUserText) {{
+                        return;
+                    }}
+                    if (incomingText) lastUserText = incomingText;
+                }}
                 // Any event for this conversation means the agent is active
                 setProcessing(true);
                 var container = document.getElementById('message-stream');
@@ -367,6 +378,19 @@ mod tests {
         assert!(html.contains("close-thick"));
         assert!(html.contains("agent-thinking-bar"));
         assert!(html.contains("chat-input-wrapper"));
+    }
+
+    #[test]
+    fn test_build_chat_js_contains_user_text_dedup() {
+        let js = build_chat_js("", false);
+        assert!(
+            js.contains("var lastUserText = '';"),
+            "build_chat_js should declare the lastUserText tracker"
+        );
+        assert!(
+            js.contains("if (incomingText && incomingText === lastUserText)"),
+            "build_chat_js should contain the duplicate-skip guard for user_text events"
+        );
     }
 
     #[test]
