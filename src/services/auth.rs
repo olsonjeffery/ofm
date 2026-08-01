@@ -3,7 +3,7 @@ use std::sync::Arc;
 use std::time::Instant;
 
 use base64::Engine;
-use rand::Rng;
+use rand::RngExt;
 use sha2::{Digest, Sha256};
 use tokio::sync::Mutex;
 use uuid::Uuid;
@@ -17,7 +17,7 @@ const PKCE_TTL: std::time::Duration = std::time::Duration::from_secs(300);
 const SESSION_DURATION: std::time::Duration = std::time::Duration::from_secs(30 * 24 * 3600);
 
 pub fn generate_code_verifier() -> String {
-    let bytes: [u8; 32] = rand::thread_rng().gen();
+    let bytes: [u8; 32] = rand::rng().random();
     base64::engine::general_purpose::URL_SAFE_NO_PAD.encode(bytes)
 }
 
@@ -29,12 +29,12 @@ pub fn compute_code_challenge(verifier: &str) -> String {
 }
 
 pub fn generate_state() -> String {
-    let bytes: [u8; 32] = rand::thread_rng().gen();
+    let bytes: [u8; 32] = rand::rng().random();
     hex::encode(bytes)
 }
 
 pub fn generate_api_key_value() -> String {
-    let bytes: [u8; 32] = rand::thread_rng().gen();
+    let bytes: [u8; 32] = rand::rng().random();
     format!("ccui_{}", hex::encode(bytes))
 }
 

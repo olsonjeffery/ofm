@@ -242,7 +242,14 @@ async fn test_cli_complete_plan_exits_zero_and_flips_flag() {
 
     let binary = std::env::current_exe()
         .ok()
-        .and_then(|p| p.parent().and_then(|p| p.parent()).map(|p| p.join("ofm")))
+        .and_then(|p| {
+            p.parent()
+                .and_then(|p| p.parent())
+                .and_then(|p| p.parent())
+                .and_then(|p| p.parent())
+                .and_then(|p| p.parent())
+                .map(|p| p.join("ofm"))
+        })
         .expect("could not locate ofm binary");
 
     let output = tokio::process::Command::new(&binary)
@@ -267,7 +274,14 @@ async fn test_cli_all_commands_exit_zero() {
 
     let binary = std::env::current_exe()
         .ok()
-        .and_then(|p| p.parent().and_then(|p| p.parent()).map(|p| p.join("ofm")))
+        .and_then(|p| {
+            p.parent()
+                .and_then(|p| p.parent())
+                .and_then(|p| p.parent())
+                .and_then(|p| p.parent())
+                .and_then(|p| p.parent())
+                .map(|p| p.join("ofm"))
+        })
         .expect("could not locate ofm binary");
 
     for (action, plan, workflow, blocked, pr) in &[
@@ -276,12 +290,16 @@ async fn test_cli_all_commands_exit_zero() {
         ("block-workflow", true, true, true, false),
         ("complete-pr", true, true, true, true),
     ] {
-        let output = tokio::process::Command::new(&binary)
+        let binary_str = binary.to_string_lossy();
+        let output = match tokio::process::Command::new(&binary)
             .args(["agent", action, &task_id])
             .env("OFM_URL", &app.addr)
             .output()
             .await
-            .unwrap();
+        {
+            Ok(a) => a,
+            Err(e) => todo!("expected success but failed on binary path {binary_str} e: {e}"),
+        };
         assert!(
             output.status.success(),
             "agent {} failed: {:?}",
