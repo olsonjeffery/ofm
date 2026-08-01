@@ -247,14 +247,19 @@ curl -X POST "http://$HOST:$PORT/api/tasks/$TASK_ID/{action}" \
 
 The `.ofm_agent.json` file (.ofm_token previously) is listed in `.gitignore` so it is never checked into version control.
 
-### Session Directory Patching
+### Session Directory Routing
 
 When `start_next_agent()` in `src/orchestration/mod.rs` creates a new agent session via the opencode SDK,
-the provider now also PATCHes the session to set its `directory` property to the task worktree path.
-This is done inside `OpenCodeSdkProvider::start_turn()` and `OpenCodeSdkProvider::resume_turn()` in
-`src/providers/opencode_sdk_provider.rs`, using the new `SessionApi::patch()` method added to
-`src/opencode_sdk/client.rs`. The PATCH ensures the opencode server knows the correct working directory
-for the task.
+the provider routes the task worktree path to the opencode server as a `directory` **query param** on every
+workspace-scoped HTTP call — `session.create`, `event.subscribe`, `promptAsync`, and `session.abort` —
+rather than mutating the shared server's process CWD. In `OpenCodeSdkProvider::start()` the pooled client
+handle is re-scoped with `OpencodeClient::with_directory(&worktree)` (an `Arc::make_mut` clone that affects
+only this provider's handle), and the client methods in `src/opencode_sdk/client.rs` append the `directory`
+query param when set. This mirrors the reference implementation (`spec/reference/server/services/providers/opencode/index.ts`),
+whose `WorkspaceRoutingMiddleware` resolves the workspace directory per HTTP call and falls back to the
+server's `process.cwd()` when absent — a PATCH to the session row is **not** sufficient because tool calls
+re-resolve the directory per request. The `external_directory` allowlist in the server config already
+restricts writes to `{footprint}/worktrees/**`, `{footprint}/archive/**`, and `/tmp/**`.
 
 ### Token Expiration Awareness
 

@@ -65,9 +65,11 @@ pub fn BoardPage(project: Project, tasks: Vec<TaskCardData>) -> impl IntoView {
                             <textarea name="original_request" class="textarea" placeholder="Describe the task..."></textarea>
                         </div>
                     </div>
-                    <div class="field">
+                    <div class="field is-grouped is-grouped-right">
                         <div class="control">
                             <button type="submit" class="button is-small is-success">"Create Task"</button>
+                        </div>
+                        <div class="control">
                             <button type="button" id="cancel-task-btn" class="button is-small is-light">"Cancel"</button>
                         </div>
                     </div>
@@ -265,6 +267,25 @@ mod tests {
         assert!(
             html.contains(r#"class="button is-small is-light""#),
             "Cancel button should have is-small"
+        );
+    }
+
+    #[test]
+    fn test_board_create_task_buttons_in_right_aligned_group() {
+        let project = make_project();
+        let tasks = vec![];
+        let html = leptos::view! { <BoardPage project tasks /> }.to_html();
+        assert!(
+            html.contains(r#"class="field is-grouped is-grouped-right""#),
+            "Create Task / Cancel should be in a right-aligned button group"
+        );
+        assert!(
+            html.contains(r#">Create Task</button></div>"#),
+            "Create Task should be wrapped in a control"
+        );
+        assert!(
+            html.contains(r#">Cancel</button></div>"#),
+            "Cancel should be wrapped in a control"
         );
     }
 

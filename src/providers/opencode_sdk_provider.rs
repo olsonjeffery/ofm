@@ -38,9 +38,10 @@ pub struct OpenCodeSdkProvider {
     /// (`get_models_list`, `one_shot_prompt`, title generation) which
     /// spawn transient servers outside the pool.
     user_id: Mutex<Option<Uuid>>,
-    /// Working dir threaded through `start()` for diagnostics; the pooled
-    /// server's cwd is the temp config dir, not the task worktree (the
-    /// reference passes `directory` per HTTP call instead).
+    /// Working dir for the task. The pooled server's cwd is the temp config
+    /// dir, not the task worktree, so the worktree is routed per HTTP call as
+    /// the `directory` query param (see `start()`). Stored for diagnostics
+    /// and the directory-scoped client handle.
     working_dir: Mutex<Option<PathBuf>>,
     /// Whether we will trace log every line that comes into the OpenCode SDK client as INFO
     log_data: bool,
@@ -86,24 +87,6 @@ impl OpenCodeSdkProvider {
         }
         if let Some(cancellation) = self.event_cancellation.lock().unwrap().take() {
             cancellation.cancel();
-        }
-    }
-
-    async fn patch_session_directory(&self, client: &OpencodeClient, session_id: &str) {
-        let dir = self.working_dir.lock().unwrap().clone().unwrap_or_default();
-        if !dir.as_os_str().is_empty() {
-            let patch = Session {
-                id: session_id.to_string(),
-                directory: dir.to_string_lossy().to_string(),
-                title: None,
-                model: None,
-                agent: None,
-                created: None,
-                updated: None,
-            };
-            if let Err(e) = client.session.patch(session_id, &patch).await {
-                tracing::warn!("Failed to PATCH session directory: {e}");
-            }
         }
     }
 
@@ -519,6 +502,17 @@ impl LlmProvider for OpenCodeSdkProvider {
                 &self.footprint,
             )
             .await?;
+        // Scope the client to this task's worktree so every workspace-scoped
+        // HTTP call (`session.create`, `event.subscribe`, `prompt_async`,
+        // `abort`) routes to the worktree via the `directory` query param.
+        // The pooled server itself keeps a shared (unscoped) cwd: one server
+        // cannot serve per-task directories, so routing happens per call —
+        // mirroring the reference implementation. `with_directory` uses
+        // `Arc::make_mut`, so only this provider's handle is affected.
+        let mut client = client;
+        if !working_dir.as_os_str().is_empty() {
+            client = client.with_directory(&working_dir.to_string_lossy());
+        }
         *self.client.lock().unwrap() = Some(client);
         *self.working_dir.lock().unwrap() = Some(working_dir.to_path_buf());
         Ok(())
@@ -543,8 +537,6 @@ impl LlmProvider for OpenCodeSdkProvider {
             .map_err(|e| ProviderError::Protocol(e.to_string()))?;
 
         *self.session_id.lock().unwrap() = Some(session.id.clone());
-
-        self.patch_session_directory(&client, &session.id).await;
 
         let user_id = self
             .user_id
@@ -622,8 +614,6 @@ impl LlmProvider for OpenCodeSdkProvider {
         let rx = self
             .subscribe_and_spawn(&client, &session_id, user_id)
             .await?;
-
-        self.patch_session_directory(&client, &session_id).await;
 
         let body =
             self.build_prompt_body(&prompt, self.config.model.as_deref().unwrap_or("default"));

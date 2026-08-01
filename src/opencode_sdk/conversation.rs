@@ -61,6 +61,11 @@ impl PhaseConversation {
         let server = crate::opencode_sdk::server::create_opencode_server(server_opts).await?;
         let password = server.password().map(|s| s.to_string());
         let client = OpencodeClient::new(&server.url(), password.as_deref(), log_data);
+        let client = if let Some(cwd) = &config.cwd {
+            client.with_directory(cwd)
+        } else {
+            client
+        };
 
         let title = format!("phase-{}", config.agent);
         let session = client.session.create(&title).await?;
@@ -150,6 +155,12 @@ pub async fn one_shot(
         model = %config.model,
         "one_shot: creating session"
     );
+
+    let client = if let Some(cwd) = &config.cwd {
+        client.clone().with_directory(cwd)
+    } else {
+        client.clone()
+    };
 
     let session = client.session.create("one-shot").await.map_err(|e| {
         tracing::warn!(error = %e, "one_shot: session.create failed");

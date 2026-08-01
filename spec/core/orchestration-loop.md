@@ -153,10 +153,14 @@ to avoid leaking the credential to the LLM provider or the conversation transcri
 must ensure `.ofm_agent.json` is in the project's `.gitignore` — the token is short-lived but
 must never be committed.
 
-Additionally, each time a turn is started or resumed, `OpenCodeSdkProvider` PATCHes the
-opencode session to set its `directory` to the task worktree path via the new
-`SessionApi::patch()` method in `src/opencode_sdk/client.rs`. This ensures the opencode
-server knows the correct working directory for the task.
+Additionally, each time a turn is started or resumed, `OpenCodeSdkProvider` routes the task worktree path
+to the opencode server as a `directory` **query param** on every workspace-scoped HTTP call
+(`session.create`, `event.subscribe`, `session.prompt_async`, `session.abort`). `start()` re-scopes the
+pooled client handle with `OpencodeClient::with_directory(&worktree)`, and the client methods in
+`src/opencode_sdk/client.rs` append the param when set. This ensures the opencode server resolves the
+correct working directory for the task — the server's own CWD is shared per user and cannot be per-task,
+and a session-row PATCH is insufficient because opencode's `WorkspaceRoutingMiddleware` re-resolves the
+directory per HTTP call.
 
 The payload is a single boolean flip against the task row. The agent has shell
 access (through the coding harness) and calls these endpoints with:
@@ -239,7 +243,8 @@ One function, in order (see `start_next_agent()` in `src/orchestration/mod.rs`):
 5. Flip task status `pending → in_progress` on first activity.
 6. **Start the provider** with the worktree path as the working directory
    (resolved in step 1). This must happen *after* worktree resolution so that
-   `patch_session_directory()` sets the correct path. See `src/orchestration/mod.rs`.
+   `start()` scopes the client to the correct worktree via `with_directory()`
+   (which routes the `directory` query param per HTTP call). See `src/orchestration/mod.rs`.
 7. Start the conversation/turn through the harness contract, wiring the
    completion handler as the stream's on-complete hook.
 

@@ -85,24 +85,26 @@ pub fn TaskDetailPage(
                             <textarea id="edit-task-doc" name="doc_content" class="textarea" rows="10">{doc_value.clone()}</textarea>
                         </div>
                     </div>
-                    <div class="field">
+                    <div class="field is-grouped is-grouped-right">
                         <div class="control">
                             <button type="submit" class="button is-small is-success">"Save"</button>
+                        </div>
+                        <div class="control">
                             <button type="button" id="cancel-edit-task-btn" class="button is-small is-light">"Cancel"</button>
                         </div>
                     </div>
                 </form>
-                <hr />
-                <div class="level">
-                    <div class="level-left">
-                        <h2 class="title is-4 has-text-danger">"Danger Zone"</h2>
-                    </div>
-                    <div class="level-right">
+                <div class="danger-zone">
+                    <span class="danger-zone-corner danger-zone-corner-tl"><h2 class="title is-4 has-text-danger">"DANGER ZONE"</h2></span>
+                    <span class="danger-zone-corner danger-zone-corner-tr"><h2 class="title is-4 has-text-danger">"DANGER ZONE"</h2></span>
+                    <div class="has-text-centered">
                         <button id="delete-task-btn" class="button is-small is-danger">
                             <span class="icon is-small"><i class="mdi mdi-delete"></i></span>
                             <span>"Delete Task"</span>
                         </button>
                     </div>
+                    <span class="danger-zone-corner danger-zone-corner-bl"><h2 class="title is-4 has-text-danger">"DANGER ZONE"</h2></span>
+                    <span class="danger-zone-corner danger-zone-corner-br"><h2 class="title is-4 has-text-danger">"DANGER ZONE"</h2></span>
                 </div>
             </div>
 
@@ -343,20 +345,74 @@ mod tests {
     }
 
     #[test]
+    fn test_task_detail_save_cancel_in_right_aligned_group() {
+        let task = make_task();
+        let html = leptos::view! { <TaskDetailPage task doc_content=None conversations=vec![]  /> }
+            .to_html();
+        assert!(
+            html.contains(r#"class="field is-grouped is-grouped-right""#),
+            "Save / Cancel should be in a right-aligned button group"
+        );
+        assert!(
+            html.contains(r#">Save</button></div>"#),
+            "Save should be wrapped in a control"
+        );
+        assert!(
+            html.contains(r#">Cancel</button></div>"#),
+            "Cancel should be wrapped in a control"
+        );
+    }
+
+    #[test]
     fn test_task_detail_danger_zone_in_edit_form() {
         let task = make_task();
         let html = leptos::view! { <TaskDetailPage task doc_content=None conversations=vec![]  /> }
             .to_html();
         assert!(html.contains("id=\"delete-task-btn\""));
-        assert!(html.contains("Danger Zone"));
+        assert!(html.contains("DANGER ZONE"));
         assert!(html.contains("Delete Task"));
         assert!(html.contains("mdi-delete"));
         assert!(html.contains("edit-task-form"));
         let edit_form_start = html.find("edit-task-form").unwrap();
-        let danger_zone_pos = html.find("Danger Zone").unwrap();
+        let danger_zone_pos = html.find("DANGER ZONE").unwrap();
         assert!(
             danger_zone_pos > edit_form_start,
             "Danger Zone should be inside edit form"
+        );
+    }
+
+    #[test]
+    fn test_task_detail_danger_zone_box_markup() {
+        let task = make_task();
+        let html = leptos::view! { <TaskDetailPage task doc_content=None conversations=vec![]  /> }
+            .to_html();
+        assert!(
+            html.contains(r#"class="danger-zone""#),
+            "danger zone should use the bordered danger-zone box"
+        );
+        assert!(
+            html.contains(r#"class="has-text-centered""#),
+            "delete button should be centered inside the danger zone"
+        );
+        for corner in [
+            "danger-zone-corner-tl",
+            "danger-zone-corner-tr",
+            "danger-zone-corner-bl",
+            "danger-zone-corner-br",
+        ] {
+            assert_eq!(
+                html.matches(corner).count(),
+                1,
+                "expected one {corner} corner"
+            );
+        }
+        assert_eq!(html.matches("DANGER ZONE").count(), 4);
+        let edit_form_start = html.find("edit-task-form").unwrap();
+        let edit_form_end = html.rfind("edit-task-form").unwrap() + "edit-task-form".len();
+        let edit_form_slice = &html[edit_form_start..edit_form_end];
+        assert!(
+            !edit_form_slice.contains("<hr"),
+            "the horizontal divider should be removed from the edit-task form"
         );
     }
 

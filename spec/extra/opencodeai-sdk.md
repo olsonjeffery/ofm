@@ -150,6 +150,10 @@ Namespaced sub-clients:
 
 #### SessionApi
 
+When a client is scoped with `with_directory(dir)`, the following workspace-scoped
+methods append `?directory=<dir>` to their request URL; `event.subscribe` also
+bakes the query param into the SSE reconnect URL.
+
 | Method | HTTP | Description |
 |---|---|---|
 | `create(title)` | `POST /session` | Create a new session |
@@ -168,6 +172,12 @@ Namespaced sub-clients:
 | `subscribe()` | `GET /event` | Subscribe to SSE event stream |
 
 Returns an `EventStream` implementing `futures::Stream<Item = Result<GlobalEvent, SdkError>>`.
+
+> `with_directory(dir)` affects the HTTP requests made by the returned client,
+> not the server process CWD. The `directory` query param is applied to
+> `create`, `list`, `prompt`, `prompt_async`, `abort`, and `subscribe` (initial
+> request and SSE reconnects). This lets a single shared server route each
+> conversation to a different worktree.
 
 #### ConfigApi
 

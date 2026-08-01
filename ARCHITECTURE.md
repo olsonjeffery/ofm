@@ -193,10 +193,10 @@ The footprint value (`OFM_FOOTPRINT`) is plumbed through the provider chain:
 ### Hardcoded `/tmp` fix
 
 Previously, `provider.start()` was called with `Path::new("/tmp")` *before* the
-worktree path was resolved from the database. This caused `patch_session_directory()`
-to set the opencode session's directory to `/tmp` instead of the correct worktree
-path. The fix moves `provider.start()` to *after* worktree resolution, using the
-correct worktree path. See `src/orchestration/mod.rs`.
+worktree path was resolved from the database. This caused the opencode session's
+working directory to be `/tmp` instead of the correct worktree path. The fix moves
+`provider.start()` to *after* worktree resolution, using the correct worktree path.
+See `src/orchestration/mod.rs`.
 
 ## OFM Context Prompt Injection
 
@@ -215,13 +215,17 @@ The `.ofm_agent.json` file has the following schema:
 }
 ```
 
-### Session Directory Patching
+### Session Directory Routing
 
-The `SessionApi::patch()` method in `src/opencode_sdk/client.rs` sends a `PATCH /session/{id}`
-request with a partial `Session` JSON body containing at least the `directory` field. This is
-called from `OpenCodeSdkProvider::start_turn()` after session creation and from
-`OpenCodeSdkProvider::resume_turn()` after re-subscribing, ensuring the opencode server knows
-the task worktree path as the session's working directory.
+The opencode server subprocess is spawned once per user (pooled) without a task-specific CWD — one
+shared server cannot serve multiple worktrees. Instead, the provider threads the task worktree path as a
+`directory` **query param** on every workspace-scoped HTTP call. `OpenCodeSdkProvider::start()` re-scopes
+the pooled client handle via `OpencodeClient::with_directory(&worktree)` (`Arc::make_mut` clones the shared
+inner for this provider instance only), and `src/opencode_sdk/client.rs` appends `?directory=<worktree>` to
+`session.create`, `event.subscribe` (initial request **and** SSE reconnect), `session.prompt`, `session.prompt_async`,
+and `session.abort`. This mirrors the reference implementation's `WorkspaceRoutingMiddleware`, which resolves
+the workspace directory per HTTP call and falls back to the server's `process.cwd()` when absent — so a
+session-row PATCH is insufficient and is no longer performed.
 
 ### File Recreation on Resume
 

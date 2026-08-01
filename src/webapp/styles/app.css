@@ -544,3 +544,26 @@ hr.timestamp-separator {
     background-color: var(--bulma-light);
     border-radius: 6px;
 }
+
+/* ===== Edit-task danger zone ===== */
+.danger-zone {
+    position: relative;
+    margin-top: 1rem;
+    padding: 1rem;
+    border: 3px solid var(--bulma-warning);
+    border-radius: var(--bulma-radius);
+}
+
+.danger-zone-corner {
+    position: absolute;
+}
+
+.danger-zone-corner .title {
+    margin: 0;
+    line-height: 1;
+}
+
+.danger-zone-corner-tl { top: -0.25rem; left: 0.5rem; }
+.danger-zone-corner-tr { top: -0.25rem; right: 0.5rem; }
+.danger-zone-corner-bl { bottom: -0.25rem; left: 0.5rem; }
+.danger-zone-corner-br { bottom: -0.25rem; right: 0.5rem; }
