@@ -148,30 +148,6 @@ At this point, you should have a server bounding to `0.0.0.0` and reachable at
 `localhost:3183` running on your machine (`3183` is the default port; Set the `OFM_PORT`
 environment variable if you wish for it to run on another port).
 
-### System Dependencies
-
-- **ramalama** (optional): Required for on-device SLM inference (`phi4-mini`). Enable via `OFM_RAMALAMA_PHI4_MINI_ENABLED=true` or `RAMALAMA_PHI4_MINI_ENABLED: true` in `ofm.yml`. When enabled, `ramalama` must be available on `PATH`. If not found, a `tracing::error!` is logged. See `src/ramalama/`.
-
-### RamaLama Provider
-
-When `OFM_RAMALAMA_PHI4_MINI_ENABLED=true` is set and `ramalama` is on `PATH`, a
-virtual built-in model config named **`ramalama-mini`** appears automatically in
-the **Agent Settings** dropdown for every agent type (including the
-`conversation_title` row) — no manual config creation is needed, and it does not
-appear in the **Model Configurations** list.
-
-Assign `ramalama-mini` to an agent type and enter `phi4-mini` (or any locally
-available ramalama model) as the model name. When that agent runs:
-
-1. `ramalama serve` is spawned on a random port (llama.cpp backend).
-2. Once healthy, an OpenAI-compatible provider config is auto-generated pointing
-   at `http://127.0.0.1:<port>/v1` with `apiKey: "none"`.
-3. A transient `opencode serve` is started with that provider config for the turn.
-4. When the turn ends (or ofm shuts down), the ramalama process is killed.
-
-The `conversation_title` agent type uses its own config for generating
-conversation titles, independent of the agent-run config. See
-`src/providers/ramalama_provider.rs` and `src/ramalama/`.
 
 > ℹ️`ofm` itself _does not_ consider running with a certificate/TLS+SSL as in-scope.
 > It is also recommend, if planning to expose `ofm` on the public internet, to
