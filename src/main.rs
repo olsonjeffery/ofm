@@ -176,12 +176,20 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         };
 
         tracing::info!("Starting embedded rauthy on port {}", rp);
-        let instance = rauthy::start_rauthy(&cfg.footprint, rp, cfg.port).await?;
-        rauthy::wait_until_healthy(rp).await?;
-        tracing::info!("rauthy is healthy");
+        let instance = rauthy::start_rauthy(&cfg.footprint, &cfg.hostname, rp, cfg.port).await?;
+        // Assign before any fallible step below (health check, OIDC
+        // discovery, JWKS fetch) so every failure path triggers `Drop` →
+        // `docker rm -f <container>` rather than leaking the container.
         _rauthy_instance = Some(instance);
+        let container_name = _rauthy_instance
+            .as_ref()
+            .expect("just assigned")
+            .container_name()
+            .to_string();
+        rauthy::wait_until_healthy(rp, &container_name).await?;
+        tracing::info!("rauthy is healthy");
 
-        let direct_base = format!("http://127.0.0.1:{}", rp);
+        let direct_base = format!("http://{}:{}", cfg.hostname, rp);
         let discovery_url = format!("{}/.well-known/openid-configuration", direct_base);
         let disc: serde_json::Value = reqwest::get(&discovery_url).await?.json().await?;
         let issuer = disc["issuer"].as_str().ok_or("missing issuer")?.to_string();
@@ -192,12 +200,12 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             end_session_endpoint,
             userinfo_endpoint,
         ) = parse_oidc_discovery(&disc)?;
-        let redirect_uri = format!("http://127.0.0.1:{}/api/auth/callback", cfg.port);
+        let redirect_uri = format!("http://{}:{}/api/auth/callback", cfg.hostname, cfg.port);
         let client_id = cfg.oidc_client_id.clone().unwrap_or_else(|| "ofm".into());
 
         let jwks_disc_url = format!(
-            "http://127.0.0.1:{}/auth/v1/.well-known/openid-configuration",
-            rp
+            "http://{}:{}/auth/v1/.well-known/openid-configuration",
+            cfg.hostname, rp
         );
         let jwks_disc: serde_json::Value = reqwest::get(&jwks_disc_url).await?.json().await?;
         let jwks_uri = jwks_disc["jwks_uri"]
@@ -426,17 +434,16 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         }
     }
 
-    match client.shutdown().await {
-        Ok(_) => tracing::info!("hiqlite client shutdown successful"),
-        Err(e) => tracing::error!("Failed to shutdown hiqlite client: {:?}", e),
-    }
-
     // Process-exit cleanup. Tear down the per-user opencode server pool —
     // each entry owns a child `opencode serve` subprocess that would
     // otherwise outlive ofm. Providers in `active_sessions` only hold
     // borrowed client handles (cheap `Arc` clones); their `shutdown()` is
     // a noop that doesn't kill any subprocess. The pool is the sole
     // owner of the server processes.
+    //
+    // Run this BEFORE `client.shutdown()` below: a panic in the hiqlite
+    // shutdown handler must not skip the subprocess teardown (the rauthy
+    // container is removed by `RauthyInstance::Drop` during unwind).
     tracing::info!("Shutting down opencode server pool");
     opencode_sdk::pool::OpenCodeServerPool::instance()
         .shutdown_all()
@@ -446,6 +453,11 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     // channel close. The providers themselves hold no subprocesses.
     state.active_sessions.lock().await.clear();
     tracing::info!("All provider sessions cleared. Exiting.");
+
+    match client.shutdown().await {
+        Ok(_) => tracing::info!("hiqlite client shutdown successful"),
+        Err(e) => tracing::error!("Failed to shutdown hiqlite client: {:?}", e),
+    }
 
     Ok(())
 }

@@ -199,15 +199,16 @@ impl SessionApi {
     }
 
     pub async fn prompt(&self, id: &str, body: &PromptBody) -> Result<PromptResponse, SdkError> {
-        let resp = self
+        let mut req = self
             .0
             .http_client
             .post(self.0.session_url(&format!("/{id}/message")))
             .header("Authorization", self.0.auth_header())
-            .json(body)
-            .send()
-            .await
-            .map_err(SdkError::Http)?;
+            .json(body);
+        if let Some(dir) = &self.0.directory {
+            req = req.query(&[("directory", dir)]);
+        }
+        let resp = req.send().await.map_err(SdkError::Http)?;
         let status = resp.status();
         if !status.is_success() {
             let body_text = resp.text().await.unwrap_or_default();
@@ -230,15 +231,16 @@ impl SessionApi {
     }
 
     pub async fn prompt_async(&self, id: &str, body: &PromptBody) -> Result<(), SdkError> {
-        let resp = self
+        let mut req = self
             .0
             .http_client
             .post(self.0.session_url(&format!("/{id}/prompt_async")))
             .header("Authorization", self.0.auth_header())
-            .json(body)
-            .send()
-            .await
-            .map_err(SdkError::Http)?;
+            .json(body);
+        if let Some(dir) = &self.0.directory {
+            req = req.query(&[("directory", dir)]);
+        }
+        let resp = req.send().await.map_err(SdkError::Http)?;
         let status = resp.status();
         if !status.is_success() {
             let body_text = resp.text().await.unwrap_or_default();
@@ -250,14 +252,15 @@ impl SessionApi {
     }
 
     pub async fn abort(&self, id: &str) -> Result<bool, SdkError> {
-        let resp = self
+        let mut req = self
             .0
             .http_client
             .post(self.0.session_url(&format!("/{id}/abort")))
-            .header("Authorization", self.0.auth_header())
-            .send()
-            .await
-            .map_err(SdkError::Http)?;
+            .header("Authorization", self.0.auth_header());
+        if let Some(dir) = &self.0.directory {
+            req = req.query(&[("directory", dir)]);
+        }
+        let resp = req.send().await.map_err(SdkError::Http)?;
         Ok(resp.status().is_success())
     }
 
@@ -291,10 +294,16 @@ pub struct EventApi(std::sync::Arc<InnerClient>, bool);
 
 impl EventApi {
     pub async fn subscribe(&self) -> Result<EventStream, SdkError> {
+        let mut url = url::Url::parse(&self.0.url("/event"))
+            .map_err(|e| SdkError::Protocol(format!("invalid event URL: {e}")))?;
+        if let Some(dir) = &self.0.directory {
+            url.query_pairs_mut().append_pair("directory", dir);
+        }
+        let url = url.to_string();
         let resp = self
             .0
             .http_client
-            .get(self.0.url("/event"))
+            .get(&url)
             .header("Authorization", self.0.auth_header())
             .send()
             .await
@@ -316,7 +325,7 @@ impl EventApi {
             sleep: None,
             reconnect: Some(EventStreamReconnect {
                 http_client: self.0.http_client.clone(),
-                url: self.0.url("/event"),
+                url,
                 auth_header: self.0.auth_header(),
             }),
             reconnect_fut: None,
@@ -810,6 +819,118 @@ mod tests {
                 }
             }
             assert_eq!(count, 2);
+        });
+    }
+
+    /// Spawn a one-shot TCP listener that captures the first HTTP request
+    /// line and responds with `status`/`body`. Returns a client pointed at
+    /// the listener plus the captured request text.
+    async fn spawn_capture_server(
+        status: &str,
+        body: &str,
+    ) -> (OpencodeClient, std::sync::Arc<std::sync::Mutex<String>>) {
+        let server = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let port = server.local_addr().unwrap().port();
+        let captured = std::sync::Arc::new(std::sync::Mutex::new(String::new()));
+        let captured_clone = captured.clone();
+        let status = status.to_string();
+        let body = body.to_string();
+        tokio::spawn(async move {
+            let (stream, _) = server.accept().await.unwrap();
+            let (mut reader, mut writer) = stream.into_split();
+            use tokio::io::{AsyncReadExt, AsyncWriteExt};
+            let mut buf = [0u8; 4096];
+            let n = reader.read(&mut buf).await.unwrap();
+            *captured_clone.lock().unwrap() = String::from_utf8_lossy(&buf[..n]).to_string();
+            let resp = format!(
+                "{status}\r\nConnection: close\r\nContent-Length: {}\r\n\r\n{body}",
+                body.len()
+            );
+            writer.write_all(resp.as_bytes()).await.unwrap();
+        });
+        let client = OpencodeClient::new(&format!("http://127.0.0.1:{port}"), None, false)
+            .with_directory("/tmp/worktree");
+        (client, captured)
+    }
+
+    fn decode_directory_query_param(request: &str) -> String {
+        let target = request.split_whitespace().nth(1).unwrap();
+        let (_, dir) = target.split_once("directory=").unwrap();
+        let dir = dir.split([' ', '&']).next().unwrap();
+        percent_encoding::percent_decode_str(dir)
+            .decode_utf8_lossy()
+            .into_owned()
+    }
+
+    #[test]
+    fn test_opencode_sdk_subscribe_appends_directory_query_param() {
+        let rt = tokio::runtime::Runtime::new().unwrap();
+        rt.block_on(async {
+            let sse_body =
+                "data: {\"id\":\"evt_1\",\"type\":\"session.idle\",\"properties\":{\"sessionID\":\"s1\"}}\n";
+            let (client, captured) = spawn_capture_server(
+                "HTTP/1.1 200 OK\r\nContent-Type: text/event-stream",
+                sse_body,
+            )
+            .await;
+
+            let mut stream = client.event.subscribe().await.unwrap();
+            use futures_util::StreamExt;
+            let first = stream.next().await;
+            assert!(first.is_some());
+
+            let request = captured.lock().unwrap().clone();
+            assert!(
+                request.starts_with("GET /event?directory="),
+                "subscribe should route to the directory-scoped event stream, got: {request}"
+            );
+            assert_eq!(decode_directory_query_param(&request), "/tmp/worktree");
+        });
+    }
+
+    #[test]
+    fn test_opencode_sdk_prompt_async_appends_directory_query_param() {
+        let rt = tokio::runtime::Runtime::new().unwrap();
+        rt.block_on(async {
+            let (client, captured) = spawn_capture_server("HTTP/1.1 200 OK", "").await;
+
+            let body = PromptBody {
+                message_id: None,
+                model: None,
+                agent: None,
+                no_reply: None,
+                system: None,
+                tools: None,
+                parts: vec![PartInput::Text(TextPartInput {
+                    text: "Hello".into(),
+                })],
+            };
+            client.session.prompt_async("sess1", &body).await.unwrap();
+
+            let request = captured.lock().unwrap().clone();
+            assert!(
+                request.starts_with("POST /session/sess1/prompt_async?directory="),
+                "prompt_async should route to the directory-scoped session, got: {request}"
+            );
+            assert_eq!(decode_directory_query_param(&request), "/tmp/worktree");
+        });
+    }
+
+    #[test]
+    fn test_opencode_sdk_abort_appends_directory_query_param() {
+        let rt = tokio::runtime::Runtime::new().unwrap();
+        rt.block_on(async {
+            let (client, captured) = spawn_capture_server("HTTP/1.1 200 OK", "").await;
+
+            let aborted = client.session.abort("sess1").await.unwrap();
+            assert!(aborted);
+
+            let request = captured.lock().unwrap().clone();
+            assert!(
+                request.starts_with("POST /session/sess1/abort?directory="),
+                "abort should route to the directory-scoped session, got: {request}"
+            );
+            assert_eq!(decode_directory_query_param(&request), "/tmp/worktree");
         });
     }
 

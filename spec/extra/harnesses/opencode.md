@@ -198,11 +198,19 @@ tokio::spawn(async move {
 
 ### Turn start flow
 
+The client handle used for turn operations is scoped to the task worktree by
+`OpenCodeSdkProvider::start()` via `OpencodeClient::with_directory(&worktree)`.
+Because ofm's opencode servers are shared per user (one process cannot have a
+per-task CWD), the worktree is threaded per call as a `directory` query param on
+each workspace-scoped request — `session.create`, `event.subscribe` (initial
+request and SSE reconnects), `session.prompt_async`, and `session.abort`.
+
 1. `client.session.create(&input.prompt).await` — Creates a new session on the
-   server. The SDK sends `POST /session` and returns the session ID.
+   server. The SDK sends `POST /session?directory=<worktree>` and returns the
+   session ID.
 2. `client.event.subscribe().await` — Subscribes to the typed event stream
-   (backed by the SDK's SSE connection to `GET /event`). The provider spawns
-   a reader task (see above).
+   (backed by the SDK's SSE connection to `GET /event?directory=<worktree>`).
+   The provider spawns a reader task (see above).
 
    > **Ordering matters.** The subscription is established *before* the
    > prompt is dispatched. The opencode server emits events synchronously
@@ -212,7 +220,7 @@ tokio::spawn(async move {
    > lost, leaving the conversation inert.
 3. `client.session.prompt_async(&session_id, &body).await` — Sends the prompt
    with model selection. The SDK sends
-   `POST /session/{id}/prompt_async` with a JSON body:
+   `POST /session/{id}/prompt_async?directory=<worktree>` with a JSON body:
    ```json
    {
      "model": {"provider_id": "anthropic", "model_id": "claude-sonnet-4-20250514"},

@@ -5,11 +5,11 @@ use crate::server::error::ServerError;
 use crate::server::state::AppState;
 use crate::server::ws::message::{ServerMessage, TopicId, WsTopic, WsTopicKind};
 use crate::services;
-use crate::worktree;
+use crate::worktree::{self, CreateWorktreeResult};
 use axum::{
     extract::{Path, Query, State},
     http::StatusCode,
-    routing::get,
+    routing::{get, post},
     Json, Router,
 };
 use serde::Deserialize;
@@ -59,6 +59,7 @@ pub fn tasks_router() -> Router<AppState> {
             "/{id}/conversations",
             super::conversations::conversations_router(),
         )
+        .route("/{id}/worktree/recreate", post(recreate_worktree_handler))
         .nest("/{id}", super::agent_flags::agent_flags_router())
 }
 
@@ -344,4 +345,55 @@ async fn delete_task(
         .map_err(|e| ServerError::Internal(e.to_string()))?;
 
     Ok(StatusCode::NO_CONTENT)
+}
+
+pub async fn recreate_worktree_handler(
+    auth: AuthUser,
+    State(state): State<AppState>,
+    Path(id): Path<i64>,
+) -> Result<(StatusCode, Json<CreateWorktreeResult>), ServerError> {
+    let task = services::tasks::get_task(&state.db, id)
+        .await
+        .map_err(|_| ServerError::NotFound("Task not found".into()))?;
+    if task.user_id != auth.user_id {
+        return Err(ServerError::NotFound("Task not found".into()));
+    }
+    let worktree = services::tasks::get_worktree_by_task(&state.db, id)
+        .await
+        .map_err(|_| ServerError::NotFound("No worktree for task".into()))?;
+
+    let repo = if worktree.repo_path.is_empty() {
+        services::projects::get_project(&state.db, task.project_id)
+            .await
+            .map_err(|_| ServerError::NotFound("Project not found".into()))?
+            .repo_folder_path
+    } else {
+        worktree.repo_path.clone()
+    };
+
+    let result = worktree::recreate_worktree(
+        &repo,
+        &state.footprint,
+        task.project_id,
+        task.id,
+        &worktree.branch,
+        &task.title,
+    )
+    .await
+    .map_err(|e| ServerError::Internal(e.to_string()))?;
+
+    let topic = WsTopic {
+        kind: WsTopicKind::Task,
+        id: TopicId(id),
+    };
+    let msg = ServerMessage::Event {
+        topic: topic.clone(),
+        event_type: "task_updated".to_string(),
+        timestamp: chrono::Utc::now(),
+        payload: serde_json::to_value(&task).unwrap_or_default(),
+        html: None,
+    };
+    state.ws_bus.broadcast(&topic, msg).await;
+
+    Ok((StatusCode::OK, Json(result)))
 }

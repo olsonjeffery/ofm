@@ -60,6 +60,12 @@ fn has_binary(name: &str) -> bool {
         .unwrap_or(false)
 }
 
+/// Precise liveness check for a process we own. `libc::kill(pid, 0)` returns
+/// 0 if the process exists and -1 with ESRCH once it is gone.
+fn pid_alive(pid: u32) -> bool {
+    unsafe { libc::kill(pid as i32, 0) == 0 }
+}
+
 fn server_options() -> ServerOptions {
     ServerOptions {
         hostname: "127.0.0.1".into(),
@@ -426,6 +432,8 @@ async fn test_opencode_sdk_process_leak() {
     let opts = server_options();
     let mut server = create_opencode_server(opts).await.unwrap();
     let port = server.port();
+    // Capture the PID before shutdown (shutdown is `&mut self`).
+    let pid = server.pid();
     let shutdown_ok = server.shutdown().await.unwrap();
     assert!(shutdown_ok, "server should shutdown cleanly");
 
@@ -440,16 +448,11 @@ async fn test_opencode_sdk_process_leak() {
         panic!("port {port} should be free after shutdown");
     }
 
-    // Verify no orphan processes — we can't know the exact PID from outside
-    // the server process group, so we check that no opencode serve processes
-    // are running after a clean shutdown
-    let ps_out = std::process::Command::new("sh")
-        .arg("-c")
-        .arg("ps aux | grep 'opencode serve' | grep -v grep || true")
-        .output()
-        .unwrap();
-    let output = String::from_utf8_lossy(&ps_out.stdout);
-    eprintln!("remaining opencode processes after shutdown:\n{output}");
+    // Precisely verify the subprocess we spawned is dead. No grep/bulk scan.
+    assert!(
+        !pid_alive(pid),
+        "opencode serve process {pid} still alive after shutdown"
+    );
 }
 
 #[tokio::test]

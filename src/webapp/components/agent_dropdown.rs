@@ -41,11 +41,11 @@ pub fn AgentDropdown(active_agents: Vec<ActiveAgent>) -> impl IntoView {
                                 aria-controls="agent-dropdown-menu"
                                 id="agent-dropdown-trigger"
                             >
-                            <span class="icon"><i class="mdi mdi-message-outline"></i></span>
-                            <span id="agent-count">{format!("{} Agents", count)}</span>
+                                <span class="icon"><i class="mdi mdi-message-outline"></i></span>
+                                <span id="agent-count">{format!("{} Agents", count)}</span>
                         </button>
                         <button
-                                class="button is-small is-outline"
+                                class="button is-small"
                                 aria-haspopup="true"
                                 aria-controls="agent-dropdown-menu"
                                 id="agent-dropdown-trigger-2"
@@ -247,12 +247,21 @@ pub fn AgentDropdown(active_agents: Vec<ActiveAgent>) -> impl IntoView {
                 background-color: var(--bulma-black) !important;
                 color: var(--bulma-white) !important;
             }
+            #agent-dropdown-trigger-2.button {
+                background-color: var(--bulma-black) !important;
+                color: var(--bulma-white) !important;
+                border: 1px solid var(--bulma-white) !important;
+            }
+            #agent-dropdown-trigger-2.button:hover {
+                background-color: var(--bulma-black) !important;
+                color: var(--bulma-white) !important;
+            }
             #ws-status-entry { cursor: default; }
             #agent-dropdown-menu .dropdown-content {
                 background: var(--bulma-white-bis);
                 color: var(--bulma-grey-darker);
                 border: 1px solid var(--bulma-grey);
-                border-radius: 6px;
+                border-radius: 3px;
             }"#}
         </style>
     }

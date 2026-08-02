@@ -19,7 +19,7 @@ repository.workspace = true
 tokio = { version = "1", features = ["full"] }
 futures-util = "0.3"
 axum = { version = "0.8", features = ["macros", "ws"] }
-hiqlite = { version = "0.13", default-features = false, features = [
+hiqlite = { version = "0.14", default-features = false, features = [
   "auto-heal",
   "sqlite",
   "toml",
@@ -37,10 +37,11 @@ tower-http = { version = "0.7", features = ["fs"] }
 clap = { version = "4", features = ["derive"] }
 
 # HTTP client for CLI agent subcommand
-reqwest = { version = "0.12", default-features = false, features = [
+reqwest = { version = "0.13.4", default-features = false, features = [
   "json",
-  "rustls-tls",
+  "rustls",
   "stream",
+  "query",
 ] }
 
 # Provider abstraction & config merging
@@ -51,17 +52,17 @@ thiserror = "2"
 tokio-stream = "0.1"
 
 # Auth middleware (JWT verification, API key hashing, URL parsing)
-jsonwebtoken = "9"
-sha2 = "0.10"
-base64 = "0.22"
+jsonwebtoken = { version = "11", features = ["aws_lc_rs"] }
+sha2 = "0.11"
+base64 = "0.23"
 url = "2"
 tower = "0.5"
 
 # OAuth PKCE, session cookies, API key generation
-rand = "0.8"
+rand = "0.10"
 cookie = { version = "0.18", features = ["private"] }
 hex = "0.4"
-axum-extra = { version = "0.10", default-features = false, features = [
+axum-extra = { version = "0.12", default-features = false, features = [
   "cookie",
   "cookie-private",
 ] }
@@ -74,6 +75,9 @@ leptos_styling = { version = "0.3", features = ["ssr"] }
 bytes = "1"
 http-body-util = "0.1"
 
+# Precise process-group teardown of spawned subprocesses (kill(-pgid))
+libc = "0.2"
+
 # Markdown rendering (server-side)
 pulldown-cmark = "0.13"
 
@@ -83,6 +87,9 @@ html-escape = "0.2"
 
 # String similarity for echo detection
 strsim = "0.11"
+
+[dev-dependencies]
+percent-encoding = "2"
 
 [features]
 ssr = ["leptos/ssr", "leptos_styling/ssr"]

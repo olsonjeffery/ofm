@@ -67,7 +67,7 @@ The system supports two modes:
    every incoming Bearer token's JWT signature and claims locally. The leptos
    client runs the PKCE flow against the external provider.
 2. **Self-hosted rauthy** — `ofm` manages a rauthy instance via Docker
-   container, proxied at `/auth` through an axum reverse proxy, with an
+   container, reached directly on its published port, with an
    initial admin bootstrap flow.
 
 ### High-level flow
@@ -186,17 +186,39 @@ When no `OIDC_ISSUER_URL` is provided (or `RAUTHY_ENABLED=true` is set),
 Rauthy runs as a Docker container (`ghcr.io/sebadob/rauthy:latest`) managed by
 `ofm` via `tokio::process::Command`. See `src/rauthy/mod.rs`.
 
-- On startup, `ofm` runs `docker run` with the rauthy image on a random port.
+- On startup, `ofm` runs `docker run` with the rauthy image on a random port,
+  then removes any stale container for the same footprint first (see
+  crash recovery below).
 - The container passes the host user's UID via `--user` flag so file ownership
   in the mounted volume is correct.
 - Configuration is injected via environment variables and a bootstrap
   `clients.json` file written to a volume mount.
-- An axum reverse proxy at `/auth` forwards requests to the rauthy container.
-- Health check: `GET /auth/health` must return 200 before `ofm` marks
-  itself ready.
-- On shutdown, `ofm` kills the Docker container (via Drop impl).
-- Crash recovery: not yet implemented (the container runs with `--rm` and
-  currently no restart logic).
+- The container name is deterministic and footprint-derived
+  (`ofm-rauthy-<hash>`), stable across restarts of the same footprint and
+  unique across worktree footprints.
+- The rauthy OIDC endpoints are reached **directly** at
+  `http://{OFM_HOSTNAME}:{port}` — there is no `/auth` reverse proxy. The
+  container always binds `0.0.0.0` via `-p 0.0.0.0:{port}:8080` (Docker only
+  accepts IP addresses for the host bind interface, and `OFM_HOSTNAME` may be a
+  non-IP hostname), while `PUB_URL={OFM_HOSTNAME}:{port}` makes rauthy
+  advertise the configured hostname, so the browser-facing
+  authorization/token/userinfo referral URLs point at the hostname `ofm` is
+  reachable on (default `127.0.0.1`). `pub_url` is a server config value, not
+  a bootstrap data file, so it is injected via the `PUB_URL` env var rather
+  than the bootstrap directory (which only parses `clients.json`/`users.json`
+  etc.).
+- Health check: `GET /health` (via `http://127.0.0.1:{port}/health` — loopback
+  reaches the `0.0.0.0`-published port regardless of `OFM_HOSTNAME`
+  resolvability) must return 200 before `ofm` marks itself ready.
+- On shutdown, `ofm` removes the container by name (`docker rm -f
+  ofm-rauthy-<hash>`) in `RauthyInstance::Drop`, then kills the `docker run`
+  CLI child. `--rm` alone is insufficient — killing the CLI client leaves the
+  container running under the Docker daemon.
+- Crash recovery: because the container name is footprint-derived, a stale
+  container left by a SIGKILLed (or otherwise abruptly exited) `ofm` instance
+  is reaped on the *next* startup of the same footprint by the startup
+  `docker rm -f ofm-rauthy-<hash>`. No in-process cleanup runs on SIGKILL;
+  recovery is planned into startup, not shutdown.
 
 ### Initial admin bootstrap
 
@@ -619,8 +641,9 @@ become per-user / membership-gated:
       queries.
 - [ ] Admin routes: user CRUD (no password fields, self-delete guard) + project
       membership (last-member guard); rauthy provider-side user management.
-- [x] Rauthy Docker lifecycle: spawn container, health check, reverse proxy at `/auth`,
-      shutdown via Drop impl.
+- [x] Rauthy Docker lifecycle: spawn container, health check, direct port
+      access (no `/auth` proxy), teardown via `RauthyInstance::Drop`
+      (`docker rm -f <footprint-derived-name>`) + startup reap.
       → `src/rauthy/mod.rs`
 - [ ] Rauthy admin bootstrap: one-time credential display, initial user creation
       via rauthy admin API.
@@ -645,7 +668,7 @@ become per-user / membership-gated:
 | Non-technical auto-advance after planning | `reference/server/services/conversation/agentRunLifecycle.ts` (retained from reference) |
 | Non-technical planning prompt selection | `reference/server/constants/agentPrompts.ts`, `reference/server/services/agentRunner.ts` (retained from reference) |
 | WebSocket per-action access checks | `reference/server/websocket/dispatch.ts` (retained from reference) |
-| Rauthy Docker lifecycle and reverse proxy | `src/rauthy/mod.rs`, `src/server/mod.rs` (reverse proxy setup) |
+| Rauthy Docker lifecycle (container removed by name in `Drop`; startup reap of stale footprint containers) | `src/rauthy/mod.rs` |
 | Admin UI | `reference/src/pages/AdminPage.tsx`, `reference/src/components/Admin/` (retained from reference) |
 
 ## Boundaries (not in this spec)

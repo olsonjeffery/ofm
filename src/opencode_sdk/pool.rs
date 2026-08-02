@@ -137,6 +137,39 @@ impl OpenCodeServerPool {
         tracing::info!(count, "shut down all opencode server pool entries");
     }
 
+    /// Synchronously kill and reap every pooled server. Safe to call from
+    /// `Drop`/panic-unwind contexts (uses `try_lock`; never blocks). Used by
+    /// the test-side `PoolCleanupGuard` so pooled `opencode serve`
+    /// subprocesses never outlive a test binary.
+    pub fn kill_all_sync(&self) {
+        match self.inner.try_lock() {
+            Ok(mut inner) => {
+                let count = inner.len();
+                for entry in inner.values_mut() {
+                    entry._server.kill();
+                }
+                inner.clear();
+                tracing::info!(
+                    count,
+                    "synchronously killed all opencode server pool entries"
+                );
+            }
+            Err(_) => {
+                tracing::warn!("pool lock contended during kill_all_sync — entries not killed")
+            }
+        }
+    }
+
+    /// Number of entries currently in the pool. Diagnostics + tests.
+    pub async fn len(&self) -> usize {
+        self.inner.lock().await.len()
+    }
+
+    /// Whether the pool currently holds no entries.
+    pub async fn is_empty(&self) -> bool {
+        self.inner.lock().await.is_empty()
+    }
+
     /// Returns a snapshot of pool status for diagnostics.
     pub async fn status(&self, user_id: Uuid) -> bool {
         let inner = self.inner.lock().await;
@@ -349,6 +382,57 @@ mod tests {
         let unknown_uid = Uuid::new_v4();
         // Should not panic.
         pool.update_timestamp(unknown_uid).await;
+
+        // ── test_kill_all_sync_kills_all_entries ──────────────────────────────────
+        // Spawn long-lived children in their own process groups (like
+        // production `opencode serve` spawns) so the process-group kill path
+        // is exercised. Keep this inside the serialized lifecycle test: the
+        // pool is a process-wide singleton, so parallel `#[tokio::test]`
+        // functions would race on its shared state.
+        #[cfg(unix)]
+        {
+            use std::os::unix::process::CommandExt;
+
+            let spawn_child = || {
+                std::process::Command::new("sleep")
+                    .arg("30")
+                    .process_group(0)
+                    .spawn()
+                    .unwrap()
+            };
+            let child_a = spawn_child();
+            let pid_a = child_a.id();
+            let child_b = spawn_child();
+            let pid_b = child_b.id();
+            let uid_a = Uuid::new_v4();
+            let uid_b = Uuid::new_v4();
+            for (uid, child) in [(uid_a, child_a), (uid_b, child_b)] {
+                let entry = ServerEntry {
+                    client: OpencodeClient::new("http://127.0.0.1:9999", None, false),
+                    _server: crate::opencode_sdk::OpenCodeServer::test_dummy(child),
+                    last_used_at: Instant::now(),
+                };
+                pool.inner.lock().await.insert(uid, entry);
+            }
+            assert!(
+                pool.len().await >= 2,
+                "pool should contain the two inserted entries"
+            );
+
+            pool.kill_all_sync();
+
+            assert_eq!(pool.len().await, 0, "kill_all_sync should drain the pool");
+            let alive_a = unsafe { libc::kill(pid_a as i32, 0) == 0 };
+            let alive_b = unsafe { libc::kill(pid_b as i32, 0) == 0 };
+            assert!(
+                !alive_a,
+                "pooled child {pid_a} still alive after kill_all_sync"
+            );
+            assert!(
+                !alive_b,
+                "pooled child {pid_b} still alive after kill_all_sync"
+            );
+        }
     }
 
     #[test]

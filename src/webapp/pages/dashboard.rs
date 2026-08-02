@@ -44,9 +44,11 @@ pub fn DashboardPage(
                             <input name="subproject_path" class="input" type="text" placeholder="subdir" />
                         </div>
                     </div>
-                    <div class="field">
+                    <div class="field is-grouped is-grouped-right">
                         <div class="control">
                             <button type="submit" class="button is-small is-success">"Create Project"</button>
+                        </div>
+                        <div class="control">
                             <button type="button" id="cancel-project-btn" class="button is-small is-light">"Cancel"</button>
                         </div>
                     </div>
@@ -138,6 +140,25 @@ mod tests {
         assert!(
             html.contains(r#"class="button is-small is-light""#),
             "Cancel button should have is-small"
+        );
+    }
+
+    #[test]
+    fn test_dashboard_create_project_buttons_in_right_aligned_group() {
+        let projects = vec![];
+        let task_counts = HashMap::new();
+        let html = leptos::view! { <DashboardPage projects task_counts /> }.to_html();
+        assert!(
+            html.contains(r#"class="field is-grouped is-grouped-right""#),
+            "Create Project / Cancel should be in a right-aligned button group"
+        );
+        assert!(
+            html.contains(r#">Create Project</button></div>"#),
+            "Create Project should be wrapped in a control"
+        );
+        assert!(
+            html.contains(r#">Cancel</button></div>"#),
+            "Cancel should be wrapped in a control"
         );
     }
 

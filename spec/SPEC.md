@@ -106,9 +106,13 @@ spawns `pty`s, maintains database state, and so on
    - Start a Docker container (`ghcr.io/sebadob/rauthy:latest`) at a random port
    that differs from the configured `ofm` `OFM_PORT`, managed via
    `tokio::process::Command` (see `src/rauthy/mod.rs`)
-   - Expose an [axum-based reverse proxy][12] that forwards requests
-   and responses to/from `rauthy`; this reverse proxy is exposed
-   at `/auth`
+   - Bind the container to `0.0.0.0` (`-p 0.0.0.0:{port}:8080`; Docker only
+   accepts IP addresses for the host bind interface) and advertise
+   `PUB_URL={OFM_HOSTNAME}:{port}`, so rauthy's OIDC discovery metadata and
+   referral URLs point at the hostname `ofm` is reachable on
+   - Have the browser talk to the rauthy container **directly** on its
+   published port — there is no `/auth` reverse proxy (see
+   [`extra/auth-and-multi-user.md`](./extra/auth-and-multi-user.md))
 
 ## How to build from this spec
 
@@ -247,14 +251,19 @@ curl -X POST "http://$HOST:$PORT/api/tasks/$TASK_ID/{action}" \
 
 The `.ofm_agent.json` file (.ofm_token previously) is listed in `.gitignore` so it is never checked into version control.
 
-### Session Directory Patching
+### Session Directory Routing
 
 When `start_next_agent()` in `src/orchestration/mod.rs` creates a new agent session via the opencode SDK,
-the provider now also PATCHes the session to set its `directory` property to the task worktree path.
-This is done inside `OpenCodeSdkProvider::start_turn()` and `OpenCodeSdkProvider::resume_turn()` in
-`src/providers/opencode_sdk_provider.rs`, using the new `SessionApi::patch()` method added to
-`src/opencode_sdk/client.rs`. The PATCH ensures the opencode server knows the correct working directory
-for the task.
+the provider routes the task worktree path to the opencode server as a `directory` **query param** on every
+workspace-scoped HTTP call — `session.create`, `event.subscribe`, `promptAsync`, and `session.abort` —
+rather than mutating the shared server's process CWD. In `OpenCodeSdkProvider::start()` the pooled client
+handle is re-scoped with `OpencodeClient::with_directory(&worktree)` (an `Arc::make_mut` clone that affects
+only this provider's handle), and the client methods in `src/opencode_sdk/client.rs` append the `directory`
+query param when set. This mirrors the reference implementation (`spec/reference/server/services/providers/opencode/index.ts`),
+whose `WorkspaceRoutingMiddleware` resolves the workspace directory per HTTP call and falls back to the
+server's `process.cwd()` when absent — a PATCH to the session row is **not** sufficient because tool calls
+re-resolve the directory per request. The `external_directory` allowlist in the server config already
+restricts writes to `{footprint}/worktrees/**`, `{footprint}/archive/**`, and `/tmp/**`.
 
 ### Token Expiration Awareness
 
@@ -294,4 +303,3 @@ auto-advancement callers.
 [9]: https://doc.rust-lang.org/cargo/reference/features.html
 [10]: https://en.wikipedia.org/wiki/Systems_development_life_cycle
 [11]: https://www.leptos.dev/
-[12]: https://github.com/tokio-rs/axum/blob/main/examples/reverse-proxy/src/main.rs

@@ -101,11 +101,11 @@ The workspace has a single member crate (`ofm` binary) defined inline.
 1. **Config**: Load `OfmConfig` from YAML file + env var overlay (`OFM_*`).
 2. **Logging**: Initialize tracing/logging based on config.
 3. **Database**: Start hiqlite node with `data_dir`, run pending migrations.
-4. **Rauthy**: If `OFM_RAUTHY_ENABLED`, spawn rauthy as a Docker container via `tokio::process::Command`, wait for health, configure reverse proxy at `/auth`. The container runs with the host user's UID via Docker's `--user` flag so files in the rauthy data directory are owned by the host user and cleanup does not require root.
+4. **Rauthy**: If `OFM_RAUTHY_ENABLED`, spawn rauthy as a Docker container via `tokio::process::Command`, wait for health at the container's direct port, and assign the instance to `_rauthy_instance` before any fallible step so `Drop` removes the container (`docker rm -f ofm-rauthy-<footprint-hash>`) on every failure path. The container always binds `0.0.0.0` (`-p 0.0.0.0:{port}:8080`; Docker only accepts IPs for the host bind interface, and `OFM_HOSTNAME` may be a non-IP hostname) and advertises `PUB_URL={OFM_HOSTNAME}:{port}`, so the browser reaches rauthy directly on that hostname. The container runs with the host user's UID via Docker's `--user` flag so files in the rauthy data directory are owned by the host user and cleanup does not require root. The footprint-derived container name is stable, so a stale container from a SIGKILLed instance is reaped by the startup `docker rm -f` on the next run of the same footprint.
 5. **Server**: Start axum HTTP server with WebSocket support on configured `OFM_HOSTNAME:OFM_PORT`.
 6. **WebSocket**: Accept connections, manage task subscriptions, stream agent events.
-7. **OpenCode provider sessions**: Spawn `opencode serve` subprocesses per turn, manage lifecycle, stream events.
-8. **Shutdown**: Graceful shutdown — stop accepting connections, kill subprocesses, stop rauthy, close DB.
+7. **OpenCode provider sessions**: Spawn `opencode serve` subprocesses per user in their own process groups, manage lifecycle, stream events. Teardown kills each spawned process group precisely (`kill(-pgid)`); the pool is drained on shutdown.
+8. **Shutdown**: Graceful shutdown — stop accepting connections, kill subprocesses, remove the rauthy container by name, close DB.
 
 ## OAuth Access Token Cache
 
@@ -193,10 +193,10 @@ The footprint value (`OFM_FOOTPRINT`) is plumbed through the provider chain:
 ### Hardcoded `/tmp` fix
 
 Previously, `provider.start()` was called with `Path::new("/tmp")` *before* the
-worktree path was resolved from the database. This caused `patch_session_directory()`
-to set the opencode session's directory to `/tmp` instead of the correct worktree
-path. The fix moves `provider.start()` to *after* worktree resolution, using the
-correct worktree path. See `src/orchestration/mod.rs`.
+worktree path was resolved from the database. This caused the opencode session's
+working directory to be `/tmp` instead of the correct worktree path. The fix moves
+`provider.start()` to *after* worktree resolution, using the correct worktree path.
+See `src/orchestration/mod.rs`.
 
 ## OFM Context Prompt Injection
 
@@ -215,13 +215,17 @@ The `.ofm_agent.json` file has the following schema:
 }
 ```
 
-### Session Directory Patching
+### Session Directory Routing
 
-The `SessionApi::patch()` method in `src/opencode_sdk/client.rs` sends a `PATCH /session/{id}`
-request with a partial `Session` JSON body containing at least the `directory` field. This is
-called from `OpenCodeSdkProvider::start_turn()` after session creation and from
-`OpenCodeSdkProvider::resume_turn()` after re-subscribing, ensuring the opencode server knows
-the task worktree path as the session's working directory.
+The opencode server subprocess is spawned once per user (pooled) without a task-specific CWD — one
+shared server cannot serve multiple worktrees. Instead, the provider threads the task worktree path as a
+`directory` **query param** on every workspace-scoped HTTP call. `OpenCodeSdkProvider::start()` re-scopes
+the pooled client handle via `OpencodeClient::with_directory(&worktree)` (`Arc::make_mut` clones the shared
+inner for this provider instance only), and `src/opencode_sdk/client.rs` appends `?directory=<worktree>` to
+`session.create`, `event.subscribe` (initial request **and** SSE reconnect), `session.prompt`, `session.prompt_async`,
+and `session.abort`. This mirrors the reference implementation's `WorkspaceRoutingMiddleware`, which resolves
+the workspace directory per HTTP call and falls back to the server's `process.cwd()` when absent — so a
+session-row PATCH is insufficient and is no longer performed.
 
 ### File Recreation on Resume
 
@@ -248,7 +252,7 @@ The chat view (`/webapp/projects/{project_id}/tasks/{task_id}/chat`) provides a 
 - **Event broadcasting**: When `post_create_agent_run` starts an agent turn, it calls `provider.start_turn(input)` which returns an `mpsc::Receiver<ProviderEvent>`. A background task reads events, persists them via `transcript::persist_event()`, maps `ProviderEvent` → `ServerMessage::Event`, and broadcasts via `ws_bus` under the task's `WsTopic`. On `Done`, it calls `completion_handler` to advance the state machine.
 - **Tool event merging (server-side)** (Task 67): When a `ToolUse` with `result: Some(...)` arrives in the broadcast loop, instead of inserting a new row, the loop calls `transcript::update_tool_event()` to update the existing ToolUse row in-place with the completed input and output. The broadcast uses the `tool_updated` WS event type. This ensures the DB reflects the complete tool snapshot and page reloads show unified tool cards.
 - **Provider-agnostic**: The broadcast task consumes `mpsc::Receiver<ProviderEvent>`, staying completely trait-agnostic. `OpenCodeSdkProvider` is the sole built-in provider.
-- **Manual chat**: `POST /api/tasks/{task_id}/conversations/{id}/messages` — persists the user message, loads the transcript, calls `provider.resume_turn()`, and spawns a broadcast task for the response events.
+- **Manual chat**: `POST /api/tasks/{task_id}/conversations/{id}/messages` — persists the user message and broadcasts `user_text` exactly once, then delegates to the `resume_or_recreate` helper. The helper loads the transcript, resumes (or, on failure, recreates) the provider turn, and spawns the broadcast task for the response events. It never re-persists or re-broadcasts the user message, which previously produced duplicate blue `.message-user` elements during live streaming (Task 81).
 - **Orchestrator phase skip**: When a phase's agent config is missing (no model configured), `post_create_agent_run` creates a `Blocked` run and returns immediately. `next_agent()` checks config statuses before returning `StartAgent`, skipping unconfigured phases.
 - **Chat API**: `GET /api/tasks/{task_id}/conversations` lists conversations with their associated runs; `GET /api/tasks/{task_id}/conversations/{id}` returns a conversation with its full message transcript.
 - **UI Components**: The chat page has three Leptos SSR components — `ConversationList` (sidebar), `MessageStream` (event display with `overflow-wrap: break-word` bounding), and `ChatInput` (message input — agent-type phases dropdown removed in Task 204). The `AgentRunBanner` was removed in Task 2 (notification bar replaced with task detail page's Agents box controls).
