@@ -209,7 +209,6 @@ Opinionated features. Each is independent; implement what you want.
 | Reviewed/Updated for `ofm`? | Spec | What it adds |
 |---|---|---|
 | **✅ Yes** | [`extra/harnesses/opencode.md`](./extra/harnesses/opencode.md) | OpenCode integration: SDK-backed subprocess lifecycle, event mapping, transcript mirroring, credential delegation, and capabilities. |
-| **✅ Yes** | [`extra/harnesses/ramalama.md`](./extra/harnesses/ramalama.md) | On-demand ramalama + phi4-mini provider: per-conversation `ramalama serve` subprocess, sentinel-UUID virtual config entry, transient opencode adapter, and the `conversation_title` micro-task agent type. |
  | **✅ Yes** | [`extra/harnesses/opencode.md`](./extra/harnesses/opencode.md) | OpenCode SDK-backed provider integration: SDK-driven subprocess lifecycle, event mapping, credential delegation via `opencode.json`, session lifecycle. **Task 204 additions:** `provider_session_id` rename (provider-agnostic), `resume_turn` implementation for `OpenCodeSdkProvider`, `question.asked` event handling (mid-turn question → pause SSE → user reply → resume), `SessionStart` event persistence to DB, lazy provider recreation on restart. |
 | **✅ Yes** | [`extra/kanban-board.md`](./extra/kanban-board.md) | The opinionated projects/tasks board and 4-screen UI for authoring tasks. |
 | **🚫 No** | [`extra/refinement-agent.md`](./extra/refinement-agent.md) | An extra agent that polishes the work between review and PR. |

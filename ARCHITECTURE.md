@@ -22,10 +22,9 @@ ofm/
 │   │       ├── message_stream.rs     # Streaming event display (Phase 5)
 │   │       ├── chat_input.rs         # Manual message input (Phase 5)
 │   ├── orchestration/   # State machine, guards, recovery, completion
-│   ├── providers/       # LlmProvider trait, opencode_sdk + ramalama providers
+│   ├── providers/       # LlmProvider trait, opencode_sdk providers
 │   │   ├── opencode_sdk_provider.rs  # Pooled opencode server provider
-│   │   ├── ramalama_provider.rs      # On-demand ramalama serve provider (phi4-mini)
-│   │   └── registry.rs               # Harness dispatch ("opencode" | "ramalama")
+│   │   └── registry.rs               # Harness dispatch ("opencode")
 │   ├── agents/          # Prompt builders (planning, impl, review, PR)
 │   ├── services/        # Auth, projects, tasks, settings, session, transcript, export_import
 │   ├── archive/         # Task doc I/O, context prompt
@@ -191,48 +190,6 @@ The footprint value (`OFM_FOOTPRINT`) is plumbed through the provider chain:
    `OpenCodeServerPool::get_or_spawn()`.
 5. `get_or_spawn()` → `spawn_entry()` → `build_server_config()` templates the
    three-path allowlist.
-
-## RamaLama provider (on-demand SLM)
-
-When `OFM_RAMALAMA_PHI4_MINI_ENABLED=true` and `ramalama` is on PATH, a virtual
-built-in model config named `ramalama-mini` (sentinel UUID
-`00000000-0000-0000-0000-00000000dead`) appears in the Agent Settings dropdown.
-Assigning it to an agent type stores `harness: "ramalama"` with the sentinel as
-`provider_config_ref` (no config file is written).
-
-The `RamalamaProvider` (`src/providers/ramalama_provider.rs`) owns a per-conversation
-`ramalama serve` subprocess (llama.cpp backend) spawned on a random port:
-
-1. `ensure_started()` probes `ramalama` on PATH, picks a free port via
-   `rauthy::find_available_port()`, and spawns
-   `ramalama serve --port <port> --name <container> <model-ref>`. The model is
-   passed as a **positional argument** (`--name` is the container name, not the
-   model); short names like `phi4-mini` are resolved to `ollama://library/...:latest`.
-   The container is given a port-derived name (`ofm-ramalama-<port>`) so it can be
-   removed precisely on teardown. Stdout/stderr are piped to tracing readers.
-   Health is polled at `http://127.0.0.1:<port>/v1/models` (llama.cpp returns 404
-   for the Ollama-style `/api/tags`), also aborting if the child exits prematurely.
-   After readiness, `/v1/models` is queried to resolve the served model id
-   (e.g. `library/phi4-mini`), which may differ from the user-entered short name.
-   On any start failure the CLI is killed+reaped and the named container removed,
-   so a failed start never orphans either.
-2. On `start_turn`, an OpenAI-compatible provider snippet is generated pointing at
-   `http://127.0.0.1:<port>/v1`, declared as an `@ai-sdk/openai-compatible` custom
-   provider with a `models` map keyed by the served model id, merged into a base
-   opencode server config, and a **transient** `opencode serve` is spawned via
-   `opencode_sdk::create_opencode()`. The transient server and its client persist
-   on the provider so `resume_turn` can reuse the opencode `session_id`.
-3. `one_shot_prompt()` (used for conversation-title generation) reuses the running
-   `ramalama serve` and spins up a throwaway transient server per call.
-4. `shutdown()` kills+reaps the `ramalama serve` child, removes the named container
-   (`docker rm -f <name>` with a `ramalama stop <name>` fallback), and drops the
-   transient server (its `Drop` kills the opencode subprocess). `Drop` on the
-   provider is a belt-and-suspenders container removal + `start_kill()` for the
-   ramalama child.
-
-Because the ramalama host serves a single model/session at a time, this provider is
-NOT pooled — the process is owned by exactly one provider instance and torn down
-with it, unlike `OpenCodeSdkProvider`.
 
 ### Hardcoded `/tmp` fix
 

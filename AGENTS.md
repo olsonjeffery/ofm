@@ -13,9 +13,8 @@
 
 ## Sub-process Lifecycle & Cleanup
 
-`ofm` spawns long-lived subprocesses in three places: `opencode serve` (per-user
-pool, `src/opencode_sdk/`), `ramalama serve` (per-conversation,
-`src/providers/ramalama_provider.rs`), and the rauthy Docker container
+`ofm` spawns long-lived subprocesses in two places: `opencode serve` (per-user
+pool, `src/opencode_sdk/`), and the rauthy Docker container
 (`src/rauthy/`). Rules that keep them from leaking:
 
 - **Every long-lived subprocess is owned by exactly one RAII owner whose
@@ -23,15 +22,7 @@ pool, `src/opencode_sdk/`), `ramalama serve` (per-conversation,
   `std::process::Child`/`tokio::process::Child` do not kill on drop by default.
 - **Spawn children into their own process group** (`process_group(0)`), so a
   Ctrl-C to the ofm process group cannot orphan them, and teardown can target
-  `kill(-pgid)` — covering any grandchildren — precisely. The `ramalama serve`
-  child is the deliberate exception: it is killed via `start_kill()`/`kill()`
-  on its owned handle (see `RamalamaProvider::shutdown()`).
-- **Killing the `ramalama serve` CLI alone orphans its docker/podman
-  container** (the container runs under the engine, not the CLI). The
-  ramalama provider assigns a port-derived name (`ofm-ramalama-<port>`) via
-  `--name` and removes it precisely on teardown: `docker rm -f <name>` with a
-  `ramalama stop <name>` fallback. On `ensure_started()` failure the same
-  cleanup runs so no orphaned container survives a failed start.
+  `kill(-pgid)` — covering any grandchildren — precisely.
 - **Never bulk-kill** with `grep`/`sed`/`killall`/`pkill`. Kill precisely by
   PID, by process group you created, or by named container (`docker rm -f <name>`).
 - **Integration tests reaching the opencode server pool must hold a
@@ -81,7 +72,6 @@ All env vars use the `OFM_` prefix. Key ones:
 | `OFM_OIDC_ISSUER_URL` | unset | OIDC issuer URL for external auth |
 | `OFM_OIDC_CLIENT_ID` | unset | OIDC client ID |
 | `OFM_API_KEY` | unset | API key for machine access |
-| `OFM_RAMALAMA_PHI4_MINI_ENABLED` | `false` | Enable the virtual "ramalama-mini" provider (requires `ramalama` CLI on PATH) |
 
 ## Playwright CLI Setup (one-time, per user)
 
@@ -155,15 +145,6 @@ The `.ofm` directory is gitignored so it won't accidentally be committed.
 > 💡**Resetting `ofm`**: The `.ofm` footprint can be deleted then recreated (by
 > restarting `ofm`) between testing phases, if a reset of `ofm` state is desired,
 > or if the admin password is lost.
-
-## `ramalama` provider testing
-
-To exercise the on-demand "ramalama-mini" provider (Agent Settings dropdown,
-conversation-title generation, end-to-end agent run), the `ramalama` CLI must be
-on `PATH` and the server started with `OFM_RAMALAMA_PHI4_MINI_ENABLED=true` (see
-the env var table above). Without the CLI, agent runs assigned to the
-ramalama-mini config fail gracefully at provider `start()` with a clear log
-message. Verify the CLI is available with `which ramalama`.
 
 ## Unit / Integration Tests
 

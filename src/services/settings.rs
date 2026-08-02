@@ -8,7 +8,6 @@ use uuid::Uuid;
 use crate::db::schema::{AgentHarnessConfig, AgentType, ScopeType, UserModelConfig};
 use crate::providers;
 use crate::providers::config::ProviderConfigDir;
-use crate::providers::RLML_MINI_SENTINEL_ID;
 use crate::services::agent_configs;
 use crate::services::config_format;
 
@@ -189,10 +188,6 @@ pub async fn get_agent_models(
 
 fn parse_model_config_id(provider_config_ref: &str) -> Option<String> {
     // provider_config_ref is stored as "{uuid}.json" for file-based configs.
-    // The virtual ramalama entry stores the sentinel UUID verbatim (no file).
-    if provider_config_ref == RLML_MINI_SENTINEL_ID {
-        return Some(provider_config_ref.to_string());
-    }
     // Strip the extension to get the UUID back
     let stripped = provider_config_ref.strip_suffix(".json")?;
     // Validate it's a UUID
@@ -212,39 +207,30 @@ pub async fn upsert_agent_models(
             .map_err(|e: String| format!("invalid agent type '{agent_type_str}': {e}"))?;
 
         let (harness, provider_config_ref) = if let Some(ref cfg_id) = setting.model_config_id {
-            if cfg_id == RLML_MINI_SENTINEL_ID {
-                // Virtual ramalama entry — no config file to write; the
-                // provider builds its snippet at runtime from the sentinel.
-                ("ramalama".to_string(), RLML_MINI_SENTINEL_ID.to_string())
-            } else {
-                match Uuid::parse_str(cfg_id) {
-                    Ok(uuid) => match get_model_config(client, user_id, uuid).await {
-                        Ok(model_cfg) => {
-                            let filename = format!("{}.json", model_cfg.id);
-                            let cfg_dir = ProviderConfigDir::new(config_root);
-                            if let Err(e) =
-                                cfg_dir.write_provider_config(&filename, &model_cfg.config_body)
-                            {
-                                tracing::warn!(
-                                    "Failed to write provider config '{}': {e}",
-                                    filename
-                                );
-                            }
-                            (model_cfg.harness, filename)
+            match Uuid::parse_str(cfg_id) {
+                Ok(uuid) => match get_model_config(client, user_id, uuid).await {
+                    Ok(model_cfg) => {
+                        let filename = format!("{}.json", model_cfg.id);
+                        let cfg_dir = ProviderConfigDir::new(config_root);
+                        if let Err(e) =
+                            cfg_dir.write_provider_config(&filename, &model_cfg.config_body)
+                        {
+                            tracing::warn!("Failed to write provider config '{}': {e}", filename);
                         }
-                        Err(_) => {
-                            tracing::warn!(
-                                "Model config {cfg_id} not found for agent type '{agent_type_str}'"
-                            );
-                            (String::new(), String::new())
-                        }
-                    },
+                        (model_cfg.harness, filename)
+                    }
                     Err(_) => {
                         tracing::warn!(
-                            "Invalid model_config_id '{cfg_id}' for agent type '{agent_type_str}'"
+                            "Model config {cfg_id} not found for agent type '{agent_type_str}'"
                         );
                         (String::new(), String::new())
                     }
+                },
+                Err(_) => {
+                    tracing::warn!(
+                        "Invalid model_config_id '{cfg_id}' for agent type '{agent_type_str}'"
+                    );
+                    (String::new(), String::new())
                 }
             }
         } else {
