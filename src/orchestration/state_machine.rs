@@ -77,6 +77,7 @@ pub fn agent_type_label(agent_type: &AgentType) -> &'static str {
         AgentType::Review => "Review",
         AgentType::Pr => "PR",
         AgentType::Yolo => "Yolo",
+        AgentType::ConversationTitle => "Conversation Title",
     }
 }
 

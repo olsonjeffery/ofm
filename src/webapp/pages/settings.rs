@@ -159,6 +159,7 @@ function loadConfigList() {
             }
             var html = '<table class="table is-fullwidth is-hoverable"><thead><tr><th>Name</th><th>Harness</th><th>Actions</th></tr></thead><tbody>';
             data.forEach(function(cfg) {
+                if (cfg.id === '00000000-0000-0000-0000-00000000dead') return;
                 html += '<tr>';
                 html += '<td>' + escapeHtml(cfg.name) + '</td>';
                 html += '<td>' + escapeHtml(cfg.harness) + '</td>';
@@ -289,7 +290,7 @@ function loadAgentModels() {
     .then(function(results) {
         var data = results[0];
         var configs = results[1];
-        var agents = ['planification', 'implementation', 'refinement', 'review', 'pr', 'yolo'];
+        var agents = ['planification', 'implementation', 'refinement', 'review', 'pr', 'yolo', 'conversation_title'];
         var html = '';
         agents.forEach(function(agent) {
             var setting = data[agent] || {};

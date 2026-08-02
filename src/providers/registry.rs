@@ -7,6 +7,7 @@ use uuid::Uuid;
 use crate::db::schema::{AgentHarnessConfig, AgentType, ScopeType};
 use crate::providers::config::ProviderConfigDir;
 use crate::providers::opencode_sdk_provider::OpenCodeSdkProvider;
+use crate::providers::ramalama_provider::RamalamaProvider;
 use crate::providers::{HarnessConfig, LlmProvider, ProviderError};
 
 #[derive(Debug, Clone, serde::Serialize)]
@@ -25,6 +26,9 @@ pub async fn resolve_provider(
 ) -> Result<Box<dyn LlmProvider>, ProviderError> {
     match config.harness.as_str() {
         "opencode" => OpenCodeSdkProvider::new(config, config_root, log_data, footprint)
+            .await
+            .map(|p| Box::new(p) as Box<dyn LlmProvider>),
+        "ramalama" => RamalamaProvider::new(config, config_root, log_data)
             .await
             .map(|p| Box::new(p) as Box<dyn LlmProvider>),
         other => Err(ProviderError::Protocol(format!("unknown harness: {other}"))),
@@ -47,6 +51,9 @@ pub async fn resolve_provider_for_user(
             p.set_user_id(user_id);
             Ok(Box::new(p) as Box<dyn LlmProvider>)
         }
+        "ramalama" => RamalamaProvider::new(config, config_root, log_data)
+            .await
+            .map(|p| Box::new(p) as Box<dyn LlmProvider>),
         other => Err(ProviderError::Protocol(format!("unknown harness: {other}"))),
     }
 }
