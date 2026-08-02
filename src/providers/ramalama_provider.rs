@@ -20,6 +20,7 @@ const HEALTH_POLL_INTERVAL: Duration = Duration::from_millis(500);
 const HEALTH_TIMEOUT: Duration = Duration::from_secs(120);
 const DEFAULT_MODEL: &str = "phi4-mini";
 const PROVIDER_ID: &str = "openai-compatible";
+const CONTAINER_PREFIX: &str = "ofm-ramalama-";
 
 /// On-demand ramalama + phi4-mini provider.
 ///
@@ -39,6 +40,12 @@ pub struct RamalamaProvider {
     /// The `ramalama serve` subprocess, owned by this provider.
     child: Mutex<Option<tokio::process::Child>>,
     port: Mutex<Option<u16>>,
+    /// The docker/podman container name passed via `--name`, used to remove
+    /// the container on teardown (killing the CLI alone orphans it).
+    container_name: Mutex<Option<String>>,
+    /// The model id reported by `/v1/models` (e.g. `library/phi4-mini`),
+    /// which may differ from the user-entered short name (`phi4-mini`).
+    served_model_id: Mutex<Option<String>>,
     /// Transient opencode client + server acting as the OpenAI-compatible
     /// adapter. Persist across turns within the conversation so `resume_turn`
     /// can reuse the opencode `session_id`.
@@ -67,6 +74,8 @@ impl RamalamaProvider {
             log_data,
             child: Mutex::new(None),
             port: Mutex::new(None),
+            container_name: Mutex::new(None),
+            served_model_id: Mutex::new(None),
             client: Mutex::new(None),
             server: Mutex::new(None),
             session_id: Mutex::new(None),
@@ -101,19 +110,34 @@ impl RamalamaProvider {
         }
 
         let port = crate::rauthy::find_available_port().map_err(ProviderError::Io)?;
+        let container_name = format!("{CONTAINER_PREFIX}{port}");
+        let model_ref = self.resolve_model_ref();
+
+        // Reap any stale container left by a SIGKILLed previous run sharing
+        // this port-derived name, so `ramalama serve --name` cannot collide.
+        self.remove_container(&container_name).await;
+
+        // `--name` is the *container* name, so it must be unique per provider
+        // instance (per-conversation). The model is passed as a positional
+        // argument so ramalama serves exactly that one model (not the router
+        // mode that would expose all local models under full slugs).
         let mut cmd = tokio::process::Command::new("ramalama");
         cmd.args([
             "serve",
             "--port",
             &port.to_string(),
             "--name",
-            &self.model_config,
+            &container_name,
+            &model_ref,
         ]);
         cmd.stdout(Stdio::piped()).stderr(Stdio::piped());
-        let mut child = cmd.spawn().map_err(|e| {
-            tracing::error!("failed to spawn ramalama serve: {e}");
-            ProviderError::Io(e)
-        })?;
+        let mut child = match cmd.spawn() {
+            Ok(child) => child,
+            Err(e) => {
+                tracing::error!("failed to spawn ramalama serve: {e}");
+                return Err(ProviderError::Io(e));
+            }
+        };
 
         if let Some(stdout) = child.stdout.take() {
             spawn_reader(stdout, "ramalama");
@@ -122,19 +146,113 @@ impl RamalamaProvider {
             spawn_reader(stderr, "ramalama");
         }
 
-        self.wait_for_health(port, &mut child).await?;
+        let health = self.wait_for_health(port, &mut child).await;
+        let served_model_id = if health.is_ok() {
+            self.resolve_served_model_id(port).await
+        } else {
+            None
+        };
+
+        if let Err(e) = health {
+            // Never spawn-and-forget: on any error, kill + reap the CLI and
+            // remove the named container it spawned before returning.
+            tracing::warn!(
+                port = port,
+                container = %container_name,
+                error = %e,
+                "ramalama serve failed to start; killing subprocess and removing container"
+            );
+            let _ = child.kill().await;
+            let _ = child.wait().await;
+            self.remove_container(&container_name).await;
+            return Err(e);
+        }
 
         tracing::info!(
             port = port,
             model = %self.model_config,
+            served_model_id = ?served_model_id,
             "RamaLama server started at http://127.0.0.1:{port}/v1"
         );
         *self.child.lock().unwrap() = Some(child);
         *self.port.lock().unwrap() = Some(port);
+        *self.container_name.lock().unwrap() = Some(container_name);
+        *self.served_model_id.lock().unwrap() = served_model_id;
         Ok(())
     }
 
-    /// Poll the OpenAI-compatible health endpoint until the server responds.
+    /// Resolve the user-entered model name to a model reference that
+    /// `ramalama serve` accepts. Short names (e.g. `phi4-mini`) are mapped to
+    /// the ollama library ref; already-qualified refs pass through unchanged.
+    fn resolve_model_ref(&self) -> String {
+        if self.model_config.contains("://") || self.model_config.starts_with("library/") {
+            self.model_config.clone()
+        } else {
+            format!("ollama://library/{}:latest", self.model_config)
+        }
+    }
+
+    /// Query `/v1/models` and resolve the model id the server actually serves
+    /// (e.g. `library/phi4-mini`). The llama.cpp backend exposes the full ref
+    /// slug rather than the user-entered short name.
+    async fn resolve_served_model_id(&self, port: u16) -> Option<String> {
+        let client = reqwest::Client::builder()
+            .timeout(Duration::from_secs(5))
+            .build()
+            .ok()?;
+        let resp = client
+            .get(format!("http://127.0.0.1:{port}/v1/models"))
+            .send()
+            .await
+            .ok()?;
+        if !resp.status().is_success() {
+            return None;
+        }
+        let json: serde_json::Value = resp.json().await.ok()?;
+        let ids: Vec<String> = json["data"]
+            .as_array()?
+            .iter()
+            .filter_map(|m| m["id"].as_str().map(String::from))
+            .collect();
+        // Prefer a model whose id matches the configured name; fall back to the
+        // first served model.
+        ids.iter()
+            .find(|id| id.contains(&self.model_config))
+            .or_else(|| ids.first())
+            .cloned()
+    }
+
+    /// Remove the named ramalama container. Killing the `ramalama serve` CLI
+    /// alone orphans the container, so teardown targets it by name (following
+    /// the AGENTS.md "kill precisely by named container" rule). `docker rm -f`
+    /// is synchronous and deterministic; `ramalama stop` (which also handles
+    /// podman engines) is the fallback.
+    async fn remove_container(&self, container_name: &str) {
+        let docker_rm = tokio::process::Command::new("docker")
+            .args(["rm", "-f", container_name])
+            .stdout(Stdio::null())
+            .stderr(Stdio::null())
+            .status()
+            .await;
+        if let Ok(status) = docker_rm {
+            if status.success() {
+                return;
+            }
+        }
+        let _ = tokio::process::Command::new("ramalama")
+            .args(["stop", container_name])
+            .stdout(Stdio::null())
+            .stderr(Stdio::null())
+            .status()
+            .await;
+    }
+
+    /// Poll the llama.cpp health endpoint until the server responds.
+    ///
+    /// ramalama 0.23's llama.cpp backend returns 404 for the Ollama-style
+    /// `/api/tags`; `/health` and `/v1/models` both respond 200. Poll
+    /// `/v1/models` (which also serves as the model-discovery endpoint) so the
+    /// readiness signal matches what the OpenAI-compatible adapter will hit.
     /// Follows the `rauthy::wait_until_healthy()` pattern, with the added
     /// check that the subprocess has not exited prematurely.
     async fn wait_for_health(
@@ -158,7 +276,7 @@ impl RamalamaProvider {
             }
 
             match client
-                .get(format!("http://127.0.0.1:{port}/api/tags"))
+                .get(format!("http://127.0.0.1:{port}/v1/models"))
                 .send()
                 .await
             {
@@ -170,13 +288,27 @@ impl RamalamaProvider {
 
     /// Generate the on-the-fly OpenAI-compatible provider snippet pointing at
     /// the ramalama server.
+    ///
+    /// The provider must be declared as a custom `@ai-sdk/openai-compatible`
+    /// provider (per opencode's docs) with `options.baseURL` and a `models`
+    /// map keyed by the served model id — otherwise opencode cannot route the
+    /// prompt and returns a 500.
     fn build_opencode_provider_snippet(&self) -> Result<String, ProviderError> {
         let port = self.port.lock().unwrap().ok_or(ProviderError::NotStarted)?;
+        let served_model_id = self.prompt_model_id();
         let snippet = serde_json::json!({
             "provider": {
                 PROVIDER_ID: {
-                    "apiKey": "none",
-                    "baseUrl": format!("http://127.0.0.1:{port}/v1")
+                    "npm": "@ai-sdk/openai-compatible",
+                    "name": "RamaLama (local)",
+                    "options": {
+                        "baseURL": format!("http://127.0.0.1:{port}/v1")
+                    },
+                    "models": {
+                        &served_model_id: {
+                            "name": self.model_config
+                        }
+                    }
                 }
             }
         });
@@ -217,12 +349,24 @@ impl RamalamaProvider {
         Ok((client, server))
     }
 
-    fn build_prompt_body(&self, prompt: &str, model: &str) -> PromptBody {
+    /// The model id to send in prompts: the served id reported by `/v1/models`
+    /// when available (llama.cpp exposes full refs like `library/phi4-mini`),
+    /// falling back to the user-entered name.
+    fn prompt_model_id(&self) -> String {
+        self.served_model_id
+            .lock()
+            .unwrap()
+            .clone()
+            .unwrap_or_else(|| self.model_config.clone())
+    }
+
+    fn build_prompt_body(&self, prompt: &str) -> PromptBody {
+        let model_id = self.prompt_model_id();
         PromptBody {
             message_id: None,
             model: Some(ModelRef {
                 provider_id: PROVIDER_ID.into(),
-                model_id: model.to_string(),
+                model_id,
             }),
             agent: None,
             no_reply: None,
@@ -355,7 +499,7 @@ impl LlmProvider for RamalamaProvider {
         // fire immediately when the prompt is queued on the server.
         let rx = self.subscribe_and_spawn(&client, &session.id).await?;
 
-        let body = self.build_prompt_body(&input.prompt, &self.model_config);
+        let body = self.build_prompt_body(&input.prompt);
         client
             .session
             .prompt_async(&session.id, &body)
@@ -397,7 +541,7 @@ impl LlmProvider for RamalamaProvider {
         // that fire immediately when the prompt is queued on the server.
         let rx = self.subscribe_and_spawn(&client, &session_id).await?;
 
-        let body = self.build_prompt_body(&prompt, &self.model_config);
+        let body = self.build_prompt_body(&prompt);
         client
             .session
             .prompt_async(&session_id, &body)
@@ -420,12 +564,12 @@ impl LlmProvider for RamalamaProvider {
         Ok(())
     }
 
-    async fn one_shot_prompt(&self, prompt: &str, model: &str) -> Result<String, ProviderError> {
+    async fn one_shot_prompt(&self, prompt: &str, _model: &str) -> Result<String, ProviderError> {
         self.ensure_started().await?;
         let (client, mut server) = self.spawn_transient_server().await?;
 
         let config = opencode_sdk::conversation::OneShotConfig {
-            model: model.to_string(),
+            model: self.prompt_model_id(),
             provider_id: PROVIDER_ID.into(),
             ..Default::default()
         };
@@ -449,7 +593,16 @@ impl LlmProvider for RamalamaProvider {
             let _ = child.kill().await;
             let _ = child.wait().await;
         }
+
+        // Killing the CLI alone orphans the docker/podman container; remove it
+        // precisely by the name we assigned.
+        let container_name = self.container_name.lock().unwrap().take();
+        if let Some(name) = container_name {
+            self.remove_container(&name).await;
+        }
+
         *self.port.lock().unwrap() = None;
+        *self.served_model_id.lock().unwrap() = None;
 
         // Dropping the transient opencode server kills its subprocess.
         *self.server.lock().unwrap() = None;
@@ -463,7 +616,22 @@ impl Drop for RamalamaProvider {
     fn drop(&mut self) {
         // Belt-and-suspenders: `start_kill()` is synchronous and cannot reap,
         // so the SIGKILLed child is reaped by init on this short-lived
-        // subprocess. `shutdown()` is the authoritative teardown path.
+        // subprocess. `shutdown()` is the authoritative teardown path. The
+        // container is removed by name synchronously (fire-and-forget).
+        if let Some(container_name) = self.container_name.lock().unwrap().take() {
+            let removed = std::process::Command::new("docker")
+                .args(["rm", "-f", &container_name])
+                .stdout(Stdio::null())
+                .stderr(Stdio::null())
+                .status();
+            if !matches!(removed, Ok(status) if status.success()) {
+                let _ = std::process::Command::new("ramalama")
+                    .args(["stop", &container_name])
+                    .stdout(Stdio::null())
+                    .stderr(Stdio::null())
+                    .status();
+            }
+        }
         if let Some(mut child) = self.child.lock().unwrap().take() {
             let _ = child.start_kill();
         }
@@ -490,6 +658,8 @@ mod tests {
             log_data: false,
             child: Mutex::new(None),
             port: Mutex::new(port),
+            container_name: Mutex::new(None),
+            served_model_id: Mutex::new(None),
             client: Mutex::new(None),
             server: Mutex::new(None),
             session_id: Mutex::new(None),
@@ -503,10 +673,17 @@ mod tests {
         let provider = test_provider(Some(12345));
         let snippet = provider.build_opencode_provider_snippet().unwrap();
         let v: serde_json::Value = serde_json::from_str(&snippet).unwrap();
-        assert_eq!(v["provider"]["openai-compatible"]["apiKey"], "none");
         assert_eq!(
-            v["provider"]["openai-compatible"]["baseUrl"],
+            v["provider"]["openai-compatible"]["npm"],
+            "@ai-sdk/openai-compatible"
+        );
+        assert_eq!(
+            v["provider"]["openai-compatible"]["options"]["baseURL"],
             "http://127.0.0.1:12345/v1"
+        );
+        assert_eq!(
+            v["provider"]["openai-compatible"]["models"]["phi4-mini"]["name"],
+            "phi4-mini"
         );
     }
 
@@ -525,7 +702,7 @@ mod tests {
         let snippet = provider.build_opencode_provider_snippet().unwrap();
         let config = provider.build_server_config(&snippet);
         assert_eq!(
-            config["provider"]["openai-compatible"]["baseUrl"],
+            config["provider"]["openai-compatible"]["options"]["baseURL"],
             "http://127.0.0.1:12345/v1"
         );
         assert_eq!(config["permission"]["bash"], "allow");
@@ -542,5 +719,119 @@ mod tests {
         let provider = test_provider(None);
         let models = provider.get_models_list().await.unwrap();
         assert_eq!(models, vec!["phi4-mini"]);
+    }
+
+    #[test]
+    fn test_resolve_model_ref_short_name() {
+        let provider = test_provider(None);
+        assert_eq!(
+            provider.resolve_model_ref(),
+            "ollama://library/phi4-mini:latest"
+        );
+    }
+
+    #[test]
+    fn test_resolve_model_ref_qualified_passthrough() {
+        let mut provider = test_provider(None);
+        provider.model_config = "ollama://library/phi4-mini:latest".into();
+        assert_eq!(
+            provider.resolve_model_ref(),
+            "ollama://library/phi4-mini:latest"
+        );
+
+        let mut provider = test_provider(None);
+        provider.model_config = "library/phi4-mini".into();
+        assert_eq!(provider.resolve_model_ref(), "library/phi4-mini");
+    }
+
+    #[test]
+    fn test_prompt_model_id_prefers_served_id() {
+        let provider = test_provider(None);
+        *provider.served_model_id.lock().unwrap() = Some("library/phi4-mini".into());
+        assert_eq!(provider.prompt_model_id(), "library/phi4-mini");
+
+        let provider = test_provider(None);
+        assert_eq!(provider.prompt_model_id(), "phi4-mini");
+    }
+
+    #[test]
+    fn test_build_prompt_body_uses_served_model_id() {
+        let provider = test_provider(None);
+        *provider.served_model_id.lock().unwrap() = Some("library/phi4-mini".into());
+        let body = provider.build_prompt_body("hello");
+        assert_eq!(body.model.unwrap().model_id, "library/phi4-mini");
+    }
+
+    #[test]
+    fn test_container_name_prefixed() {
+        assert_eq!(format!("{CONTAINER_PREFIX}38001"), "ofm-ramalama-38001");
+    }
+
+    /// End-to-end lifecycle test against a real `ramalama serve` + docker.
+    /// Skipped when ramalama is not on PATH. Verifies:
+    /// 1. `ensure_started()` spawns the CLI and waits for health on
+    ///    `/v1/models` (not the Ollama-only `/api/tags`).
+    /// 2. The served model id is resolved to the llama.cpp slug.
+    /// 3. `shutdown()` kills the CLI and removes the named container.
+    #[tokio::test]
+    #[ignore = "requires ramalama CLI + docker"]
+    async fn test_real_ramalama_lifecycle() {
+        let probe = std::process::Command::new("ramalama").output();
+        if probe.is_err() {
+            eprintln!("skipping: ramalama not on PATH");
+            return;
+        }
+
+        let provider = test_provider(None);
+        provider.ensure_started().await.expect("ensure_started");
+
+        let port = provider.port.lock().unwrap().expect("port set");
+        let served = provider.served_model_id.lock().unwrap().clone();
+        tracing::info!(port, served = ?served, "lifecycle test server up");
+        assert!(
+            served.is_some(),
+            "expected served model id resolved from /v1/models"
+        );
+
+        // Health check: /v1/models should respond (the fix for issue #1).
+        let resp = reqwest::Client::new()
+            .get(format!("http://127.0.0.1:{port}/v1/models"))
+            .send()
+            .await
+            .expect("health request");
+        assert!(resp.status().is_success(), "health endpoint should be 200");
+
+        // One-shot through the transient opencode server.
+        let one_shot = provider
+            .one_shot_prompt("Reply with the single word: pineapple", "phi4-mini")
+            .await;
+        tracing::info!(one_shot = ?one_shot, "lifecycle test one_shot result");
+        assert!(
+            one_shot.is_ok(),
+            "one_shot_prompt should succeed: {one_shot:?}"
+        );
+
+        // Teardown must remove the container.
+        let container = provider.container_name.lock().unwrap().clone();
+        let mut provider = provider;
+        provider.shutdown().await.expect("shutdown");
+        if let Some(name) = container {
+            let output = std::process::Command::new("docker")
+                .args([
+                    "ps",
+                    "-a",
+                    "--filter",
+                    &format!("name={name}"),
+                    "--format",
+                    "{{.Names}}",
+                ])
+                .output()
+                .expect("docker ps");
+            let names = String::from_utf8_lossy(&output.stdout);
+            assert!(
+                !names.contains(&name),
+                "container '{name}' should be removed after shutdown, got: {names}"
+            );
+        }
     }
 }
