@@ -99,6 +99,14 @@ dependency
 - Requests to `/` or `/webapp` are for the `ofm` web application
   - specifically: requests to `/` will redirect to `/webapp`
   - all web routes, assets/content, etc lives under `/webapp`
+  - the settings area is split into freestanding pages under `/webapp/settings`:
+    `/webapp/settings` (alias → Providers & Agents landing),
+    `/webapp/settings/providers-agents/*`, `/webapp/settings/import-export/*`, and
+    `/webapp/settings/account/*`. Each 2nd-level route renders a Bulma `.menu`
+    sidebar of section sub-pages plus a content pane (see `src/webapp/pages/settings/`
+    and `src/webapp/components/settings_sidebar.rs`); the navbar exposes a combined
+    "Settings" split-button dropdown (`src/webapp/components/settings_dropdown.rs`)
+    replacing the former separate User Config and Settings buttons
 - Requests against `/api` are for the `ofm` `axum` backend server,
 which responds to user requests, oversees filesystem actions,
 spawns `pty`s, maintains database state, and so on
@@ -131,7 +139,11 @@ Point a coding agent at this file and say "build this." Then:
    `src/agents/implementation.rs` (implementation prompt),
    `src/agents/review.rs` (review prompt),
    `src/agents/pull_request.rs` (PR prompt).
-   The web application lives at `src/webapp/` (Leptos SSR + islands).
+    The web application lives at `src/webapp/` (Leptos SSR + islands). The settings
+    UI lives at `src/webapp/pages/settings/` (per-section modules `providers_agents.rs`,
+    `import_export.rs`, `account.rs`) with a shared section-local sidebar in
+    `src/webapp/components/settings_sidebar.rs` and a navbar split-button dropdown in
+    `src/webapp/components/settings_dropdown.rs`.
     CRUD service logic lives at `src/services/` (auth, projects, tasks, settings, export_import).
    Authentication and OAuth middleware lives at `src/auth/`.
 3. Implement whichever [`extra/`](./extra) features you want. These are

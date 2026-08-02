@@ -313,7 +313,16 @@ See the reference implementation: `reference/server/services/userApiKey.ts`
 `revokeApiKey`) and `reference/server/routes/account.ts`.
 
 **Note:** The `ofm` Rust implementation exists at `src/auth/api_key.rs` and
-`src/server/routes/auth.rs` (generate/revoke handlers).
+`src/server/routes/auth.rs` (generate/revoke handlers). The per-user API-key UI
+lives at `/webapp/settings/account/api-keys` (Account settings page, module
+`src/webapp/pages/settings/account.rs`).
+
+> **FIXME (endpoint mismatch):** the spec above documents `POST/GET/DELETE
+> /api/account/api-key`, but the `ofm` implementation exposes these on
+> `/api/auth/api-key`. The generate/revoke/copy UI at
+> `/webapp/settings/account/api-keys` calls `/api/auth/api-key`. A human pass
+> should reconcile the spec citation with the implemented route (or move the
+> route to `/api/account/api-key`).
 
 ## The auth middleware — JWKS-based token verification
 

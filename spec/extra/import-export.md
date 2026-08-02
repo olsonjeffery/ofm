@@ -1,16 +1,19 @@
-# Extra — Import / Export Settings Tabs
+# Extra — Import / Export Settings Page
 
-> **Implementation status:** ✅ Implemented (`src/services/export_import.rs`, `src/server/routes/settings.rs`, `src/webapp/pages/settings.rs`)
+> **Implementation status:** ✅ Implemented (`src/services/export_import.rs`, `src/server/routes/settings.rs`, `src/webapp/pages/settings/import_export.rs`)
 
 ## What it adds
 
-Two new tabs in the Settings page — **Export** and **Import** — that let users
+A dedicated **Import/Export** settings page at `/webapp/settings/import-export` with
+two sidebar sub-pages — **Export** (landing) and **Import** — that let users
 download project+task data as JSON and re-import it into the same or a
-different OFM instance.
+different OFM instance. Previously these were tabs inside the single
+`/webapp/settings` page; the settings area is now split into sidebar sub-pages
+under `/webapp/settings/*` (see `src/webapp/components/settings_sidebar.rs`).
 
 ## Export
 
-The Export tab lists all projects with checkboxes. The user selects which
+The Export sub-page lists all projects with checkboxes. The user selects which
 projects to include and clicks "Export Selected". A JSON file is downloaded
 with the following structure:
 
@@ -31,7 +34,7 @@ rows are exported.
 
 ## Import
 
-The Import tab provides a file upload form for JSON files. The import flow
+The Import sub-page provides a file upload form for JSON files. The import flow
 has two phases:
 
 1. **Preview** (`POST /api/settings/import/preview`): Parses the uploaded JSON,

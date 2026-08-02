@@ -39,18 +39,7 @@ pub fn Navbar(
                                 <span class="icon is-small"><i class="mdi mdi-account"></i></span>
                                 <span>{username}</span>
                             </span>
-                            <div class="navbar-item">
-                                <a href="/webapp/onboarding" class="button is-white is-small">
-                                    <span class="icon is-small"><i class="mdi mdi-account-cog"></i></span>
-                                    <span>"User Config"</span>
-                                </a>
-                            </div>
-                            <div class="navbar-item">
-                                <a href="/webapp/settings" class="button is-white is-small">
-                                    <span class="icon is-small"><i class="mdi mdi-cog"></i></span>
-                                    <span>"Settings"</span>
-                                </a>
-                            </div>
+                            <crate::webapp::components::settings_dropdown::SettingsDropdown />
                             <div class="navbar-item">
                                 <form action="/api/auth/logout" method="post" id="logout-form">
                                     <button type="submit" class="button is-primary is-light is-small">
@@ -117,6 +106,13 @@ mod tests {
         assert!(html.contains("mdi-logout"));
         assert!(html.contains("mdi-cog"));
         assert!(html.contains("mdi-account"));
+        assert!(html.contains("mdi-arrow-down-bold"));
+        assert!(html.contains("/webapp/settings"));
+        assert!(html.contains("/webapp/settings/providers-agents"));
+        assert!(html.contains("/webapp/settings/import-export"));
+        assert!(html.contains("/webapp/settings/account"));
+        assert!(html.contains("settings-dropdown-trigger"));
+        assert!(!html.contains("User Config"));
     }
 
     #[test]

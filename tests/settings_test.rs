@@ -556,7 +556,8 @@ async fn test_settings_page_renders() {
     assert!(body.contains("Settings"));
     assert!(body.contains("Model Configurations"));
     assert!(body.contains("Agent Settings"));
-    assert!(body.contains("API Keys"));
+    assert!(body.contains(r#"<aside class="menu">"#));
+    assert!(!body.contains("API Keys"));
 }
 
 #[tokio::test]

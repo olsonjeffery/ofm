@@ -314,6 +314,9 @@ All webapp UI follows the Islands Architecture pattern:
 ### UI Components
 
 - **Breadcrumbs**: Shared breadcrumb navigation system. `BreadcrumbItem` data struct holds `title`, `icon`, and `path`. A `breadcrumb_registry` module centralizes canonical breadcrumb definitions (e.g., `all_projects()`, `project()`, `task()`, `chat()`, `settings()`). The `Breadcrumbs` Leptos component renders Bulma `<nav class="breadcrumb">` markup. Breadcrumbs flow from page handler -> `render_shell()` -> `ShellPage` -> `Navbar`, appearing immediately after the WS status indicator in the navbar-start div.
+- **SettingsDropdown** (`src/webapp/components/settings_dropdown.rs`): navbar split-button (label -> `/webapp/settings`, arrow toggles a one-level menu listing Providers & Agents, Import/Export, Account). Replaced the former separate User Config and Settings navbar buttons.
+- **SettingsSidebar** (`src/webapp/components/settings_sidebar.rs`): section-local Bulma `.menu` sidebar. Defines the `SettingsSection`/`SettingsSubPage` enums and renders exactly one `is-active` link matching the active sub-page.
+- **Settings pages** (`src/webapp/pages/settings/`): freestanding pages under `/webapp/settings/*`, each a sidebar + content pane. `providers_agents.rs` (Model Configurations landing + Agent Settings), `import_export.rs` (Export landing + Import), `account.rs` (User Config landing, reuses `OnboardingForm`, + API Keys). `/webapp/settings` is kept as an alias for the Providers & Agents landing. The old tab-switching JS in `pages/settings.rs` was split into per-sub-page scripts (each self-contained, rendered only with its pane).
 
 ## Agent Prompt Pipeline
 

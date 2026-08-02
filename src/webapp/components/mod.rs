@@ -11,4 +11,6 @@ pub mod markdown_viewer;
 pub mod message_stream;
 pub mod navbar;
 pub mod project_card;
+pub mod settings_dropdown;
+pub mod settings_sidebar;
 pub mod task_card;
