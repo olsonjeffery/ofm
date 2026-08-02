@@ -25,7 +25,7 @@ use crate::services;
 use crate::services::{session, transcript};
 use crate::webapp::components::breadcrumb::{breadcrumb_registry, BreadcrumbItem};
 use crate::webapp::components::project_card::TaskCounts;
-use crate::webapp::components::settings_sidebar::SettingsSubPage;
+use crate::webapp::components::settings_sidebar::{SettingsSection, SettingsSubPage};
 use crate::webapp::components::task_card::TaskCardData;
 
 async fn active_agents(db: &hiqlite::Client, user_id: &Uuid) -> Vec<ActiveAgent> {
@@ -199,12 +199,20 @@ async fn resolve_user_id_from_session(db: &hiqlite::Client, session_id: Uuid) ->
     Some(session_db.user_id)
 }
 
-async fn render_settings(state: &AppState, auth: &AuthUser, body: String) -> Html<String> {
+async fn render_settings(
+    state: &AppState,
+    auth: &AuthUser,
+    section: SettingsSection,
+    sub_page: SettingsSubPage,
+    body: String,
+) -> Html<String> {
     let user_json = serde_json::to_string(auth).unwrap_or_default();
     let agents = active_agents(&state.db, &auth.user_id).await;
     let breadcrumbs = vec![
         breadcrumb_registry::all_projects(),
         breadcrumb_registry::settings(),
+        breadcrumb_registry::settings_section(section),
+        breadcrumb_registry::settings_sub_page(sub_page),
     ];
     Html(render_shell(&body, Some(user_json), breadcrumbs, agents))
 }
@@ -213,6 +221,8 @@ async fn settings_handler(auth: AuthUser, State(state): State<AppState>) -> Html
     render_settings(
         &state,
         &auth,
+        SettingsSection::ProvidersAgents,
+        SettingsSubPage::ModelConfig,
         pages::settings::providers_agents::render(SettingsSubPage::ModelConfig),
     )
     .await
@@ -222,6 +232,8 @@ async fn settings_providers_handler(auth: AuthUser, State(state): State<AppState
     render_settings(
         &state,
         &auth,
+        SettingsSection::ProvidersAgents,
+        SettingsSubPage::ModelConfig,
         pages::settings::providers_agents::render(SettingsSubPage::ModelConfig),
     )
     .await
@@ -234,6 +246,8 @@ async fn settings_agent_settings_handler(
     render_settings(
         &state,
         &auth,
+        SettingsSection::ProvidersAgents,
+        SettingsSubPage::AgentSettings,
         pages::settings::providers_agents::render(SettingsSubPage::AgentSettings),
     )
     .await
@@ -246,6 +260,8 @@ async fn settings_import_export_handler(
     render_settings(
         &state,
         &auth,
+        SettingsSection::ImportExport,
+        SettingsSubPage::Export,
         pages::settings::import_export::render(SettingsSubPage::Export),
     )
     .await
@@ -255,6 +271,8 @@ async fn settings_import_handler(auth: AuthUser, State(state): State<AppState>) 
     render_settings(
         &state,
         &auth,
+        SettingsSection::ImportExport,
+        SettingsSubPage::Import,
         pages::settings::import_export::render(SettingsSubPage::Import),
     )
     .await
@@ -275,6 +293,8 @@ async fn settings_account_handler(auth: AuthUser, State(state): State<AppState>)
     render_settings(
         &state,
         &auth,
+        SettingsSection::Account,
+        SettingsSubPage::UserConfig,
         pages::settings::account::render(
             SettingsSubPage::UserConfig,
             user.git_name.unwrap_or_default(),
@@ -300,6 +320,8 @@ async fn settings_api_keys_handler(auth: AuthUser, State(state): State<AppState>
     render_settings(
         &state,
         &auth,
+        SettingsSection::Account,
+        SettingsSubPage::ApiKeys,
         pages::settings::account::render(
             SettingsSubPage::ApiKeys,
             user.git_name.unwrap_or_default(),

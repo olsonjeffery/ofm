@@ -106,7 +106,12 @@ dependency
     sidebar of section sub-pages plus a content pane (see `src/webapp/pages/settings/`
     and `src/webapp/components/settings_sidebar.rs`); the navbar exposes a combined
     "Settings" split-button dropdown (`src/webapp/components/settings_dropdown.rs`)
-    replacing the former separate User Config and Settings buttons
+    replacing the former separate User Config and Settings buttons. Both the label
+    and the arrow buttons toggle the one-level menu (the label no longer navigates
+    directly). Settings pages show breadcrumbs down to the active section and
+    sub-page (e.g. All Projects → Settings → Providers & Agents → Model
+    Configurations) via `breadcrumb_registry::settings_section` /
+    `settings_sub_page`.
 - Requests against `/api` are for the `ofm` `axum` backend server,
 which responds to user requests, oversees filesystem actions,
 spawns `pty`s, maintains database state, and so on

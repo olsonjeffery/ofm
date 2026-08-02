@@ -7,14 +7,15 @@ pub fn SettingsDropdown() -> impl IntoView {
             <div class="dropdown" id="settings-dropdown">
                 <div class="dropdown-trigger">
                     <div class="buttons has-addons">
-                        <a
-                            href="/webapp/settings"
+                        <button
                             class="button is-white is-small"
                             id="settings-dropdown-label"
+                            aria-haspopup="true"
+                            aria-controls="settings-dropdown-menu"
                         >
                             <span class="icon is-small"><i class="mdi mdi-cog"></i></span>
                             <span>"Settings"</span>
-                        </a>
+                        </button>
                         <button
                             class="button is-white is-small"
                             id="settings-dropdown-trigger"
@@ -46,12 +47,17 @@ pub fn SettingsDropdown() -> impl IntoView {
         <script>
             {r#"(function(){
                 var dd = document.getElementById('settings-dropdown');
+                var label = document.getElementById('settings-dropdown-label');
                 var trigger = document.getElementById('settings-dropdown-trigger');
+                function toggle(ev) {
+                    ev.stopPropagation();
+                    dd.classList.toggle('is-active');
+                }
+                if (label) {
+                    label.addEventListener('click', toggle);
+                }
                 if (trigger) {
-                    trigger.addEventListener('click', function(ev) {
-                        ev.stopPropagation();
-                        dd.classList.toggle('is-active');
-                    });
+                    trigger.addEventListener('click', toggle);
                 }
                 document.addEventListener('click', function(ev) {
                     if (dd && !dd.contains(ev.target)) {

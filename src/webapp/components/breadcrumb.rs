@@ -28,6 +28,7 @@ pub fn title_truncate(in_str: &str) -> String {
 
 pub mod breadcrumb_registry {
     use super::{title_truncate, BreadcrumbItem};
+    use crate::webapp::components::settings_sidebar::{SettingsSection, SettingsSubPage};
 
     pub fn all_projects() -> BreadcrumbItem {
         BreadcrumbItem::new("All Projects", "home", "/webapp")
@@ -74,6 +75,53 @@ pub mod breadcrumb_registry {
     pub fn settings() -> BreadcrumbItem {
         BreadcrumbItem::new("Settings", "cog", "/webapp/settings")
     }
+
+    pub fn settings_section(section: SettingsSection) -> BreadcrumbItem {
+        let (title, icon, path) = match section {
+            SettingsSection::ProvidersAgents => (
+                "Providers & Agents",
+                "cog-outline",
+                "/webapp/settings/providers-agents",
+            ),
+            SettingsSection::ImportExport => (
+                "Import/Export",
+                "export-variant",
+                "/webapp/settings/import-export",
+            ),
+            SettingsSection::Account => ("Account", "account-cog", "/webapp/settings/account"),
+        };
+        BreadcrumbItem::new(title, icon, path)
+    }
+
+    pub fn settings_sub_page(sub_page: SettingsSubPage) -> BreadcrumbItem {
+        let (title, icon, path) = match sub_page {
+            SettingsSubPage::ModelConfig => (
+                "Model Configurations",
+                "cog",
+                "/webapp/settings/providers-agents/model-config",
+            ),
+            SettingsSubPage::AgentSettings => (
+                "Agent Settings",
+                "account-tie",
+                "/webapp/settings/providers-agents/agent-settings",
+            ),
+            SettingsSubPage::Export => (
+                "Export",
+                "export-variant",
+                "/webapp/settings/import-export/export",
+            ),
+            SettingsSubPage::Import => {
+                ("Import", "import", "/webapp/settings/import-export/import")
+            }
+            SettingsSubPage::UserConfig => (
+                "User Config",
+                "account-cog",
+                "/webapp/settings/account/user-config",
+            ),
+            SettingsSubPage::ApiKeys => ("API Keys", "key", "/webapp/settings/account/api-keys"),
+        };
+        BreadcrumbItem::new(title, icon, path)
+    }
 }
 
 #[component]
@@ -105,6 +153,7 @@ pub fn Breadcrumbs(breadcrumbs: Vec<BreadcrumbItem>) -> impl IntoView {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::webapp::components::settings_sidebar::{SettingsSection, SettingsSubPage};
 
     #[test]
     fn test_breadcrumb_item_new() {
@@ -152,6 +201,77 @@ mod tests {
         assert_eq!(item.title, "Settings");
         assert_eq!(item.icon, "cog");
         assert_eq!(item.path, "/webapp/settings");
+    }
+
+    #[test]
+    fn test_registry_settings_section() {
+        let cases = [
+            (
+                SettingsSection::ProvidersAgents,
+                "Providers & Agents",
+                "cog-outline",
+                "/webapp/settings/providers-agents",
+            ),
+            (
+                SettingsSection::ImportExport,
+                "Import/Export",
+                "export-variant",
+                "/webapp/settings/import-export",
+            ),
+            (
+                SettingsSection::Account,
+                "Account",
+                "account-cog",
+                "/webapp/settings/account",
+            ),
+        ];
+        for (section, title, icon, path) in cases {
+            let item = breadcrumb_registry::settings_section(section);
+            assert_eq!(item.title, title);
+            assert_eq!(item.icon, icon);
+            assert_eq!(item.path, path);
+        }
+    }
+
+    #[test]
+    fn test_registry_settings_sub_page() {
+        let cases = [
+            (
+                SettingsSubPage::ModelConfig,
+                "Model Configurations",
+                "/webapp/settings/providers-agents/model-config",
+            ),
+            (
+                SettingsSubPage::AgentSettings,
+                "Agent Settings",
+                "/webapp/settings/providers-agents/agent-settings",
+            ),
+            (
+                SettingsSubPage::Export,
+                "Export",
+                "/webapp/settings/import-export/export",
+            ),
+            (
+                SettingsSubPage::Import,
+                "Import",
+                "/webapp/settings/import-export/import",
+            ),
+            (
+                SettingsSubPage::UserConfig,
+                "User Config",
+                "/webapp/settings/account/user-config",
+            ),
+            (
+                SettingsSubPage::ApiKeys,
+                "API Keys",
+                "/webapp/settings/account/api-keys",
+            ),
+        ];
+        for (sub_page, title, path) in cases {
+            let item = breadcrumb_registry::settings_sub_page(sub_page);
+            assert_eq!(item.title, title);
+            assert_eq!(item.path, path);
+        }
     }
 
     #[test]
