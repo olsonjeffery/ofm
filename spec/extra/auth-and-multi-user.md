@@ -198,12 +198,18 @@ Rauthy runs as a Docker container (`ghcr.io/sebadob/rauthy:latest`) managed by
   unique across worktree footprints.
 - The rauthy OIDC endpoints are reached **directly** at
   `http://{OFM_HOSTNAME}:{port}` — there is no `/auth` reverse proxy. The
-  container binds the configured `OFM_HOSTNAME` interface via
-  `-p {OFM_HOSTNAME}:{port}:8080`, and `PUB_URL` advertises the same hostname,
-  so the browser-facing authorization/token/userinfo referral URLs point at
-  the hostname `ofm` is reachable on (default `127.0.0.1`).
-- Health check: `GET /health` (via `http://{OFM_HOSTNAME}:{port}/health`) must
-  return 200 before `ofm` marks itself ready.
+  container always binds `0.0.0.0` via `-p 0.0.0.0:{port}:8080` (Docker only
+  accepts IP addresses for the host bind interface, and `OFM_HOSTNAME` may be a
+  non-IP hostname), while `PUB_URL={OFM_HOSTNAME}:{port}` makes rauthy
+  advertise the configured hostname, so the browser-facing
+  authorization/token/userinfo referral URLs point at the hostname `ofm` is
+  reachable on (default `127.0.0.1`). `pub_url` is a server config value, not
+  a bootstrap data file, so it is injected via the `PUB_URL` env var rather
+  than the bootstrap directory (which only parses `clients.json`/`users.json`
+  etc.).
+- Health check: `GET /health` (via `http://127.0.0.1:{port}/health` — loopback
+  reaches the `0.0.0.0`-published port regardless of `OFM_HOSTNAME`
+  resolvability) must return 200 before `ofm` marks itself ready.
 - On shutdown, `ofm` removes the container by name (`docker rm -f
   ofm-rauthy-<hash>`) in `RauthyInstance::Drop`, then kills the `docker run`
   CLI child. `--rm` alone is insufficient — killing the CLI client leaves the

@@ -106,10 +106,10 @@ spawns `pty`s, maintains database state, and so on
    - Start a Docker container (`ghcr.io/sebadob/rauthy:latest`) at a random port
    that differs from the configured `ofm` `OFM_PORT`, managed via
    `tokio::process::Command` (see `src/rauthy/mod.rs`)
-   - Bind the container to the configured `OFM_HOSTNAME` interface
-   (`-p {OFM_HOSTNAME}:{port}:8080`) and advertise `PUB_URL={OFM_HOSTNAME}:{port}`,
-   so rauthy's OIDC discovery metadata and referral URLs point at the hostname
-   `ofm` is reachable on
+   - Bind the container to `0.0.0.0` (`-p 0.0.0.0:{port}:8080`; Docker only
+   accepts IP addresses for the host bind interface) and advertise
+   `PUB_URL={OFM_HOSTNAME}:{port}`, so rauthy's OIDC discovery metadata and
+   referral URLs point at the hostname `ofm` is reachable on
    - Have the browser talk to the rauthy container **directly** on its
    published port — there is no `/auth` reverse proxy (see
    [`extra/auth-and-multi-user.md`](./extra/auth-and-multi-user.md))

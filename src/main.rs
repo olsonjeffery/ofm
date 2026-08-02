@@ -186,7 +186,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             .expect("just assigned")
             .container_name()
             .to_string();
-        rauthy::wait_until_healthy(&cfg.hostname, rp, &container_name).await?;
+        rauthy::wait_until_healthy(rp, &container_name).await?;
         tracing::info!("rauthy is healthy");
 
         let direct_base = format!("http://{}:{}", cfg.hostname, rp);

@@ -177,8 +177,14 @@ fn build_client_config(hostname: &str, proxy_port: u16) -> serde_json::Value {
 }
 
 /// `docker run` argument list for the rauthy container. Pure so the docker
-/// invocation can be unit-tested without running Docker. The `-p` binding and
-/// `PUB_URL` advertise the configured hostname interface.
+/// invocation can be unit-tested without running Docker.
+///
+/// The `-p` binding is always `0.0.0.0`: Docker only accepts IP addresses for
+/// the host bind interface, and `OFM_HOSTNAME` may be a non-IP hostname (e.g.
+/// `myhost.local`), which would make `docker run` fail at startup. Binding all
+/// interfaces still lets the browser reach rauthy via the configured hostname.
+/// `PUB_URL` advertises the configured hostname so rauthy's OIDC discovery and
+/// referral URLs point where `ofm` is actually reachable.
 fn build_docker_run_args(
     hostname: &str,
     port: u16,
@@ -196,7 +202,7 @@ fn build_docker_run_args(
         "-v".to_string(),
         format!("{}:/app/bootstrap", bootstrap_dir),
         "-p".to_string(),
-        format!("{hostname}:{port}:8080"),
+        format!("0.0.0.0:{port}:8080"),
     ];
     #[cfg(unix)]
     {
@@ -220,11 +226,13 @@ fn build_docker_run_args(
     args
 }
 
-pub async fn wait_until_healthy(
-    hostname: &str,
-    port: u16,
-    container_name: &str,
-) -> Result<(), BoxError> {
+/// Polls the container's `/health` endpoint until it reports healthy.
+///
+/// The probe uses loopback: the container's port is published on `0.0.0.0`, so
+/// `127.0.0.1` always reaches it regardless of whether `OFM_HOSTNAME` resolves
+/// on the host. `pub_url` (advertised via `PUB_URL`) is what the browser-facing
+/// URLs use, not the health probe.
+pub async fn wait_until_healthy(port: u16, container_name: &str) -> Result<(), BoxError> {
     let client = reqwest::Client::builder()
         .timeout(Duration::from_secs(5))
         .build()?;
@@ -251,7 +259,7 @@ pub async fn wait_until_healthy(
         }
 
         match client
-            .get(format!("http://{hostname}:{port}/health"))
+            .get(format!("http://127.0.0.1:{port}/health"))
             .send()
             .await
         {
@@ -354,8 +362,8 @@ mod tests {
         let joined = args.join(" ");
 
         assert!(
-            joined.contains("192.168.1.50:18080:8080"),
-            "docker -p should bind the configured hostname interface, got: {joined}"
+            joined.contains("0.0.0.0:18080:8080"),
+            "docker -p should always bind 0.0.0.0, got: {joined}"
         );
         assert!(
             joined.contains("PUB_URL=192.168.1.50:18080"),
@@ -368,6 +376,27 @@ mod tests {
         assert!(
             !joined.contains("127.0.0.1"),
             "docker args must not hardcode 127.0.0.1: {joined}"
+        );
+    }
+
+    #[test]
+    fn test_build_docker_run_args_binds_any_hostname() {
+        let args = super::build_docker_run_args(
+            "myhost.local",
+            18080,
+            "/fp/rauthy/data",
+            "/fp/rauthy/bootstrap",
+            "ofm-rauthy-abcdef0123456789",
+        );
+        let joined = args.join(" ");
+
+        assert!(
+            joined.contains("0.0.0.0:18080:8080"),
+            "docker -p must bind an IP (0.0.0.0) even for a non-IP hostname, got: {joined}"
+        );
+        assert!(
+            joined.contains("PUB_URL=myhost.local:18080"),
+            "PUB_URL should advertise the non-IP hostname, got: {joined}"
         );
     }
 }
