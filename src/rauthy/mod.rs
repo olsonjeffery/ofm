@@ -92,6 +92,7 @@ fn spawn_reader(reader: impl tokio::io::AsyncRead + Unpin + Send + 'static, labe
 
 pub async fn start_rauthy(
     footprint: &str,
+    hostname: &str,
     port: u16,
     proxy_port: u16,
 ) -> Result<RauthyInstance, BoxError> {
@@ -118,57 +119,20 @@ pub async fn start_rauthy(
 
     let bootstrap_dir = format!("{}/rauthy/bootstrap", footprint);
     std::fs::create_dir_all(&bootstrap_dir)?;
-    let client_config = serde_json::json!([{
-        "id": "ofm",
-        "name": "Ofm",
-        "enabled": true,
-        "redirect_uris": [
-            format!("http://127.0.0.1:{}/*", proxy_port),
-        ],
-        "post_logout_redirect_uris": [
-            format!("http://127.0.0.1:{}/*", proxy_port),
-        ],
-        "flows_enabled": ["authorization_code", "refresh_token"],
-        "access_token_alg": "EdDSA",
-        "id_token_alg": "EdDSA",
-        "auth_code_lifetime": 300,
-        "access_token_lifetime": 1800,
-        "scopes": ["openid", "profile", "email"],
-        "default_scopes": ["openid", "profile", "email"],
-        "challenges": ["S256"],
-        "force_mfa": false,
-    }]);
+    let client_config = build_client_config(hostname, proxy_port);
     std::fs::write(
         format!("{}/clients.json", bootstrap_dir),
         serde_json::to_string_pretty(&client_config)?,
     )?;
 
     let mut cmd = Command::new("docker");
-    cmd.args(["run", "--rm", "--name", &name]);
-
-    cmd.arg("-v");
-    cmd.arg(format!("{}:/app/data", data_dir));
-    cmd.arg("-v");
-    cmd.arg(format!("{}:/app/bootstrap", bootstrap_dir));
-    cmd.arg("-p");
-    cmd.arg(format!("{}:8080", port));
-    #[cfg(unix)]
-    {
-        let (uid, gid) = host_uid_gid();
-        cmd.arg("--user");
-        cmd.arg(format!("{}:{}", uid, gid));
-    }
-    cmd.arg("-e");
-    cmd.arg(format!("PUB_URL=localhost:{}", port));
-    cmd.arg("-e");
-    cmd.arg("BOOTSTRAP_DIR=/app/bootstrap");
-    cmd.arg("-e");
-    cmd.arg("DISABLE_REFRESH_TOKEN_NBF=true");
-    cmd.arg("-e");
-    cmd.arg("LISTEN_SCHEME=http");
-    cmd.arg("-e");
-    cmd.arg("LOCAL_TEST=true");
-    cmd.arg(RAUTHY_IMAGE);
+    cmd.args(build_docker_run_args(
+        hostname,
+        port,
+        &data_dir,
+        &bootstrap_dir,
+        &name,
+    ));
 
     let mut child = cmd.stdout(Stdio::piped()).stderr(Stdio::piped()).spawn()?;
 
@@ -186,7 +150,81 @@ pub async fn start_rauthy(
     })
 }
 
-pub async fn wait_until_healthy(port: u16, container_name: &str) -> Result<(), BoxError> {
+/// Bootstrap `clients.json` for the rauthy container. The OAuth callback /
+/// logout targets must match where `ofm` is actually reachable, so they use
+/// the configured hostname rather than a hardcoded `localhost`/`127.0.0.1`.
+fn build_client_config(hostname: &str, proxy_port: u16) -> serde_json::Value {
+    serde_json::json!([{
+        "id": "ofm",
+        "name": "Ofm",
+        "enabled": true,
+        "redirect_uris": [
+            format!("http://{hostname}:{}/*", proxy_port),
+        ],
+        "post_logout_redirect_uris": [
+            format!("http://{hostname}:{}/*", proxy_port),
+        ],
+        "flows_enabled": ["authorization_code", "refresh_token"],
+        "access_token_alg": "EdDSA",
+        "id_token_alg": "EdDSA",
+        "auth_code_lifetime": 300,
+        "access_token_lifetime": 1800,
+        "scopes": ["openid", "profile", "email"],
+        "default_scopes": ["openid", "profile", "email"],
+        "challenges": ["S256"],
+        "force_mfa": false,
+    }])
+}
+
+/// `docker run` argument list for the rauthy container. Pure so the docker
+/// invocation can be unit-tested without running Docker. The `-p` binding and
+/// `PUB_URL` advertise the configured hostname interface.
+fn build_docker_run_args(
+    hostname: &str,
+    port: u16,
+    data_dir: &str,
+    bootstrap_dir: &str,
+    container_name: &str,
+) -> Vec<String> {
+    let mut args = vec![
+        "run".to_string(),
+        "--rm".to_string(),
+        "--name".to_string(),
+        container_name.to_string(),
+        "-v".to_string(),
+        format!("{}:/app/data", data_dir),
+        "-v".to_string(),
+        format!("{}:/app/bootstrap", bootstrap_dir),
+        "-p".to_string(),
+        format!("{hostname}:{port}:8080"),
+    ];
+    #[cfg(unix)]
+    {
+        let (uid, gid) = host_uid_gid();
+        args.push("--user".to_string());
+        args.push(format!("{}:{}", uid, gid));
+    }
+    args.extend([
+        "-e".to_string(),
+        format!("PUB_URL={hostname}:{port}"),
+        "-e".to_string(),
+        "BOOTSTRAP_DIR=/app/bootstrap".to_string(),
+        "-e".to_string(),
+        "DISABLE_REFRESH_TOKEN_NBF=true".to_string(),
+        "-e".to_string(),
+        "LISTEN_SCHEME=http".to_string(),
+        "-e".to_string(),
+        "LOCAL_TEST=true".to_string(),
+        RAUTHY_IMAGE.to_string(),
+    ]);
+    args
+}
+
+pub async fn wait_until_healthy(
+    hostname: &str,
+    port: u16,
+    container_name: &str,
+) -> Result<(), BoxError> {
     let client = reqwest::Client::builder()
         .timeout(Duration::from_secs(5))
         .build()?;
@@ -213,7 +251,7 @@ pub async fn wait_until_healthy(port: u16, container_name: &str) -> Result<(), B
         }
 
         match client
-            .get(format!("http://127.0.0.1:{}/health", port))
+            .get(format!("http://{hostname}:{port}/health"))
             .send()
             .await
         {
@@ -275,5 +313,61 @@ mod tests {
                 "suffix not hex in {name}"
             );
         }
+    }
+
+    #[test]
+    fn test_build_client_config_uses_hostname() {
+        let config = super::build_client_config("192.168.1.50", 3183);
+        let json = serde_json::to_string(&config).unwrap();
+
+        assert!(
+            json.contains(r#"http://192.168.1.50:3183/*"#),
+            "redirect_uris should use the configured hostname, got: {json}"
+        );
+        assert!(
+            !json.contains("127.0.0.1"),
+            "client config must not hardcode 127.0.0.1: {json}"
+        );
+        assert!(
+            !json.contains("localhost"),
+            "client config must not hardcode localhost: {json}"
+        );
+        assert_eq!(
+            config[0]["redirect_uris"][0].as_str(),
+            Some("http://192.168.1.50:3183/*")
+        );
+        assert_eq!(
+            config[0]["post_logout_redirect_uris"][0].as_str(),
+            Some("http://192.168.1.50:3183/*")
+        );
+    }
+
+    #[test]
+    fn test_build_docker_run_args_uses_hostname() {
+        let args = super::build_docker_run_args(
+            "192.168.1.50",
+            18080,
+            "/fp/rauthy/data",
+            "/fp/rauthy/bootstrap",
+            "ofm-rauthy-abcdef0123456789",
+        );
+        let joined = args.join(" ");
+
+        assert!(
+            joined.contains("192.168.1.50:18080:8080"),
+            "docker -p should bind the configured hostname interface, got: {joined}"
+        );
+        assert!(
+            joined.contains("PUB_URL=192.168.1.50:18080"),
+            "PUB_URL should advertise the configured hostname, got: {joined}"
+        );
+        assert!(
+            !joined.contains("localhost"),
+            "docker args must not hardcode localhost: {joined}"
+        );
+        assert!(
+            !joined.contains("127.0.0.1"),
+            "docker args must not hardcode 127.0.0.1: {joined}"
+        );
     }
 }

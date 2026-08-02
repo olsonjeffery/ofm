@@ -176,7 +176,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         };
 
         tracing::info!("Starting embedded rauthy on port {}", rp);
-        let instance = rauthy::start_rauthy(&cfg.footprint, rp, cfg.port).await?;
+        let instance = rauthy::start_rauthy(&cfg.footprint, &cfg.hostname, rp, cfg.port).await?;
         // Assign before any fallible step below (health check, OIDC
         // discovery, JWKS fetch) so every failure path triggers `Drop` →
         // `docker rm -f <container>` rather than leaking the container.
@@ -186,10 +186,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             .expect("just assigned")
             .container_name()
             .to_string();
-        rauthy::wait_until_healthy(rp, &container_name).await?;
+        rauthy::wait_until_healthy(&cfg.hostname, rp, &container_name).await?;
         tracing::info!("rauthy is healthy");
 
-        let direct_base = format!("http://127.0.0.1:{}", rp);
+        let direct_base = format!("http://{}:{}", cfg.hostname, rp);
         let discovery_url = format!("{}/.well-known/openid-configuration", direct_base);
         let disc: serde_json::Value = reqwest::get(&discovery_url).await?.json().await?;
         let issuer = disc["issuer"].as_str().ok_or("missing issuer")?.to_string();
@@ -200,12 +200,12 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             end_session_endpoint,
             userinfo_endpoint,
         ) = parse_oidc_discovery(&disc)?;
-        let redirect_uri = format!("http://127.0.0.1:{}/api/auth/callback", cfg.port);
+        let redirect_uri = format!("http://{}:{}/api/auth/callback", cfg.hostname, cfg.port);
         let client_id = cfg.oidc_client_id.clone().unwrap_or_else(|| "ofm".into());
 
         let jwks_disc_url = format!(
-            "http://127.0.0.1:{}/auth/v1/.well-known/openid-configuration",
-            rp
+            "http://{}:{}/auth/v1/.well-known/openid-configuration",
+            cfg.hostname, rp
         );
         let jwks_disc: serde_json::Value = reqwest::get(&jwks_disc_url).await?.json().await?;
         let jwks_uri = jwks_disc["jwks_uri"]

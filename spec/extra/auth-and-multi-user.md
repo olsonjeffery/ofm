@@ -67,7 +67,7 @@ The system supports two modes:
    every incoming Bearer token's JWT signature and claims locally. The leptos
    client runs the PKCE flow against the external provider.
 2. **Self-hosted rauthy** — `ofm` manages a rauthy instance via Docker
-   container, proxied at `/auth` through an axum reverse proxy, with an
+   container, reached directly on its published port, with an
    initial admin bootstrap flow.
 
 ### High-level flow
@@ -197,8 +197,12 @@ Rauthy runs as a Docker container (`ghcr.io/sebadob/rauthy:latest`) managed by
   (`ofm-rauthy-<hash>`), stable across restarts of the same footprint and
   unique across worktree footprints.
 - The rauthy OIDC endpoints are reached **directly** at
-  `http://127.0.0.1:{port}` — there is no `/auth` reverse proxy.
-- Health check: `GET /health` (via `http://127.0.0.1:{port}/health`) must
+  `http://{OFM_HOSTNAME}:{port}` — there is no `/auth` reverse proxy. The
+  container binds the configured `OFM_HOSTNAME` interface via
+  `-p {OFM_HOSTNAME}:{port}:8080`, and `PUB_URL` advertises the same hostname,
+  so the browser-facing authorization/token/userinfo referral URLs point at
+  the hostname `ofm` is reachable on (default `127.0.0.1`).
+- Health check: `GET /health` (via `http://{OFM_HOSTNAME}:{port}/health`) must
   return 200 before `ofm` marks itself ready.
 - On shutdown, `ofm` removes the container by name (`docker rm -f
   ofm-rauthy-<hash>`) in `RauthyInstance::Drop`, then kills the `docker run`

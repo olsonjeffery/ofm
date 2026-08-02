@@ -273,6 +273,11 @@ async fn task_detail_handler(
         .await
         .ok();
 
+    let worktree_missing = worktree
+        .as_ref()
+        .map(|w| !std::path::Path::new(&w.worktree_path).exists())
+        .unwrap_or(false);
+
     let doc_content = worktree.and_then(|w| {
         let archive =
             crate::archive::ArchiveRoot::new(std::path::PathBuf::from(&state.archive_root));
@@ -296,6 +301,7 @@ async fn task_detail_handler(
             task
             doc_content
             conversations=conversations
+            worktree_missing
             />
     }
     .to_html();

@@ -58,7 +58,7 @@ otherwise opaque to the ID format.
 
 Both archive and worktree paths use the same integer IDs directly:
 - **Archive paths**: `{archive_root}/projects/{project_id}/tasks/task-{task_id}.md`
-- **Worktree paths** (`src/worktree/mod.rs`): `{repo}-worktrees/project-{project_id}/task-{task_id}/`
+- **Worktree paths** (`get_worktree_path`, [`src/worktree/mod.rs`](../../src/worktree/mod.rs)): `{footprint}/worktrees/project-{project_id}/task-{task_id}/`
 - **Branch names**: `task/{task_id}-{sanitized-title}`
 
 **Security stance**: Integer IDs being sequentially guessable is NOT a concern.
@@ -93,8 +93,10 @@ decision. Do not revert to UUIDs.
 
 ## The worktree — the isolated workspace
 
-- **One git worktree per task**, at `{repo_folder_path}-worktrees/project-{projectId}/task-{taskId}/`
-  — a sibling directory, never inside the repo itself.
+- **One git worktree per task**, at `{footprint}/worktrees/project-{project_id}/task-{task_id}/`
+  (derived by `get_worktree_path`, [`src/worktree/mod.rs`](../../src/worktree/mod.rs); the canonical
+  path is stored in the `worktrees.worktree_path` column). It lives under the
+  per-user footprint, never inside the repo itself.
 - **Branch:** `task/{taskId}-{sanitized-title}`, cut from the repo's default
   branch (resolved via `origin/HEAD`, falling back to `main`/`master`).
 - **Why a worktree, not a checkout:** every task gets a real, independent working
@@ -112,6 +114,10 @@ decision. Do not revert to UUIDs.
   - **`ofm` ONLY:** On a per-project basis allow the User to configure
   zero-or-more additional files to copy/symlink from the repo to the worktree,
   as above
+- **Recreatable:** if the worktree directory is deleted (manual cleanup, a
+  force-pruned repo), the task detail page detects it and offers a
+  "Recreate worktree" button — see *Missing worktree detection & recreation*
+  below.
 - **Effective working directory:** an agent runs with `cwd` = the worktree
   project path if the worktree exists, else the repo path (with
   `subproject_path` appended for monorepos). This resolution is done in
@@ -125,6 +131,36 @@ decision. Do not revert to UUIDs.
   Merging the PR and cleaning up the worktree afterward is a separate action —
   see [`pull-request-agent.md`](./pull-request-agent.md). The pipeline never
   auto-deletes a worktree mid-flight.
+
+### Missing worktree detection & recreation
+
+A task's worktree directory can be deleted out from under `ofm` while the
+`worktrees` DB row (`worktree_path`, `branch`, `repo_path`) survives. The
+recreate flow re-attaches the worktree in place so the task's work (the branch
+HEAD) is preserved.
+
+- **Detection** at page render time: `task_detail_handler`
+  ([`src/webapp/mod.rs`](../../src/webapp/mod.rs)) stats the stored
+  `worktree_path`; when the row exists but the directory does not, it sets
+  `worktree_missing`. `TaskDetailPage`
+  ([`src/webapp/pages/task_detail.rs`](../../src/webapp/pages/task_detail.rs))
+  then renders a Bulma `notification is-primary is-light` banner directly under
+  the task title header with a **Recreate worktree** button
+  (`mdi-folder-plus-outline`).
+- **Recreation:** `POST /api/tasks/{id}/worktree/recreate`
+  (`recreate_worktree_handler`, [`src/server/routes/tasks.rs`](../../src/server/routes/tasks.rs))
+  calls `recreate_worktree` ([`src/worktree/mod.rs`](../../src/worktree/mod.rs)).
+  It is **idempotent** (a no-op if the directory already exists), prunes stale
+  git worktree registrations (the deleted directory leaves one behind),
+  re-attaches the stored `branch` if it still exists — preserving its HEAD —
+  and only if the branch was deleted too, recreates it from
+  `detect_default_branch` (the "default clone checkout commit") via
+  `git worktree add -b`. The full create-time setup (env symlinks, gitignored
+  `log`/`tmp`/`storage` dirs, background `node_modules`/`.venv` copy) runs
+  last, giving the recreated worktree full parity with a fresh one.
+- The button shows a spinner (`is-loading` + disabled) while the synchronous
+  request is in flight; on success the page reloads and the banner disappears;
+  on failure a warning toast is shown.
 
 ## How the document becomes agent context
 
@@ -165,7 +201,7 @@ path in the prompt is authoritative — agents are told not to look elsewhere.
 - [x] `projects` / `tasks` / `conversations` tables → implemented in `src/db/schema.rs`
 - [x] Configurable archive root → `src/archive/paths.rs`, `src/config.rs`
 - [x] Doc read/write/delete + archive cleanup → `src/archive/mod.rs`
-- [x] Worktree create/remove/status → `src/worktree/mod.rs`
+- [x] Worktree create/remove/recreate + status → `src/worktree/mod.rs`
 - [x] Task create with rollback and doc seeding → `src/server/routes/tasks.rs`
 - [x] Task delete with worktree/archive cleanup → `src/server/routes/tasks.rs`
 - [x] `buildContextPrompt` → `build_context_prompt` in `src/archive/mod.rs`

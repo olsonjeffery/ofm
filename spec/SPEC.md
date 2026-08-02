@@ -106,9 +106,13 @@ spawns `pty`s, maintains database state, and so on
    - Start a Docker container (`ghcr.io/sebadob/rauthy:latest`) at a random port
    that differs from the configured `ofm` `OFM_PORT`, managed via
    `tokio::process::Command` (see `src/rauthy/mod.rs`)
-   - Expose an [axum-based reverse proxy][12] that forwards requests
-   and responses to/from `rauthy`; this reverse proxy is exposed
-   at `/auth`
+   - Bind the container to the configured `OFM_HOSTNAME` interface
+   (`-p {OFM_HOSTNAME}:{port}:8080`) and advertise `PUB_URL={OFM_HOSTNAME}:{port}`,
+   so rauthy's OIDC discovery metadata and referral URLs point at the hostname
+   `ofm` is reachable on
+   - Have the browser talk to the rauthy container **directly** on its
+   published port — there is no `/auth` reverse proxy (see
+   [`extra/auth-and-multi-user.md`](./extra/auth-and-multi-user.md))
 
 ## How to build from this spec
 
@@ -299,4 +303,3 @@ auto-advancement callers.
 [9]: https://doc.rust-lang.org/cargo/reference/features.html
 [10]: https://en.wikipedia.org/wiki/Systems_development_life_cycle
 [11]: https://www.leptos.dev/
-[12]: https://github.com/tokio-rs/axum/blob/main/examples/reverse-proxy/src/main.rs

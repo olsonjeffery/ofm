@@ -29,6 +29,7 @@ pub fn TaskDetailPage(
     task: Task,
     doc_content: Option<String>,
     conversations: Vec<ConversationWithRun>,
+    worktree_missing: bool,
 ) -> impl IntoView {
     let status_badge_class = status_class(&task.status);
     let status_label_str = status_label(&task.status);
@@ -57,6 +58,25 @@ pub fn TaskDetailPage(
                     </button>
                 </div>
             </div>
+
+            {worktree_missing.then(|| {
+                view! {
+                    <div id="worktree-missing-banner" class="notification is-primary is-light" style="margin-top:0.5rem">
+                        <div class="level is-mobile">
+                            <div class="level-left">
+                                "The worktree directory for this task is missing."
+                            </div>
+                            <div class="level-right">
+                                <button id="recreate-worktree-btn" class="button is-small is-primary has-text-white" title="Recreate worktree">
+                                    <span class="icon is-small"><i class="mdi mdi-folder-plus-outline"></i></span>
+                                    <span>"Recreate worktree"</span>
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+                }
+                .into_any()
+            })}
 
             <div id="edit-task-form" class="box is-hidden" style="margin-top:0.5rem">
                 <form id="edit-task-form-inner">
@@ -159,6 +179,24 @@ pub fn TaskDetailPage(
                         }).finally(function(){
                             stopBtn.disabled=false;
                             stopBtn.classList.remove('is-loading');
+                        });
+                    });
+                }
+
+                // Recreate worktree button
+                var recreateBtn=document.getElementById('recreate-worktree-btn');
+                if(recreateBtn){
+                    recreateBtn.addEventListener('click',function(){
+                        recreateBtn.disabled=true;
+                        recreateBtn.classList.add('is-loading');
+                        apiCall('/api/tasks/'+taskId+'/worktree/recreate',{
+                            method:'POST'
+                        }).then(function(r){
+                            if(r.ok){window.location.reload();}
+                            else{showMessage('Failed to recreate worktree');}
+                        }).finally(function(){
+                            recreateBtn.disabled=false;
+                            recreateBtn.classList.remove('is-loading');
                         });
                     });
                 }
@@ -283,7 +321,7 @@ mod tests {
         let task = make_task();
         let doc_content = Some("# Hello World".into());
         let html =
-            leptos::view! { <TaskDetailPage task doc_content conversations=vec![]  /> }.to_html();
+            leptos::view! { <TaskDetailPage task doc_content conversations=vec![] worktree_missing=false /> }.to_html();
         assert!(html.contains("Documentation"));
         assert!(html.contains("<h1>"));
         assert!(html.contains("Hello World"));
@@ -294,7 +332,7 @@ mod tests {
         let task = make_task();
         let doc_content = None;
         let html =
-            leptos::view! { <TaskDetailPage task doc_content conversations=vec![]  /> }.to_html();
+            leptos::view! { <TaskDetailPage task doc_content conversations=vec![] worktree_missing=false /> }.to_html();
         assert!(html.contains("No document yet"));
     }
 
@@ -303,14 +341,14 @@ mod tests {
         let task = make_task();
         let doc_content = None;
         let html =
-            leptos::view! { <TaskDetailPage task doc_content conversations=vec![]  /> }.to_html();
+            leptos::view! { <TaskDetailPage task doc_content conversations=vec![] worktree_missing=false /> }.to_html();
         assert!(html.contains("Conversations"));
     }
 
     #[test]
     fn test_task_detail_has_edit_button() {
         let task = make_task();
-        let html = leptos::view! { <TaskDetailPage task doc_content=None conversations=vec![]  /> }
+        let html = leptos::view! { <TaskDetailPage task doc_content=None conversations=vec![] worktree_missing=false /> }
             .to_html();
         assert!(html.contains("id=\"edit-task-btn\""));
         assert!(html.contains("mdi-pencil"));
@@ -319,7 +357,7 @@ mod tests {
     #[test]
     fn test_task_detail_edit_form_preserves_task_title() {
         let task = make_task();
-        let html = leptos::view! { <TaskDetailPage task doc_content=None conversations=vec![]  /> }
+        let html = leptos::view! { <TaskDetailPage task doc_content=None conversations=vec![] worktree_missing=false /> }
             .to_html();
         assert!(html.contains("value=\"Implement feature X\""));
     }
@@ -327,7 +365,7 @@ mod tests {
     #[test]
     fn test_task_detail_edit_form_has_status_select() {
         let task = make_task();
-        let html = leptos::view! { <TaskDetailPage task doc_content=None conversations=vec![]  /> }
+        let html = leptos::view! { <TaskDetailPage task doc_content=None conversations=vec![] worktree_missing=false /> }
             .to_html();
         assert!(html.contains("id=\"edit-task-status\""));
         assert!(html.contains("Pending"));
@@ -339,7 +377,7 @@ mod tests {
     #[test]
     fn test_task_detail_edit_form_pre_selects_current_status() {
         let task = make_task();
-        let html = leptos::view! { <TaskDetailPage task doc_content=None conversations=vec![]  /> }
+        let html = leptos::view! { <TaskDetailPage task doc_content=None conversations=vec![] worktree_missing=false /> }
             .to_html();
         assert!(html.contains("value=\"in_progress\" selected"));
     }
@@ -347,7 +385,7 @@ mod tests {
     #[test]
     fn test_task_detail_save_cancel_in_right_aligned_group() {
         let task = make_task();
-        let html = leptos::view! { <TaskDetailPage task doc_content=None conversations=vec![]  /> }
+        let html = leptos::view! { <TaskDetailPage task doc_content=None conversations=vec![] worktree_missing=false /> }
             .to_html();
         assert!(
             html.contains(r#"class="field is-grouped is-grouped-right""#),
@@ -366,7 +404,7 @@ mod tests {
     #[test]
     fn test_task_detail_danger_zone_in_edit_form() {
         let task = make_task();
-        let html = leptos::view! { <TaskDetailPage task doc_content=None conversations=vec![]  /> }
+        let html = leptos::view! { <TaskDetailPage task doc_content=None conversations=vec![] worktree_missing=false /> }
             .to_html();
         assert!(html.contains("id=\"delete-task-btn\""));
         assert!(html.contains("DANGER ZONE"));
@@ -384,7 +422,7 @@ mod tests {
     #[test]
     fn test_task_detail_danger_zone_box_markup() {
         let task = make_task();
-        let html = leptos::view! { <TaskDetailPage task doc_content=None conversations=vec![]  /> }
+        let html = leptos::view! { <TaskDetailPage task doc_content=None conversations=vec![] worktree_missing=false /> }
             .to_html();
         assert!(
             html.contains(r#"class="danger-zone""#),
@@ -419,7 +457,7 @@ mod tests {
     #[test]
     fn test_task_detail_ws_subscription_reloads_on_task_updated() {
         let task = make_task();
-        let html = leptos::view! { <TaskDetailPage task doc_content=None conversations=vec![]  /> }
+        let html = leptos::view! { <TaskDetailPage task doc_content=None conversations=vec![] worktree_missing=false /> }
             .to_html();
         assert!(html.contains("task_updated"));
         assert!(html.contains("window.location.reload()"));
@@ -428,8 +466,44 @@ mod tests {
     #[test]
     fn test_task_detail_status_badge_includes_is_light() {
         let task = make_task();
-        let html = leptos::view! { <TaskDetailPage task doc_content=None conversations=vec![]  /> }
+        let html = leptos::view! { <TaskDetailPage task doc_content=None conversations=vec![] worktree_missing=false /> }
             .to_html();
         assert!(html.contains("is-info is-light"));
+    }
+
+    #[test]
+    fn test_task_detail_worktree_missing_banner() {
+        let task = make_task();
+        let html = leptos::view! { <TaskDetailPage task doc_content=None conversations=vec![] worktree_missing=true /> }
+            .to_html();
+        assert!(html.contains("id=\"worktree-missing-banner\""));
+        assert!(html.contains("notification is-primary is-light"));
+        assert!(html.contains("The worktree directory for this task is missing."));
+        assert!(html.contains("Recreate worktree"));
+        assert!(html.contains("mdi-folder-plus-outline"));
+        assert!(html.contains("id=\"recreate-worktree-btn\""));
+        assert!(html.contains("has-text-white"));
+        assert!(html.contains("/api/tasks/'+taskId+'/worktree/recreate"));
+        assert!(html.contains("is-loading"));
+        let header_pos = html.find("data-task-id").unwrap();
+        let banner_pos = html.find("worktree-missing-banner").unwrap();
+        assert!(
+            banner_pos > header_pos,
+            "banner should render under the task title header"
+        );
+        let form_pos = html.find("edit-task-form").unwrap();
+        assert!(
+            banner_pos < form_pos,
+            "banner should render above the edit form"
+        );
+    }
+
+    #[test]
+    fn test_task_detail_worktree_present_hides_banner() {
+        let task = make_task();
+        let html = leptos::view! { <TaskDetailPage task doc_content=None conversations=vec![] worktree_missing=false /> }
+            .to_html();
+        assert!(!html.contains("id=\"recreate-worktree-btn\""));
+        assert!(!html.contains("worktree-missing-banner"));
     }
 }

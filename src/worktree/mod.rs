@@ -2,6 +2,7 @@ use std::path::{Path, PathBuf};
 
 use tokio::process::Command;
 
+#[derive(serde::Serialize)]
 pub struct CreateWorktreeResult {
     pub worktree_path: PathBuf,
     pub branch: String,
@@ -129,9 +130,114 @@ pub async fn create_worktree(
         return Err(format!("git worktree add failed: {stderr}").into());
     }
 
-    symlink_env_files(repo_path, &worktree_path).await;
-    create_gitignored_dirs(&worktree_path).await;
-    copy_dependencies_background(repo_path, &worktree_path).await;
+    setup_worktree_environment(repo_path, &worktree_path).await;
+
+    Ok(CreateWorktreeResult {
+        worktree_path,
+        branch,
+    })
+}
+
+/// Full create-time environment setup, shared by `create_worktree` and
+/// `recreate_worktree` so recreated worktrees get parity with fresh ones:
+/// env-file symlinks, gitignored dirs, and a background dependency copy.
+async fn setup_worktree_environment(repo_path: &str, worktree_path: &Path) {
+    symlink_env_files(repo_path, worktree_path).await;
+    create_gitignored_dirs(worktree_path).await;
+    copy_dependencies_background(repo_path, worktree_path).await;
+}
+
+/// Re-creates a task worktree whose directory was deleted from the
+/// filesystem but whose `worktrees` DB row (branch + repo) still exists.
+///
+/// Idempotent: returns success without touching git if the directory is
+/// already present. Otherwise it prunes stale git worktree registrations
+/// (the deleted directory leaves one behind), re-attaches the stored branch
+/// if it still exists (preserving its HEAD), and only if the branch was
+/// deleted too, recreates it from `detect_default_branch` — the "default
+/// clone checkout commit" — via `git worktree add -b`. Setup runs last so a
+/// recreated worktree has full parity with a freshly created one.
+pub async fn recreate_worktree(
+    repo_path: &str,
+    footprint: &str,
+    project_id: i64,
+    task_id: i64,
+    branch: &str,
+    title: &str,
+) -> Result<CreateWorktreeResult, Box<dyn std::error::Error + Send + Sync>> {
+    let worktree_path = get_worktree_path(footprint, project_id, task_id);
+    if worktree_path.exists() {
+        return Ok(CreateWorktreeResult {
+            worktree_path,
+            branch: branch.to_string(),
+        });
+    }
+    if let Some(parent) = worktree_path.parent() {
+        tokio::fs::create_dir_all(parent).await.map_err(|e| {
+            format!(
+                "failed to create worktree parent dir {}: {e}",
+                parent.display()
+            )
+        })?;
+    }
+    let branch = if branch.trim().is_empty() {
+        format!("task/{task_id}-{}", sanitize_title(title))
+    } else {
+        branch.to_string()
+    };
+    valid_branch_name(&branch)?;
+
+    // The directory was deleted out from under git, so a stale registration
+    // remains; prune it so `git worktree add` below does not refuse with
+    // "already registered worktree".
+    let prune_output = Command::new("git")
+        .args(["worktree", "prune"])
+        .env("GIT_DISABLE_HOOKS", "1")
+        .current_dir(repo_path)
+        .output()
+        .await
+        .map_err(|e| format!("failed to spawn git worktree prune in repo {repo_path}: {e}"))?;
+    if !prune_output.status.success() {
+        let stderr = String::from_utf8_lossy(&prune_output.stderr);
+        return Err(format!("git worktree prune failed: {stderr}").into());
+    }
+
+    // 1) Branch still exists → re-attach it, preserving its HEAD.
+    let output = Command::new("git")
+        .args(["worktree", "add", &worktree_path.to_string_lossy(), &branch])
+        .env("GIT_DISABLE_HOOKS", "1")
+        .current_dir(repo_path)
+        .output()
+        .await
+        .map_err(|e| format!("failed to spawn git worktree add in repo {repo_path}: {e}"))?;
+
+    if !output.status.success() {
+        // 2) Branch deleted too → recreate it from the default branch tip.
+        let base = detect_default_branch(repo_path)
+            .await
+            .map_err(|e| format!("failed to detect default branch in repo {repo_path}: {e}"))?;
+        valid_branch_name(&base)?;
+        let output = Command::new("git")
+            .args([
+                "worktree",
+                "add",
+                "-b",
+                &branch,
+                &worktree_path.to_string_lossy(),
+                &base,
+            ])
+            .env("GIT_DISABLE_HOOKS", "1")
+            .current_dir(repo_path)
+            .output()
+            .await
+            .map_err(|e| format!("failed to spawn git worktree add in repo {repo_path}: {e}"))?;
+        if !output.status.success() {
+            let stderr = String::from_utf8_lossy(&output.stderr);
+            return Err(format!("git worktree add failed: {stderr}").into());
+        }
+    }
+
+    setup_worktree_environment(repo_path, &worktree_path).await;
 
     Ok(CreateWorktreeResult {
         worktree_path,
@@ -355,5 +461,209 @@ mod tests {
     #[test]
     fn test_sanitize_title_mixed_case() {
         assert_eq!(sanitize_title("ABC def GHI"), "abc-def-ghi");
+    }
+}
+
+#[cfg(test)]
+mod git_tests {
+    use super::*;
+    use tempfile::TempDir;
+
+    async fn init_test_repo(dir: &Path) {
+        let output = tokio::process::Command::new("git")
+            .args(["init", "--initial-branch=main"])
+            .arg(dir)
+            .output()
+            .await
+            .expect("git init failed");
+        assert!(
+            output.status.success(),
+            "git init failed: {:?}",
+            output.stderr
+        );
+
+        tokio::process::Command::new("git")
+            .args(["config", "user.email", "test@test.com"])
+            .current_dir(dir)
+            .output()
+            .await
+            .expect("git config email failed");
+
+        tokio::process::Command::new("git")
+            .args(["config", "user.name", "Test"])
+            .current_dir(dir)
+            .output()
+            .await
+            .expect("git config name failed");
+
+        tokio::process::Command::new("git")
+            .args(["commit", "--allow-empty", "-m", "init"])
+            .current_dir(dir)
+            .output()
+            .await
+            .expect("git commit failed");
+    }
+
+    fn repo_path(tmp: &TempDir) -> String {
+        tmp.path().to_string_lossy().to_string()
+    }
+
+    fn footprint_path(tmp: &TempDir) -> String {
+        tmp.path()
+            .join("ofm-footprint")
+            .to_string_lossy()
+            .to_string()
+    }
+
+    async fn git_branch_in_worktree(worktree_path: &Path) -> String {
+        let output = tokio::process::Command::new("git")
+            .args(["branch", "--show-current"])
+            .current_dir(worktree_path)
+            .output()
+            .await
+            .expect("git branch --show-current failed");
+        String::from_utf8_lossy(&output.stdout).trim().to_string()
+    }
+
+    #[tokio::test]
+    async fn test_recreate_worktree_reattaches_existing_branch() {
+        let tmp = TempDir::new().unwrap();
+        init_test_repo(tmp.path()).await;
+
+        let created = create_worktree(
+            &repo_path(&tmp),
+            &footprint_path(&tmp),
+            1,
+            42,
+            "feature",
+            None,
+        )
+        .await
+        .expect("create_worktree failed");
+
+        std::fs::remove_dir_all(&created.worktree_path).expect("remove worktree dir failed");
+
+        let recreated = recreate_worktree(
+            &repo_path(&tmp),
+            &footprint_path(&tmp),
+            1,
+            42,
+            &created.branch,
+            "feature",
+        )
+        .await
+        .expect("recreate_worktree failed");
+
+        assert!(
+            recreated.worktree_path.exists(),
+            "worktree directory should exist again"
+        );
+        assert_eq!(
+            recreated.branch, created.branch,
+            "branch name should be preserved"
+        );
+
+        let worktree_list = tokio::process::Command::new("git")
+            .args(["worktree", "list"])
+            .current_dir(tmp.path())
+            .output()
+            .await
+            .expect("git worktree list failed");
+        let stdout = String::from_utf8_lossy(&worktree_list.stdout);
+        assert!(
+            stdout.contains("task-42"),
+            "git worktree list should contain the recreated path: {stdout}"
+        );
+
+        assert_eq!(
+            git_branch_in_worktree(&recreated.worktree_path).await,
+            created.branch,
+            "worktree should be on the recreated branch"
+        );
+    }
+
+    #[tokio::test]
+    async fn test_recreate_worktree_recreates_missing_branch_from_default() {
+        let tmp = TempDir::new().unwrap();
+        init_test_repo(tmp.path()).await;
+
+        let created = create_worktree(&repo_path(&tmp), &footprint_path(&tmp), 1, 99, "lost", None)
+            .await
+            .expect("create_worktree failed");
+
+        // Both the directory AND the branch are gone.
+        std::fs::remove_dir_all(&created.worktree_path).expect("remove worktree dir failed");
+        let prune = tokio::process::Command::new("git")
+            .args(["worktree", "prune"])
+            .current_dir(tmp.path())
+            .output()
+            .await
+            .expect("git worktree prune failed");
+        assert!(prune.status.success(), "git worktree prune failed");
+        let del = tokio::process::Command::new("git")
+            .args(["branch", "-D", &created.branch])
+            .current_dir(tmp.path())
+            .output()
+            .await
+            .expect("git branch -D failed");
+        assert!(del.status.success(), "git branch -D failed");
+
+        let recreated = recreate_worktree(
+            &repo_path(&tmp),
+            &footprint_path(&tmp),
+            1,
+            99,
+            &created.branch,
+            "lost",
+        )
+        .await
+        .expect("recreate_worktree from default branch failed");
+
+        assert!(
+            recreated.worktree_path.exists(),
+            "worktree directory should be recreated"
+        );
+
+        let branch_list = tokio::process::Command::new("git")
+            .args(["branch", "--list", &created.branch])
+            .current_dir(tmp.path())
+            .output()
+            .await
+            .expect("git branch --list failed");
+        let stdout = String::from_utf8_lossy(&branch_list.stdout);
+        assert!(
+            stdout.contains(&created.branch),
+            "branch should be recreated from the default branch tip, got: {stdout}"
+        );
+
+        assert_eq!(
+            git_branch_in_worktree(&recreated.worktree_path).await,
+            created.branch,
+            "worktree should be on the recreated branch"
+        );
+    }
+
+    #[tokio::test]
+    async fn test_recreate_worktree_idempotent_when_dir_exists() {
+        let tmp = TempDir::new().unwrap();
+        init_test_repo(tmp.path()).await;
+
+        let created = create_worktree(&repo_path(&tmp), &footprint_path(&tmp), 1, 7, "keep", None)
+            .await
+            .expect("create_worktree failed");
+
+        let result = recreate_worktree(
+            &repo_path(&tmp),
+            &footprint_path(&tmp),
+            1,
+            7,
+            &created.branch,
+            "keep",
+        )
+        .await
+        .expect("recreate_worktree should be a no-op when the directory exists");
+
+        assert!(result.worktree_path.exists());
+        assert_eq!(result.branch, created.branch);
     }
 }
