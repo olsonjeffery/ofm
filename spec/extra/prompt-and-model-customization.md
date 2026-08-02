@@ -173,7 +173,8 @@ Because resolution fails loud, every user must be seeded **before** they can run
 an agent. Two mechanisms:
 
 - **Seed on first configuration.** A user's first visit to the settings page
-  seeds default model selections for each agent type, sourced from the
+  (`/webapp/settings/providers-agents` — Model Configurations / Agent Settings
+  sub-pages) seeds default model selections for each agent type, sourced from the
   OpenCode provider's available models.
 - **Backfill.** Existing users without a settings row are seeded with sensible
   defaults on first access.
@@ -190,6 +191,10 @@ has credentials for. The `GET` returns `{ needsSeeding: true }` (not an error)
 when the user is unseeded, which the UI uses to show the connect-provider state.
 See
 [`../reference/server/routes/userAgentModelSettings.ts`](../reference/server/routes/userAgentModelSettings.ts).
+In the `ofm` Rust webapp, the settings UI lives at
+`/webapp/settings/providers-agents` (Model Configurations landing + Agent
+Settings sub-pages, `src/webapp/pages/settings/providers_agents.rs`) with a
+section-local `.menu` sidebar (`src/webapp/components/settings_sidebar.rs`).
 The settings tab (a "Agent Models" tab, one row per agent type) filters its
 provider dropdown to `connected-providers` and its model/effort dropdowns to the
 selected provider's `MODELS_FOR_UI`/`EFFORTS_FOR_UI`. Prompt overrides get their

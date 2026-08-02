@@ -99,6 +99,19 @@ dependency
 - Requests to `/` or `/webapp` are for the `ofm` web application
   - specifically: requests to `/` will redirect to `/webapp`
   - all web routes, assets/content, etc lives under `/webapp`
+  - the settings area is split into freestanding pages under `/webapp/settings`:
+    `/webapp/settings` (alias → Providers & Agents landing),
+    `/webapp/settings/providers-agents/*`, `/webapp/settings/import-export/*`, and
+    `/webapp/settings/account/*`. Each 2nd-level route renders a Bulma `.menu`
+    sidebar of section sub-pages plus a content pane (see `src/webapp/pages/settings/`
+    and `src/webapp/components/settings_sidebar.rs`); the navbar exposes a combined
+    "Settings" split-button dropdown (`src/webapp/components/settings_dropdown.rs`)
+    replacing the former separate User Config and Settings buttons. Both the label
+    and the arrow buttons toggle the one-level menu (the label no longer navigates
+    directly). Settings pages show breadcrumbs down to the active section and
+    sub-page (e.g. All Projects → Settings → Providers & Agents → Model
+    Configurations) via `breadcrumb_registry::settings_section` /
+    `settings_sub_page`.
 - Requests against `/api` are for the `ofm` `axum` backend server,
 which responds to user requests, oversees filesystem actions,
 spawns `pty`s, maintains database state, and so on
@@ -131,7 +144,11 @@ Point a coding agent at this file and say "build this." Then:
    `src/agents/implementation.rs` (implementation prompt),
    `src/agents/review.rs` (review prompt),
    `src/agents/pull_request.rs` (PR prompt).
-   The web application lives at `src/webapp/` (Leptos SSR + islands).
+    The web application lives at `src/webapp/` (Leptos SSR + islands). The settings
+    UI lives at `src/webapp/pages/settings/` (per-section modules `providers_agents.rs`,
+    `import_export.rs`, `account.rs`) with a shared section-local sidebar in
+    `src/webapp/components/settings_sidebar.rs` and a navbar split-button dropdown in
+    `src/webapp/components/settings_dropdown.rs`.
     CRUD service logic lives at `src/services/` (auth, projects, tasks, settings, export_import).
    Authentication and OAuth middleware lives at `src/auth/`.
 3. Implement whichever [`extra/`](./extra) features you want. These are
@@ -192,6 +209,7 @@ Opinionated features. Each is independent; implement what you want.
 | Reviewed/Updated for `ofm`? | Spec | What it adds |
 |---|---|---|
 | **✅ Yes** | [`extra/harnesses/opencode.md`](./extra/harnesses/opencode.md) | OpenCode integration: SDK-backed subprocess lifecycle, event mapping, transcript mirroring, credential delegation, and capabilities. |
+| **✅ Yes** | [`extra/harnesses/ramalama.md`](./extra/harnesses/ramalama.md) | On-demand ramalama + phi4-mini provider: per-conversation `ramalama serve` subprocess, sentinel-UUID virtual config entry, transient opencode adapter, and the `conversation_title` micro-task agent type. |
  | **✅ Yes** | [`extra/harnesses/opencode.md`](./extra/harnesses/opencode.md) | OpenCode SDK-backed provider integration: SDK-driven subprocess lifecycle, event mapping, credential delegation via `opencode.json`, session lifecycle. **Task 204 additions:** `provider_session_id` rename (provider-agnostic), `resume_turn` implementation for `OpenCodeSdkProvider`, `question.asked` event handling (mid-turn question → pause SSE → user reply → resume), `SessionStart` event persistence to DB, lazy provider recreation on restart. |
 | **✅ Yes** | [`extra/kanban-board.md`](./extra/kanban-board.md) | The opinionated projects/tasks board and 4-screen UI for authoring tasks. |
 | **🚫 No** | [`extra/refinement-agent.md`](./extra/refinement-agent.md) | An extra agent that polishes the work between review and PR. |
