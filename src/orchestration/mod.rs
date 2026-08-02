@@ -299,7 +299,8 @@ pub fn start_next_agent<'a>(
                 let config_root = config_root.to_path_buf();
                 let footprint = footprint.to_string();
                 let archive_root = archive_root.to_string();
-                let harness_config = harness_config.clone();
+                let task_user_id = task.user_id;
+                let task_project_id = task.project_id;
 
                 tokio::spawn(async move {
                     let completed_normally = Arc::new(AtomicBool::new(false));
@@ -357,76 +358,99 @@ pub fn start_next_agent<'a>(
                                         let prompt_ts_str = prompt_ts.format("%Y-%m-%d %H:%M:%S").to_string();
                                         ws_bus.broadcast(&topic, ServerMessage::Event { topic: topic.clone(), event_type: "user_text".to_string(), timestamp: chrono::Utc::now(), payload: serde_json::json!({"text": prompt_text, "conversation_id": conversation_id.to_string(), "timestamp": prompt_ts_str}), html: Some(crate::webapp::components::message_stream::render_event(&prompt_event)) }).await;
 
-                                        // Fire-and-forget conversation title generation
+                                        // Fire-and-forget conversation title generation. Uses the
+                                        // harness config assigned to the `conversation_title` agent
+                                        // type (separate from the agent-run config); skips silently
+                                        // when none is configured.
                                         tracing::info!(
                                             conversation_id = %conversation_id,
                                             task_id = task_id,
                                             prompt_preview = %prompt_text.chars().take(120).collect::<String>(),
-                                            "orchestration: spawning title generation after SessionStart"
+                                            "orchestration: resolving conversation_title config for title generation"
                                         );
-                                        let _title_db = db.clone();
-                                        let _title_config_root = config_root.clone();
-                                        let _title_harness = harness_config.clone();
-                                        let _title_conv_id = conversation_id;
-                                        let _title_prompt = prompt_text.clone();
-                                        let _title_log_data = config.info_log_client_data;
-                                        let _title_ws_bus = ws_bus.clone();
-                                        let _title_task_id = task_id;
-                                        let _title_footprint = footprint.to_string();
-                                        tokio::spawn(async move {
+                                        let title_harness_config = registry::resolve_harness_config(
+                                            &db,
+                                            &AgentType::ConversationTitle,
+                                            Some(&task_user_id),
+                                            Some(task_project_id),
+                                        )
+                                        .await;
+                                        if let Ok(title_config) = title_harness_config {
                                             tracing::info!(
-                                                conversation_id = %_title_conv_id,
-                                                "orchestration: title generation task started"
+                                                conversation_id = %conversation_id,
+                                                provider_config_ref = %title_config.provider_config_ref,
+                                                harness = %title_config.harness,
+                                                "orchestration: spawning title generation after SessionStart"
                                             );
-                                            crate::providers::generate_conversation_title(
-                                                &_title_db,
-                                                &_title_config_root,
-                                                &_title_harness,
-                                                _title_conv_id,
-                                                &_title_prompt,
-                                                _title_log_data,
-                                                std::path::Path::new(&_title_footprint),
-                                            ).await;
-                                            tracing::info!(
-                                                conversation_id = %_title_conv_id,
-                                                "orchestration: generate_conversation_title returned"
-                                            );
-                                            match crate::services::session::resume_session(&_title_db, _title_conv_id).await {
-                                                Ok(conv) => {
-                                                    tracing::info!(
-                                                        conversation_id = %_title_conv_id,
-                                                        name = ?conv.name,
-                                                        is_valid = conv.name.as_deref().map(crate::webapp::components::conversation_list::is_valid_name).unwrap_or(false),
-                                                        "orchestration: resumed conversation after title generation"
-                                                    );
-                                                    if let Some(ref name) = conv.name {
-                                                        if crate::webapp::components::conversation_list::is_valid_name(name) {
-                                                            tracing::info!(conversation_id = %_title_conv_id, name = %name, "orchestration: broadcasting conversation-name-updated");
-                                                            _title_ws_bus.broadcast(
-                                                                &WsTopic { kind: WsTopicKind::Task, id: TopicId(_title_task_id) },
-                                                                ServerMessage::Event {
-                                                                    topic: WsTopic { kind: WsTopicKind::Task, id: TopicId(_title_task_id) },
-                                                                    event_type: "conversation-name-updated".to_string(),
-                                                                    timestamp: chrono::Utc::now(),
-                                                                    payload: serde_json::json!({
-                                                                        "conversation_id": _title_conv_id.to_string(),
-                                                                        "name": name,
-                                                                    }),
-                                                                    html: None,
-                                                                },
-                                                            ).await;
+                                            let _title_db = db.clone();
+                                            let _title_config_root = config_root.clone();
+                                            let _title_harness = title_config;
+                                            let _title_conv_id = conversation_id;
+                                            let _title_prompt = prompt_text.clone();
+                                            let _title_log_data = config.info_log_client_data;
+                                            let _title_ws_bus = ws_bus.clone();
+                                            let _title_task_id = task_id;
+                                            let _title_footprint = footprint.to_string();
+                                            tokio::spawn(async move {
+                                                tracing::info!(
+                                                    conversation_id = %_title_conv_id,
+                                                    "orchestration: title generation task started"
+                                                );
+                                                crate::providers::generate_conversation_title(
+                                                    &_title_db,
+                                                    &_title_config_root,
+                                                    &_title_harness,
+                                                    _title_conv_id,
+                                                    &_title_prompt,
+                                                    _title_log_data,
+                                                    std::path::Path::new(&_title_footprint),
+                                                ).await;
+                                                tracing::info!(
+                                                    conversation_id = %_title_conv_id,
+                                                    "orchestration: generate_conversation_title returned"
+                                                );
+                                                match crate::services::session::resume_session(&_title_db, _title_conv_id).await {
+                                                    Ok(conv) => {
+                                                        tracing::info!(
+                                                            conversation_id = %_title_conv_id,
+                                                            name = ?conv.name,
+                                                            is_valid = conv.name.as_deref().map(crate::webapp::components::conversation_list::is_valid_name).unwrap_or(false),
+                                                            "orchestration: resumed conversation after title generation"
+                                                        );
+                                                        if let Some(ref name) = conv.name {
+                                                            if crate::webapp::components::conversation_list::is_valid_name(name) {
+                                                                tracing::info!(conversation_id = %_title_conv_id, name = %name, "orchestration: broadcasting conversation-name-updated");
+                                                                _title_ws_bus.broadcast(
+                                                                    &WsTopic { kind: WsTopicKind::Task, id: TopicId(_title_task_id) },
+                                                                    ServerMessage::Event {
+                                                                        topic: WsTopic { kind: WsTopicKind::Task, id: TopicId(_title_task_id) },
+                                                                        event_type: "conversation-name-updated".to_string(),
+                                                                        timestamp: chrono::Utc::now(),
+                                                                        payload: serde_json::json!({
+                                                                            "conversation_id": _title_conv_id.to_string(),
+                                                                            "name": name,
+                                                                        }),
+                                                                        html: None,
+                                                                    },
+                                                                ).await;
+                                                            }
                                                         }
                                                     }
+                                                    Err(e) => {
+                                                        tracing::warn!(
+                                                            conversation_id = %_title_conv_id,
+                                                            error = %e,
+                                                            "orchestration: resume_session failed after title generation"
+                                                        );
+                                                    }
                                                 }
-                                                Err(e) => {
-                                                    tracing::warn!(
-                                                        conversation_id = %_title_conv_id,
-                                                        error = %e,
-                                                        "orchestration: resume_session failed after title generation"
-                                                    );
-                                                }
-                                            }
-                                        });
+                                            });
+                                        } else {
+                                            tracing::info!(
+                                                conversation_id = %conversation_id,
+                                                "orchestration: no conversation_title config — skipping title generation"
+                                            );
+                                        }
                                     }
 
                                     let (event_type, payload) = event.to_ws_event();

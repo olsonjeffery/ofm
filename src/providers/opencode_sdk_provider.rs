@@ -272,7 +272,10 @@ fn deep_merge(base: &mut serde_json::Value, overlay: &serde_json::Value) {
     }
 }
 
-fn map_sdk_event_to_provider_event(global: &GlobalEvent, session_id: &str) -> Vec<ProviderEvent> {
+pub(crate) fn map_sdk_event_to_provider_event(
+    global: &GlobalEvent,
+    session_id: &str,
+) -> Vec<ProviderEvent> {
     let now = chrono::Utc::now().naive_utc();
     match &global.payload {
         Event::MessagePartUpdated(data) => {

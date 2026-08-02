@@ -31,6 +31,7 @@ pub enum AgentType {
     Review,
     Pr,
     Yolo,
+    ConversationTitle,
 }
 
 impl std::fmt::Display for AgentType {
@@ -42,6 +43,7 @@ impl std::fmt::Display for AgentType {
             Self::Review => write!(f, "review"),
             Self::Pr => write!(f, "pr"),
             Self::Yolo => write!(f, "yolo"),
+            Self::ConversationTitle => write!(f, "conversation_title"),
         }
     }
 }
@@ -56,6 +58,7 @@ impl std::str::FromStr for AgentType {
             "review" => Ok(Self::Review),
             "pr" => Ok(Self::Pr),
             "yolo" => Ok(Self::Yolo),
+            "conversation_title" => Ok(Self::ConversationTitle),
             _ => Err(format!("invalid agent type: '{s}'")),
         }
     }
@@ -70,6 +73,7 @@ impl AgentType {
             Self::Review => "checkbox-marked-circle-outline",
             Self::Pr => "source-branch-plus",
             Self::Yolo => "rocket",
+            Self::ConversationTitle => "message-text-outline",
         }
     }
 }
@@ -573,6 +577,10 @@ mod tests {
         assert_eq!(AgentType::Review.to_string(), "review");
         assert_eq!(AgentType::Pr.to_string(), "pr");
         assert_eq!(AgentType::Yolo.to_string(), "yolo");
+        assert_eq!(
+            AgentType::ConversationTitle.to_string(),
+            "conversation_title"
+        );
     }
 
     #[test]
@@ -583,6 +591,7 @@ mod tests {
         assert_eq!(AgentType::Review.icon(), "checkbox-marked-circle-outline");
         assert_eq!(AgentType::Pr.icon(), "source-branch-plus");
         assert_eq!(AgentType::Yolo.icon(), "rocket");
+        assert_eq!(AgentType::ConversationTitle.icon(), "message-text-outline");
     }
 
     #[test]
