@@ -191,6 +191,12 @@ document.addEventListener('DOMContentLoaded', function() {
 const AGENT_MODELS_JS: &str = r#"
 window.__ACCESS_TOKEN__ = '';
 
+function escapeHtml(str) {
+    var div = document.createElement('div');
+    div.appendChild(document.createTextNode(str));
+    return div.innerHTML;
+}
+
 document.addEventListener('DOMContentLoaded', function() {
     loadAgentModels();
 });
@@ -299,6 +305,7 @@ mod tests {
         assert!(html.contains("Agent Settings"));
         assert!(html.contains("agent-model-tbody"));
         assert!(html.contains("loadAgentModels"));
+        assert!(html.contains("function escapeHtml(str)"));
         assert!(!html.contains("config-list"));
     }
 }
