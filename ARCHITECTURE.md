@@ -206,20 +206,30 @@ The `RamalamaProvider` (`src/providers/ramalama_provider.rs`) owns a per-convers
 
 1. `ensure_started()` probes `ramalama` on PATH, picks a free port via
    `rauthy::find_available_port()`, and spawns
-   `ramalama serve --port <port> --name <model>`. Stdout/stderr are piped to
-   tracing readers. Health is polled at `http://127.0.0.1:<port>/api/tags`
-   (following the `rauthy::wait_until_healthy()` pattern), also aborting if the
-   child exits prematurely.
+   `ramalama serve --port <port> --name <container> <model-ref>`. The model is
+   passed as a **positional argument** (`--name` is the container name, not the
+   model); short names like `phi4-mini` are resolved to `ollama://library/...:latest`.
+   The container is given a port-derived name (`ofm-ramalama-<port>`) so it can be
+   removed precisely on teardown. Stdout/stderr are piped to tracing readers.
+   Health is polled at `http://127.0.0.1:<port>/v1/models` (llama.cpp returns 404
+   for the Ollama-style `/api/tags`), also aborting if the child exits prematurely.
+   After readiness, `/v1/models` is queried to resolve the served model id
+   (e.g. `library/phi4-mini`), which may differ from the user-entered short name.
+   On any start failure the CLI is killed+reaped and the named container removed,
+   so a failed start never orphans either.
 2. On `start_turn`, an OpenAI-compatible provider snippet is generated pointing at
-   `http://127.0.0.1:<port>/v1` with `apiKey: "none"`, merged into a base opencode
-   server config, and a **transient** `opencode serve` is spawned via
+   `http://127.0.0.1:<port>/v1`, declared as an `@ai-sdk/openai-compatible` custom
+   provider with a `models` map keyed by the served model id, merged into a base
+   opencode server config, and a **transient** `opencode serve` is spawned via
    `opencode_sdk::create_opencode()`. The transient server and its client persist
    on the provider so `resume_turn` can reuse the opencode `session_id`.
 3. `one_shot_prompt()` (used for conversation-title generation) reuses the running
    `ramalama serve` and spins up a throwaway transient server per call.
-4. `shutdown()` kills+reaps the `ramalama serve` child and drops the transient
-   server (its `Drop` kills the opencode subprocess). `Drop` on the provider is a
-   belt-and-suspenders `start_kill()` for the ramalama child.
+4. `shutdown()` kills+reaps the `ramalama serve` child, removes the named container
+   (`docker rm -f <name>` with a `ramalama stop <name>` fallback), and drops the
+   transient server (its `Drop` kills the opencode subprocess). `Drop` on the
+   provider is a belt-and-suspenders container removal + `start_kill()` for the
+   ramalama child.
 
 Because the ramalama host serves a single model/session at a time, this provider is
 NOT pooled — the process is owned by exactly one provider instance and torn down

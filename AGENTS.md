@@ -26,6 +26,12 @@ pool, `src/opencode_sdk/`), `ramalama serve` (per-conversation,
   `kill(-pgid)` — covering any grandchildren — precisely. The `ramalama serve`
   child is the deliberate exception: it is killed via `start_kill()`/`kill()`
   on its owned handle (see `RamalamaProvider::shutdown()`).
+- **Killing the `ramalama serve` CLI alone orphans its docker/podman
+  container** (the container runs under the engine, not the CLI). The
+  ramalama provider assigns a port-derived name (`ofm-ramalama-<port>`) via
+  `--name` and removes it precisely on teardown: `docker rm -f <name>` with a
+  `ramalama stop <name>` fallback. On `ensure_started()` failure the same
+  cleanup runs so no orphaned container survives a failed start.
 - **Never bulk-kill** with `grep`/`sed`/`killall`/`pkill`. Kill precisely by
   PID, by process group you created, or by named container (`docker rm -f <name>`).
 - **Integration tests reaching the opencode server pool must hold a
