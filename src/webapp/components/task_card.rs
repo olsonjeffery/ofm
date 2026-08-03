@@ -34,6 +34,9 @@ pub fn TaskCard(data: TaskCardData) -> impl IntoView {
         <a href={format!("/webapp/projects/{}/tasks/{}", data.task.project_id, data.task.id)} class="card" style="display:block" data-task-id={data.task.id.to_string()}>
             <div class="card-header">
                 <p class="card-header-title">{data.task.title.clone()}</p>
+                <span class="card-header-icon">
+                    <span class="tag is-light card-number-pill">{format!("#{}", data.task.id)}</span>
+                </span>
             </div>
             <div class="card-content" style="padding:0.5rem">
                 <div class="level is-mobile" style="margin-bottom:0">
@@ -170,5 +173,15 @@ mod tests {
         let data = make_data("pending", vec![AgentType::Planification], None);
         let html = leptos::view! { <TaskCard data /> }.to_html();
         assert!(!html.contains("is-pulse"));
+    }
+
+    #[test]
+    fn test_task_card_header_has_number_pill() {
+        let data = make_data("pending", vec![], None);
+        let html = leptos::view! { <TaskCard data /> }.to_html();
+        assert!(html.contains("card-header-icon"));
+        assert!(html.contains(r#"card-number-pill"#));
+        assert!(html.contains("#1"));
+        assert!(html.contains("card-header-title"));
     }
 }
