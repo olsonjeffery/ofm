@@ -48,12 +48,19 @@ pub fn CommitList(data: CommitListData) -> impl IntoView {
                                     data.project_id, data.task_id, commit.short_oid
                                 );
                                 let message_href = href.clone();
+                                let short_oid = commit.short_oid.clone();
                                 let date = commit.authored_time.format("%Y-%m-%d %H:%M").to_string();
                                 let author = commit.author_name.clone();
                                 view! {
                                     <tr>
                                         <td class="commit-time-col"><span class="commit-time-dot"></span></td>
-                                        <td class="commit-oid"><a href=href title={commit.oid.to_string()}>{commit.short_oid.clone()}</a></td>
+                                        <td class="commit-oid">
+                                            <a href=href title={commit.oid.to_string()}>{commit.short_oid.clone()}</a>
+                                            <button type="button" class="button is-small commit-copy-btn"
+                                                    data-commit-oid=short_oid title="Copy commit hash">
+                                                <span class="icon is-small"><i class="mdi mdi-content-copy"></i></span>
+                                            </button>
+                                        </td>
                                         <td class="commit-message"><a href=message_href>{commit.summary.clone()}</a></td>
                                         <td>{author}</td>
                                         <td class="commit-date">{date}</td>
@@ -66,6 +73,26 @@ pub fn CommitList(data: CommitListData) -> impl IntoView {
                 }.into_any()
             }}
         </div>
+        <script>
+            {r#"document.addEventListener('DOMContentLoaded',function(){
+                var buttons=document.querySelectorAll('.commit-copy-btn');
+                buttons.forEach(function(btn){
+                    btn.addEventListener('click',function(){
+                        var oid=btn.getAttribute('data-commit-oid');
+                        if(!oid)return;
+                        navigator.clipboard.writeText(oid).then(function(){
+                            var icon=btn.querySelector('i');
+                            if(icon){icon.classList.remove('mdi-content-copy');icon.classList.add('mdi-check');}
+                            setTimeout(function(){
+                                if(icon){icon.classList.remove('mdi-check');icon.classList.add('mdi-content-copy');}
+                            },1500);
+                        }).catch(function(){
+                            alert('Failed to copy commit hash.');
+                        });
+                    });
+                });
+            });"#}
+        </script>
     }
 }
 
@@ -101,7 +128,7 @@ mod tests {
         let html = leptos::view! { <CommitList data /> }.to_html();
         assert!(html.contains("Commits"));
         assert!(html.contains("No commits yet."));
-        assert!(!html.contains("commit-oid"));
+        assert!(!html.contains(r#"class="commit-oid""#));
     }
 
     #[test]
@@ -120,6 +147,28 @@ mod tests {
         assert!(
             html.contains(r#"href="/webapp/projects/1/tasks/2/commits/deadbeef""#),
             "row should link to the commit page"
+        );
+    }
+
+    #[test]
+    fn commit_list_renders_copy_button_with_short_oid() {
+        let data = CommitListData {
+            project_id: 1,
+            task_id: 2,
+            commits: vec![make_commit(1, "Implement feature")],
+        };
+        let html = leptos::view! { <CommitList data /> }.to_html();
+        assert!(
+            html.contains("commit-copy-btn"),
+            "each commit row should render a copy button"
+        );
+        assert!(
+            html.contains(r#"data-commit-oid="deadbeef""#),
+            "copy button should carry the 8-char commit hash to copy"
+        );
+        assert!(
+            html.contains("mdi-content-copy"),
+            "copy button should use the copy icon"
         );
     }
 

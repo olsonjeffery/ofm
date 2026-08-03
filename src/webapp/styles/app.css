@@ -697,6 +697,19 @@ hr.timestamp-separator {
     white-space: nowrap;
 }
 
+.commit-oid .commit-copy-btn {
+    margin-left: 0.25rem;
+    height: 1.375rem;
+    min-height: 1.375rem;
+    padding: 0 0.3125rem;
+    vertical-align: middle;
+}
+
+.commit-oid .commit-copy-btn .icon.is-small {
+    height: 0.9375rem;
+    width: 0.9375rem;
+}
+
 .commit-table .commit-message {
     max-width: 0;
     width: 55%;

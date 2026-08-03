@@ -174,7 +174,9 @@ file-change list and a two-column diff.
   the worktree branch's commits **since the merge-base with the base branch**,
   ordered **oldest → newest** (top → bottom). Columns: OID (short, monospace),
   Message, Author, Date, Files. Each row links to the per-commit page at
-  `/webapp/projects/{project_id}/tasks/{task_id}/commits/{short_oid}`. A task
+  `/webapp/projects/{project_id}/tasks/{task_id}/commits/{short_oid}`, and a
+  small copy button next to each short OID copies the 8-character commit hash
+  to the clipboard (briefly swapping its icon to a checkmark). A task
   with no worktree (or a fully-merged / empty branch) renders a muted
   "No commits yet." line instead of the table.
 - **Base branch resolution**: the base ref is derived at render time, never
