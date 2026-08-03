@@ -1,6 +1,8 @@
 use leptos::prelude::*;
 
 use crate::db::schema::{ConversationWithRun, Task};
+use crate::services::commits::CommitSummary;
+use crate::webapp::components::commit_list::{CommitList, CommitListData};
 use crate::webapp::components::conversation_list::ConversationList;
 use crate::webapp::components::markdown_viewer::MarkdownViewer;
 
@@ -30,12 +32,18 @@ pub fn TaskDetailPage(
     doc_content: Option<String>,
     conversations: Vec<ConversationWithRun>,
     worktree_missing: bool,
+    commits: Vec<CommitSummary>,
 ) -> impl IntoView {
     let status_badge_class = status_class(&task.status);
     let status_label_str = status_label(&task.status);
     let task_id = task.id.to_string();
     let conversation_count = conversations.len();
 
+    let commit_data = CommitListData {
+        project_id: task.project_id,
+        task_id: task.id,
+        commits: commits.clone(),
+    };
     let doc_value = doc_content.clone().unwrap_or_default();
 
     view! {
@@ -156,6 +164,7 @@ pub fn TaskDetailPage(
                             view! { <MarkdownViewer content=doc_content.unwrap_or_default() /> }.into_any()
                         }}
                     </div>
+                    <CommitList data=commit_data />
                 </div>
             </div>
         </section>
@@ -317,7 +326,7 @@ mod tests {
         let task = make_task();
         let doc_content = Some("# Hello World".into());
         let html =
-            leptos::view! { <TaskDetailPage task doc_content conversations=vec![] worktree_missing=false /> }.to_html();
+            leptos::view! { <TaskDetailPage task doc_content conversations=vec![] commits=vec![] worktree_missing=false /> }.to_html();
         assert!(html.contains("Documentation"));
         assert!(html.contains("<h1>"));
         assert!(html.contains("Hello World"));
@@ -328,7 +337,7 @@ mod tests {
         let task = make_task();
         let doc_content = None;
         let html =
-            leptos::view! { <TaskDetailPage task doc_content conversations=vec![] worktree_missing=false /> }.to_html();
+            leptos::view! { <TaskDetailPage task doc_content conversations=vec![] commits=vec![] worktree_missing=false /> }.to_html();
         assert!(html.contains("No document yet"));
     }
 
@@ -337,14 +346,14 @@ mod tests {
         let task = make_task();
         let doc_content = None;
         let html =
-            leptos::view! { <TaskDetailPage task doc_content conversations=vec![] worktree_missing=false /> }.to_html();
+            leptos::view! { <TaskDetailPage task doc_content conversations=vec![] commits=vec![] worktree_missing=false /> }.to_html();
         assert!(html.contains("Conversations"));
     }
 
     #[test]
     fn test_task_detail_has_edit_button() {
         let task = make_task();
-        let html = leptos::view! { <TaskDetailPage task doc_content=None conversations=vec![] worktree_missing=false /> }
+        let html = leptos::view! { <TaskDetailPage task doc_content=None conversations=vec![] commits=vec![] worktree_missing=false /> }
             .to_html();
         assert!(html.contains("id=\"edit-task-btn\""));
         assert!(html.contains("mdi-pencil"));
@@ -353,7 +362,7 @@ mod tests {
     #[test]
     fn test_task_detail_edit_form_preserves_task_title() {
         let task = make_task();
-        let html = leptos::view! { <TaskDetailPage task doc_content=None conversations=vec![] worktree_missing=false /> }
+        let html = leptos::view! { <TaskDetailPage task doc_content=None conversations=vec![] commits=vec![] worktree_missing=false /> }
             .to_html();
         assert!(html.contains("value=\"Implement feature X\""));
     }
@@ -361,7 +370,7 @@ mod tests {
     #[test]
     fn test_task_detail_edit_form_has_status_select() {
         let task = make_task();
-        let html = leptos::view! { <TaskDetailPage task doc_content=None conversations=vec![] worktree_missing=false /> }
+        let html = leptos::view! { <TaskDetailPage task doc_content=None conversations=vec![] commits=vec![] worktree_missing=false /> }
             .to_html();
         assert!(html.contains("id=\"edit-task-status\""));
         assert!(html.contains("Pending"));
@@ -373,7 +382,7 @@ mod tests {
     #[test]
     fn test_task_detail_edit_form_pre_selects_current_status() {
         let task = make_task();
-        let html = leptos::view! { <TaskDetailPage task doc_content=None conversations=vec![] worktree_missing=false /> }
+        let html = leptos::view! { <TaskDetailPage task doc_content=None conversations=vec![] commits=vec![] worktree_missing=false /> }
             .to_html();
         assert!(html.contains("value=\"in_progress\" selected"));
     }
@@ -381,7 +390,7 @@ mod tests {
     #[test]
     fn test_task_detail_save_cancel_in_right_aligned_group() {
         let task = make_task();
-        let html = leptos::view! { <TaskDetailPage task doc_content=None conversations=vec![] worktree_missing=false /> }
+        let html = leptos::view! { <TaskDetailPage task doc_content=None conversations=vec![] commits=vec![] worktree_missing=false /> }
             .to_html();
         assert!(
             html.contains(r#"class="field is-grouped is-grouped-right""#),
@@ -400,7 +409,7 @@ mod tests {
     #[test]
     fn test_task_detail_danger_zone_in_edit_form() {
         let task = make_task();
-        let html = leptos::view! { <TaskDetailPage task doc_content=None conversations=vec![] worktree_missing=false /> }
+        let html = leptos::view! { <TaskDetailPage task doc_content=None conversations=vec![] commits=vec![] worktree_missing=false /> }
             .to_html();
         assert!(html.contains("id=\"delete-task-btn\""));
         assert!(html.contains("DANGER ZONE"));
@@ -418,7 +427,7 @@ mod tests {
     #[test]
     fn test_task_detail_danger_zone_box_markup() {
         let task = make_task();
-        let html = leptos::view! { <TaskDetailPage task doc_content=None conversations=vec![] worktree_missing=false /> }
+        let html = leptos::view! { <TaskDetailPage task doc_content=None conversations=vec![] commits=vec![] worktree_missing=false /> }
             .to_html();
         assert!(
             html.contains(r#"class="danger-zone""#),
@@ -453,7 +462,7 @@ mod tests {
     #[test]
     fn test_task_detail_ws_subscription_reloads_on_task_updated() {
         let task = make_task();
-        let html = leptos::view! { <TaskDetailPage task doc_content=None conversations=vec![] worktree_missing=false /> }
+        let html = leptos::view! { <TaskDetailPage task doc_content=None conversations=vec![] commits=vec![] worktree_missing=false /> }
             .to_html();
         assert!(html.contains("task_updated"));
         assert!(html.contains("window.location.reload()"));
@@ -462,7 +471,7 @@ mod tests {
     #[test]
     fn test_task_detail_status_badge_includes_is_light() {
         let task = make_task();
-        let html = leptos::view! { <TaskDetailPage task doc_content=None conversations=vec![] worktree_missing=false /> }
+        let html = leptos::view! { <TaskDetailPage task doc_content=None conversations=vec![] commits=vec![] worktree_missing=false /> }
             .to_html();
         assert!(html.contains("is-info is-light"));
     }
@@ -470,7 +479,7 @@ mod tests {
     #[test]
     fn test_task_detail_worktree_missing_banner() {
         let task = make_task();
-        let html = leptos::view! { <TaskDetailPage task doc_content=None conversations=vec![] worktree_missing=true /> }
+        let html = leptos::view! { <TaskDetailPage task doc_content=None conversations=vec![] commits=vec![] worktree_missing=true /> }
             .to_html();
         assert!(html.contains("id=\"worktree-missing-banner\""));
         assert!(html.contains("notification is-primary is-light"));
@@ -497,9 +506,45 @@ mod tests {
     #[test]
     fn test_task_detail_worktree_present_hides_banner() {
         let task = make_task();
-        let html = leptos::view! { <TaskDetailPage task doc_content=None conversations=vec![] worktree_missing=false /> }
+        let html = leptos::view! { <TaskDetailPage task doc_content=None conversations=vec![] commits=vec![] worktree_missing=false /> }
             .to_html();
         assert!(!html.contains("id=\"recreate-worktree-btn\""));
         assert!(!html.contains("worktree-missing-banner"));
+    }
+
+    #[test]
+    fn test_task_detail_shows_commits_empty_state() {
+        let task = make_task();
+        let html = leptos::view! { <TaskDetailPage task doc_content=None conversations=vec![] commits=vec![] worktree_missing=false /> }
+            .to_html();
+        assert!(html.contains("Commits"));
+        assert!(html.contains("No commits yet."));
+    }
+
+    #[test]
+    fn test_task_detail_renders_commit_rows() {
+        let task = make_task();
+        let oid = gix::ObjectId::from_hex(b"deadbeefdeadbeefdeadbeefdeadbeefdeadbeef").unwrap();
+        let commit = crate::services::commits::CommitSummary {
+            oid,
+            short_oid: "deadbeef".into(),
+            summary: "Implement feature X".into(),
+            author_name: "Jane Doe".into(),
+            author_email: "jane@example.com".into(),
+            authored_time: chrono::DateTime::<chrono::Utc>::from_naive_utc_and_offset(
+                NaiveDateTime::parse_from_str("2024-06-01 12:00:00", "%Y-%m-%d %H:%M:%S").unwrap(),
+                chrono::Utc,
+            ),
+            files_changed: 2,
+        };
+        let html = leptos::view! {
+            <TaskDetailPage task doc_content=None conversations=vec![] commits=vec![commit] worktree_missing=false />
+        }
+        .to_html();
+        assert!(html.contains("Implement feature X"));
+        assert!(
+            html.contains(r#"href="/webapp/projects/1/tasks/1/commits/deadbeef""#),
+            "commit row should link to its commit detail page"
+        );
     }
 }

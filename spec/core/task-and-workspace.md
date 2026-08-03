@@ -94,7 +94,7 @@ decision. Do not revert to UUIDs.
 ## The worktree — the isolated workspace
 
 - **One git worktree per task**, at `{footprint}/worktrees/project-{project_id}/task-{task_id}/`
-  (derived by `get_worktree_path`, [`src/worktree/mod.rs`](../../src/worktree/mod.rs); the canonical
+  (derived by `get_worktree_path`, [`src/worktree/mod.rs`](../../src/worktree/mod.rs) — see lines 44-46; the canonical
   path is stored in the `worktrees.worktree_path` column). It lives under the
   per-user footprint, never inside the repo itself.
 - **Branch:** `task/{taskId}-{sanitized-title}`, cut from the repo's default
@@ -162,6 +162,48 @@ HEAD) is preserved.
   request is in flight; on success the page reloads and the banner disappears;
   on failure a warning toast is shown.
 
+## Commit list & per-commit diff view
+
+The task detail page surfaces the task worktree's git history beneath the
+task's markdown document, and each commit opens a dedicated page with the
+file-change list and a two-column diff.
+
+- **Commit list** (`src/webapp/components/commit_list.rs`, rendered by
+  `TaskDetailPage` in `src/webapp/pages/task_detail.rs` immediately below the
+  Documentation box): a Bulma `.box` titled "Commits" containing a `.table` of
+  the worktree branch's commits **since the merge-base with the base branch**,
+  ordered **oldest → newest** (top → bottom). Columns: OID (short, monospace),
+  Message, Author, Date, Files. Each row links to the per-commit page at
+  `/webapp/projects/{project_id}/tasks/{task_id}/commits/{short_oid}`. A task
+  with no worktree (or a fully-merged / empty branch) renders a muted
+  "No commits yet." line instead of the table.
+- **Base branch resolution**: the base ref is derived at render time, never
+  persisted, mirroring `detect_default_branch` (`src/worktree/mod.rs`):
+  `refs/remotes/origin/HEAD` symbolic ref → the currently checked-out branch →
+  `"main"`. The merge-base between HEAD and the base tip is recomputed on every
+  page load, so the list reflects both new worktree commits and base-branch
+  advances without a schema change. See `resolve_base_commit` /
+  `list_commits_for_worktree` in `src/services/commits.rs`.
+- **Refresh on load**: git data is read inside the request handler
+  (`task_detail_handler`, `src/webapp/mod.rs`) via
+  `tokio::task::spawn_blocking` around the blocking gix read, so every GET
+  re-renders a current list. Any read error degrades to the empty state, never
+  a 500.
+- **Per-commit page** (`src/webapp/pages/commit_detail.rs`, route registered in
+  `src/webapp/mod.rs`): header box with short OID, summary, author, email, and
+  timestamp, followed by `DiffView` (`src/webapp/components/diff_view.rs`) — a
+  two-column side-by-side diff per changed file. Old lines (and context) render
+  in the left column with red-tinted `diff-del` styling and old line numbers;
+  new lines render in the right column with green-tinted `diff-add` styling and
+  new line numbers; blank cells mark the opposite side of a delete/insert.
+  Unknown or unresolvable OIDs render "Commit not found." with a link back to
+  the task.
+- **Git data reading**: `src/services/commits.rs` uses **gix** (pure Rust) for
+  tree reading (open repo, merge-base, ancestor walk, tree-to-tree diff,
+  blob contents) and **similar** to classify old/new lines for the two-column
+  rendering. Diffs are first-parent (empty tree for root commits), with rename
+  tracking disabled so statuses stay unambiguous add/modify/delete.
+
 ## How the document becomes agent context
 
 When an agent run starts, the orchestrator assembles a context system-prompt
@@ -207,6 +249,7 @@ path in the prompt is authoritative — agents are told not to look elsewhere.
 - [x] `buildContextPrompt` → `build_context_prompt` in `src/archive/mod.rs`
 - [x] Dev-server port assignment via `get_dev_server_port` → `src/archive/mod.rs`
 - [x] Effective-cwd resolution → `src/server/routes/agent_runs.rs` (post_create_agent_run resolves worktree path as cwd)
+- [x] Commit list + per-commit two-column diff → `src/services/commits.rs`, `src/webapp/components/commit_list.rs`, `src/webapp/components/diff_view.rs`, `src/webapp/pages/commit_detail.rs`
 
 ## Reference map
 

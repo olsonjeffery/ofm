@@ -54,6 +54,17 @@ pub mod breadcrumb_registry {
         BreadcrumbItem::new("Chat", "chat", "#")
     }
 
+    pub fn commit(oid: &str, project_id: i64, task_id: i64) -> BreadcrumbItem {
+        BreadcrumbItem::new(
+            format!("Commit {}", title_truncate(oid)),
+            "source-branch",
+            format!(
+                "/webapp/projects/{}/tasks/{}/commits/{}",
+                project_id, task_id, oid
+            ),
+        )
+    }
+
     pub fn chat_conversation(
         name: &str,
         project_id: i64,
@@ -193,6 +204,22 @@ mod tests {
         assert_eq!(item.title, "Chat");
         assert_eq!(item.icon, "chat");
         assert_eq!(item.path, "#");
+    }
+
+    #[test]
+    fn test_registry_commit() {
+        let item = breadcrumb_registry::commit("deadbeef", 1, 42);
+        assert_eq!(item.title, "Commit deadbeef");
+        assert_eq!(item.icon, "source-branch");
+        assert_eq!(item.path, "/webapp/projects/1/tasks/42/commits/deadbeef");
+    }
+
+    #[test]
+    fn test_registry_commit_truncates_long_oid() {
+        let long = "deadbeefdeadbeefdeadbeefdeadbeefdeadbeef";
+        let item = breadcrumb_registry::commit(long, 1, 42);
+        assert!(item.title.starts_with("Commit "));
+        assert!(item.title.len() < format!("Commit {long}").len());
     }
 
     #[test]

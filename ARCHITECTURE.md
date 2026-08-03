@@ -26,11 +26,11 @@ ofm/
 │   │   ├── opencode_sdk_provider.rs  # Pooled opencode server provider
 │   │   └── registry.rs               # Harness dispatch ("opencode")
 │   ├── agents/          # Prompt builders (planning, impl, review, PR)
-│   ├── services/        # Auth, projects, tasks, settings, session, transcript, export_import
+│   ├── services/        # Auth, projects, tasks, settings, session, transcript, export_import, commits
 │   ├── archive/         # Task doc I/O, context prompt
 │   ├── worktree/        # Git worktree management
 │   └── rauthy/          # Local rauthy lifecycle
-├── tests/               # 12 integration test files
+├── tests/               # 13 integration test files
 ├── templates/           # Agent prompt templates
 └── assets/              # Bulma CSS, logos
 ```
@@ -94,6 +94,8 @@ The workspace has a single member crate (`ofm` binary) defined inline.
 | base64 | 0.22 | Base64 encoding for PKCE |
 | url | 2 | URL parsing |
 | hex | 0.4 | Hex encoding |
+| gix | 0.86 | Pure-Rust git repository reading (commits, merge-base, trees, blobs) for the commit list & diff view |
+| similar | 3 | Line-diff classification (Equal/Delete/Insert) for two-column diffs |
 
 ## Application Lifecycle
 
@@ -193,6 +195,41 @@ For a **review** run, `completion_handler` reads the review conversation's **las
 - **`READY` present** → finish pipeline: refinement (if configured), else PR (if configured), else Terminal.
 - **`READY` absent** → bounce back to implementation (the loop continues).
 
+## Git Commit List & Diff View
+
+The task detail experience exposes the task worktree's git history and per-commit
+diffs entirely server-side (no client-side JS polling; every GET re-renders).
+
+- **Service layer** (`src/services/commits.rs`): pure, synchronous gix reads —
+  `list_commits_for_worktree` (commits on the worktree branch since the
+  merge-base with the base branch, oldest→newest), `commit_diff` (first-parent
+  tree diff; empty tree for root commits), `parse_oid` / `resolve_oid`. The base
+  branch is resolved at render time mirroring `worktree::detect_default_branch`
+  (`refs/remotes/origin/HEAD` → checked-out branch → `"main"`), so the list
+  reflects base-branch advances without a schema change. All functions are
+  blocking and are invoked from handlers inside `tokio::task::spawn_blocking`
+  per AGENTS.md. Any error degrades to an empty state, never a 500.
+- **Commit table** (`src/webapp/components/commit_list.rs`): a Bulma `.box`
+  titled "Commits" with a `.table` (OID / Message / Author / Date / Files),
+  rows oldest→newest, each linking to `/webapp/projects/{project_id}/tasks/{task_id}/commits/{short_oid}`.
+  Rendered by `TaskDetailPage` beneath the Documentation box; empty branches
+  render "No commits yet.".
+- **Per-commit page** (`src/webapp/pages/commit_detail.rs`, route
+  `/webapp/projects/{project_id}/tasks/{task_id}/commits/{oid}` in
+  `src/webapp/mod.rs`): header box (short OID, summary, author, email,
+  timestamp) plus the two-column diff. Bad/unresolvable OIDs render
+  "Commit not found." with a back link.
+- **DiffView** (`src/webapp/components/diff_view.rs`): renders each changed file
+  as a header (path, status, +adds/−dels) plus a two-column table. The
+  pre-aligned `FileDiff.lines` sequence from `similar::TextDiff` drives the
+  columns: `Equal`/`Delete` populate the old column, `Equal`/`Insert` the new
+  column, with blank cells on the opposite side. Old/new line numbers render in
+  gutters; `.diff-add`/`.diff-del` tint added/deleted cells.
+- **Handlers**: `task_detail_handler` fetches the commit list via
+  `spawn_blocking` (`.ok().flatten()` → empty vec); `commit_detail_handler`
+  resolves the OID (`resolve_oid`) then diffs it. Both live in
+  `src/webapp/mod.rs`.
+
 ## WebSocket Real-Time Bus
 
 The server maintains a WebSocket hub for live UI updates. Clients subscribe to per-task channels. Events (streaming deltas, agent-run status changes, task-blocked signals) are broadcast to subscribers in real time. Subscription management handles reconnection and scoped interest sets (only the tasks currently visible on screen).
@@ -220,7 +257,9 @@ All webapp UI follows the Islands Architecture pattern:
 
 ### UI Components
 
-- **Breadcrumbs**: Shared breadcrumb navigation system. `BreadcrumbItem` data struct holds `title`, `icon`, and `path`. A `breadcrumb_registry` module centralizes canonical breadcrumb definitions (e.g., `all_projects()`, `project()`, `task()`, `chat()`, `settings()`). Settings pages additionally use `settings_section()` / `settings_sub_page()` to trail breadcrumbs down to the active section and sub-page (e.g. All Projects → Settings → Providers & Agents → Model Configurations). The `Breadcrumbs` Leptos component renders Bulma `<nav class="breadcrumb">` markup. Breadcrumbs flow from page handler -> `render_shell()` -> `ShellPage` -> `Navbar`, appearing immediately after the WS status indicator in the navbar-start div.
+- **Breadcrumbs**: Shared breadcrumb navigation system. `BreadcrumbItem` data struct holds `title`, `icon`, and `path`. A `breadcrumb_registry` module centralizes canonical breadcrumb definitions (e.g., `all_projects()`, `project()`, `task()`, `chat()`, `commit()`, `settings()`). Settings pages additionally use `settings_section()` / `settings_sub_page()` to trail breadcrumbs down to the active section and sub-page (e.g. All Projects → Settings → Providers & Agents → Model Configurations). The `Breadcrumbs` Leptos component renders Bulma `<nav class="breadcrumb">` markup. Breadcrumbs flow from page handler -> `render_shell()` -> `ShellPage` -> `Navbar`, appearing immediately after the WS status indicator in the navbar-start div.
+- **CommitList** (`src/webapp/components/commit_list.rs`): commit-table `.box` for the task detail page (see *Git Commit List & Diff View*).
+- **DiffView** (`src/webapp/components/diff_view.rs`): two-column side-by-side diff renderer for the commit detail page (see *Git Commit List & Diff View*).
 - **SettingsDropdown** (`src/webapp/components/settings_dropdown.rs`): navbar split-button with both the label and arrow buttons toggling a one-level menu listing Providers & Agents, Import/Export, Account (the label no longer navigates directly). Replaced the former separate User Config and Settings navbar buttons.
 - **SettingsSidebar** (`src/webapp/components/settings_sidebar.rs`): section-local Bulma `.menu` sidebar. Defines the `SettingsSection`/`SettingsSubPage` enums and renders exactly one `is-active` link matching the active sub-page.
 - **Settings pages** (`src/webapp/pages/settings/`): freestanding pages under `/webapp/settings/*`, each a sidebar + content pane. `providers_agents.rs` (Model Configurations landing + Agent Settings), `import_export.rs` (Export landing + Import), `account.rs` (User Config landing, reuses `OnboardingForm`, + API Keys). `/webapp/settings` is kept as an alias for the Providers & Agents landing. The old tab-switching JS in `pages/settings.rs` was split into per-sub-page scripts (each self-contained, rendered only with its pane).

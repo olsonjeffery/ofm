@@ -1,5 +1,6 @@
 pub mod agent_configs;
 pub mod auth;
+pub mod commits;
 pub mod config_format;
 pub mod export_import;
 pub mod projects;
