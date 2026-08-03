@@ -180,7 +180,7 @@ mod tests {
         let data = make_data("pending", vec![], None);
         let html = leptos::view! { <TaskCard data /> }.to_html();
         assert!(html.contains("card-header-icon"));
-        assert!(html.contains(r#"card-number-pill"#));
+        assert!(html.contains("card-number-pill"));
         assert!(html.contains("#1"));
         assert!(html.contains("card-header-title"));
     }

@@ -160,7 +160,7 @@ mod tests {
         let counts = TaskCounts::default();
         let html = leptos::view! { <ProjectCard project task_counts=counts /> }.to_html();
         assert!(html.contains("card-header-icon"));
-        assert!(html.contains(r#"card-number-pill"#));
+        assert!(html.contains("card-number-pill"));
         assert!(html.contains("#1"));
         assert!(html.contains("card-header-title"));
     }
