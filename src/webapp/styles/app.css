@@ -614,6 +614,31 @@ hr.timestamp-separator {
     border: 1px solid var(--bulma-border);
     border-bottom: none;
     border-radius: 4px 4px 0 0;
+    cursor: pointer;
+    user-select: none;
+}
+
+.diff-file-header::-webkit-details-marker {
+    display: none;
+}
+
+.diff-file-header .diff-toggle {
+    color: var(--bulma-grey);
+    transition: transform 0.15s ease;
+    flex: none;
+}
+
+.diff-file:not([open]) .diff-file-header {
+    border-bottom: 1px solid var(--bulma-border);
+    border-radius: 4px;
+}
+
+.diff-file:not([open]) .diff-toggle {
+    transform: rotate(-90deg);
+}
+
+.diff-file:not([open]) .diff-grid {
+    display: none;
 }
 
 .diff-file-path {
@@ -644,6 +669,8 @@ hr.timestamp-separator {
     vertical-align: top;
     padding: 0;
     border: none;
+    display: flex;
+    align-items: flex-start;
 }
 
 .diff-grid tr + tr td.diff-cell {
@@ -676,18 +703,27 @@ hr.timestamp-separator {
     font-family: var(--bulma-family-code);
     font-size: 0.75rem;
     user-select: none;
+    vertical-align: top;
+    flex: none;
 }
 
-.diff-cell pre {
+.diff-line-content {
     display: inline-block;
+    flex: 1;
+    min-width: 0;
     margin: 0;
-    padding: 0;
+    padding: 0 0.5rem 0 0.25rem;
     border: none;
     background: none;
     color: inherit;
     font-family: var(--bulma-family-code);
     font-size: 0.8125rem;
     line-height: 1.4;
-    white-space: pre;
+    white-space: pre-wrap;
+    word-wrap: break-word;
+    overflow-wrap: break-word;
+    word-break: break-word;
+    vertical-align: top;
+    max-width: 100%;
 }
 

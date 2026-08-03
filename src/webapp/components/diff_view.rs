@@ -10,7 +10,7 @@ fn diff_cell(visible: bool, class: &'static str, lineno: Option<u32>, text: Stri
         view! {
             <td class=class>
                 <span class="diff-gutter">{lineno.map(|n| n.to_string()).unwrap_or_default()}</span>
-                <pre>{text}</pre>
+                <pre class="diff-line-content">{text}</pre>
             </td>
         }
         .into_any()
@@ -40,15 +40,18 @@ pub fn DiffView(files: Vec<FileDiff>) -> impl IntoView {
             };
             let stat = format!("+{} -{}", file.additions, file.deletions);
             view! {
-                <div class="diff-file">
-                    <div class="diff-file-header">
+                <details class="diff-file" open>
+                    <summary class="diff-file-header">
+                        <span class="icon is-small diff-toggle" aria-hidden="true">
+                            <i class="mdi mdi-chevron-down"></i>
+                        </span>
                         <span class="diff-file-path commit-oid">{file.path.clone()}</span>
                         <span class={format!("tag is-small {}", status_class)}>
                             <span class="icon is-small"><i class={format!("mdi mdi-{}", status_icon)}></i></span>
                             <span>{status}</span>
                         </span>
                         <span class="diff-stat has-text-grey">{stat}</span>
-                    </div>
+                    </summary>
                     <table class="diff-grid">
                         <tbody>
                             {file.lines.into_iter().map(|line| {
@@ -73,7 +76,7 @@ pub fn DiffView(files: Vec<FileDiff>) -> impl IntoView {
                             }).collect::<Vec<_>>()}
                         </tbody>
                     </table>
-                </div>
+                </details>
             }
         })
         .collect::<Vec<_>>()
@@ -158,5 +161,47 @@ mod tests {
         assert!(html.contains("diff-gutter\">2<"));
         assert!(html.contains("let a = 1;"));
         assert!(html.contains("let b = 2;"));
+    }
+
+    #[test]
+    fn diff_view_files_collapsible_by_default_open() {
+        let html = leptos::view! { <DiffView files=vec![make_file_diff()] /> }.to_html();
+        assert!(
+            html.contains("<details open"),
+            "each file diff should be a <details open> block"
+        );
+        assert!(
+            html.contains("<summary class=\"diff-file-header\">"),
+            "the file header should be the collapse <summary>"
+        );
+        assert!(
+            html.contains("mdi-chevron-down"),
+            "collapse toggle icon should render in the header"
+        );
+        assert!(
+            html.contains("<table class=\"diff-grid\">"),
+            "diff table should be present under the summary"
+        );
+    }
+
+    #[test]
+    fn diff_view_wraps_long_lines() {
+        let mut file = make_file_diff();
+        file.lines.push(DiffLine {
+            line_type: ChangeTag::Equal,
+            old_lineno: Some(3),
+            new_lineno: Some(3),
+            text: "let x = \"a very long line that will exceed the diff column width and must wrap\";\n"
+                .into(),
+        });
+        let html = leptos::view! { <DiffView files=vec![file] /> }.to_html();
+        assert!(
+            html.contains("diff-line-content"),
+            "diff lines should use the wrapping content class"
+        );
+        assert!(
+            html.contains("must wrap"),
+            "long line text should be present"
+        );
     }
 }
