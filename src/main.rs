@@ -6,7 +6,6 @@ use std::os::unix::fs::PermissionsExt;
 mod agents;
 mod archive;
 mod auth;
-mod cli;
 mod config;
 mod db;
 mod logging;
@@ -16,12 +15,10 @@ mod orchestration;
 mod providers;
 mod rauthy;
 
-use clap::Parser;
 use server::ws::bus::BroadcastBus;
 use std::collections::HashMap;
 use std::sync::Arc;
 use tokio::sync::Mutex;
-use uuid::Uuid;
 
 mod server;
 mod services;
@@ -70,12 +67,6 @@ fn parse_oidc_discovery(
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
-    let args = cli::Cli::parse();
-    if let Some(cmd) = args.command {
-        cli::agent::handle_command(cmd).await?;
-        return Ok(());
-    }
-
     let cfg = config::OfmConfig::load();
 
     let logging_config = cfg
@@ -305,8 +296,6 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         (auth_layer, oidc_provider)
     };
 
-    let access_tokens: Arc<Mutex<HashMap<Uuid, String>>> = Arc::new(Mutex::new(HashMap::new()));
-
     let state = server::state::AppState {
         db: client.clone(),
         default_user_id,
@@ -322,7 +311,6 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         cfg_port: cfg.port,
         ws_bus: BroadcastBus::new(),
         config: cfg.clone(),
-        access_tokens,
     };
     tracing::info!("Auth middleware: enabled");
 
@@ -330,7 +318,6 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     if let Some(ref oidc) = state.oidc_provider {
         let db = state.db.clone();
         let oidc = oidc.clone();
-        let access_tokens = state.access_tokens.clone();
         tokio::spawn(async move {
             let mut rows = match db
                 .query_raw("SELECT * FROM sessions", hiqlite::params!())
@@ -350,16 +337,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             for session in sessions {
                 let db = db.clone();
                 let oidc = oidc.clone();
-                let access_tokens = access_tokens.clone();
-                let user_id = session.user_id;
                 tokio::spawn(async move {
                     match crate::services::auth::refresh_access_token(&db, &oidc, session.id).await
                     {
-                        Ok(token) => {
-                            {
-                                let mut cache = access_tokens.lock().await;
-                                cache.insert(user_id, token);
-                            }
+                        Ok(_token) => {
                             tracing::info!("Startup refresh succeeded for session {}", session.id)
                         }
                         Err(e) => {

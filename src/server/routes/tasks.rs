@@ -60,7 +60,6 @@ pub fn tasks_router() -> Router<AppState> {
             super::conversations::conversations_router(),
         )
         .route("/{id}/worktree/recreate", post(recreate_worktree_handler))
-        .nest("/{id}", super::agent_flags::agent_flags_router())
 }
 
 async fn active_agents_handler(

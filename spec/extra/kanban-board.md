@@ -173,8 +173,7 @@ The button surface only needs to handle the loop's documented responses:
   credentials for this user; open the connect-provider modal.
 
 Each agent's button derives its visual state — Run / Running / Completed /
-Failed — by reading the agent-run's `status` and the relevant **task flags**
-(`workflow_complete`, `pr_agent_complete`, …), never by interpreting prose. This
+Failed — by reading the agent-run's `status`, never by interpreting prose. This
 is the same DB-driven truth the completion handler uses; the UI is just a second
 reader of those booleans. The little chat-bubble button beside a finished run
 deep-links to that run's conversation so the human can read what it did.

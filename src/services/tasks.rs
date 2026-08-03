@@ -41,7 +41,7 @@ pub async fn create_task(
 pub async fn list_tasks(client: &Client, project_id: i64) -> Result<Vec<Task>, hiqlite::Error> {
     client
         .query_map::<Task, _>(
-            "SELECT id, project_id, user_id, title, status, workflow_complete, workflow_blocked, workflow_run_count, planification_complete, pr_agent_complete, refinement_complete, yolo_mode, created_at FROM tasks WHERE project_id = $1 ORDER BY created_at DESC",
+            "SELECT id, project_id, user_id, title, status, workflow_blocked, workflow_run_count, yolo_mode, created_at FROM tasks WHERE project_id = $1 ORDER BY created_at DESC",
             hiqlite::params!(project_id),
         )
         .await
@@ -50,7 +50,7 @@ pub async fn list_tasks(client: &Client, project_id: i64) -> Result<Vec<Task>, h
 pub async fn get_task(client: &Client, task_id: i64) -> Result<Task, hiqlite::Error> {
     client
         .query_map_one::<Task, _>(
-            "SELECT id, project_id, user_id, title, status, workflow_complete, workflow_blocked, workflow_run_count, planification_complete, pr_agent_complete, refinement_complete, yolo_mode, created_at FROM tasks WHERE id = $1",
+            "SELECT id, project_id, user_id, title, status, workflow_blocked, workflow_run_count, yolo_mode, created_at FROM tasks WHERE id = $1",
             hiqlite::params!(task_id),
         )
         .await
@@ -375,45 +375,14 @@ pub async fn increment_workflow_run_count(
     Ok(())
 }
 
-const VALID_FLAG_COLUMNS: &[&str] = &[
-    "workflow_blocked",
-    "planification_complete",
-    "workflow_complete",
-    "pr_agent_complete",
-];
-
-async fn set_task_flag(client: &Client, task_id: i64, column: &str) -> Result<(), hiqlite::Error> {
-    if !VALID_FLAG_COLUMNS.contains(&column) {
-        return Err(hiqlite::Error::new(format!(
-            "invalid flag column: {column}"
-        )));
-    }
+pub async fn mark_task_blocked(client: &Client, task_id: i64) -> Result<(), hiqlite::Error> {
     client
         .execute(
-            format!("UPDATE tasks SET {column} = 1 WHERE id = $1"),
+            "UPDATE tasks SET workflow_blocked = 1 WHERE id = $1",
             hiqlite::params!(task_id),
         )
         .await?;
     Ok(())
-}
-
-pub async fn mark_task_blocked(client: &Client, task_id: i64) -> Result<(), hiqlite::Error> {
-    set_task_flag(client, task_id, "workflow_blocked").await
-}
-
-pub async fn mark_planification_complete(
-    client: &Client,
-    task_id: i64,
-) -> Result<(), hiqlite::Error> {
-    set_task_flag(client, task_id, "planification_complete").await
-}
-
-pub async fn mark_workflow_complete(client: &Client, task_id: i64) -> Result<(), hiqlite::Error> {
-    set_task_flag(client, task_id, "workflow_complete").await
-}
-
-pub async fn mark_pr_agent_complete(client: &Client, task_id: i64) -> Result<(), hiqlite::Error> {
-    set_task_flag(client, task_id, "pr_agent_complete").await
 }
 
 #[cfg(test)]
@@ -455,49 +424,6 @@ mod tests {
         (project_id, task.id)
     }
 
-    type FlagState = (bool, bool, bool, bool);
-
-    async fn assert_flags(client: &Client, task_id: i64, expected: FlagState) {
-        let task = get_task(client, task_id).await.unwrap();
-        assert_eq!(
-            task.planification_complete, expected.0,
-            "planification_complete"
-        );
-        assert_eq!(task.workflow_complete, expected.1, "workflow_complete");
-        assert_eq!(task.workflow_blocked, expected.2, "workflow_blocked");
-        assert_eq!(task.pr_agent_complete, expected.3, "pr_agent_complete");
-    }
-
-    #[tokio::test]
-    async fn test_mark_planification_complete() {
-        let (client, _tmp) = make_client().await;
-        let (_, task_id) = seed_task(&client).await;
-
-        mark_planification_complete(&client, task_id).await.unwrap();
-
-        assert_flags(&client, task_id, (true, false, false, false)).await;
-    }
-
-    #[tokio::test]
-    async fn test_mark_workflow_complete() {
-        let (client, _tmp) = make_client().await;
-        let (_, task_id) = seed_task(&client).await;
-
-        mark_workflow_complete(&client, task_id).await.unwrap();
-
-        assert_flags(&client, task_id, (false, true, false, false)).await;
-    }
-
-    #[tokio::test]
-    async fn test_mark_pr_agent_complete() {
-        let (client, _tmp) = make_client().await;
-        let (_, task_id) = seed_task(&client).await;
-
-        mark_pr_agent_complete(&client, task_id).await.unwrap();
-
-        assert_flags(&client, task_id, (false, false, false, true)).await;
-    }
-
     #[tokio::test]
     async fn test_mark_task_blocked() {
         let (client, _tmp) = make_client().await;
@@ -505,18 +431,8 @@ mod tests {
 
         mark_task_blocked(&client, task_id).await.unwrap();
 
-        assert_flags(&client, task_id, (false, false, true, false)).await;
-    }
-
-    #[tokio::test]
-    async fn test_mark_flags_are_independent() {
-        let (client, _tmp) = make_client().await;
-        let (_, task_id) = seed_task(&client).await;
-
-        mark_planification_complete(&client, task_id).await.unwrap();
-        mark_pr_agent_complete(&client, task_id).await.unwrap();
-
-        assert_flags(&client, task_id, (true, false, false, true)).await;
+        let task = get_task(&client, task_id).await.unwrap();
+        assert!(task.workflow_blocked, "workflow_blocked");
     }
 
     #[tokio::test]

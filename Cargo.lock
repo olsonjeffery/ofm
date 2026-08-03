@@ -2987,7 +2987,6 @@ dependencies = [
  "base64 0.23.0",
  "bytes",
  "chrono",
- "clap",
  "cookie",
  "futures-util",
  "hex",

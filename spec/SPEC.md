@@ -242,33 +242,7 @@ equivalent exists at `src/`, prefer that citation.
   or line ranges. Treat each as "here is how we solved it," not "copy this."
   **Prefer `src/` citations over `reference/` wherever Rust equivalents exist.**
 
-## OAuth Access Token Injection
-
-The `AppState` contains an in-memory `access_tokens: Arc<Mutex<HashMap<Uuid, String>>>`
-cache that maps `user_id → OAuth access_token`. Tokens are populated on every
-refresh (both the background startup task and the `POST /api/auth/refresh` handler).
-
-When an agent run is started, the user's access token is written as part of a structured
-`.ofm_agent.json` file in the worktree root (`0600` permissions) rather than embedded in
-the prompt text. The JSON structure contains `accessToken`, `tokenExpiration` (Unix timestamp
-from the JWT `exp` claim), `ofmHost`, `ofmPort`, and `ofmPid`. The context prompt references
-this file and instructs agents to parse it with `jq` and derive the task ID from the worktree
-directory name. This avoids sending the credential to the LLM provider and prevents it from
-being persisted in the conversation transcript.
-
-Agents call the OFM server's `/api/tasks/{task_id}/{action}` endpoints via:
-```bash
-HOST=$(jq -r '.agentVars.ofmHost' .ofm_agent.json)
-PORT=$(jq -r '.agentVars.ofmPort' .ofm_agent.json)
-ACCESS_TOKEN=$(jq -r '.agentVars.accessToken' .ofm_agent.json)
-TASK_ID=$(basename "$(pwd)" | sed 's/task-//')
-curl -X POST "http://$HOST:$PORT/api/tasks/$TASK_ID/{action}" \
-  -H "Authorization: Bearer $ACCESS_TOKEN"
-```
-
-The `.ofm_agent.json` file (.ofm_token previously) is listed in `.gitignore` so it is never checked into version control.
-
-### Session Directory Routing
+## Session Directory Routing
 
 When `start_next_agent()` in `src/orchestration/mod.rs` creates a new agent session via the opencode SDK,
 the provider routes the task worktree path to the opencode server as a `directory` **query param** on every
@@ -282,21 +256,20 @@ server's `process.cwd()` when absent — a PATCH to the session row is **not** s
 re-resolve the directory per request. The `external_directory` allowlist in the server config already
 restricts writes to `{footprint}/worktrees/**`, `{footprint}/archive/**`, and `/tmp/**`.
 
-### Token Expiration Awareness
-
-The `.ofm_agent.json` file includes a `tokenExpiration` field derived from the JWT access token's `exp`
-claim (decoded server-side with no signature verification). The context prompt instructs agents to check
-this expiration before making API calls. If the token has expired or the agent receives HTTP 401 responses,
-it should end its turn and ask the user to resume with a nudge to create a fresh file.
-
 ## Auto-Advancement Wiring
 
-When an agent run completes and the `completion_handler` returns `StartAgent`,
-the broadcast task now calls `start_next_agent()` to automatically start the next
-phase agent. This wires the implementation → review → PR pipeline end-to-end
-without requiring the agent to call any completion endpoint (though curl-based
-flag endpoints remain available for `complete-plan`, `complete-workflow`,
-`block-workflow`, and `complete-pr`).
+When an agent run completes, the `completion_handler` decides the next phase and
+the broadcast task calls `start_next_agent()` to automatically start it. This
+wires the implementation → review → (refinement →) PR pipeline end-to-end with
+no completion endpoints or scripts.
+
+For a **review** run, the handler reads the review conversation's **last model
+message** (`transcript::last_model_text`) and does a case-sensitive substring
+search for the literal keyword `READY`:
+
+- **`READY` present** → the feature is approved → start refinement (if
+  configured), else PR (if configured), else Terminal.
+- **`READY` absent** → bounce back to implementation (the loop continues).
 
 The shared `start_next_agent()` function in `src/orchestration/mod.rs` contains
 all agent-run startup logic and is used by both the HTTP handler and

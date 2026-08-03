@@ -91,8 +91,6 @@ async fn setup_app() -> TestApp {
         cookie::Key::generate(),
         user_id,
     );
-    let mut access_tokens = HashMap::new();
-    access_tokens.insert(user_id, "".to_owned());
 
     let state = AppState {
         cfg_port: 0,
@@ -109,7 +107,6 @@ async fn setup_app() -> TestApp {
         api_key_pepper: b"test_pepper".to_vec(),
         ws_bus: BroadcastBus::new(),
         config: OfmConfig::default(),
-        access_tokens: Arc::new(Mutex::new(access_tokens)),
     };
 
     let app = server::router(state, auth_layer);

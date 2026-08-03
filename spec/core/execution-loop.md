@@ -72,39 +72,44 @@ reviewer's job is to catch that.
   (long suites run in the background), then the manual scenarios from the
   Testing Strategy.
 - **Verdict** — exactly one of:
-  - **READY** — all items verified, all tests pass → run the completion script
-    that sets `workflow_complete`. The loop then enters the finish pipeline
-    (→ PR).
+  - **READY** — all items verified, all tests pass → end the review's **final
+    model message with the exact keyword `READY`** (uppercase, case-sensitive).
+    The orchestrator detects it and the loop enters the finish pipeline
+    (→ refinement if configured, else → PR).
   - **NEEDS_WORK** — any verification or test failed → rewrite Review Findings
     with the specific issues, **uncheck the failed to-do items** (so
-    implementation retries them), and end with no script. The loop chains back
-    to implementation.
+    implementation retries them), and end **without** the `READY` keyword. The
+    loop chains back to implementation.
   - **BLOCKED** — all agent-doable work is done but remaining items physically
-    require a human (a decision, external infra, credentials) → run the script
-    that sets `workflow_blocked`. The loop stops until a human resumes.
+    require a human (a decision, external infra, credentials) → end **without**
+    the `READY` keyword and document the blocker. The loop chains back to
+    implementation, which hands off for user input; there is no `workflow_blocked`
+    endpoint anymore — that flag is written only by the server-side iteration cap.
 - Review **only documents and decides — it never fixes code.**
 - It **replaces** the Review Findings section every time (no history kept).
 
 ## How the loop reads all this
 
 The transitions live in [`orchestration-loop.md`](./orchestration-loop.md); in
-brief: implementation → review, review → implementation, with two diversions
-that the loop checks **before** that toggle —
+brief: implementation → review, review → implementation, with diversions that
+the loop checks **before** that toggle —
 
-- `workflow_complete` set (review said READY) → finish pipeline → PR;
-- `workflow_blocked` set (review said BLOCKED) → stop;
+- review's last model message contains `READY` → finish pipeline
+  (refinement if configured, else PR if configured, else terminal);
+- `workflow_blocked` set (server-only iteration-cap marker) → stop;
 - and the iteration cap auto-blocks a runaway loop.
 
-So a NEEDS_WORK review (which sets no flag) simply falls through to the toggle
-and bounces back to implementation.
+So a NEEDS_WORK or BLOCKED review (which omits `READY`) simply falls through to
+the toggle and bounces back to implementation.
 
 ## Why two agents
 
 Separation of powers. The implementer is biased toward declaring victory; an
 independent reviewer with a skeptical prompt and strict matching catches partial
 or skipped work. Crucially, the verdict is expressed as **edits to the task doc
-plus a flag** — never as prose the orchestrator has to interpret. That is what
-keeps the loop dumb and reliable (see
+plus the `READY` keyword** — never as structured data the orchestrator has to
+parse (the READY search is a plain case-sensitive substring check on the last
+model message). That is what keeps the loop dumb and reliable (see
 [`orchestration-loop.md`](./orchestration-loop.md)).
 
 ## What to build
@@ -115,11 +120,11 @@ keeps the loop dumb and reliable (see
 - [ ] Disallow sub-agent delegation for the implementation agent.
 - [x] The review prompt: early-return guard → strict per-item verification →
       unit + manual tests → READY / NEEDS_WORK / BLOCKED → replace findings,
-      uncheck failed items, never fix code.
+      uncheck failed items, never fix code, signal READY via the `READY` keyword.
       → `templates/review.md`, `src/agents/review.rs`
-- [x] Completion scripts for `workflow_complete` (READY) and `workflow_blocked`
-      (BLOCKED).
-      → `src/server/routes/agent_flags.rs` (complete_workflow, block_workflow)
+- [x] The READY keyword detection: `completion_handler()` reads the review's last
+      model message and searches for `READY`.
+      → `src/services/transcript.rs` (`last_model_text`), `src/orchestration/mod.rs`
 
 > The reference also records a Playwright video of the review's manual testing
 > for the user to watch (the `videoConfig` wired up in `agentRunner.ts`). That's
@@ -134,13 +139,13 @@ keeps the loop dumb and reliable (see
 |---|---|---|
 | Implementation prompt | `templates/implementation.md`, `src/agents/implementation.rs` | `reference/server/constants/prompts/implementation.md` |
 | Review prompt | `templates/review.md`, `src/agents/review.rs` | `reference/server/constants/prompts/review.md` |
-| Completion signals | `src/server/routes/agent_flags.rs` | `reference/scripts/complete-workflow.ts`, `reference/scripts/block-workflow.ts` |
+| READY keyword detection | `src/orchestration/mod.rs`, `src/services/transcript.rs` | — |
 | Prompt assembly + tool/video setup | — | `reference/server/constants/agentPrompts.ts`, `reference/server/services/agentRunner.ts` |
 
 ## Boundaries (not in this spec)
 
-- The chaining mechanics, the iteration cap, and how flags route the loop →
-  [`orchestration-loop.md`](./orchestration-loop.md).
+- The chaining mechanics, the iteration cap, and how the READY keyword routes
+  the loop → [`orchestration-loop.md`](./orchestration-loop.md).
 - A polishing pass between review and PR →
   [`refinement-agent.md`](../extra/refinement-agent.md).
 - Opening the PR after READY → [`pull-request-agent.md`](./pull-request-agent.md).

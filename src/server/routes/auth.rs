@@ -119,22 +119,6 @@ async fn refresh(State(state): State<AppState>, jar: PrivateCookieJar) -> Respon
             }
         };
 
-    let session = match crate::services::auth::find_session(&state.db, session_id).await {
-        Ok(Some(s)) => s,
-        Ok(None) => {
-            return (
-                jar.remove(Cookie::from("ofm_session")),
-                ServerError::BadRequest("session expired, please re-authenticate".into()),
-            )
-                .into_response();
-        }
-        Err(e) => return e.into_response(),
-    };
-    {
-        let mut cache = state.access_tokens.lock().await;
-        cache.insert(session.user_id, access_token.clone());
-    }
-
     (jar, Json(json!({ "access_token": access_token }))).into_response()
 }
 

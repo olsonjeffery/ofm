@@ -170,29 +170,11 @@ Update the task documentation file at `{{taskDocPath}}`:
    - This allows the implementation agent to retry
 
 #### If READY:
-1. **Run the completion command** to signal the workflow is complete:
-```bash
-HOST=$(jq -r '.agentVars.ofmHost' .ofm_agent.json)
-PORT=$(jq -r '.agentVars.ofmPort' .ofm_agent.json)
-ACCESS_TOKEN=$(jq -r '.agentVars.accessToken' .ofm_agent.json)
-TASK_ID=$(basename "$(pwd)" | sed 's/task-//')
-curl -X POST "http://$HOST:$PORT/api/tasks/$TASK_ID/complete-workflow" \
-  -H "Authorization: Bearer $ACCESS_TOKEN"
-```
-This stops the automated agent loop and awaits final user review.
+1. **End your final message with the exact keyword `READY`** (uppercase, case-sensitive). The orchestrator detects the keyword in the last model message and automatically advances the workflow to Refinement (or PR if refinement is not configured). Without the `READY` keyword, the task loops back to Implementation.
 
 #### If BLOCKED:
 1. **Update the "Review Findings" section** explaining what is blocking progress and what user action is needed
-2. **Run the block command** to pause the workflow:
-```bash
-HOST=$(jq -r '.agentVars.ofmHost' .ofm_agent.json)
-PORT=$(jq -r '.agentVars.ofmPort' .ofm_agent.json)
-ACCESS_TOKEN=$(jq -r '.agentVars.accessToken' .ofm_agent.json)
-TASK_ID=$(basename "$(pwd)" | sed 's/task-//')
-curl -X POST "http://$HOST:$PORT/api/tasks/$TASK_ID/block-workflow" \
-  -H "Authorization: Bearer $ACCESS_TOKEN"
-```
-This stops the automated agent loop until the user resumes it after providing the needed input.
+2. **Do NOT include the `READY` keyword** in your final message. The task will loop back to Implementation, which will address the blocker or hand off for user input.
 
 ## Important Constraints
 - Do NOT fix any code or specs - only document findings

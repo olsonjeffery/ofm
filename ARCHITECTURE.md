@@ -108,44 +108,7 @@ The workspace has a single member crate (`ofm` binary) defined inline.
 7. **OpenCode provider sessions**: Spawn `opencode serve` subprocesses per user in their own process groups, manage lifecycle, stream events. Teardown kills each spawned process group precisely (`kill(-pgid)`); the pool is drained on shutdown.
 8. **Shutdown**: Graceful shutdown — stop accepting connections, kill subprocesses, remove the rauthy container by name, close DB.
 
-## OAuth Access Token Cache
-
-The `AppState` struct in `src/server/state.rs` contains an in-memory access token cache:
-```rust
-pub access_tokens: Arc<Mutex<HashMap<Uuid, String>>>,
-```
-
-Maps `user_id → OAuth access_token`. Populated on every token refresh:
-- In the background startup task in `src/main.rs` (refreshes all stored sessions)
-- In the `POST /api/auth/refresh` handler in `src/server/routes/auth.rs`
-
-On successful refresh, the token is stored and a WS broadcast `"agent token refreshed"` is sent to all active conversation topics for that user.
-
-### Expiry-Aware Cache Access
-
-The `get_or_refresh_token` helper in `src/orchestration/mod.rs` centralizes cache access with JWT expiry validation and OIDC refresh fallback. Both `start_next_agent` and the `send_message` handler use it.
-
-Access pattern:
-1. Check cache — if the cached token's `exp` claim is in the past, treat as cache miss
-2. On miss, if OIDC provider is configured, query the full session row (including persisted `access_token`) from the DB
-3. If the persisted `access_token` is non-empty, call `validate_access_token` against the OIDC `userinfo_endpoint`:
-   - Valid (200) → seed cache with persisted token, return
-   - Invalid (401) or network error → fall through to step 4
-4. Call `auth::refresh_access_token` to obtain a fresh token:
-   - On success → seed cache, persist new `access_token` to DB, return
-   - On `JwtToken` error → retry once after 500ms backoff:
-     - Retry success → cache + persist + return
-     - Retry fail → delete session, return `None`
-   - On `invalid_grant`/`invalid_token` → session already deleted by refresh function, return `None`
-5. On all other failures, log `tracing::error!` and return `None` (caller skips `.ofm_agent.json` write)
-
-### `.ofm_agent.json` Write Guards
-
-The `write_ofm_agent_json` function in `src/orchestration/mod.rs` guards against writing invalid tokens:
-- **Empty token check**: returns early with `tracing::error!` if `access_token` is empty
-- **Expired token check**: decodes the JWT `exp` claim via `decode_jwt_exp`; returns early with `tracing::error!` if the token has expired past `chrono::Utc::now()`
-
-### Session Cookie Clearing on Invalidated Refresh
+## Session Cookie Clearing on Invalidated Refresh
 
 When `refresh_access_token` receives `invalid_grant` or `invalid_token` from the OIDC provider, the session row is deleted from the DB. The `POST /api/auth/refresh` handler in `src/server/routes/auth.rs` now catches the error and clears the `ofm_session` cookie by calling `jar.remove(Cookie::from("ofm_session"))` before returning a 400 response with `"session expired, please re-authenticate"`.
 
@@ -201,20 +164,12 @@ See `src/orchestration/mod.rs`.
 
 ## OFM Context Prompt Injection
 
-The `build_context_prompt()` in `src/archive/mod.rs` appends an "OFM Environment" section to every agent turn's prompt. This section describes the `.ofm_agent.json` file structure and provides `jq`-based instructions for reading connection details and deriving the task ID from the worktree directory name. The OAuth access token is **not** embedded in the prompt text — instead it is written to `.ofm_agent.json` in the worktree root (with `0600` permissions) as part of a structured JSON object. Agents parse the file with `jq` and pass the access token in `Authorization: Bearer` headers when calling the `agent-flags` endpoints.
-
-The `.ofm_agent.json` file has the following schema:
-```json
-{
-  "agentVars": {
-    "accessToken": "...",
-    "tokenExpiration": 1234567890,
-    "ofmHost": "127.0.0.1",
-    "ofmPort": 3183,
-    "ofmPid": 12345
-  }
-}
-```
+The `build_context_prompt()` in `src/archive/mod.rs` builds the agent's turn context
+prompt. The historical "OFM Environment" section (which documented a
+`.ofm_agent.json` file and `jq` instructions for calling the removed `agent-flags`
+endpoints) has been **removed** along with the file and endpoints themselves.
+The prompt retains the **Working Directory** (authoritative CWD + allowed paths),
+**Task Plan File**, **AGENTS.md Guidance**, and **Testing Configuration** sections.
 
 ### Session Directory Routing
 
@@ -228,19 +183,17 @@ and `session.abort`. This mirrors the reference implementation's `WorkspaceRouti
 the workspace directory per HTTP call and falls back to the server's `process.cwd()` when absent — so a
 session-row PATCH is insufficient and is no longer performed.
 
-### File Recreation on Resume
-
-In `src/server/routes/conversations.rs`, the `send_message()` handler recreates `.ofm_agent.json`
-with a fresh access token and expiration timestamp before resuming a provider turn. This ensures
-the agent always receives up-to-date credentials, even if the token expired between turns.
-
 ## Shared Agent Run Starting
 
 The `start_next_agent()` function in `src/orchestration/mod.rs` consolidates all agent-run startup logic (config resolution, guard checks, session creation, provider startup, context-prompt building, turn initiation, and broadcast task spawning). Both the HTTP handler (`post_create_agent_run` in `src/server/routes/agent_runs.rs`) and auto-advancement callers use this shared function.
 
 ## Auto-Advancement Wiring
 
-When an agent run completes and `completion_handler` returns `NextAction::StartAgent`, the broadcast task (in both `start_next_agent()` and the conversations broadcast task in `send_message()`) spawns a new task that calls `start_next_agent()` for the next phase. This wires auto-advancement through the implementation → review → PR pipeline without requiring the agent to signal completion via echo or curl (though curl-based flag endpoints are still available for specific phases like `complete-workflow` and `block-workflow`).
+When an agent run completes and `completion_handler` returns `NextAction::StartAgent`, the broadcast task (in both `start_next_agent()` and the conversations broadcast task in `send_message()`) spawns a new task that calls `start_next_agent()` for the next phase. This wires auto-advancement through the implementation → review → refinement → PR pipeline with no completion endpoints or scripts.
+
+For a **review** run, `completion_handler` reads the review conversation's **last model message** via `transcript::last_model_text` and does a case-sensitive substring search for the literal keyword `READY`:
+- **`READY` present** → finish pipeline: refinement (if configured), else PR (if configured), else Terminal.
+- **`READY` absent** → bounce back to implementation (the loop continues).
 
 ## WebSocket Real-Time Bus
 

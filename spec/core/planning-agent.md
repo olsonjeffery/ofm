@@ -9,8 +9,8 @@
 > **Implementation status:** This spec module is **partially implemented** in the
 > Rust codebase. The planning prompt (`templates/planification.md`), template
 > (`templates/plan-template.md`), and prompt assembly function
-> (`src/agents/planning.rs`) exist. The completion signal endpoint
-> (`src/server/routes/agent_flags.rs`) is implemented. The research sub-agent
+> (`src/agents/planning.rs`) exist. The stop-after-planning human gate is
+> implemented in the state machine. The research sub-agent
 > step and user-clarification workflow are defined in the prompt but the agent
 > composition code that wires everything together remains to be integrated into
 > the turn lifecycle.
@@ -53,8 +53,6 @@ written, the original is gone.)
 
 ## The workflow
 
-NOTE: DO NOT RESTORE `ofm agent` INSTRUCTIONS IN CODE; DO NOT IMPLEMENT IT
-
 1. **Explore (research sub-agent).** Spawn a read-only sub-agent to map the
    relevant code and return files with line numbers, the current architecture,
    dependencies, and any ambiguities. It must not write files, run scripts, or
@@ -65,10 +63,8 @@ NOTE: DO NOT RESTORE `ofm agent` INSTRUCTIONS IN CODE; DO NOT IMPLEMENT IT
    an obvious answer. Always propose and confirm a **testing strategy**. Make
    reasonable assumptions for everything else and proceed.
 3. **Write the plan** to the task doc, following the template exactly.
-4. **Verify and signal done.** Read the file back, then run the completion
-   script (`ofm agent plan-complete <task-id>`), which sets `planification_complete`.
-
-NOTE: DO NOT RESTORE `ofm agent` INSTRUCTIONS IN CODE; DO NOT IMPLEMENT IT
+4. **Verify.** Read the file back. Planning simply ends its turn — the completion
+   handler stops at the human gate. There is no completion script or flag.
 
 ## The plan template is the contract
 
@@ -116,25 +112,23 @@ and the tech/non-tech prompt split, are role behavior — see
 
 ## What to build
 
-NOTE: DO NOT RESTORE `ofm agent` INSTRUCTIONS IN CODE; DO NOT IMPLEMENT IT
-
 - [x] The planning prompt enforcing the plan-only constraints and the
       verbatim-original-request rule. → `templates/planification.md`
 - [x] A read-only research sub-agent step (or direct read-only exploration).
       → `templates/planification.md` (Step 1: Explore uses Task tool sub-agent)
 - [x] The plan template. → `templates/plan-template.md`
-- [ ] A completion script that sets `planification_complete` and the loop's
-      stop-after-planning gate (`ofm agent complete-plan <task-id>`).
-      → `src/server/routes/agent_flags.rs`
+- [x] The stop-after-planning human gate. The completion handler stops after any
+      planification run; no completion script or flag exists.
+      → `src/orchestration/state_machine.rs` (`next_agent`, Planification → Stop)
 
 ## Reference map
 
 | Concern | Rust (implemented) | Legacy reference |
-|---|---|---|---|
+|---|---|---|
 | Planning prompt | `templates/planification.md` | `reference/server/constants/prompts/planification.md` |
 | Plan template | `templates/plan-template.md` | `reference/server/constants/templates/plan-template.md` |
 | Prompt assembly | `src/agents/planning.rs` (`build_planning_prompt`) | `reference/server/constants/agentPrompts.ts` (`generatePlanificationMessage`) |
-| Completion signal | `src/server/routes/agent_flags.rs` | `reference/scripts/complete-plan.ts` |
+| Human gate | `src/orchestration/state_machine.rs` | `reference/scripts/complete-plan.ts` |
 | Non-technical variant (extra) | (not yet implemented) | `reference/server/constants/prompts/planification-nontechnical.md` |
 
 ## Boundaries (not in this spec)

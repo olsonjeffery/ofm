@@ -40,8 +40,10 @@ job is to decide, each time an agent finishes, what should happen next.
 - **Conversation** — one streaming session with the OpenCode harness; how an agent run
   actually executes and persists its transcript. See
   [`opencode.md`](../extra/harnesses/opencode.md).
-- **Workflow flags** — booleans on the task row that gate the loop. They are the
-  orchestrator's entire memory of "where are we."
+- **Workflow flags** — `workflow_blocked` and `workflow_run_count` on the task row.
+  `workflow_blocked` is a **server-only** marker (set exclusively by the iteration-cap
+  path); agents can no longer set it. The loop's routing otherwise reads the review
+  verdict from the transcript (see below), not from flags.
 
 ## The core agent roster
 
@@ -50,10 +52,10 @@ the loop needs to know about them.
 
 | Agent | Does | Signals "done" by (completion handler) |
 |---|---|---|
-| **planning** (`planification`) | Turns the task doc + original request into a structured plan, written back into the doc. Touches nothing but the doc. | `curl POST .../complete-plan` → sets `planification_complete`. |
+| **planning** (`planification`) | Turns the task doc + original request into a structured plan, written back into the doc. Touches nothing but the doc. | Ending its turn — the completion handler stops (human gate). |
 | **implementation** | Implements the unchecked to-do items from the plan, inside the worktree. | Ending its turn — the completion handler auto-advances to review. |
-| **review** | Verifies the implementation against the plan, runs tests, and decides READY / NEEDS_WORK / BLOCKED. | READY → `curl POST .../complete-workflow` (sets `workflow_complete`). BLOCKED → `curl POST .../block-workflow` (sets `workflow_blocked`). NEEDS_WORK → no script, just ends → auto-advances back to implementation. |
-| **PR** (`pr`) | Opens the pull request, drives CI to green, resolves conflicts. Terminal. | `curl POST .../complete-pr` → sets `pr_agent_complete`. |
+| **review** | Verifies the implementation against the plan, runs tests, and decides READY / NEEDS_WORK / BLOCKED. | Ending its turn with the final model message containing the keyword **`READY`** (case-sensitive) → finish pipeline (refinement/PR). Without `READY`, the handler bounces back to implementation. |
+| **PR** (`pr`) | Opens the pull request, drives CI to green, resolves conflicts. Terminal. | Ending its turn — nothing chains after PR. |
 
 The agent-type enum in the schema also contains `refinement` and `yolo`. Those
 are **extras** ([`refinement-agent.md`](../extra/refinement-agent.md),
@@ -77,18 +79,21 @@ lives.
 ```
                  ┌──────────────── manual Run ────────────────┐
                  ▼                                             │
-            planning ──(complete-plan)──▶ [STOP: human reviews plan] ──Run──┐
-                                                                            │
-   ┌────────────────────────────────────────────────────────────────────────┘
+            planning ───────────────────────▶ [STOP: human reviews plan] ──Run──┐
+                                                                                │
+   ┌────────────────────────────────────────────────────────────────────────────┘
    ▼
-implementation ──▶ review ──┬─ NEEDS_WORK ───────────────────────▶ implementation   (loop back)
-       ▲                    │
-       │                    ├─ READY  (complete-workflow → workflow_complete) ──▶ PR
-       │                    │
-       └────────────────────┴─ BLOCKED (block-workflow → workflow_blocked) ──▶ [STOP: human]
+implementation ──▶ review ──┬─ last model msg contains "READY" ─▶ Refinement ──▶ PR
+        ▲                   │             (or PR / Terminal if unconfigured)
+        │                   │
+        └───────────────────┴─ no "READY" ─────────────────────▶ implementation   (loop)
 
-PR ──(complete-pr → pr_agent_complete)──▶ [TERMINAL]
+PR ────────────────────────────────────────▶ [TERMINAL]
 ```
+
+The review verdict is a **simple, case-sensitive substring search** for the literal
+`READY` in the review's **last model (assistant) message** in the transcript. No flag
+endpoints, no completion scripts, no structured return data.
 
 ### Transitions, precisely
 
@@ -101,19 +106,24 @@ does this:
      broadcast the update, and **chain**.
    - Status `failed` → the user already pressed Stop (Stop writes `failed`
      synchronously, before the stream ends) → do nothing, do not chain.
-2. Chaining is decided **only from task flags**, never from anything the agent
-   "returned":
+2. Chaining is decided by `next_agent()` in `src/orchestration/state_machine.rs`,
+   reading the task state and (for review runs) the READY keyword:
    - **After planning:** STOP. The plan is a human gate — the user reads the
      plan and presses Run for implementation. (Auto-advancing past this gate for
      non-technical users is a role extra; see
      [`auth-and-multi-user.md`](../extra/auth-and-multi-user.md). Core always
      stops here.)
-   - **If `workflow_complete` is set** (review ran `complete-workflow.ts`): enter
-     the finish pipeline → start the **PR** agent. (The refinement extra inserts
-     itself here, *before* PR.)
-   - **If `workflow_blocked` is set:** STOP. A human must resume.
+   - **If `workflow_blocked` is set:** STOP. The server-only iteration-cap marker
+     is the only way this flag is written.
    - **If `workflow_run_count` ≥ the cap:** auto-block the task and STOP
      (broadcast `task-blocked`, reason `max_iterations`).
+   - **Review finished, last model message contains `READY`:** finish pipeline →
+     start the **refinement** agent if configured; else start the **PR** agent if
+     configured; else **Terminal**.
+   - **Review finished without `READY`:** bounce back to **implementation** (the
+     loop continues) if implementation is configured; else STOP.
+   - **Refinement finished:** chain to the **PR** agent if configured; else
+     **Terminal**.
    - **Otherwise alternate the loop:** implementation → review, review →
      implementation.
    - **PR is terminal** — nothing chains after it.
@@ -121,39 +131,42 @@ does this:
 ### Why the loop alternates the way it does
 
 The alternation is a plain toggle: `implementation`'s default next is `review`,
-`review`'s default next is `implementation`. The crucial detail is *ordering* — the
-`workflow_complete` check runs **before** the toggle. So a `review` that signals
-READY (by running `complete-workflow.ts`) diverts into the finish pipeline
-instead of bouncing back to `implementation`; a `review` that signals NEEDS_WORK
-simply doesn't set the flag, and the toggle sends it back to `implementation` for
-another pass. The `implementation` and `review` prompts use the task doc's "Review
-Findings" section as their shared scratchpad across iterations — see
+`review`'s default next is `implementation` unless the `READY` keyword diverts it
+into the finish pipeline. A `review` whose final message contains `READY` proceeds
+to refinement/PR; a `review` that signals NEEDS_WORK or BLOCKED simply omits the
+keyword, and the toggle sends it back to `implementation` for another pass. The
+`implementation` and `review` prompts use the task doc's "Review Findings" section
+as their shared scratchpad across iterations — see
 [`execution-loop.md`](./execution-loop.md).
 
-## Agents signal state by running scripts, not by returning data
+## Agents signal the verdict by a keyword, not by running scripts
 
 This is the central design decision and the easiest thing to get wrong. **An
-agent's turn returns nothing structured.** The orchestrator never parses the
-model's prose for a verdict. Instead, agents are instructed (in their prompts)
-to run small CLI scripts that flip task flags, and the completion handler reads
-those flags after the turn ends.
+agent's turn returns nothing structured, and there are no flag endpoints.** The
+orchestrator decides the review verdict with a **single case-sensitive substring
+search** of the review conversation's **last model (assistant) message** for the
+literal keyword `READY`:
 
-| Endpoint | Flag set | Called by |
-|---|---|---|
-| `POST /api/tasks/{task_id}/complete-plan` | `planification_complete` | planning agent (via curl) |
-| `POST /api/tasks/{task_id}/complete-workflow` | `workflow_complete` | review agent, on READY (via curl) |
-| `POST /api/tasks/{task_id}/block-workflow` | `workflow_blocked` | review agent, on BLOCKED (via curl) |
-| `POST /api/tasks/{task_id}/complete-pr` | `pr_agent_complete` | PR agent (via curl) |
+- **`READY` present** → the feature is approved → finish pipeline (refinement if
+  configured, else PR if configured, else Terminal).
+- **`READY` absent** → the task loops back to implementation.
 
-The `build_context_prompt()` function includes instructions for agents to read
-connection details from `.ofm_agent.json` in the worktree root and derive their task ID
-from the directory name. The OAuth access token is **not** embedded in the prompt — it is
-written as part of a structured `.ofm_agent.json` in the worktree root (`0600` permissions)
-to avoid leaking the credential to the LLM provider or the conversation transcript. Agents
-must ensure `.ofm_agent.json` is in the project's `.gitignore` — the token is short-lived but
-must never be committed.
+The check runs in `completion_handler()` (`src/orchestration/mod.rs`) only when
+the finished run's agent type is `review`. It loads the conversation's transcript
+(`transcript::last_model_text`) and searches the last `ProviderEvent::Text` for
+`READY`. User messages are `ProviderEvent::UserText`, so they are never confused
+with model output. The keyword must be exactly `READY` — `ready`, `Ready`, and
+`READY!` still match only on the literal substring, so the review prompt instructs
+agents to end an approving final message with the exact token `READY`.
 
-Additionally, each time a turn is started or resumed, `OpenCodeSdkProvider` routes the task worktree path
+Previously agents flipped task flags by calling HTTP endpoints
+(`complete-plan` / `complete-workflow` / `block-workflow` / `complete-pr`) using
+credentials from a `.ofm_agent.json` file written into the worktree. Both the
+endpoints and the file are **removed**; the browser gets its token from
+`POST /api/auth/refresh` and machine access uses `OFM_API_KEY`. The `ofm agent`
+CLI subcommand was removed along with them.
+
+Separately, each time a turn is started or resumed, `OpenCodeSdkProvider` routes the task worktree path
 to the opencode server as a `directory` **query param** on every workspace-scoped HTTP call
 (`session.create`, `event.subscribe`, `session.prompt_async`, `session.abort`). `start()` re-scopes the
 pooled client handle with `OpencodeClient::with_directory(&worktree)`, and the client methods in
@@ -162,19 +175,9 @@ correct working directory for the task — the server's own CWD is shared per us
 and a session-row PATCH is insufficient because opencode's `WorkspaceRoutingMiddleware` re-resolves the
 directory per HTTP call.
 
-The payload is a single boolean flip against the task row. The agent has shell
-access (through the coding harness) and calls these endpoints with:
-```bash
-HOST=$(jq -r '.agentVars.ofmHost' .ofm_agent.json)
-PORT=$(jq -r '.agentVars.ofmPort' .ofm_agent.json)
-ACCESS_TOKEN=$(jq -r '.agentVars.accessToken' .ofm_agent.json)
-TASK_ID=$(basename "$(pwd)" | sed 's/task-//')
-curl -X POST "http://$HOST:$PORT/api/tasks/$TASK_ID/{action}" \
-  -H "Authorization: Bearer $ACCESS_TOKEN"
-```
-
 The payoff: the orchestrator stays dumb and robust. It does not need to
-understand what an agent decided — it only reads four booleans.
+understand what an agent decided — it only searches one transcript for one
+keyword.
 
 ## Why completion is database-driven, not error-driven
 
@@ -204,7 +207,7 @@ and the obvious "pass success/failure into the handler" design is the wrong one.
 - **Settle before chaining.** Chaining starts the next run after a short delay
   (the reference uses a ~1s `setTimeout`; `ofm` can use `tokio::time::sleep()`
   and a 1,000 millisecond timeout) so the finishing turn's status write
-  and broadcasts land first, and it **re-reads the task flags inside that
+  and broadcasts land first, and it **re-reads the task state inside that
   callback** — the task may have been completed or blocked in the gap.
 - **Iteration cap.** Every run increments `workflow_run_count`. When it reaches
   the cap (reference: `MAX_WORKFLOW_RUNS = 25`) the loop auto-blocks the task
@@ -273,10 +276,7 @@ The direct harness integration that step calls is in [`opencode.md`](../extra/ha
 
 ## Build checklist
 
-NOTE: DO NOT RESTORE `ofm agent` INSTRUCTIONS IN CODE; DO NOT IMPLEMENT IT
-
-- [x] Task flags on the task row: `workflow_complete`, `workflow_blocked`,
-      `workflow_run_count`, `planification_complete`, `pr_agent_complete`
+- [x] Task state on the task row: `workflow_blocked`, `workflow_run_count`
       (plus `status`). See `src/db/schema.rs` (`Task` struct).
 - [x] `task_agent_runs` table: `(task_id, agent_type, status, conversation_id)`,
       status in `pending | running | completed | failed | blocked`.
@@ -285,8 +285,8 @@ NOTE: DO NOT RESTORE `ofm agent` INSTRUCTIONS IN CODE; DO NOT IMPLEMENT IT
       chained starts. See `src/server/routes/agent_runs.rs` (`post_create_agent_run`).
 - [x] A completion handler wired as the streaming on-complete hook, implementing
       the transitions above. See `src/orchestration/mod.rs` (`completion_handler`).
-- [ ] The four signalling actions under `ofm agent ...`
-      See `src/server/routes/agent_flags.rs`.
+- [x] The READY keyword review flow (last-model-message search + `next_agent`
+      transitions). See `src/orchestration/state_machine.rs`, `src/services/transcript.rs`.
 - [x] The "one running agent per task" guard (manual 409 + pre-chain re-check).
       See `src/orchestration/guards.rs`.
 - [x] The iteration cap and auto-block. See `src/orchestration/guards.rs`,
@@ -298,14 +298,14 @@ NOTE: DO NOT RESTORE `ofm agent` INSTRUCTIONS IN CODE; DO NOT IMPLEMENT IT
 ## Reference map
 
 | Concern | Rust (implemented) | Legacy reference |
-|---|---|---|---|
+|---|---|---|
 | Start and own a run | `src/server/routes/agent_runs.rs` | `reference/server/services/agentRunner.ts` |
 | Completion + chaining | `src/orchestration/mod.rs` | `reference/server/services/conversation/agentRunLifecycle.ts` |
 | State machine / transitions | `src/orchestration/state_machine.rs` | — |
+| READY keyword helper | `src/services/transcript.rs` (`last_model_text`) | — |
 | Guards (concurrency, cap) | `src/orchestration/guards.rs` | — |
 | Manual trigger HTTP | `src/server/routes/agent_runs.rs` | `reference/server/routes/agent-runs.ts` |
-| Flags + tables | `src/db/schema.rs` | `reference/server/database/init.sql` |
-| Signalling actions | `src/server/routes/agent_flags.rs` | `reference/scripts/{complete-plan,complete-workflow,block-workflow,complete-pr}.ts` |
+| Tables | `src/db/schema.rs` | `reference/server/database/init.sql` |
 | Orphan recovery | `src/orchestration/recovery.rs` | `reference/server/index.ts` |
 | Provider abstraction | `src/providers/` (`LlmProvider` trait, registry, config) | — |
 

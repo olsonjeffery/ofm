@@ -59,7 +59,6 @@ async fn make_state_with_ports(raft_port: u16, api_port: u16) -> (AppState, Auth
         api_key_pepper: b"test_pepper".to_vec(),
         ws_bus: BroadcastBus::new(),
         config: OfmConfig::default(),
-        access_tokens: Arc::new(Mutex::new(HashMap::new())),
     };
     (state, auth_layer, tmp)
 }

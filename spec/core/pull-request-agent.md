@@ -25,10 +25,11 @@ merge; a human does that.
 
 ## When it runs
 
-After review signals READY (`workflow_complete`) the loop enters its finish
-pipeline and starts the PR agent. (If the [refinement extra](../extra/refinement-agent.md)
-is installed, it runs just before.) **PR is terminal** — nothing chains after
-it. See [`orchestration-loop.md`](./orchestration-loop.md).
+After review signals READY (the `READY` keyword in the review's last model
+message) the loop enters its finish pipeline and starts the PR agent. (If the
+[refinement extra](../extra/refinement-agent.md) is installed, it runs just
+before.) **PR is terminal** — nothing chains after it. See
+[`orchestration-loop.md`](./orchestration-loop.md).
 
 ## Inputs
 
@@ -58,7 +59,8 @@ below. See `generatePrAgentMessage` / `buildPrCreateOrVerifyBlock` in
    - *Failed* → pull the failing logs, fix the cause in the worktree, commit and
      push, and re-poll — on a bounded number of fix iterations.
 4. **Conflict check (once CI is green).** Inspect the PR's mergeability.
-   - *Mergeable* → run the completion script that sets `pr_agent_complete`.
+   - *Mergeable* → the PR agent simply ends its turn; PR is terminal and the
+     workflow completes. No completion script or flag exists.
    - *Conflicting* → rebase onto the base branch, resolve, force-push with lease,
      re-check CI (bounded attempts).
    - *Unknown* → wait and re-check (the host may still be computing it).
@@ -72,9 +74,9 @@ below. See `generatePrAgentMessage` / `buildPrCreateOrVerifyBlock` in
 
 ## Completion signal
 
-Running the completion script sets `pr_agent_complete` — the pipeline's terminal
-state. Merging the PR and tearing down the worktree afterward is a separate,
-human-initiated action (`mergeAndCleanup` in
+The PR agent ends its turn when the PR is green and mergeable; **PR is terminal**
+and nothing chains after it. Merging the PR and tearing down the worktree
+afterward is a separate, human-initiated action (`mergeAndCleanup` in
 [`reference/server/services/worktree.ts`](../reference/server/services/worktree.ts));
 the agent never does it.
 
@@ -102,12 +104,12 @@ not.
 ## What to build
 
 - [x] The PR prompt: a create-or-verify opening, the CI poll loop, the fix loop,
-      conflict resolution, and the completion call — all bounded.
+      conflict resolution, and the terminal stop — all bounded.
       → `templates/pr.md`, `src/agents/pull_request.rs`
 - [ ] Server helpers: detect existing PR + URL, create PR, commit/push, wrapping
       git + `gh` (`bottega`) or the OpenCode provider's `github` tool (`ofm`).
-- [x] A completion script that sets `pr_agent_complete`.
-      → `src/server/routes/agent_flags.rs` (complete_pr handler)
+- [x] PR is terminal — `next_agent` returns Terminal for the PR agent.
+      → `src/orchestration/state_machine.rs`
 - [ ] Compute the PR status at run start and pass it into the prompt.
 
 ## Reference map
@@ -115,7 +117,7 @@ not.
 | Concern | Rust (implemented) | Legacy reference |
 |---|---|---|
 | PR prompt | `templates/pr.md`, `src/agents/pull_request.rs` | `reference/server/constants/prompts/pr.md` |
-| Completion signal | `src/server/routes/agent_flags.rs` (complete_pr handler) | `reference/scripts/complete-pr.ts` |
+| Terminal routing | `src/orchestration/state_machine.rs` | `reference/scripts/complete-pr.ts` |
 | Prompt assembly + create/verify block | — | `reference/server/constants/agentPrompts.ts` |
 | PR + git helpers | — | `reference/server/services/worktree.ts` |
 

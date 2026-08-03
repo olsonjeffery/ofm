@@ -61,8 +61,6 @@ async fn post_create_agent_run(
         &state.archive_root,
         &state.active_sessions,
         &state.ws_bus,
-        &state.access_tokens,
-        &state.oidc_provider,
         &state.config,
     )
     .await?;

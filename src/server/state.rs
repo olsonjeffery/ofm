@@ -29,7 +29,6 @@ pub struct AppState {
     pub cfg_port: u16,
     pub ws_bus: Arc<BroadcastBus>,
     pub config: OfmConfig,
-    pub access_tokens: Arc<Mutex<HashMap<Uuid, String>>>,
 }
 
 impl FromRef<AppState> for Key {

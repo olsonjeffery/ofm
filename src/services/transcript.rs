@@ -104,6 +104,19 @@ pub async fn load_transcript(
     Ok(events)
 }
 
+/// Returns the text of the last model (assistant) message in the transcript, if any.
+pub async fn last_model_text(
+    client: &Client,
+    session_id: &str,
+    project_key: i64,
+) -> Result<Option<String>, hiqlite::Error> {
+    let transcript = load_transcript(client, session_id, project_key).await?;
+    Ok(transcript.into_iter().rev().find_map(|e| match e {
+        ProviderEvent::Text { text, .. } => Some(text),
+        _ => None,
+    }))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -436,5 +449,153 @@ mod tests {
             }
             _ => panic!("expected ToolUse"),
         }
+    }
+
+    #[tokio::test]
+    async fn test_last_model_text_returns_latest_text() {
+        let (client, _tmp) = make_client().await;
+        let session_id = "sess-last-model";
+        let project_key = 20i64;
+        let ts = test_ts();
+
+        persist_event(
+            &client,
+            &ProviderEvent::UserText {
+                text: "user message".into(),
+                timestamp: ts,
+            },
+            session_id,
+            project_key,
+        )
+        .await
+        .unwrap();
+        persist_event(
+            &client,
+            &ProviderEvent::Text {
+                text: "first model reply".into(),
+                timestamp: ts,
+            },
+            session_id,
+            project_key,
+        )
+        .await
+        .unwrap();
+        persist_event(
+            &client,
+            &ProviderEvent::ToolUse {
+                tool_name: "read".into(),
+                tool_use_id: Some("id1".into()),
+                input: serde_json::json!({"path": "/tmp"}),
+                result: None,
+                message_id: None,
+                timestamp: ts,
+            },
+            session_id,
+            project_key,
+        )
+        .await
+        .unwrap();
+        persist_event(
+            &client,
+            &ProviderEvent::Text {
+                text: "final model reply".into(),
+                timestamp: ts,
+            },
+            session_id,
+            project_key,
+        )
+        .await
+        .unwrap();
+        persist_event(
+            &client,
+            &ProviderEvent::Done {
+                data: serde_json::json!({"status": "ok"}),
+                timestamp: ts,
+            },
+            session_id,
+            project_key,
+        )
+        .await
+        .unwrap();
+
+        let last = last_model_text(&client, session_id, project_key)
+            .await
+            .unwrap();
+        assert_eq!(last.as_deref(), Some("final model reply"));
+    }
+
+    #[tokio::test]
+    async fn test_last_model_text_ignores_user_messages() {
+        let (client, _tmp) = make_client().await;
+        let session_id = "sess-user-only";
+        let project_key = 21i64;
+        let ts = test_ts();
+
+        persist_event(
+            &client,
+            &ProviderEvent::UserText {
+                text: "only a user message".into(),
+                timestamp: ts,
+            },
+            session_id,
+            project_key,
+        )
+        .await
+        .unwrap();
+
+        let last = last_model_text(&client, session_id, project_key)
+            .await
+            .unwrap();
+        assert_eq!(last, None);
+    }
+
+    #[tokio::test]
+    async fn test_last_model_text_none_when_empty() {
+        let (client, _tmp) = make_client().await;
+        let last = last_model_text(&client, "nonexistent", 9999).await.unwrap();
+        assert_eq!(last, None);
+    }
+
+    #[tokio::test]
+    async fn test_last_model_text_ready_keyword_case_sensitive() {
+        let (client, _tmp) = make_client().await;
+        let session_id = "sess-ready";
+        let project_key = 22i64;
+        let ts = test_ts();
+
+        persist_event(
+            &client,
+            &ProviderEvent::Text {
+                text: "this is ready to ship".into(),
+                timestamp: ts,
+            },
+            session_id,
+            project_key,
+        )
+        .await
+        .unwrap();
+        let last = last_model_text(&client, session_id, project_key)
+            .await
+            .unwrap()
+            .unwrap();
+        assert!(!last.contains("READY"), "lowercase 'ready' must not match");
+
+        let session_id2 = "sess-ready2";
+        persist_event(
+            &client,
+            &ProviderEvent::Text {
+                text: "this is READY to ship".into(),
+                timestamp: ts,
+            },
+            session_id2,
+            project_key,
+        )
+        .await
+        .unwrap();
+        let last2 = last_model_text(&client, session_id2, project_key)
+            .await
+            .unwrap()
+            .unwrap();
+        assert!(last2.contains("READY"), "uppercase READY must match");
     }
 }

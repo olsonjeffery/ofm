@@ -121,7 +121,6 @@ fn make_app_state(client: hiqlite::Client, user_id: Uuid, oidc: Option<OidcEndpo
         api_key_pepper: b"test_pepper".to_vec(),
         ws_bus: BroadcastBus::new(),
         config: OfmConfig::default(),
-        access_tokens: Arc::new(Mutex::new(HashMap::new())),
     }
 }
 
@@ -973,7 +972,6 @@ async fn test_refresh_with_session_cookie() {
         api_key_pepper: b"test_pepper".to_vec(),
         ws_bus: BroadcastBus::new(),
         config: OfmConfig::default(),
-        access_tokens: Arc::new(Mutex::new(HashMap::new())),
     };
     let auth_layer = AuthLayer::disabled(
         state.db.clone(),
@@ -1285,7 +1283,6 @@ async fn test_refresh_failure_clears_session_cookie() {
         api_key_pepper: b"test_pepper".to_vec(),
         ws_bus: BroadcastBus::new(),
         config: OfmConfig::default(),
-        access_tokens: Arc::new(Mutex::new(HashMap::new())),
     };
     let auth_layer = AuthLayer::disabled(
         state.db.clone(),
