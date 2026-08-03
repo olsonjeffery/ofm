@@ -52,8 +52,35 @@ pub fn CommitDetailPage(diff: Option<CommitDiff>, project_id: i64, task_id: i64)
                             <span>" file(s) changed"</span>
                         </p>
                     </div>
+                    <div class="diff-toolbar">
+                        <button id="diff-collapse-all-btn" class="button is-small is-light" type="button" title="Collapse / expand all file diffs">
+                            <span class="icon is-small"><i class="mdi mdi-chevron-double-up"></i></span>
+                            <span class="diff-collapse-label">"Collapse all"</span>
+                        </button>
+                    </div>
                     <DiffView files=commit.files />
                 </section>
+                <script>
+                    {r#"document.addEventListener('DOMContentLoaded',function(){
+                        var btn=document.getElementById('diff-collapse-all-btn');
+                        if(!btn)return;
+                        var label=btn.querySelector('.diff-collapse-label');
+                        var icon=btn.querySelector('i');
+                        function refresh(){
+                            var files=document.querySelectorAll('details.diff-file');
+                            var anyOpen=Array.prototype.some.call(files,function(f){return f.open;});
+                            if(label)label.textContent=anyOpen?'Collapse all':'Expand all';
+                            if(icon)icon.className='mdi '+(anyOpen?'mdi-chevron-double-up':'mdi-chevron-double-down');
+                        }
+                        btn.addEventListener('click',function(){
+                            var files=document.querySelectorAll('details.diff-file');
+                            var anyOpen=Array.prototype.some.call(files,function(f){return f.open;});
+                            Array.prototype.forEach.call(files,function(f){f.open=!anyOpen;});
+                            refresh();
+                        });
+                        refresh();
+                    });"#}
+                </script>
             }
             .into_any()
         }
@@ -127,5 +154,20 @@ mod tests {
         assert!(html.contains("pub fn hi() {}"));
         assert!(html.contains("diff-add"));
         assert!(html.contains("diff-grid"));
+    }
+
+    #[test]
+    fn commit_detail_has_collapse_all_button() {
+        let html = leptos::view! {
+            <CommitDetailPage diff=Some(make_commit_diff()) project_id=1 task_id=2 />
+        }
+        .to_html();
+        assert!(html.contains("diff-collapse-all-btn"));
+        assert!(html.contains("Collapse all"));
+        assert!(html.contains("diff-collapse-label"));
+        assert!(
+            html.contains("details.diff-file"),
+            "collapse-all script should reference all diff-file details"
+        );
     }
 }

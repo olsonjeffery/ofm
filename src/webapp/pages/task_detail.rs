@@ -47,7 +47,7 @@ pub fn TaskDetailPage(
     let doc_value = doc_content.clone().unwrap_or_default();
 
     view! {
-        <section class="section">
+        <section class="section task-detail-page">
             <div class="level" data-task-id={task.id.to_string()} data-project-id={task.project_id.to_string()}>
                 <div class="level-left">
                     <div class="level">
@@ -136,8 +136,8 @@ pub fn TaskDetailPage(
                 </div>
             </div>
 
-            <div class="columns">
-                <div class="column is-one-quarter" style="overflow-y:auto;position:sticky;display:inline-block;scrollbar:hidden">
+            <div class="columns task-detail-columns">
+                <div class="column is-one-quarter task-detail-conversations">
                     <div class="level is-mobile" style="margin-bottom:0.5rem">
                         <div class="level-left">
                             <h2 class="title is-5">"Conversations "</h2>
@@ -149,8 +149,8 @@ pub fn TaskDetailPage(
                     <ConversationList conversations=conversations active_id=None task_id />
                 </div>
 
-                <div class="column" style="overflow-y:auto;height:80vh;">
-                    <div class="box">
+                <div class="column task-detail-right">
+                    <div class="box task-detail-doc">
                         <div class="level is-mobile" style="margin-bottom:0.5rem">
                             <div class="level-left">
                                 <h2 class="title is-4">"Documentation"</h2>
@@ -164,7 +164,9 @@ pub fn TaskDetailPage(
                             view! { <MarkdownViewer content=doc_content.unwrap_or_default() /> }.into_any()
                         }}
                     </div>
-                    <CommitList data=commit_data />
+                    <div class="task-detail-commits">
+                        <CommitList data=commit_data />
+                    </div>
                 </div>
             </div>
         </section>
@@ -545,6 +547,34 @@ mod tests {
         assert!(
             html.contains(r#"href="/webapp/projects/1/tasks/1/commits/deadbeef""#),
             "commit row should link to its commit detail page"
+        );
+    }
+
+    #[test]
+    fn test_task_detail_uses_split_layout_panels() {
+        let task = make_task();
+        let doc_content = Some("# Hello World".into());
+        let html =
+            leptos::view! { <TaskDetailPage task doc_content conversations=vec![] commits=vec![] worktree_missing=false /> }.to_html();
+        assert!(
+            html.contains("task-detail-page"),
+            "page section should use the task-detail-page layout class"
+        );
+        assert!(
+            html.contains("task-detail-columns"),
+            "columns should use the task-detail-columns class"
+        );
+        assert!(
+            html.contains("task-detail-conversations"),
+            "conversation column should be independently scrollable"
+        );
+        assert!(
+            html.contains("task-detail-doc"),
+            "documentation box should be capped at 50vh"
+        );
+        assert!(
+            html.contains("task-detail-commits"),
+            "commit list should occupy the lower scrollable half"
         );
     }
 }

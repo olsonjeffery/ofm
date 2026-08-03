@@ -31,6 +31,9 @@ pub fn CommitList(data: CommitListData) -> impl IntoView {
                     <table class="table is-fullwidth is-hoverable is-narrow commit-table">
                         <thead>
                             <tr>
+                                <th class="commit-time-col" title="Oldest to newest (time flows downward)">
+                                    <span class="icon is-small"><i class="mdi mdi-arrow-down"></i></span>
+                                </th>
                                 <th>"OID"</th>
                                 <th>"Message"</th>
                                 <th>"Author"</th>
@@ -49,6 +52,7 @@ pub fn CommitList(data: CommitListData) -> impl IntoView {
                                 let author = commit.author_name.clone();
                                 view! {
                                     <tr>
+                                        <td class="commit-time-col"><span class="commit-time-dot"></span></td>
                                         <td class="commit-oid"><a href=href title={commit.oid.to_string()}>{commit.short_oid.clone()}</a></td>
                                         <td class="commit-message"><a href=message_href>{commit.summary.clone()}</a></td>
                                         <td>{author}</td>
@@ -147,5 +151,31 @@ mod tests {
         let html = leptos::view! { <CommitList data /> }.to_html();
         assert!(!html.contains("<table"));
         assert!(!html.contains("<tbody>"));
+    }
+
+    #[test]
+    fn commit_list_renders_arrow_of_time_indicator() {
+        let data = CommitListData {
+            project_id: 1,
+            task_id: 2,
+            commits: vec![
+                make_commit(1, "First commit"),
+                make_commit(2, "Second commit"),
+            ],
+        };
+        let html = leptos::view! { <CommitList data /> }.to_html();
+        assert!(
+            html.contains("commit-time-col"),
+            "timeline gutter column should render"
+        );
+        assert!(
+            html.contains("mdi-arrow-down"),
+            "downward arrow should indicate time flows downward"
+        );
+        assert_eq!(
+            html.matches("commit-time-dot").count(),
+            2,
+            "each commit row should have a timeline dot"
+        );
     }
 }
