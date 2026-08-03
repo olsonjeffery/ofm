@@ -24,7 +24,6 @@ data/
 .playwright-cli/
 .ofm/
 .ofm-review/
-.ofm_agent.json
 
 # codecov artifacts
 *profraw
