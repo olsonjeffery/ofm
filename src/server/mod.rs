@@ -1,4 +1,5 @@
 pub mod error;
+pub mod proxy;
 pub mod routes;
 pub mod state;
 pub mod ws;
@@ -6,16 +7,24 @@ pub mod ws;
 use axum::{extract::DefaultBodyLimit, response::Redirect, routing::get, Router};
 
 use crate::auth::AuthLayer;
+use crate::server::proxy::rauthy_proxy_router;
 use crate::server::state::AppState;
 use crate::webapp;
 use tower_http::services::ServeDir;
 
 pub fn router(state: AppState, auth_layer: AuthLayer) -> Router {
-    let public = Router::new()
+    let mut public = Router::new()
         .route("/health", get(health))
         .route("/", get(|| async { Redirect::permanent("/webapp") }))
         .route("/webapp/", get(|| async { Redirect::permanent("/webapp") }))
         .nest("/api/auth", routes::auth::auth_router());
+
+    // `/auth` is public (the browser hits the rauthy login page without an
+    // OFM session) and only exists when rauthy is hosted locally. `state` is
+    // moved into `with_state` below, so read `rauthy_port` first.
+    if let Some(rp) = state.rauthy_port {
+        public = public.nest_service("/auth", rauthy_proxy_router(rp));
+    }
 
     // Public webapp routes (no auth)
     let webapp_public = Router::new()

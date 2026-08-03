@@ -27,6 +27,8 @@ pub struct GroupServer {
     pub hostname: Option<String>,
     #[serde(rename = "PORT")]
     pub port: Option<u16>,
+    #[serde(rename = "PUB_URL")]
+    pub pub_url: Option<String>,
     #[serde(rename = "URL")]
     pub url: Option<String>,
 }
@@ -60,6 +62,10 @@ pub struct GroupRauthy {
     pub rauthy_enabled: Option<bool>,
     #[serde(rename = "RAUTHY_PORT")]
     pub rauthy_port: Option<u16>,
+    #[serde(rename = "PROXY_MODE")]
+    pub proxy_mode: Option<bool>,
+    #[serde(rename = "TRUSTED_PROXIES")]
+    pub trusted_proxies: Option<String>,
 }
 
 // ── Main config struct ────────────────────────────────────────────────────
@@ -68,6 +74,7 @@ pub struct GroupRauthy {
 pub struct OfmConfig {
     pub hostname: String,
     pub port: u16,
+    pub pub_url: String,
     pub url: String,
     pub footprint: String,
     pub archive_root: String,
@@ -83,6 +90,8 @@ pub struct OfmConfig {
     pub hiqlite_api_port: u16,
     pub rauthy_enabled: bool,
     pub rauthy_port: u16,
+    pub rauthy_proxy_mode: bool,
+    pub rauthy_trusted_proxies: Option<String>,
     pub logging_config_path: Option<String>,
     pub info_log_client_data: bool,
 }
@@ -90,9 +99,43 @@ pub struct OfmConfig {
 const OFM_OIDC_ISSUER_URL: &str = "OFM_OIDC_ISSUER_URL";
 const OFM_OIDC_CLIENT_ID: &str = "OFM_OIDC_CLIENT_ID";
 
+/// Map a listen hostname to the host agents/loopback can actually connect to.
+/// When OFM binds `0.0.0.0` (or an IPv6 wildcard), the connectable host for
+/// locally-spawned agents is loopback — the wildcard is not connectable.
+fn connectable_host(hostname: &str) -> &str {
+    match hostname {
+        "0.0.0.0" | "::" | "[::]" => "127.0.0.1",
+        other => other,
+    }
+}
+
+/// Resolve the public-facing URL of the deployment. Precedence:
+/// `OFM_PUB_URL` → YAML `server.PUB_URL` → legacy `OFM_URL` → legacy YAML
+/// `server.URL` → derived `http://{connectable_host}:{port}`.
+fn resolve_pub_url(
+    env: Option<String>,
+    yaml: Option<String>,
+    legacy_env: Option<String>,
+    legacy_yaml: Option<String>,
+    hostname: &str,
+    port: u16,
+) -> String {
+    env.or(yaml)
+        .or(legacy_env)
+        .or(legacy_yaml)
+        .unwrap_or_else(|| format!("http://{}:{}", connectable_host(hostname), port))
+}
+
 impl OfmConfig {
     pub fn auth_enabled(&self) -> bool {
         self.oidc_issuer_url.is_some()
+    }
+
+    /// The host locally-spawned agents use to reach this OFM instance. Maps
+    /// wildcard listen hostnames to loopback so agent-facing URLs never point
+    /// at `0.0.0.0`/`::`.
+    pub fn agent_host(&self) -> String {
+        connectable_host(&self.hostname).to_string()
     }
 
     pub fn from_env() -> Self {
@@ -108,12 +151,20 @@ impl OfmConfig {
                 .as_ref()
                 .map(|base| format!("{}/api/auth/callback", base.trim_end_matches('/')))
         });
-        let url =
-            std::env::var("OFM_URL").unwrap_or_else(|_| format!("http://{}:{}", hostname, port));
+        let pub_url = resolve_pub_url(
+            std::env::var("OFM_PUB_URL").ok(),
+            None,
+            std::env::var("OFM_URL").ok(),
+            None,
+            &hostname,
+            port,
+        );
+        let url = pub_url.clone();
         let logging_config_path = env_opt_or("OFM_LOGGING_CONFIG");
         Self {
             hostname,
             port,
+            pub_url,
             url,
             archive_root: format!("{footprint}/archive"),
             data_dir: format!("{footprint}/hiqlite"),
@@ -129,6 +180,8 @@ impl OfmConfig {
             hiqlite_api_port: env_u16("OFM_HIQLITE_API_PORT").unwrap_or(8200),
             rauthy_enabled: env_bool("OFM_RAUTHY_ENABLED").unwrap_or(false),
             rauthy_port: env_u16("OFM_RAUTHY_PORT").unwrap_or(0),
+            rauthy_proxy_mode: env_bool("OFM_RAUTHY_PROXY_MODE").unwrap_or(false),
+            rauthy_trusted_proxies: std::env::var("OFM_RAUTHY_TRUSTED_PROXIES").ok(),
             logging_config_path,
             info_log_client_data: env_bool("OFM_INFO_LOG_CLIENT_DATA").unwrap_or(false),
         }
@@ -160,13 +213,19 @@ impl OfmConfig {
             .or_else(|| yaml_cfg.as_ref().and_then(|y| y.server.as_ref()?.port))
             .unwrap_or(3183u16);
 
-        let url = env_opt_or("OFM_URL")
-            .or_else(|| {
-                yaml_cfg
-                    .as_ref()
-                    .and_then(|y| y.server.as_ref()?.url.clone())
-            })
-            .unwrap_or_else(|| format!("http://{hostname}:{port}"));
+        let pub_url = resolve_pub_url(
+            env_opt_or("OFM_PUB_URL"),
+            yaml_cfg
+                .as_ref()
+                .and_then(|y| y.server.as_ref()?.pub_url.clone()),
+            env_opt_or("OFM_URL"),
+            yaml_cfg
+                .as_ref()
+                .and_then(|y| y.server.as_ref()?.url.clone()),
+            &hostname,
+            port,
+        );
+        let url = pub_url.clone();
 
         let base_url = env_opt_or("OM_PRINT_BASE_URL").or_else(|| {
             yaml_cfg
@@ -232,6 +291,20 @@ impl OfmConfig {
             })
             .unwrap_or(0u16);
 
+        let rauthy_proxy_mode = env_bool("OFM_RAUTHY_PROXY_MODE")
+            .or_else(|| {
+                yaml_cfg
+                    .as_ref()
+                    .and_then(|y| y.rauthy.as_ref()?.proxy_mode)
+            })
+            .unwrap_or(false);
+
+        let rauthy_trusted_proxies = env_opt_or("OFM_RAUTHY_TRUSTED_PROXIES").or_else(|| {
+            yaml_cfg
+                .as_ref()
+                .and_then(|y| y.rauthy.as_ref()?.trusted_proxies.clone())
+        });
+
         let archive_root = format!("{footprint}/archive");
         let data_dir = format!("{footprint}/hiqlite");
 
@@ -256,6 +329,7 @@ impl OfmConfig {
                 server: Some(GroupServer {
                     hostname: Some(hostname.clone()),
                     port: Some(port),
+                    pub_url: Some(pub_url.clone()),
                     url: Some(url.clone()),
                 }),
                 auth: Some(GroupAuth {
@@ -271,6 +345,8 @@ impl OfmConfig {
                 rauthy: Some(GroupRauthy {
                     rauthy_enabled: Some(rauthy_enabled),
                     rauthy_port: Some(rauthy_port),
+                    proxy_mode: Some(rauthy_proxy_mode),
+                    trusted_proxies: rauthy_trusted_proxies.clone(),
                 }),
                 behavior: Some(GroupBehavior {
                     log_data: info_log_client_data,
@@ -284,6 +360,7 @@ impl OfmConfig {
         Self {
             hostname,
             port,
+            pub_url,
             url,
             footprint,
             archive_root,
@@ -299,6 +376,8 @@ impl OfmConfig {
             hiqlite_api_port,
             rauthy_enabled,
             rauthy_port,
+            rauthy_proxy_mode,
+            rauthy_trusted_proxies,
             logging_config_path,
             info_log_client_data: info_log_client_data.unwrap_or(false),
         }
@@ -404,8 +483,17 @@ fn generate_yaml_template(cfg: &OfmConfigFile) -> String {
     );
     emit(
         &mut s,
+        "PUB_URL",
+        "Public-facing URL of this deployment. Used for all absolute URLs OFM builds\n  (OIDC redirect URI, post-logout URI, rauthy redirect URIs) and for rauthy's own\n  PUB_URL when self-hosting rauthy. Behind a reverse proxy, set this to the\n  externally-visible origin (e.g. https://ofm.example.com).",
+        "OFM_PUB_URL",
+        "http://127.0.0.1:3183",
+        cfg.server.as_ref().and_then(|g| g.pub_url.clone()),
+        false,
+    );
+    emit(
+        &mut s,
         "URL",
-        "Public-facing URL (used by the CLI agent subcommand).",
+        "Legacy alias of PUB_URL (used by the CLI agent subcommand). Prefer PUB_URL.",
         "OFM_URL",
         "http://127.0.0.1:3183",
         cfg.server.as_ref().and_then(|g| g.url.clone()),
@@ -497,6 +585,28 @@ fn generate_yaml_template(cfg: &OfmConfigFile) -> String {
             .and_then(|g| g.rauthy_port.map(|v| v.to_string())),
         false,
     );
+    emit(
+        &mut s,
+        "PROXY_MODE",
+        "Run rauthy behind a reverse proxy. When true, rauthy blocks every request whose source IP is not in TRUSTED_PROXIES (including health checks) and trusts X-Forwarded-* headers. Defaults to false.",
+        "OFM_RAUTHY_PROXY_MODE",
+        "false",
+        cfg.rauthy
+            .as_ref()
+            .and_then(|g| g.proxy_mode.map(|v| v.to_string())),
+        false,
+    );
+    emit(
+        &mut s,
+        "TRUSTED_PROXIES",
+        "Newline-separated CIDRs trusted as reverse proxies when PROXY_MODE is true. Only needed for deployments that want real-client-IP hardening.",
+        "OFM_RAUTHY_TRUSTED_PROXIES",
+        "127.0.0.1/32",
+        cfg.rauthy
+            .as_ref()
+            .and_then(|g| g.trusted_proxies.clone()),
+        true,
+    );
 
     let _ = writeln!(s, "behavior:");
     emit(
@@ -527,6 +637,7 @@ mod tests {
         for key in [
             "OFM_HOSTNAME",
             "OFM_PORT",
+            "OFM_PUB_URL",
             "OFM_URL",
             "OFM_FOOTPRINT",
             "OFM_API_KEY",
@@ -539,6 +650,8 @@ mod tests {
             "OFM_HIQLITE_API_PORT",
             "OFM_RAUTHY_ENABLED",
             "OFM_RAUTHY_PORT",
+            "OFM_RAUTHY_PROXY_MODE",
+            "OFM_RAUTHY_TRUSTED_PROXIES",
         ] {
             std::env::remove_var(key);
         }
@@ -641,6 +754,7 @@ mod tests {
         let server = GroupServer {
             hostname: Some("0.0.0.0".into()),
             port: Some(5500),
+            pub_url: Some("http://ofm.example.com:5500".into()),
             url: Some("http://0.0.0.0:5500".into()),
         };
         let auth = GroupAuth {
@@ -656,6 +770,8 @@ mod tests {
         let rauthy = GroupRauthy {
             rauthy_enabled: Some(true),
             rauthy_port: Some(4444),
+            proxy_mode: Some(true),
+            trusted_proxies: Some("10.0.0.0/8\n127.0.0.1/32".into()),
         };
         let cfg = OfmConfigFile {
             server: Some(server),
@@ -676,6 +792,7 @@ mod tests {
 server:
   HOSTNAME: 0.0.0.0
   PORT: 5500
+  PUB_URL: http://ofm.example.com:5500
   URL: http://0.0.0.0:5500
 auth:
   OIDC_ISSUER_URL: https://auth.example.com
@@ -688,6 +805,9 @@ raft:
 rauthy:
   RAUTHY_ENABLED: true
   RAUTHY_PORT: 4444
+  PROXY_MODE: true
+  TRUSTED_PROXIES: "10.0.0.0/8
+127.0.0.1/32"
 "#;
         let cfg: OfmConfigFile = serde_yaml::from_str(yaml).unwrap();
         assert_eq!(
@@ -695,6 +815,10 @@ rauthy:
             Some("0.0.0.0".into())
         );
         assert_eq!(cfg.server.as_ref().unwrap().port, Some(5500));
+        assert_eq!(
+            cfg.server.as_ref().unwrap().pub_url,
+            Some("http://ofm.example.com:5500".into())
+        );
         assert_eq!(
             cfg.server.as_ref().unwrap().url,
             Some("http://0.0.0.0:5500".into())
@@ -711,6 +835,11 @@ rauthy:
         assert_eq!(cfg.raft.as_ref().unwrap().hiqlite_api_port, Some(9200));
         assert_eq!(cfg.rauthy.as_ref().unwrap().rauthy_enabled, Some(true));
         assert_eq!(cfg.rauthy.as_ref().unwrap().rauthy_port, Some(4444));
+        assert_eq!(cfg.rauthy.as_ref().unwrap().proxy_mode, Some(true));
+        assert_eq!(
+            cfg.rauthy.as_ref().unwrap().trusted_proxies,
+            Some("10.0.0.0/8 127.0.0.1/32".into())
+        );
     }
 
     #[test]
@@ -791,7 +920,8 @@ rauthy:
         let cfg = OfmConfig::load();
         assert_eq!(cfg.hostname, "0.0.0.0");
         assert_eq!(cfg.port, 5555);
-        assert_eq!(cfg.url, "http://0.0.0.0:5555");
+        assert_eq!(cfg.url, "http://127.0.0.1:5555");
+        assert_eq!(cfg.pub_url, "http://127.0.0.1:5555");
 
         let yml_path = dir.path().join("config/ofm.yml");
         assert!(
@@ -802,7 +932,7 @@ rauthy:
         let content = std::fs::read_to_string(&yml_path).unwrap();
         assert!(content.contains("HOSTNAME: 0.0.0.0"));
         assert!(content.contains("PORT: 5555"));
-        assert!(content.contains("URL: http://0.0.0.0:5555"));
+        assert!(content.contains("PUB_URL: http://127.0.0.1:5555"));
 
         clear_ofm_env();
     }
@@ -869,6 +999,7 @@ rauthy:
         let server = GroupServer {
             hostname: Some("0.0.0.0".into()),
             port: Some(5500),
+            pub_url: Some("http://ofm.example.com:5500".into()),
             url: Some("http://0.0.0.0:5500".into()),
         };
         let cfg = OfmConfigFile {
@@ -882,11 +1013,13 @@ rauthy:
         assert!(tpl.contains("server:"));
         assert!(tpl.contains("HOSTNAME: 0.0.0.0"));
         assert!(tpl.contains("PORT: 5500"));
+        assert!(tpl.contains("PUB_URL: http://ofm.example.com:5500"));
         assert!(tpl.contains("auth:"));
         assert!(tpl.contains("raft:"));
         assert!(tpl.contains("rauthy:"));
         assert!(tpl.contains("OFM_HOSTNAME"));
         assert!(tpl.contains("OFM_PORT"));
+        assert!(tpl.contains("OFM_PUB_URL"));
         assert!(tpl.contains("OFM_URL"));
     }
 
@@ -931,7 +1064,144 @@ rauthy:
         set_ofm_env(&[("OFM_FOOTPRINT", dir.path().to_str().unwrap())]);
 
         let cfg = OfmConfig::load();
-        assert_eq!(cfg.url, "http://0.0.0.0:5555");
+        assert_eq!(cfg.url, "http://127.0.0.1:5555");
+        assert_eq!(cfg.pub_url, "http://127.0.0.1:5555");
+
+        clear_ofm_env();
+    }
+
+    // ── pub_url resolution ───────────────────────────────────────────────
+
+    #[test]
+    fn test_pub_url_defaults_to_http_hostname_port() {
+        let _guard = ENV_LOCK.lock().unwrap();
+        set_ofm_env(&[]);
+        let cfg = OfmConfig::from_env();
+        assert_eq!(cfg.pub_url, "http://127.0.0.1:3183");
+        assert_eq!(cfg.url, "http://127.0.0.1:3183");
+    }
+
+    #[test]
+    fn test_pub_url_from_env() {
+        let _guard = ENV_LOCK.lock().unwrap();
+        set_ofm_env(&[("OFM_PUB_URL", "https://ofm.example.com")]);
+        let cfg = OfmConfig::from_env();
+        assert_eq!(cfg.pub_url, "https://ofm.example.com");
+        assert_eq!(cfg.url, "https://ofm.example.com");
+    }
+
+    #[test]
+    fn test_pub_url_from_yaml() {
+        let _guard = ENV_LOCK.lock().unwrap();
+        let dir = tempfile::tempdir().unwrap();
+        let config_root = dir.path().join("config");
+        std::fs::create_dir_all(&config_root).unwrap();
+
+        std::fs::write(
+            config_root.join("ofm.yml"),
+            "server:\n  PUB_URL: http://yaml.example.com:8080\n",
+        )
+        .unwrap();
+
+        set_ofm_env(&[("OFM_FOOTPRINT", dir.path().to_str().unwrap())]);
+
+        let cfg = OfmConfig::load();
+        assert_eq!(cfg.pub_url, "http://yaml.example.com:8080");
+
+        clear_ofm_env();
+    }
+
+    #[test]
+    fn test_pub_url_legacy_url_alias() {
+        let _guard = ENV_LOCK.lock().unwrap();
+        set_ofm_env(&[("OFM_URL", "http://legacy.example.com:9090")]);
+        let cfg = OfmConfig::from_env();
+        assert_eq!(cfg.pub_url, "http://legacy.example.com:9090");
+        assert_eq!(cfg.url, "http://legacy.example.com:9090");
+    }
+
+    #[test]
+    fn test_pub_url_prefers_pub_url_over_legacy() {
+        let _guard = ENV_LOCK.lock().unwrap();
+        set_ofm_env(&[
+            ("OFM_PUB_URL", "http://canonical.example.com"),
+            ("OFM_URL", "http://legacy.example.com"),
+        ]);
+        let cfg = OfmConfig::from_env();
+        assert_eq!(cfg.pub_url, "http://canonical.example.com");
+    }
+
+    #[test]
+    fn test_pub_url_0_0_0_0_hostname_defaults_to_127_0_0_1() {
+        let _guard = ENV_LOCK.lock().unwrap();
+        set_ofm_env(&[("OFM_HOSTNAME", "0.0.0.0"), ("OFM_PORT", "5555")]);
+        let cfg = OfmConfig::from_env();
+        assert_eq!(cfg.pub_url, "http://127.0.0.1:5555");
+    }
+
+    #[test]
+    fn test_agent_host_maps_0_0_0_0_to_loopback() {
+        let _guard = ENV_LOCK.lock().unwrap();
+        set_ofm_env(&[("OFM_HOSTNAME", "0.0.0.0")]);
+        let cfg = OfmConfig::from_env();
+        assert_eq!(cfg.agent_host(), "127.0.0.1");
+
+        set_ofm_env(&[("OFM_HOSTNAME", "127.0.0.1")]);
+        let cfg = OfmConfig::from_env();
+        assert_eq!(cfg.agent_host(), "127.0.0.1");
+
+        set_ofm_env(&[("OFM_HOSTNAME", "myhost.local")]);
+        let cfg = OfmConfig::from_env();
+        assert_eq!(cfg.agent_host(), "myhost.local");
+    }
+
+    // ── rauthy behind-proxy config ───────────────────────────────────────
+
+    #[test]
+    fn test_rauthy_proxy_mode_defaults_false() {
+        let _guard = ENV_LOCK.lock().unwrap();
+        set_ofm_env(&[]);
+        let cfg = OfmConfig::from_env();
+        assert!(!cfg.rauthy_proxy_mode);
+        assert!(cfg.rauthy_trusted_proxies.is_none());
+    }
+
+    #[test]
+    fn test_rauthy_trusted_proxies_from_env() {
+        let _guard = ENV_LOCK.lock().unwrap();
+        set_ofm_env(&[
+            ("OFM_RAUTHY_PROXY_MODE", "true"),
+            ("OFM_RAUTHY_TRUSTED_PROXIES", "10.0.0.0/8\n127.0.0.1/32"),
+        ]);
+        let cfg = OfmConfig::from_env();
+        assert!(cfg.rauthy_proxy_mode);
+        assert_eq!(
+            cfg.rauthy_trusted_proxies.as_deref(),
+            Some("10.0.0.0/8\n127.0.0.1/32")
+        );
+    }
+
+    #[test]
+    fn test_rauthy_proxy_config_from_yaml() {
+        let _guard = ENV_LOCK.lock().unwrap();
+        let dir = tempfile::tempdir().unwrap();
+        let config_root = dir.path().join("config");
+        std::fs::create_dir_all(&config_root).unwrap();
+
+        std::fs::write(
+            config_root.join("ofm.yml"),
+            "rauthy:\n  PROXY_MODE: true\n  TRUSTED_PROXIES: \"192.168.0.0/16\"\n",
+        )
+        .unwrap();
+
+        set_ofm_env(&[("OFM_FOOTPRINT", dir.path().to_str().unwrap())]);
+
+        let cfg = OfmConfig::load();
+        assert!(cfg.rauthy_proxy_mode);
+        assert_eq!(
+            cfg.rauthy_trusted_proxies.as_deref(),
+            Some("192.168.0.0/16")
+        );
 
         clear_ofm_env();
     }

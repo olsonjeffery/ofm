@@ -90,11 +90,45 @@ fn spawn_reader(reader: impl tokio::io::AsyncRead + Unpin + Send + 'static, labe
     });
 }
 
+/// Extract the `host[:port]` portion of a public URL for rauthy's `PUB_URL`
+/// env (a single scalar `host[:port]`; the scheme is set via `LISTEN_SCHEME`
+/// + forwarded `X-Forwarded-Proto`). Scheme-less inputs are treated as `http`.
+///
+/// - `"http://127.0.0.1:3258"` → `"127.0.0.1:3258"`
+/// - `"https://ofm.example.com"` → `"ofm.example.com"` (well-known default port
+///   is elided)
+/// - `"http://localhost:8080/"` → `"localhost:8080"`
+/// - `"ofm.example.com:443"` → `"ofm.example.com:443"` (scheme-less input keeps
+///   its explicit port)
+pub fn pub_url_host_port(pub_url: &str) -> String {
+    let input = if pub_url.contains("://") {
+        pub_url.to_string()
+    } else {
+        format!("http://{pub_url}")
+    };
+    let Ok(url) = url::Url::parse(&input) else {
+        return pub_url.trim_end_matches('/').to_string();
+    };
+    let host = url.host_str().unwrap_or("localhost").to_string();
+    match url.port() {
+        Some(p) => format!("{host}:{p}"),
+        None => host,
+    }
+}
+
+/// Redirect URI wildcard for a public URL, e.g. `"http://127.0.0.1:3258/*"`.
+/// Used for both `redirect_uris` and `post_logout_redirect_uris` in rauthy's
+/// bootstrap `clients.json`.
+pub fn client_redirect_uri(pub_url: &str) -> String {
+    format!("{}/*", pub_url.trim_end_matches('/'))
+}
+
 pub async fn start_rauthy(
     footprint: &str,
-    hostname: &str,
+    pub_url: &str,
     port: u16,
-    proxy_port: u16,
+    proxy_mode: bool,
+    trusted_proxies: Option<String>,
 ) -> Result<RauthyInstance, BoxError> {
     let name = container_name(footprint);
     // Reap any stale container left behind by a previously SIGKILLed ofm
@@ -119,7 +153,7 @@ pub async fn start_rauthy(
 
     let bootstrap_dir = format!("{}/rauthy/bootstrap", footprint);
     std::fs::create_dir_all(&bootstrap_dir)?;
-    let client_config = build_client_config(hostname, proxy_port);
+    let client_config = build_client_config(pub_url);
     std::fs::write(
         format!("{}/clients.json", bootstrap_dir),
         serde_json::to_string_pretty(&client_config)?,
@@ -127,11 +161,13 @@ pub async fn start_rauthy(
 
     let mut cmd = Command::new("docker");
     cmd.args(build_docker_run_args(
-        hostname,
+        pub_url,
         port,
         &data_dir,
         &bootstrap_dir,
         &name,
+        proxy_mode,
+        trusted_proxies.as_deref(),
     ));
 
     let mut child = cmd.stdout(Stdio::piped()).stderr(Stdio::piped()).spawn()?;
@@ -152,17 +188,19 @@ pub async fn start_rauthy(
 
 /// Bootstrap `clients.json` for the rauthy container. The OAuth callback /
 /// logout targets must match where `ofm` is actually reachable, so they use
-/// the configured hostname rather than a hardcoded `localhost`/`127.0.0.1`.
-fn build_client_config(hostname: &str, proxy_port: u16) -> serde_json::Value {
+/// the configured `pub_url` (trimmed of trailing slash) rather than a
+/// hardcoded `localhost`/`127.0.0.1`.
+fn build_client_config(pub_url: &str) -> serde_json::Value {
+    let redirect_uri = client_redirect_uri(pub_url);
     serde_json::json!([{
         "id": "ofm",
         "name": "Ofm",
         "enabled": true,
         "redirect_uris": [
-            format!("http://{hostname}:{}/*", proxy_port),
+            redirect_uri,
         ],
         "post_logout_redirect_uris": [
-            format!("http://{hostname}:{}/*", proxy_port),
+            redirect_uri,
         ],
         "flows_enabled": ["authorization_code", "refresh_token"],
         "access_token_alg": "EdDSA",
@@ -180,17 +218,19 @@ fn build_client_config(hostname: &str, proxy_port: u16) -> serde_json::Value {
 /// invocation can be unit-tested without running Docker.
 ///
 /// The `-p` binding is always `0.0.0.0`: Docker only accepts IP addresses for
-/// the host bind interface, and `OFM_HOSTNAME` may be a non-IP hostname (e.g.
-/// `myhost.local`), which would make `docker run` fail at startup. Binding all
-/// interfaces still lets the browser reach rauthy via the configured hostname.
-/// `PUB_URL` advertises the configured hostname so rauthy's OIDC discovery and
-/// referral URLs point where `ofm` is actually reachable.
+/// the host bind interface, and the `pub_url` host may be a non-IP hostname
+/// (e.g. `myhost.local`), which would make `docker run` fail at startup.
+/// Binding all interfaces still lets the browser reach rauthy via OFM's `/auth`
+/// reverse proxy. `PUB_URL` advertises the `host[:port]` of OFM's `pub_url` so
+/// rauthy's OIDC discovery and referral URLs point at the origin OFM serves on.
 fn build_docker_run_args(
-    hostname: &str,
+    pub_url: &str,
     port: u16,
     data_dir: &str,
     bootstrap_dir: &str,
     container_name: &str,
+    proxy_mode: bool,
+    trusted_proxies: Option<&str>,
 ) -> Vec<String> {
     let mut args = vec![
         "run".to_string(),
@@ -212,7 +252,7 @@ fn build_docker_run_args(
     }
     args.extend([
         "-e".to_string(),
-        format!("PUB_URL={hostname}:{port}"),
+        format!("PUB_URL={}", pub_url_host_port(pub_url)),
         "-e".to_string(),
         "BOOTSTRAP_DIR=/app/bootstrap".to_string(),
         "-e".to_string(),
@@ -221,8 +261,19 @@ fn build_docker_run_args(
         "LISTEN_SCHEME=http".to_string(),
         "-e".to_string(),
         "LOCAL_TEST=true".to_string(),
-        RAUTHY_IMAGE.to_string(),
     ]);
+    if proxy_mode {
+        args.extend([
+            "-e".to_string(),
+            "PROXY_MODE=true".to_string(),
+            "-e".to_string(),
+            format!(
+                "TRUSTED_PROXIES={}",
+                trusted_proxies.unwrap_or("127.0.0.1/32")
+            ),
+        ]);
+    }
+    args.push(RAUTHY_IMAGE.to_string());
     args
 }
 
@@ -324,13 +375,13 @@ mod tests {
     }
 
     #[test]
-    fn test_build_client_config_uses_hostname() {
-        let config = super::build_client_config("192.168.1.50", 3183);
+    fn test_build_client_config_uses_pub_url() {
+        let config = super::build_client_config("http://192.168.1.50:3183");
         let json = serde_json::to_string(&config).unwrap();
 
         assert!(
             json.contains(r#"http://192.168.1.50:3183/*"#),
-            "redirect_uris should use the configured hostname, got: {json}"
+            "redirect_uris should use the configured pub_url, got: {json}"
         );
         assert!(
             !json.contains("127.0.0.1"),
@@ -351,13 +402,47 @@ mod tests {
     }
 
     #[test]
-    fn test_build_docker_run_args_uses_hostname() {
+    fn test_pub_url_host_port() {
+        assert_eq!(
+            super::pub_url_host_port("http://127.0.0.1:3258"),
+            "127.0.0.1:3258"
+        );
+        assert_eq!(
+            super::pub_url_host_port("https://ofm.example.com"),
+            "ofm.example.com"
+        );
+        assert_eq!(
+            super::pub_url_host_port("http://localhost:8080/"),
+            "localhost:8080"
+        );
+        assert_eq!(
+            super::pub_url_host_port("ofm.example.com:443"),
+            "ofm.example.com:443"
+        );
+    }
+
+    #[test]
+    fn test_client_redirect_uri() {
+        assert_eq!(
+            super::client_redirect_uri("http://127.0.0.1:3258"),
+            "http://127.0.0.1:3258/*"
+        );
+        assert_eq!(
+            super::client_redirect_uri("https://ofm.example.com/"),
+            "https://ofm.example.com/*"
+        );
+    }
+
+    #[test]
+    fn test_build_docker_run_args_uses_pub_url() {
         let args = super::build_docker_run_args(
-            "192.168.1.50",
+            "http://192.168.1.50:18080",
             18080,
             "/fp/rauthy/data",
             "/fp/rauthy/bootstrap",
             "ofm-rauthy-abcdef0123456789",
+            false,
+            None,
         );
         let joined = args.join(" ");
 
@@ -367,7 +452,7 @@ mod tests {
         );
         assert!(
             joined.contains("PUB_URL=192.168.1.50:18080"),
-            "PUB_URL should advertise the configured hostname, got: {joined}"
+            "PUB_URL should advertise the pub_url host:port, got: {joined}"
         );
         assert!(
             !joined.contains("localhost"),
@@ -377,16 +462,22 @@ mod tests {
             !joined.contains("127.0.0.1"),
             "docker args must not hardcode 127.0.0.1: {joined}"
         );
+        assert!(
+            !joined.contains("PROXY_MODE"),
+            "PROXY_MODE must be absent when proxy_mode is false: {joined}"
+        );
     }
 
     #[test]
     fn test_build_docker_run_args_binds_any_hostname() {
         let args = super::build_docker_run_args(
-            "myhost.local",
+            "http://myhost.local:18080",
             18080,
             "/fp/rauthy/data",
             "/fp/rauthy/bootstrap",
             "ofm-rauthy-abcdef0123456789",
+            false,
+            None,
         );
         let joined = args.join(" ");
 
@@ -397,6 +488,29 @@ mod tests {
         assert!(
             joined.contains("PUB_URL=myhost.local:18080"),
             "PUB_URL should advertise the non-IP hostname, got: {joined}"
+        );
+    }
+
+    #[test]
+    fn test_build_docker_run_args_proxy_mode() {
+        let args = super::build_docker_run_args(
+            "http://myhost.local:18080",
+            18080,
+            "/fp/rauthy/data",
+            "/fp/rauthy/bootstrap",
+            "ofm-rauthy-abcdef0123456789",
+            true,
+            Some("10.0.0.0/8\n127.0.0.1/32"),
+        );
+        let joined = args.join(" ");
+
+        assert!(
+            joined.contains("PROXY_MODE=true"),
+            "PROXY_MODE=true must be set when proxy_mode is true: {joined}"
+        );
+        assert!(
+            joined.contains("TRUSTED_PROXIES=10.0.0.0/8"),
+            "TRUSTED_PROXIES should be passed through: {joined}"
         );
     }
 }

@@ -204,7 +204,7 @@ async fn get_task(
                 &state.footprint,
                 w.project_id,
                 w.task_id,
-                &state.config.hostname,
+                &state.config.agent_host(),
                 state.cfg_port,
                 std::process::id(),
             )

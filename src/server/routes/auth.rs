@@ -140,7 +140,8 @@ async fn logout(
 
             if let Some(oidc) = &state.oidc_provider {
                 if let Some(ees) = &oidc.end_session_endpoint {
-                    let post_logout_uri = format!("http://127.0.0.1:{}/webapp", state.cfg_port);
+                    let post_logout_uri =
+                        format!("{}/webapp", state.config.pub_url.trim_end_matches('/'));
                     let mut url = format!(
                         "{}?client_id={}&post_logout_redirect_uri={}",
                         ees,

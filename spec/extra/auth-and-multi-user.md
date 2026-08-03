@@ -23,6 +23,7 @@
 > resolution — 799 lines), `src/server/routes/auth.rs` (login, callback, refresh,
 > logout, me, onboarding, API key routes), `src/webapp/auth.rs` (WebappAuthLayer
 > for SSR session-cookie auth), `src/rauthy/` (Docker-based rauthy lifecycle),
+> `src/server/proxy.rs` (the `/auth` reverse proxy to the embedded rauthy),
 > and `src/db/mod.rs` (`ensure_default_user` for auth-disabled mode).
 > Project-membership authorization, admin panel, and `is_technical` auto-advance
 > are **not yet implemented** in the Rust codebase — references to the TypeScript
@@ -180,6 +181,38 @@ When no `OIDC_ISSUER_URL` is provided (or `RAUTHY_ENABLED=true` is set),
 | `RAUTHY_DATA_DIR` | No | Path for rauthy's persistent state (default: `{footprint}/rauthy/`). |
 | `RAUTHY_ADMIN_EMAIL` | No | Email for the initial bootstrap admin (default: `admin@localhost`). |
 | `RAUTHY_ADMIN_PASSWORD` | No | Admin password. If absent, ofm auto-generates one and displays it once at first startup (similar to the reference's first-user register flow). |
+| `PROXY_MODE` | No | `true` to run rauthy behind a reverse proxy (rauthy `PROXY_MODE`). **Defaults off.** See "Behind-proxy configuration" below. |
+| `TRUSTED_PROXIES` | No | Newline-separated CIDRs trusted as reverse proxies when `PROXY_MODE` is true (rauthy `TRUSTED_PROXIES`). |
+
+The rauthy `PUB_URL` env is derived from OFM's `pub_url` (`OFM_PUB_URL`, or its
+legacy alias `OFM_URL`, or derived `http://{connectable_host}:{OFM_PORT}`):
+rauthy receives only the `host[:port]` portion — the scheme comes from rauthy's
+`LISTEN_SCHEME` (set to `http`) plus forwarded `X-Forwarded-Proto`. Rauthy's
+issuer therefore becomes `{pub_url}/auth/v1`, matching where the browser reaches
+it through OFM's `/auth` proxy.
+
+### Behind-proxy configuration
+
+When the whole deployment (OFM + its embedded rauthy) sits behind a reverse
+proxy, set `OFM_RAUTHY_PROXY_MODE=true` and
+`OFM_RAUTHY_TRUSTED_PROXIES` to the proxy's CIDR(s), and serve the `pub_url`
+origin over **HTTPS**. rauthy forwards these to its `PROXY_MODE` /
+`TRUSTED_PROXIES` env vars:
+
+- With `proxy_mode` enabled, rauthy **blocks every request whose source IP is
+  not in `TRUSTED_PROXIES`** (including health checks). When OFM proxies to the
+  container, the source IP rauthy observes is the Docker bridge gateway
+  (e.g. `172.17.0.1`), so the docker bridge subnet must be included in
+  `TRUSTED_PROXIES` for the `/auth` proxy to be allowed through.
+- Per rauthy's source (`src/data/src/rauthy_config.rs`), `proxy_mode` hardcodes
+  an **`https://` issuer** regardless of `LISTEN_SCHEME` or `X-Forwarded-Proto`.
+  Only enable `PROXY_MODE` when the `pub_url` origin is TLS-terminated by the
+  enclosing reverse proxy; a plain-HTTP `pub_url` with `PROXY_MODE` produces
+  https referral URLs the browser cannot reach.
+- When `proxy_mode` is off (the default), rauthy's issuer uses rauthy's
+  `LISTEN_SCHEME` (`http`), so the discovery/authorize/callback/logout URLs are
+  all `http://{pub_url}/auth/v1/...` and work through the `/auth` proxy without
+  TLS.
 
 ### Docker container lifecycle
 
@@ -196,20 +229,20 @@ Rauthy runs as a Docker container (`ghcr.io/sebadob/rauthy:latest`) managed by
 - The container name is deterministic and footprint-derived
   (`ofm-rauthy-<hash>`), stable across restarts of the same footprint and
   unique across worktree footprints.
-- The rauthy OIDC endpoints are reached **directly** at
-  `http://{OFM_HOSTNAME}:{port}` — there is no `/auth` reverse proxy. The
-  container always binds `0.0.0.0` via `-p 0.0.0.0:{port}:8080` (Docker only
-  accepts IP addresses for the host bind interface, and `OFM_HOSTNAME` may be a
-  non-IP hostname), while `PUB_URL={OFM_HOSTNAME}:{port}` makes rauthy
-  advertise the configured hostname, so the browser-facing
-  authorization/token/userinfo referral URLs point at the hostname `ofm` is
-  reachable on (default `127.0.0.1`). `pub_url` is a server config value, not
-  a bootstrap data file, so it is injected via the `PUB_URL` env var rather
-  than the bootstrap directory (which only parses `clients.json`/`users.json`
-  etc.).
+- The container always binds `0.0.0.0` via `-p 0.0.0.0:{port}:8080` (Docker only
+  accepts IP addresses for the host bind interface, and the `pub_url` host may
+  be a non-IP hostname). The browser reaches rauthy **exclusively through OFM's
+  `/auth` reverse proxy** at `{pub_url}/auth/v1/*`; the `pub_url` is injected via
+  rauthy's `PUB_URL` env rather than the bootstrap directory (which only parses
+  `clients.json`/`users.json` etc.).
+- The `clients.json` redirect URIs (`redirect_uris` /
+  `post_logout_redirect_uris`) are built from `pub_url` as `{pub_url}/*`, so the
+  OAuth callback and post-logout targets point at the origin OFM serves on.
 - Health check: `GET /health` (via `http://127.0.0.1:{port}/health` — loopback
-  reaches the `0.0.0.0`-published port regardless of `OFM_HOSTNAME`
-  resolvability) must return 200 before `ofm` marks itself ready.
+  reaches the `0.0.0.0`-published port regardless of the `pub_url` host
+  resolvability) must return 200 before `ofm` marks itself ready. This probe is
+  direct (loopback), not through the proxy, and works with `PROXY_MODE` only if
+  the loopback/docker-bridge source IP is trusted.
 - On shutdown, `ofm` removes the container by name (`docker rm -f
   ofm-rauthy-<hash>`) in `RauthyInstance::Drop`, then kills the `docker run`
   CLI child. `--rm` alone is insufficient — killing the CLI client leaves the
@@ -650,10 +683,11 @@ become per-user / membership-gated:
       queries.
 - [ ] Admin routes: user CRUD (no password fields, self-delete guard) + project
       membership (last-member guard); rauthy provider-side user management.
-- [x] Rauthy Docker lifecycle: spawn container, health check, direct port
-      access (no `/auth` proxy), teardown via `RauthyInstance::Drop`
-      (`docker rm -f <footprint-derived-name>`) + startup reap.
-      → `src/rauthy/mod.rs`
+- [x] Rauthy Docker lifecycle: spawn container, health check, `/auth` reverse
+      proxy (browser → OFM → `http://127.0.0.1:{port}/auth/*`), teardown via
+      `RauthyInstance::Drop` (`docker rm -f <footprint-derived-name>`) +
+      startup reap.
+      → `src/rauthy/mod.rs`, `src/server/proxy.rs`, `src/server/mod.rs`
 - [ ] Rauthy admin bootstrap: one-time credential display, initial user creation
       via rauthy admin API.
 - [ ] The `is_technical` auto-advance after planning + the non-technical planning
@@ -677,7 +711,7 @@ become per-user / membership-gated:
 | Non-technical auto-advance after planning | `reference/server/services/conversation/agentRunLifecycle.ts` (retained from reference) |
 | Non-technical planning prompt selection | `reference/server/constants/agentPrompts.ts`, `reference/server/services/agentRunner.ts` (retained from reference) |
 | WebSocket per-action access checks | `reference/server/websocket/dispatch.ts` (retained from reference) |
-| Rauthy Docker lifecycle (container removed by name in `Drop`; startup reap of stale footprint containers) | `src/rauthy/mod.rs` |
+| Rauthy Docker lifecycle (`PUB_URL` off OFM `pub_url`; `/auth` reverse proxy; container removed by name in `Drop`; startup reap of stale footprint containers; `PROXY_MODE`/`TRUSTED_PROXIES` behind-proxy wiring) | `src/rauthy/mod.rs`, `src/server/proxy.rs` |
 | Admin UI | `reference/src/pages/AdminPage.tsx`, `reference/src/components/Admin/` (retained from reference) |
 
 ## Boundaries (not in this spec)

@@ -44,6 +44,7 @@ async fn make_state() -> (AppState, AuthLayer, TempDir) {
     );
     let state = AppState {
         cfg_port: 0,
+        rauthy_port: None,
 
         db: client,
         default_user_id: user_id,
@@ -84,6 +85,26 @@ async fn test_redirect_root_to_webapp() {
         resp.headers().get("location").unwrap().to_str().unwrap(),
         "/webapp"
     );
+}
+
+#[tokio::test]
+async fn test_proxy_router_not_mounted_without_rauthy() {
+    let (state, auth_layer, _tmp) = make_state().await;
+    let app = server::router(state, auth_layer);
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let addr = listener.local_addr().unwrap();
+
+    tokio::spawn(async move {
+        axum::serve(listener, app).await.unwrap();
+    });
+
+    let url = format!("http://{}/auth/v1/health", addr);
+    let client = reqwest::Client::new();
+    let resp = client.get(&url).send().await.unwrap();
+
+    // With `rauthy_port: None` the `/auth` nest is not mounted, so requests
+    // to it must 404 rather than being proxied anywhere.
+    assert_eq!(resp.status(), 404);
 }
 
 #[tokio::test]
@@ -319,6 +340,7 @@ async fn make_state_with_webapp_auth() -> (AppState, AuthLayer, TempDir) {
     };
     let state = AppState {
         cfg_port: 0,
+        rauthy_port: None,
 
         db: client,
         default_user_id: user_id,
@@ -370,6 +392,7 @@ async fn test_callback_skips_onboarding_when_completed() {
     let key = cookie::Key::generate();
     let state = AppState {
         cfg_port: 0,
+        rauthy_port: None,
         cookie_key: key.clone(),
         ..state
     };
@@ -422,6 +445,7 @@ async fn test_callback_routes_to_onboarding_when_not_completed() {
     let key = cookie::Key::generate();
     let state = AppState {
         cfg_port: 0,
+        rauthy_port: None,
         cookie_key: key.clone(),
         ..state
     };
@@ -474,6 +498,7 @@ async fn test_webapp_protected_route_allows_with_valid_session() {
     let key = cookie::Key::generate();
     let state = AppState {
         cfg_port: 0,
+        rauthy_port: None,
 
         cookie_key: key.clone(),
         ..state
@@ -1241,6 +1266,7 @@ async fn test_webapp_protected_route_redirects_with_expired_session() {
     let key = cookie::Key::generate();
     let state = AppState {
         cfg_port: 0,
+        rauthy_port: None,
 
         cookie_key: key.clone(),
         ..state

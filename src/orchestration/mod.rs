@@ -240,7 +240,7 @@ pub fn start_next_agent<'a>(
                 footprint,
                 task.project_id,
                 task.id,
-                &config.hostname,
+                &config.agent_host(),
                 config.port,
                 std::process::id(),
             )

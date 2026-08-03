@@ -4123,6 +4123,8 @@ dependencies = [
  "hiqlite",
  "html-escape",
  "http-body-util",
+ "hyper",
+ "hyper-util",
  "jsonwebtoken",
  "leptos",
  "leptos_styling",

@@ -12,7 +12,8 @@ ofm/
 │   ├── logging.rs       # Tracing/logging init
 │   ├── db/              # mod.rs (DDL, migrations), schema.rs (models)
 │   ├── auth/            # OAuth/OIDC, JWKS, API keys, sessions
-│   ├── server/          # Axum router, state, error, routes/, ws/
+│   ├── server/          # Axum router, state, error, routes/, ws/, proxy/
+│   │   ├── proxy.rs     # `/auth` reverse proxy to the embedded rauthy container
 │   │   └── routes/
 │   │       └── conversations.rs  # Chat API endpoints (Phase 2)
 │   ├── webapp/          # Leptos SSR pages, islands, components
@@ -96,14 +97,16 @@ The workspace has a single member crate (`ofm` binary) defined inline.
 | hex | 0.4 | Hex encoding |
 | gix | 0.86 | Pure-Rust git repository reading (commits, merge-base, trees, blobs) for the commit list & diff view |
 | similar | 3 | Line-diff classification (Equal/Delete/Insert) for two-column diffs |
+| hyper / hyper-util | 1 / 0.1 | Low-level HTTP client for the `/auth` reverse proxy (`src/server/proxy.rs`) |
+| bytes / http-body-util | 1 / 0.1 | Body buffering for the `/auth` reverse proxy |
 
 ## Application Lifecycle
 
 1. **Config**: Load `OfmConfig` from YAML file + env var overlay (`OFM_*`).
 2. **Logging**: Initialize tracing/logging based on config.
 3. **Database**: Start hiqlite node with `data_dir`, run pending migrations.
-4. **Rauthy**: If `OFM_RAUTHY_ENABLED`, spawn rauthy as a Docker container via `tokio::process::Command`, wait for health at the container's direct port, and assign the instance to `_rauthy_instance` before any fallible step so `Drop` removes the container (`docker rm -f ofm-rauthy-<footprint-hash>`) on every failure path. The container always binds `0.0.0.0` (`-p 0.0.0.0:{port}:8080`; Docker only accepts IPs for the host bind interface, and `OFM_HOSTNAME` may be a non-IP hostname) and advertises `PUB_URL={OFM_HOSTNAME}:{port}`, so the browser reaches rauthy directly on that hostname. The container runs with the host user's UID via Docker's `--user` flag so files in the rauthy data directory are owned by the host user and cleanup does not require root. The footprint-derived container name is stable, so a stale container from a SIGKILLed instance is reaped by the startup `docker rm -f` on the next run of the same footprint.
-5. **Server**: Start axum HTTP server with WebSocket support on configured `OFM_HOSTNAME:OFM_PORT`.
+4. **Rauthy**: If `OFM_RAUTHY_ENABLED`, spawn rauthy as a Docker container via `tokio::process::Command`, wait for health at the container's direct loopback port, and assign the instance to `_rauthy_instance` before any fallible step so `Drop` removes the container (`docker rm -f ofm-rauthy-<footprint-hash>`) on every failure path. The container always binds `0.0.0.0` (`-p 0.0.0.0:{port}:8080`; Docker only accepts IPs for the host bind interface) and advertises `PUB_URL={host[:port]}` derived from OFM's `pub_url` (`OFM_PUB_URL`). The browser reaches rauthy **exclusively through OFM's `/auth` reverse proxy** (`src/server/proxy.rs`): the axum router nests `/auth` → a hyper-util legacy client forwarding to `http://127.0.0.1:{rauthy_port}/auth/*`, preserving `Host`/`X-Forwarded-*` and appending the peer IP to `X-Forwarded-For`. `OFM_RAUTHY_PROXY_MODE`/`OFM_RAUTHY_TRUSTED_PROXIES` pass through to rauthy's `PROXY_MODE`/`TRUSTED_PROXIES` (default off). The container runs with the host user's UID via Docker's `--user` flag so files in the rauthy data directory are owned by the host user and cleanup does not require root. The footprint-derived container name is stable, so a stale container from a SIGKILLed instance is reaped by the startup `docker rm -f` on the next run of the same footprint.
+5. **Server**: Start axum HTTP server with WebSocket support on configured `OFM_HOSTNAME:OFM_PORT`, served via `into_make_service_with_connect_info::<SocketAddr>()` so the `/auth` reverse proxy (`src/server/proxy.rs`) can append the real peer IP to `X-Forwarded-For`.
 6. **WebSocket**: Accept connections, manage task subscriptions, stream agent events.
 7. **OpenCode provider sessions**: Spawn `opencode serve` subprocesses per user in their own process groups, manage lifecycle, stream events. Teardown kills each spawned process group precisely (`kill(-pgid)`); the pool is drained on shutdown.
 8. **Shutdown**: Graceful shutdown — stop accepting connections, kill subprocesses, remove the rauthy container by name, close DB.

@@ -58,6 +58,7 @@ async fn setup_app() -> TestApp {
     );
     let state = AppState {
         cfg_port: 0,
+        rauthy_port: None,
 
         db: client.clone(),
         default_user_id: user_id,
@@ -163,6 +164,7 @@ async fn setup_app_with_git() -> TestApp {
     );
     let state = AppState {
         cfg_port: 0,
+        rauthy_port: None,
 
         db: client.clone(),
         default_user_id: user_id,

@@ -66,9 +66,12 @@ All env vars use the `OFM_` prefix. Key ones:
 |---|---|---|
 | `OFM_PORT` | `3183` | HTTP listen port |
 | `OFM_HOSTNAME` | `127.0.0.1` | HTTP listen hostname |
+| `OFM_PUB_URL` | `http://{connectable_host}:{port}` | Public origin used for all absolute URLs (OIDC redirect, rauthy PUB_URL, redirect URIs). Legacy alias: `OFM_URL` |
 | `OFM_FOOTPRINT` | `~/.ofm` | Per-user data directory (archive, config, DB) |
-| `OFM_RAUTHY_ENABLED` | `false` | Enable local rauthy OIDC provider |
+| `OFM_RAUTHY_ENABLED` | `false` | Enable local rauthy OIDC provider (browser reaches it via OFM's `/auth` proxy) |
 | `OFM_RAUTHY_PORT` | `0` (random) | Port for rauthy instance (0 = random) |
+| `OFM_RAUTHY_PROXY_MODE` | `false` | Run rauthy behind a reverse proxy (rauthy `PROXY_MODE`; hardcodes https issuer — requires HTTPS-served `OFM_PUB_URL`) |
+| `OFM_RAUTHY_TRUSTED_PROXIES` | unset | Newline-separated CIDRs trusted when `OFM_RAUTHY_PROXY_MODE` is true (include the Docker bridge subnet, e.g. `172.17.0.0/16`) |
 | `OFM_OIDC_ISSUER_URL` | unset | OIDC issuer URL for external auth |
 | `OFM_OIDC_CLIENT_ID` | unset | OIDC client ID |
 | `OFM_API_KEY` | unset | API key for machine access |

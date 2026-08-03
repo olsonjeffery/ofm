@@ -815,6 +815,7 @@ mod tests {
 
         let state = AppState {
             cfg_port: 0,
+            rauthy_port: None,
             db: client.clone(),
             default_user_id: user_id,
             footprint: tmp.path().to_str().unwrap().to_string(),

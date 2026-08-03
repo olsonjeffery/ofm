@@ -158,6 +158,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     };
 
     let mut _rauthy_instance: Option<rauthy::RauthyInstance> = None;
+    let mut _rauthy_port: Option<u16> = None;
 
     let (auth_layer, oidc_provider) = if cfg.rauthy_enabled {
         let rp = if cfg.rauthy_port > 0 {
@@ -165,9 +166,17 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         } else {
             rauthy::find_available_port()?
         };
+        _rauthy_port = Some(rp);
 
         tracing::info!("Starting embedded rauthy on port {}", rp);
-        let instance = rauthy::start_rauthy(&cfg.footprint, &cfg.hostname, rp, cfg.port).await?;
+        let instance = rauthy::start_rauthy(
+            &cfg.footprint,
+            &cfg.pub_url,
+            rp,
+            cfg.rauthy_proxy_mode,
+            cfg.rauthy_trusted_proxies.clone(),
+        )
+        .await?;
         // Assign before any fallible step below (health check, OIDC
         // discovery, JWKS fetch) so every failure path triggers `Drop` →
         // `docker rm -f <container>` rather than leaking the container.
@@ -180,8 +189,13 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         rauthy::wait_until_healthy(rp, &container_name).await?;
         tracing::info!("rauthy is healthy");
 
-        let direct_base = format!("http://{}:{}", cfg.hostname, rp);
-        let discovery_url = format!("{}/.well-known/openid-configuration", direct_base);
+        // Server-side discovery/JWKS stays direct at loopback — it does not go
+        // through the `/auth` proxy. Rauthy's discovery now reports
+        // `issuer = {pub_url}/auth/v1`, which OFM parses and hands to the
+        // browser (so the browser's authorize/token/userinfo URLs are all on
+        // the pub_url origin, reached through the `/auth` proxy).
+        let direct_base = format!("http://127.0.0.1:{rp}");
+        let discovery_url = format!("{}/auth/v1/.well-known/openid-configuration", direct_base);
         let disc: serde_json::Value = reqwest::get(&discovery_url).await?.json().await?;
         let issuer = disc["issuer"].as_str().ok_or("missing issuer")?.to_string();
         let (
@@ -191,19 +205,26 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             end_session_endpoint,
             userinfo_endpoint,
         ) = parse_oidc_discovery(&disc)?;
-        let redirect_uri = format!("http://{}:{}/api/auth/callback", cfg.hostname, cfg.port);
+        let redirect_uri = format!("{}/api/auth/callback", cfg.pub_url.trim_end_matches('/'));
         let client_id = cfg.oidc_client_id.clone().unwrap_or_else(|| "ofm".into());
 
-        let jwks_disc_url = format!(
-            "http://{}:{}/auth/v1/.well-known/openid-configuration",
-            cfg.hostname, rp
-        );
+        let jwks_disc_url =
+            format!("http://127.0.0.1:{rp}/auth/v1/.well-known/openid-configuration");
         let jwks_disc: serde_json::Value = reqwest::get(&jwks_disc_url).await?.json().await?;
         let jwks_uri = jwks_disc["jwks_uri"]
             .as_str()
             .ok_or("missing jwks_uri")?
             .to_string();
-        let jwks_resp: serde_json::Value = reqwest::get(&jwks_uri).await?.json().await?;
+        // The advertised `jwks_uri` is on the pub_url origin (the browser
+        // reaches it through the `/auth` proxy). OFM fetches the keys
+        // directly at loopback — the proxy is not up yet at this point — so
+        // re-host the advertised path on the direct base.
+        let jwks_uri_path = url::Url::parse(&jwks_uri)
+            .ok()
+            .map(|u| u.path().to_string())
+            .unwrap_or_else(|| "/auth/v1/oidc/certs".to_string());
+        let direct_jwks_url = format!("{direct_base}{jwks_uri_path}");
+        let jwks_resp: serde_json::Value = reqwest::get(&direct_jwks_url).await?.json().await?;
         let keys: std::collections::HashMap<String, jsonwebtoken::jwk::Jwk> = jwks_resp["keys"]
             .as_array()
             .ok_or("missing keys array")?
@@ -309,6 +330,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         cookie_key,
         api_key_pepper,
         cfg_port: cfg.port,
+        rauthy_port: _rauthy_port,
         ws_bus: BroadcastBus::new(),
         config: cfg.clone(),
     };
@@ -373,7 +395,12 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     let listener = tokio::net::TcpListener::bind(&addr).await?;
     let server_handle = tokio::spawn(async move {
-        if let Err(e) = axum::serve(listener, app).await {
+        if let Err(e) = axum::serve(
+            listener,
+            app.into_make_service_with_connect_info::<std::net::SocketAddr>(),
+        )
+        .await
+        {
             tracing::error!("Server error: {e}");
         }
     });

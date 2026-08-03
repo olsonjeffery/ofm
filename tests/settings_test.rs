@@ -58,6 +58,7 @@ async fn make_state_with_auth() -> (AppState, AuthLayer, String, tempfile::TempD
 
     let state = AppState {
         cfg_port: 0,
+        rauthy_port: None,
 
         db: client,
         default_user_id: user_id,
@@ -102,6 +103,7 @@ async fn make_state_no_auth() -> (AppState, AuthLayer, tempfile::TempDir) {
     );
     let state = AppState {
         cfg_port: 0,
+        rauthy_port: None,
 
         db: client,
         default_user_id: user_id,
@@ -352,6 +354,7 @@ async fn test_settings_config_body_user_isolation() {
 
     let state = AppState {
         cfg_port: 0,
+        rauthy_port: None,
 
         db: client,
         default_user_id: user_a_id,

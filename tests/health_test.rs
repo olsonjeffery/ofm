@@ -36,6 +36,7 @@ async fn make_state() -> (AppState, AuthLayer, TempDir) {
     );
     let state = AppState {
         cfg_port: 0,
+        rauthy_port: None,
 
         db: client,
         default_user_id: user_id,

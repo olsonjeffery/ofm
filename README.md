@@ -125,6 +125,14 @@ OFM_RAUTHY_ENABLED=true
 > the same `OFM_FOOTPRINT`. Leftover containers can be listed with
 > `docker ps --filter name=ofm-rauthy`.
 
+> ℹ️**RAUTHY VIA OFM'S `/auth` PROXY**: The browser reaches the embedded rauthy
+> **exclusively through `ofm`'s `/auth` route** — a single `OFM_PORT` serves
+> both the `ofm` webapp and rauthy's login/oidc endpoints. All absolute URLs
+> (`ofm`'s OIDC redirect URI, the post-logout URI, rauthy's `PUB_URL`, and the
+> rauthy `clients.json` redirect URIs) derive from `ofm`'s public URL, which is
+> set with `OFM_PUB_URL` (legacy alias: `OFM_URL`). Set `OFM_PUB_URL` to the
+> externally-visible origin when `ofm` runs behind a reverse proxy.
+
 **Installations using an OAuth provider will want to provide:**
 
 ```bash
@@ -157,6 +165,28 @@ environment variable if you wish for it to run on another port).
 > If encrypted traffic is mandatory within your organization, then `ofm` should
 > have the enclosing reverse proxy as an on-machine sidecar, with the `ofm` ports
 > blocked by a software firewall for non-localhost users.
+
+> ℹ️**REVERSE PROXY / MULTI-HOST**: `ofm` binds a single port (`OFM_HOSTNAME` +
+> `OFM_PORT`) and accepts any `Host` header — no host allowlist. Every absolute
+> URL `ofm` builds (OIDC redirect URI, post-logout URI, embedded-rauthy `PUB_URL`
+> and redirect URIs) derives from **one** configured public origin: `OFM_PUB_URL`
+> (default `http://127.0.0.1:{OFM_PORT}`, derived from a `0.0.0.0` hostname as
+> loopback). To run behind a proxy:
+>
+> ```bash
+> OFM_HOSTNAME=0.0.0.0 \
+> OFM_PUB_URL=https://ofm.example.com \
+> OFM_PORT=3183 \
+> cargo run
+> ```
+>
+> and have the proxy forward `https://ofm.example.com/*` → `127.0.0.1:3183`
+> (preserving `X-Forwarded-Proto`/`X-Forwarded-Host`). Browser logins route to
+> the `OFM_PUB_URL` origin. When the embedded rauthy is used and you additionally
+> enable `OFM_RAUTHY_PROXY_MODE=true`, rauthy hardcodes an `https://` issuer, so
+> the `OFM_PUB_URL` origin must be TLS-terminated; you must also set
+> `OFM_RAUTHY_TRUSTED_PROXIES` to the proxy CIDR(s) (including the Docker bridge
+> subnet, e.g. `172.17.0.0/16`) or rauthy will block proxied requests.
 
 ## History & evolution
 

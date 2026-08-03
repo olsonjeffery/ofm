@@ -121,11 +121,22 @@ spawns `pty`s, maintains database state, and so on
    `tokio::process::Command` (see `src/rauthy/mod.rs`)
    - Bind the container to `0.0.0.0` (`-p 0.0.0.0:{port}:8080`; Docker only
    accepts IP addresses for the host bind interface) and advertise
-   `PUB_URL={OFM_HOSTNAME}:{port}`, so rauthy's OIDC discovery metadata and
-   referral URLs point at the hostname `ofm` is reachable on
-   - Have the browser talk to the rauthy container **directly** on its
-   published port — there is no `/auth` reverse proxy (see
+   `PUB_URL={host[:port]}` derived from OFM's `pub_url` (`OFM_PUB_URL`, default
+   `http://{connectable_host}:{OFM_PORT}`), so rauthy's OIDC discovery metadata
+   and referral URLs point at the origin `ofm` is reachable on
+   - Proxy all browser traffic to rauthy through OFM's `/auth` route (see
+   `src/server/proxy.rs`): the browser hits `{pub_url}/auth/*`, OFM forwards
+   verbatim to `http://127.0.0.1:{rauthy_port}/auth/*` while preserving the
+   incoming `Host`/`X-Forwarded-Host`/`X-Forwarded-Proto` headers and appending
+   the peer IP to `X-Forwarded-For`. This satisfies "bind to one port, accept
+   hosts on different ports" (see
    [`extra/auth-and-multi-user.md`](./extra/auth-and-multi-user.md))
+   - Optionally run rauthy in "behind proxy" mode via `OFM_RAUTHY_PROXY_MODE` /
+   `OFM_RAUTHY_TRUSTED_PROXIES` (rauthy `PROXY_MODE` / `TRUSTED_PROXIES` env).
+   **Defaults off.** When enabled, rauthy blocks every request whose source IP is
+   not in `TRUSTED_PROXIES` and — per rauthy's source — hardcodes an `https://`
+   issuer regardless of `LISTEN_SCHEME`/`X-Forwarded-Proto`; only enable it when
+   the `pub_url` origin is served over HTTPS by the enclosing reverse proxy.
 
 ## How to build from this spec
 

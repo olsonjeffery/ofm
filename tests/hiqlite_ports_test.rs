@@ -46,6 +46,7 @@ async fn make_state_with_ports(raft_port: u16, api_port: u16) -> (AppState, Auth
     );
     let state = AppState {
         cfg_port: 0,
+        rauthy_port: None,
 
         db: client,
         default_user_id: user_id,

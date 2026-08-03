@@ -109,6 +109,7 @@ async fn insert_user(
 fn make_app_state(client: hiqlite::Client, user_id: Uuid, oidc: Option<OidcEndpoints>) -> AppState {
     AppState {
         cfg_port: 0,
+        rauthy_port: None,
         db: client,
         default_user_id: user_id,
         footprint: "/tmp".into(),
@@ -353,6 +354,7 @@ async fn test_generate_api_key() {
     // Use deterministic cookie_key matching the pepper
     let state = AppState {
         cfg_port: 0,
+        rauthy_port: None,
 
         cookie_key,
         ..state
@@ -959,6 +961,7 @@ async fn test_refresh_with_session_cookie() {
     let key = cookie::Key::generate();
     let state = AppState {
         cfg_port: 0,
+        rauthy_port: None,
 
         db: client.clone(),
         default_user_id,
@@ -1271,6 +1274,7 @@ async fn test_refresh_failure_clears_session_cookie() {
     let key = cookie::Key::generate();
     let state = AppState {
         cfg_port: 0,
+        rauthy_port: None,
         db: client.clone(),
         default_user_id,
         footprint: "/tmp".into(),
