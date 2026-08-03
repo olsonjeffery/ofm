@@ -634,6 +634,27 @@ mod tests {
         (client, task_id, tmp)
     }
 
+    async fn seed_agent_config(client: &hiqlite::Client, agent_type: &str) {
+        let now = chrono::Utc::now().naive_utc().to_string();
+        client
+            .execute(
+                "INSERT INTO agent_harness_configs (id, agent_type, harness, provider_config_ref, scope_type, model, effort, created_at, updated_at) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)",
+                hiqlite::params!(
+                    uuid::Uuid::new_v4().to_string(),
+                    agent_type,
+                    "opencode",
+                    "test.json",
+                    "global",
+                    "gpt-4",
+                    "balanced",
+                    &now,
+                    &now,
+                ),
+            )
+            .await
+            .unwrap();
+    }
+
     #[tokio::test]
     async fn test_completion_handler_running_to_completed() {
         let (client, task_id, _tmp) = make_client().await;
@@ -649,24 +670,7 @@ mod tests {
         .unwrap();
 
         // Seed a review config so the phase-skip check passes
-        let now = chrono::Utc::now().naive_utc().to_string();
-        client
-            .execute(
-                "INSERT INTO agent_harness_configs (id, agent_type, harness, provider_config_ref, scope_type, model, effort, created_at, updated_at) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)",
-                hiqlite::params!(
-                    uuid::Uuid::new_v4().to_string(),
-                    "review",
-                    "opencode",
-                    "test.json",
-                    "global",
-                    "gpt-4",
-                    "balanced",
-                    &now,
-                    &now,
-                ),
-            )
-            .await
-            .unwrap();
+        seed_agent_config(&client, "review").await;
 
         let sessions = empty_sessions();
         let ws_bus = BroadcastBus::new();
@@ -678,6 +682,122 @@ mod tests {
             .await
             .unwrap();
         assert_eq!(run.status, RunStatus::Completed);
+        assert!(matches!(action, NextAction::StartAgent(AgentType::Review)));
+    }
+
+    #[tokio::test]
+    async fn test_completion_handler_review_ready_routes_to_refinement() {
+        let (client, task_id, _tmp) = make_client().await;
+
+        // Seed refinement + implementation configs so the phase-skip check passes
+        seed_agent_config(&client, "refinement").await;
+        seed_agent_config(&client, "implementation").await;
+
+        let result =
+            session::start_session(&client, task_id, "model", "balanced", AgentType::Review)
+                .await
+                .unwrap();
+
+        // Persist a model message containing the READY keyword
+        crate::services::transcript::persist_event(
+            &client,
+            &ProviderEvent::Text {
+                text: "All checks pass. READY to proceed.".into(),
+                timestamp: chrono::Utc::now().naive_utc(),
+            },
+            &result.session_id,
+            task_id,
+        )
+        .await
+        .unwrap();
+
+        let sessions = empty_sessions();
+        let ws_bus = BroadcastBus::new();
+        let action = completion_handler(&client, result.conversation_id, &sessions, &ws_bus)
+            .await
+            .unwrap();
+
+        assert!(matches!(
+            action,
+            NextAction::StartAgent(AgentType::Refinement)
+        ));
+    }
+
+    #[tokio::test]
+    async fn test_completion_handler_review_without_ready_loops_to_implementation() {
+        let (client, task_id, _tmp) = make_client().await;
+
+        // Seed implementation + refinement configs so the phase-skip check passes
+        seed_agent_config(&client, "implementation").await;
+        seed_agent_config(&client, "refinement").await;
+
+        let result =
+            session::start_session(&client, task_id, "model", "balanced", AgentType::Review)
+                .await
+                .unwrap();
+
+        // Persist a model message WITHOUT the READY keyword
+        crate::services::transcript::persist_event(
+            &client,
+            &ProviderEvent::Text {
+                text: "Needs more work. ready to continue.".into(),
+                timestamp: chrono::Utc::now().naive_utc(),
+            },
+            &result.session_id,
+            task_id,
+        )
+        .await
+        .unwrap();
+
+        let sessions = empty_sessions();
+        let ws_bus = BroadcastBus::new();
+        let action = completion_handler(&client, result.conversation_id, &sessions, &ws_bus)
+            .await
+            .unwrap();
+
+        assert!(matches!(
+            action,
+            NextAction::StartAgent(AgentType::Implementation)
+        ));
+    }
+
+    #[tokio::test]
+    async fn test_completion_handler_non_review_agent_ignores_ready() {
+        let (client, task_id, _tmp) = make_client().await;
+
+        // Seed a review config so implementation chains to review
+        seed_agent_config(&client, "review").await;
+
+        let result = session::start_session(
+            &client,
+            task_id,
+            "model",
+            "balanced",
+            AgentType::Implementation,
+        )
+        .await
+        .unwrap();
+
+        // Even though the last model message contains READY, a non-Review agent
+        // must not be diverted into the finish pipeline.
+        crate::services::transcript::persist_event(
+            &client,
+            &ProviderEvent::Text {
+                text: "Implementation output says READY but routing ignores it.".into(),
+                timestamp: chrono::Utc::now().naive_utc(),
+            },
+            &result.session_id,
+            task_id,
+        )
+        .await
+        .unwrap();
+
+        let sessions = empty_sessions();
+        let ws_bus = BroadcastBus::new();
+        let action = completion_handler(&client, result.conversation_id, &sessions, &ws_bus)
+            .await
+            .unwrap();
+
         assert!(matches!(action, NextAction::StartAgent(AgentType::Review)));
     }
 

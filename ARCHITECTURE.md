@@ -29,9 +29,8 @@ ofm/
 │   ├── services/        # Auth, projects, tasks, settings, session, transcript, export_import
 │   ├── archive/         # Task doc I/O, context prompt
 │   ├── worktree/        # Git worktree management
-│   ├── rauthy/          # Local rauthy lifecycle
-│   └── cli/             # CLI subcommands
-├── tests/               # 13 integration test files
+│   └── rauthy/          # Local rauthy lifecycle
+├── tests/               # 12 integration test files
 ├── templates/           # Agent prompt templates
 └── assets/              # Bulma CSS, logos
 ```
@@ -74,7 +73,6 @@ The workspace has a single member crate (`ofm` binary) defined inline.
 | leptos_styling | 0.3 | Style sheet macro for Leptos |
 | pulldown-cmark | 0.13 | Markdown-to-HTML rendering |
 | ammonia | 4 | HTML sanitization |
-| clap | 4 | CLI argument parsing |
 | serde | 1 (derive) | Serialization/deserialization |
 | serde_json | 1 | JSON support |
 | serde_yaml | 0.9 | YAML config deserialization |
