@@ -42,7 +42,7 @@ pub fn TaskDetailPage(
     let commit_data = CommitListData {
         project_id: task.project_id,
         task_id: task.id,
-        commits: commits.clone(),
+        commits,
     };
     let doc_value = doc_content.clone().unwrap_or_default();
 

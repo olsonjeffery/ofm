@@ -947,6 +947,139 @@ async fn test_webapp_commit_detail_page_bad_oid_renders_not_found() {
 }
 
 #[tokio::test]
+async fn test_webapp_cross_user_task_access_returns_404() {
+    let (state, auth_layer, _tmp) = make_state().await;
+    let attacker_id = state.default_user_id;
+    let db = state.db.clone();
+    let app = server::router(state, auth_layer);
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let addr = listener.local_addr().unwrap();
+
+    tokio::spawn(async move {
+        axum::serve(listener, app).await.unwrap();
+    });
+
+    let repo_dir = TempDir::new().unwrap();
+    let repo_path = repo_dir.path().to_string_lossy().to_string();
+    git_run(repo_dir.path(), &["init", "--initial-branch=main"]).await;
+    git_run(repo_dir.path(), &["config", "user.email", "test@test.com"]).await;
+    git_run(repo_dir.path(), &["config", "user.name", "Test"]).await;
+    tokio::fs::write(repo_dir.path().join("secret.txt"), "secret\n")
+        .await
+        .unwrap();
+    git_run(repo_dir.path(), &["add", "secret.txt"]).await;
+    git_run(repo_dir.path(), &["commit", "-m", "base"]).await;
+    git_run(
+        repo_dir.path(),
+        &["update-ref", "refs/remotes/origin/main", "HEAD"],
+    )
+    .await;
+    git_run(
+        repo_dir.path(),
+        &[
+            "symbolic-ref",
+            "refs/remotes/origin/HEAD",
+            "refs/remotes/origin/main",
+        ],
+    )
+    .await;
+
+    let worktree_dir = repo_dir.path().join("wt-task-9");
+    git_run(
+        repo_dir.path(),
+        &[
+            "worktree",
+            "add",
+            "-b",
+            "task/9-demo",
+            worktree_dir.to_string_lossy().as_ref(),
+            "main",
+        ],
+    )
+    .await;
+    tokio::fs::write(worktree_dir.join("secret.txt"), "secret\nhidden\n")
+        .await
+        .unwrap();
+    git_run(&worktree_dir, &["add", "secret.txt"]).await;
+    git_run(&worktree_dir, &["commit", "-m", "leak me"]).await;
+    let sha = git_stdout(&worktree_dir, &["rev-parse", "HEAD"]).await;
+    let short_sha = &sha[..8];
+
+    let attacker_project_id = int64_id();
+    let victim_project_id = int64_id();
+    let victim_task_id = int64_id();
+    let victim_user_id = Uuid::new_v4();
+    let now = chrono::Utc::now().naive_utc().to_string();
+
+    // The victim owns a project + task with a worktree holding commits.
+    let now_str = chrono::Utc::now().format("%Y-%m-%d %H:%M:%S").to_string();
+    db.execute(
+        "INSERT INTO users (id, username, is_admin, is_active, created_at, has_completed_onboarding, is_technical) VALUES ($1, $2, $3, $4, $5, 1, 0)",
+        hiqlite::params!(victim_user_id.to_string(), "victim-user", 0, 1, now_str),
+    )
+    .await
+    .unwrap();
+
+    // The authenticated user owns a project, so the project ownership check
+    // passes, but the task belongs to a different user/project.
+    db.execute(
+        "INSERT INTO projects (id, user_id, name, repo_folder_path, created_at) VALUES ($1, $2, $3, $4, $5)",
+        hiqlite::params!(attacker_project_id, attacker_id.to_string(), "Attacker Proj", "/tmp/attacker", &now),
+    )
+    .await
+    .unwrap();
+    db.execute(
+        "INSERT INTO projects (id, user_id, name, repo_folder_path, created_at) VALUES ($1, $2, $3, $4, $5)",
+        hiqlite::params!(victim_project_id, victim_user_id.to_string(), "Victim Proj", repo_path.clone(), &now),
+    )
+    .await
+    .unwrap();
+    db.execute(
+        "INSERT INTO tasks (id, project_id, user_id, title, status, created_at) VALUES ($1, $2, $3, $4, $5, $6)",
+        hiqlite::params!(victim_task_id, victim_project_id, victim_user_id.to_string(), "Victim Task", "pending", &now),
+    )
+    .await
+    .unwrap();
+    db.execute(
+        "INSERT INTO worktrees (id, project_id, task_id, worktree_path, repo_path, branch, created_at) VALUES ($1, $2, $3, $4, $5, $6, $7)",
+        hiqlite::params!(
+            Uuid::new_v4().to_string(),
+            victim_project_id,
+            victim_task_id,
+            worktree_dir.to_string_lossy().to_string(),
+            repo_path,
+            "task/9-demo",
+            &now
+        ),
+    )
+    .await
+    .unwrap();
+
+    let client = reqwest::Client::new();
+    let task_detail_url = format!(
+        "http://{}/webapp/projects/{}/tasks/{}",
+        addr, attacker_project_id, victim_task_id
+    );
+    let resp = client.get(&task_detail_url).send().await.unwrap();
+    assert_eq!(
+        resp.status(),
+        404,
+        "another user's task must not render on the task detail page"
+    );
+
+    let commit_detail_url = format!(
+        "http://{}/webapp/projects/{}/tasks/{}/commits/{}",
+        addr, attacker_project_id, victim_task_id, short_sha
+    );
+    let resp = client.get(&commit_detail_url).send().await.unwrap();
+    assert_eq!(
+        resp.status(),
+        404,
+        "another user's commit diff must not render"
+    );
+}
+
+#[tokio::test]
 async fn test_webapp_chat_page_no_conversations_renders_empty() {
     let (state, auth_layer, _tmp) = make_state().await;
     let user_id = state.default_user_id;

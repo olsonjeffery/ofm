@@ -1,7 +1,23 @@
 use leptos::prelude::*;
 use similar::ChangeTag;
 
-use crate::services::commits::FileDiff;
+use crate::services::commits::{FileDiff, FileStatus};
+
+/// Render one side of a two-column diff row: the content cell when `visible`,
+/// otherwise a blank gap cell.
+fn diff_cell(visible: bool, class: &'static str, lineno: Option<u32>, text: String) -> AnyView {
+    if visible {
+        view! {
+            <td class=class>
+                <span class="diff-gutter">{lineno.map(|n| n.to_string()).unwrap_or_default()}</span>
+                <pre>{text}</pre>
+            </td>
+        }
+        .into_any()
+    } else {
+        view! { <td class="diff-cell diff-gap"></td> }.into_any()
+    }
+}
 
 #[component]
 pub fn DiffView(files: Vec<FileDiff>) -> impl IntoView {
@@ -17,10 +33,10 @@ pub fn DiffView(files: Vec<FileDiff>) -> impl IntoView {
         .map(|file| {
             let status = file.status.as_str();
             let (status_class, status_icon) = match file.status {
-                crate::services::commits::FileStatus::Added => ("is-success", "plus"),
-                crate::services::commits::FileStatus::Modified => ("is-info", "pencil"),
-                crate::services::commits::FileStatus::Deleted => ("is-danger", "minus"),
-                crate::services::commits::FileStatus::Renamed => ("is-warning", "arrow-right-bold"),
+                FileStatus::Added => ("is-success", "plus"),
+                FileStatus::Modified => ("is-info", "pencil"),
+                FileStatus::Deleted => ("is-danger", "minus"),
+                FileStatus::Renamed => ("is-warning", "arrow-right-bold"),
             };
             let stat = format!("+{} -{}", file.additions, file.deletions);
             view! {
@@ -38,36 +54,20 @@ pub fn DiffView(files: Vec<FileDiff>) -> impl IntoView {
                             {file.lines.into_iter().map(|line| {
                                 let show_old = line.line_type != ChangeTag::Insert;
                                 let show_new = line.line_type != ChangeTag::Delete;
-                                let old_cell_class = match line.line_type {
-                                    ChangeTag::Delete => "diff-cell diff-del",
-                                    _ => "diff-cell diff-ctx",
+                                let old_cell_class = if line.line_type == ChangeTag::Delete {
+                                    "diff-cell diff-del"
+                                } else {
+                                    "diff-cell diff-ctx"
                                 };
-                                let new_cell_class = match line.line_type {
-                                    ChangeTag::Insert => "diff-cell diff-add",
-                                    _ => "diff-cell diff-ctx",
+                                let new_cell_class = if line.line_type == ChangeTag::Insert {
+                                    "diff-cell diff-add"
+                                } else {
+                                    "diff-cell diff-ctx"
                                 };
                                 view! {
                                     <tr>
-                                        {if show_old {
-                                            view! {
-                                                <td class=old_cell_class>
-                                                    <span class="diff-gutter">{line.old_lineno.map(|n| n.to_string()).unwrap_or_default()}</span>
-                                                    <pre>{line.text.clone()}</pre>
-                                                </td>
-                                            }.into_any()
-                                        } else {
-                                            view! { <td class="diff-cell diff-gap"></td> }.into_any()
-                                        }}
-                                        {if show_new {
-                                            view! {
-                                                <td class=new_cell_class>
-                                                    <span class="diff-gutter">{line.new_lineno.map(|n| n.to_string()).unwrap_or_default()}</span>
-                                                    <pre>{line.text.clone()}</pre>
-                                                </td>
-                                            }.into_any()
-                                        } else {
-                                            view! { <td class="diff-cell diff-gap"></td> }.into_any()
-                                        }}
+                                        {diff_cell(show_old, old_cell_class, line.old_lineno, line.text.clone())}
+                                        {diff_cell(show_new, new_cell_class, line.new_lineno, line.text.clone())}
                                     </tr>
                                 }
                             }).collect::<Vec<_>>()}

@@ -422,6 +422,9 @@ async fn task_detail_handler(
     let task = services::tasks::get_task(&state.db, task_id)
         .await
         .map_err(|_| ServerError::NotFound("Task not found".into()))?;
+    if task.user_id != auth.user_id || task.project_id != project_id {
+        return Err(ServerError::NotFound("Task not found".into()));
+    }
 
     let worktree = services::tasks::get_worktree_by_task(&state.db, task_id)
         .await
@@ -498,6 +501,9 @@ async fn commit_detail_handler(
     let task = services::tasks::get_task(&state.db, task_id)
         .await
         .map_err(|_| ServerError::NotFound("Task not found".into()))?;
+    if task.user_id != auth.user_id || task.project_id != project_id {
+        return Err(ServerError::NotFound("Task not found".into()));
+    }
 
     let worktree = services::tasks::get_worktree_by_task(&state.db, task_id)
         .await

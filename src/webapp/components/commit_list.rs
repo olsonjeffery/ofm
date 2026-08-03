@@ -44,13 +44,13 @@ pub fn CommitList(data: CommitListData) -> impl IntoView {
                                     "/webapp/projects/{}/tasks/{}/commits/{}",
                                     data.project_id, data.task_id, commit.short_oid
                                 );
-                                let href2 = href.clone();
+                                let message_href = href.clone();
                                 let date = commit.authored_time.format("%Y-%m-%d %H:%M").to_string();
                                 let author = commit.author_name.clone();
                                 view! {
                                     <tr>
                                         <td class="commit-oid"><a href=href title={commit.oid.to_string()}>{commit.short_oid.clone()}</a></td>
-                                        <td class="commit-message"><a href=href2>{commit.summary.clone()}</a></td>
+                                        <td class="commit-message"><a href=message_href>{commit.summary.clone()}</a></td>
                                         <td>{author}</td>
                                         <td class="commit-date">{date}</td>
                                         <td class="has-text-right">{commit.files_changed}</td>

@@ -45,13 +45,18 @@ fn footprint_path(tmp: &TempDir) -> String {
         .to_string()
 }
 
+/// Init a bare repo with a local user configured.
+async fn init_repo(dir: &Path) {
+    git(dir, &["init", "--initial-branch=main"]).await;
+    git(dir, &["config", "user.email", "test@test.com"]).await;
+    git(dir, &["config", "user.name", "Test"]).await;
+}
+
 /// Initialize a repo that looks like a fresh clone: `main` has a base commit,
 /// and `refs/remotes/origin/HEAD` points at the origin-tracking default branch,
 /// so `detect_default_branch` / `resolve_base_commit` find "main".
 async fn init_origin_like_repo(dir: &Path) {
-    git(dir, &["init", "--initial-branch=main"]).await;
-    git(dir, &["config", "user.email", "test@test.com"]).await;
-    git(dir, &["config", "user.name", "Test"]).await;
+    init_repo(dir).await;
     std::fs::write(dir.join("file1.txt"), "one\ntwo\n").unwrap();
     git(dir, &["add", "file1.txt"]).await;
     git(dir, &["commit", "-m", "base commit"]).await;
@@ -201,9 +206,7 @@ async fn test_commit_diff_two_column_lines() {
 #[tokio::test]
 async fn test_commit_diff_root_commit_vs_empty_tree() {
     let tmp = TempDir::new().unwrap();
-    git(tmp.path(), &["init", "--initial-branch=main"]).await;
-    git(tmp.path(), &["config", "user.email", "test@test.com"]).await;
-    git(tmp.path(), &["config", "user.name", "Test"]).await;
+    init_repo(tmp.path()).await;
     std::fs::write(tmp.path().join("root.txt"), "root content\n").unwrap();
     git(tmp.path(), &["add", "root.txt"]).await;
     git(tmp.path(), &["commit", "-m", "root commit"]).await;
@@ -221,6 +224,24 @@ async fn test_commit_diff_root_commit_vs_empty_tree() {
         .lines
         .iter()
         .any(|l| l.line_type == ChangeTag::Insert && l.text == "root content\n"));
+}
+
+#[tokio::test]
+async fn test_commit_diff_skips_oversized_files() {
+    let tmp = TempDir::new().unwrap();
+    init_repo(tmp.path()).await;
+    std::fs::write(tmp.path().join("small.txt"), "small\n").unwrap();
+    let big = "x".repeat(1024 * 1024 + 1);
+    std::fs::write(tmp.path().join("big.txt"), &big).unwrap();
+    git(tmp.path(), &["add", "-A"]).await;
+    git(tmp.path(), &["commit", "-m", "big file"]).await;
+    let sha = git_stdout(tmp.path(), &["rev-parse", "HEAD"]).await;
+
+    let oid = commits::parse_oid(&sha).unwrap();
+    let diff = commits::commit_diff(tmp.path(), &oid).expect("commit_diff failed");
+
+    assert_eq!(diff.files.len(), 1, "oversized blob should be skipped");
+    assert_eq!(diff.files[0].path, "small.txt");
 }
 
 #[tokio::test]
@@ -251,9 +272,7 @@ async fn test_fully_merged_branch_returns_empty() {
 #[tokio::test]
 async fn test_local_repo_without_remote_degrades_gracefully() {
     let tmp = TempDir::new().unwrap();
-    git(tmp.path(), &["init", "--initial-branch=main"]).await;
-    git(tmp.path(), &["config", "user.email", "test@test.com"]).await;
-    git(tmp.path(), &["config", "user.name", "Test"]).await;
+    init_repo(tmp.path()).await;
     std::fs::write(tmp.path().join("a.txt"), "a\n").unwrap();
     git(tmp.path(), &["add", "a.txt"]).await;
     git(tmp.path(), &["commit", "-m", "initial"]).await;

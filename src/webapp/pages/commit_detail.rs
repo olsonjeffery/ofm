@@ -22,7 +22,7 @@ pub fn CommitDetailPage(diff: Option<CommitDiff>, project_id: i64, task_id: i64)
         }
         .into_any(),
         Some(commit) => {
-            let short_oid = commit.oid.to_hex().to_string()[..8].to_string();
+            let short = crate::services::commits::short_oid(commit.oid);
             let date = commit.authored_time.format("%Y-%m-%d %H:%M").to_string();
             let file_count = commit.files.len();
             view! {
@@ -30,7 +30,7 @@ pub fn CommitDetailPage(diff: Option<CommitDiff>, project_id: i64, task_id: i64)
                     <div class="box commit-header">
                         <div class="level is-mobile">
                             <div class="level-left">
-                                <h2 class="title is-4 commit-oid">{short_oid}</h2>
+                                <h2 class="title is-4 commit-oid">{short}</h2>
                             </div>
                             <div class="level-right">
                                 <a class="button is-small is-light" href=task_link>

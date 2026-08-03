@@ -4,6 +4,16 @@ use chrono::{DateTime, Utc};
 use gix::bstr::ByteSlice;
 use similar::{ChangeTag, TextDiff};
 
+/// Skip diff rendering for files whose blob exceeds this size, bounding memory
+/// use and response size for commits touching large generated or data files.
+const MAX_DIFF_BLOB_BYTES: u64 = 1 << 20;
+
+/// Maximum number of changed files rendered per commit diff.
+const MAX_DIFF_FILES: usize = 200;
+
+/// Maximum number of diff lines materialized per file and per commit.
+const MAX_DIFF_LINES: usize = 20_000;
+
 /// Errors returned by the git commit/diff service functions.
 #[derive(Debug, thiserror::Error)]
 pub enum Error {
@@ -59,10 +69,10 @@ pub enum FileStatus {
 impl FileStatus {
     pub fn as_str(self) -> &'static str {
         match self {
-            FileStatus::Added => "Added",
-            FileStatus::Modified => "Modified",
-            FileStatus::Deleted => "Deleted",
-            FileStatus::Renamed => "Renamed",
+            Self::Added => "Added",
+            Self::Modified => "Modified",
+            Self::Deleted => "Deleted",
+            Self::Renamed => "Renamed",
         }
     }
 }
@@ -97,6 +107,35 @@ pub struct CommitDiff {
     pub author_email: String,
     pub authored_time: DateTime<Utc>,
     pub files: Vec<FileDiff>,
+}
+
+/// Author and message metadata shared by [`CommitSummary`] and [`CommitDiff`].
+#[derive(Debug, Clone)]
+struct CommitMeta {
+    summary: String,
+    author_name: String,
+    author_email: String,
+    authored_time: DateTime<Utc>,
+}
+
+fn commit_meta(commit: &gix::Commit<'_>) -> Result<CommitMeta, Error> {
+    let author = commit
+        .author()
+        .map_err(|e| Error::Other(format!("failed to read author: {e}")))?;
+    let authored_time = author
+        .time()
+        .map(|t| DateTime::from_timestamp(t.seconds, 0).unwrap_or_default())
+        .unwrap_or_else(|_| Utc::now());
+    let summary = commit
+        .message()
+        .map(|m| m.summary().to_string())
+        .unwrap_or_else(|_| String::new());
+    Ok(CommitMeta {
+        summary,
+        author_name: author.name.to_string(),
+        author_email: author.email.to_string(),
+        authored_time,
+    })
 }
 
 fn open_repo(path: &Path) -> Result<gix::Repository, Error> {
@@ -227,31 +266,20 @@ fn build_commit_summary(
     repo: &gix::Repository,
     commit: &gix::Commit<'_>,
 ) -> Result<CommitSummary, Error> {
-    let author = commit
-        .author()
-        .map_err(|e| Error::Other(format!("failed to read author: {e}")))?;
-    let authored_time = author
-        .time()
-        .map(|t| DateTime::from_timestamp(t.seconds, 0).unwrap_or_default())
-        .unwrap_or_else(|_| Utc::now());
-    let summary = commit
-        .message()
-        .map(|m| m.summary().to_string())
-        .unwrap_or_else(|_| String::new());
     let files_changed = count_files_changed(repo, commit)?;
-
+    let meta = commit_meta(commit)?;
     Ok(CommitSummary {
         oid: commit.id,
         short_oid: short_oid(commit.id),
-        summary,
-        author_name: author.name.to_string(),
-        author_email: author.email.to_string(),
-        authored_time,
+        summary: meta.summary,
+        author_name: meta.author_name,
+        author_email: meta.author_email,
+        authored_time: meta.authored_time,
         files_changed,
     })
 }
 
-fn short_oid(oid: gix::ObjectId) -> String {
+pub fn short_oid(oid: gix::ObjectId) -> String {
     oid.to_hex().to_string()[..8].to_string()
 }
 
@@ -305,7 +333,12 @@ fn parent_tree<'r>(
         .map_err(|e| Error::Other(format!("failed to load parent tree: {e}")))
 }
 
-fn count_files_changed(repo: &gix::Repository, commit: &gix::Commit<'_>) -> Result<usize, Error> {
+/// Load a commit's own tree together with its first parent's tree (`None` for
+/// a root commit), as needed for a first-parent diff.
+fn commit_trees<'r>(
+    repo: &'r gix::Repository,
+    commit: &gix::Commit<'r>,
+) -> Result<(Option<gix::Tree<'r>>, gix::Tree<'r>), Error> {
     let decoded = commit
         .decode()
         .map_err(|e| Error::Other(format!("failed to decode commit: {e}")))?;
@@ -313,6 +346,11 @@ fn count_files_changed(repo: &gix::Repository, commit: &gix::Commit<'_>) -> Resu
     let commit_tree = commit
         .tree()
         .map_err(|e| Error::Other(format!("failed to load commit tree: {e}")))?;
+    Ok((parent_tree, commit_tree))
+}
+
+fn count_files_changed(repo: &gix::Repository, commit: &gix::Commit<'_>) -> Result<usize, Error> {
+    let (parent_tree, commit_tree) = commit_trees(repo, commit)?;
     Ok(tree_changes(repo, parent_tree.as_ref(), Some(&commit_tree))?.len())
 }
 
@@ -323,40 +361,27 @@ pub fn commit_diff(worktree_path: &Path, oid: &gix::ObjectId) -> Result<CommitDi
     let commit = repo.find_commit(*oid).map_err(|_| Error::CommitNotFound {
         oid: oid.to_string(),
     })?;
-    let decoded = commit
-        .decode()
-        .map_err(|e| Error::Other(format!("failed to decode commit: {e}")))?;
-
-    let parent_tree = parent_tree(&repo, &decoded)?;
-    let commit_tree = commit
-        .tree()
-        .map_err(|e| Error::Other(format!("failed to load commit tree: {e}")))?;
+    let (parent_tree, commit_tree) = commit_trees(&repo, &commit)?;
 
     let mut files = Vec::new();
+    let mut total_lines = 0;
     for change in tree_changes(&repo, parent_tree.as_ref(), Some(&commit_tree))? {
+        if files.len() >= MAX_DIFF_FILES || total_lines >= MAX_DIFF_LINES {
+            break;
+        }
         if let Some(file_diff) = build_file_diff(&repo, &change)? {
+            total_lines += file_diff.lines.len();
             files.push(file_diff);
         }
     }
 
-    let author = commit
-        .author()
-        .map_err(|e| Error::Other(format!("failed to read author: {e}")))?;
-    let authored_time = author
-        .time()
-        .map(|t| DateTime::from_timestamp(t.seconds, 0).unwrap_or_default())
-        .unwrap_or_else(|_| Utc::now());
-    let summary = commit
-        .message()
-        .map(|m| m.summary().to_string())
-        .unwrap_or_else(|_| String::new());
-
+    let meta = commit_meta(&commit)?;
     Ok(CommitDiff {
         oid: *oid,
-        summary,
-        author_name: author.name.to_string(),
-        author_email: author.email.to_string(),
-        authored_time,
+        summary: meta.summary,
+        author_name: meta.author_name,
+        author_email: meta.author_email,
+        authored_time: meta.authored_time,
         files,
     })
 }
@@ -397,15 +422,14 @@ fn build_file_diff(
         ),
     };
 
-    let old_content = blob_text(repo, old_id)?;
-    let new_content = blob_text(repo, new_id)?;
+    let old_size = blob_size(repo, old_id)?.unwrap_or(0);
+    let new_size = blob_size(repo, new_id)?.unwrap_or(0);
+    if old_size > MAX_DIFF_BLOB_BYTES || new_size > MAX_DIFF_BLOB_BYTES {
+        return Ok(None);
+    }
 
-    let (old_text, new_text) = match (old_content, new_content) {
-        (Some(o), Some(n)) => (o, n),
-        (Some(o), None) => (o, String::new()),
-        (None, Some(n)) => (String::new(), n),
-        (None, None) => (String::new(), String::new()),
-    };
+    let old_text = blob_text(repo, old_id)?.unwrap_or_default();
+    let new_text = blob_text(repo, new_id)?.unwrap_or_default();
 
     let (lines, additions, deletions) = diff_lines(&old_text, &new_text);
 
@@ -418,8 +442,21 @@ fn build_file_diff(
     }))
 }
 
+/// Read a blob's size in bytes without fully decoding it, so callers can bound
+/// memory use before materializing large blobs.
+fn blob_size(repo: &gix::Repository, id: Option<gix::ObjectId>) -> Result<Option<u64>, Error> {
+    let Some(id) = id else {
+        return Ok(None);
+    };
+    let header = repo
+        .find_header(id)
+        .map_err(|e| Error::Other(format!("failed to read blob header {id}: {e}")))?;
+    Ok(Some(header.size()))
+}
+
 /// Read a blob as UTF-8 text. Returns `Ok(None)` for binary content (contains
-/// NUL bytes) so callers can skip diffing it.
+/// NUL bytes); callers fall back to an empty string so binary files diff as
+/// empty rather than rendering binary garbage.
 fn blob_text(repo: &gix::Repository, id: Option<gix::ObjectId>) -> Result<Option<String>, Error> {
     let Some(id) = id else {
         return Ok(Some(String::new()));
@@ -445,6 +482,9 @@ fn diff_lines(old: &str, new: &str) -> (Vec<DiffLine>, usize, usize) {
     let mut additions = 0;
     let mut deletions = 0;
     for change in text_diff.iter_all_changes() {
+        if lines.len() >= MAX_DIFF_LINES {
+            break;
+        }
         match change.tag() {
             ChangeTag::Insert => additions += 1,
             ChangeTag::Delete => deletions += 1,
