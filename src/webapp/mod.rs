@@ -56,6 +56,10 @@ pub fn webapp_protected_routes() -> Router<AppState> {
             "/webapp/projects/{project_id}/tasks/{task_id}/chat/{conversation_id}",
             get(chat_handler_with_conv),
         )
+        .route(
+            "/webapp/projects/{project_id}/tasks/{task_id}/commits/{oid}",
+            get(commit_detail_handler),
+        )
         .route("/webapp/onboarding", get(onboarding_handler))
         .route("/webapp/settings", get(settings_handler))
         .route(
@@ -418,6 +422,9 @@ async fn task_detail_handler(
     let task = services::tasks::get_task(&state.db, task_id)
         .await
         .map_err(|_| ServerError::NotFound("Task not found".into()))?;
+    if task.user_id != auth.user_id || task.project_id != project_id {
+        return Err(ServerError::NotFound("Task not found".into()));
+    }
 
     let worktree = services::tasks::get_worktree_by_task(&state.db, task_id)
         .await
@@ -428,6 +435,8 @@ async fn task_detail_handler(
         .map(|w| !std::path::Path::new(&w.worktree_path).exists())
         .unwrap_or(false);
 
+    let worktree_path = worktree.as_ref().map(|w| w.worktree_path.clone());
+
     let doc_content = worktree.and_then(|w| {
         let archive =
             crate::archive::ArchiveRoot::new(std::path::PathBuf::from(&state.archive_root));
@@ -436,6 +445,16 @@ async fn task_detail_handler(
         let doc_path = archive.task_doc_path(&proj_str, &task_str);
         archive.read_task_doc(&doc_path).ok()
     });
+
+    let commits = match worktree_path {
+        Some(path) => tokio::task::spawn_blocking(move || {
+            services::commits::list_commits_for_worktree(std::path::Path::new(&path))
+        })
+        .await
+        .unwrap_or_else(|_| Err(services::commits::Error::Other("task cancelled".into())))
+        .unwrap_or_default(),
+        None => Vec::new(),
+    };
 
     let conversations = services::tasks::list_conversations_for_task(&state.db, task_id)
         .await
@@ -452,7 +471,68 @@ async fn task_detail_handler(
             doc_content
             conversations=conversations
             worktree_missing
+            commits
             />
+    }
+    .to_html();
+    Ok(Html(render_shell(
+        &page_html,
+        Some(user_json),
+        breadcrumbs,
+        agents,
+    )))
+}
+
+async fn commit_detail_handler(
+    auth: AuthUser,
+    State(state): State<AppState>,
+    Path((project_id, task_id, oid)): Path<(i64, i64, String)>,
+) -> Result<Html<String>, ServerError> {
+    let user_json = serde_json::to_string(&auth).unwrap_or_default();
+    let agents = active_agents(&state.db, &auth.user_id).await;
+
+    let project = services::projects::get_project(&state.db, project_id)
+        .await
+        .map_err(|_| ServerError::NotFound("Project not found".into()))?;
+    if project.user_id != auth.user_id {
+        return Err(ServerError::NotFound("Project not found".into()));
+    }
+
+    let task = services::tasks::get_task(&state.db, task_id)
+        .await
+        .map_err(|_| ServerError::NotFound("Task not found".into()))?;
+    if task.user_id != auth.user_id || task.project_id != project_id {
+        return Err(ServerError::NotFound("Task not found".into()));
+    }
+
+    let worktree = services::tasks::get_worktree_by_task(&state.db, task_id)
+        .await
+        .ok();
+
+    let diff = match worktree {
+        Some(w) => {
+            let path = w.worktree_path.clone();
+            let oid_str = oid.clone();
+            tokio::task::spawn_blocking(move || {
+                let oid =
+                    services::commits::resolve_oid(std::path::Path::new(&path), &oid_str).ok()?;
+                services::commits::commit_diff(std::path::Path::new(&path), &oid).ok()
+            })
+            .await
+            .ok()
+            .flatten()
+        }
+        None => None,
+    };
+
+    let breadcrumbs = vec![
+        breadcrumb_registry::all_projects(),
+        breadcrumb_registry::project(&project.name, project.id),
+        breadcrumb_registry::task(&task.title, project.id, task.id),
+        breadcrumb_registry::commit(&oid, project.id, task.id),
+    ];
+    let page_html = leptos::view! {
+        <pages::commit_detail::CommitDetailPage diff project_id task_id />
     }
     .to_html();
     Ok(Html(render_shell(

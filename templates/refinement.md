@@ -95,6 +95,6 @@ Log a brief summary of all changes made:
 
 ## Important Constraints
 - Do NOT modify task documentation at {{taskDocPath}}
-- Do NOT run completion scripts
+- Do NOT run completion scripts or signal flag endpoints — the workflow advances automatically
 - Do NOT ask questions — proceed autonomously
 

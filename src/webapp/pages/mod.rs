@@ -1,5 +1,6 @@
 pub mod board;
 pub mod chat;
+pub mod commit_detail;
 pub mod dashboard;
 pub mod home;
 pub mod login;

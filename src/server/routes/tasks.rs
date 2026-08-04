@@ -60,7 +60,6 @@ pub fn tasks_router() -> Router<AppState> {
             super::conversations::conversations_router(),
         )
         .route("/{id}/worktree/recreate", post(recreate_worktree_handler))
-        .nest("/{id}", super::agent_flags::agent_flags_router())
 }
 
 async fn active_agents_handler(
@@ -205,7 +204,7 @@ async fn get_task(
                 &state.footprint,
                 w.project_id,
                 w.task_id,
-                &state.config.hostname,
+                &state.config.agent_host(),
                 state.cfg_port,
                 std::process::id(),
             )

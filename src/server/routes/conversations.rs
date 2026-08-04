@@ -319,28 +319,6 @@ async fn send_message(
     };
     state.ws_bus.broadcast(&topic, msg).await;
 
-    let cwd = tasks::get_worktree_by_task(&state.db, task_id)
-        .await
-        .ok()
-        .map(|w| w.worktree_path)
-        .unwrap_or_else(|| "/tmp".to_string());
-    let access_token = crate::orchestration::get_or_refresh_token(
-        &state.db,
-        &state.access_tokens,
-        state.oidc_provider.as_ref(),
-        task.user_id,
-    )
-    .await
-    .unwrap_or_default();
-    if !access_token.is_empty() {
-        crate::orchestration::write_ofm_agent_json(
-            &cwd,
-            &access_token,
-            &state.config.hostname,
-            state.cfg_port,
-        );
-    }
-
     // Load transcript and resume the provider. Persist + broadcast of the
     // user message already happened exactly once above; resume_or_recreate
     // never re-persists or re-broadcasts user_text.
@@ -511,9 +489,7 @@ async fn spawn_broadcast_task(
     let db = state.db.clone();
     let ws_bus = state.ws_bus.clone();
     let active_sessions = state.active_sessions.clone();
-    let access_tokens = state.access_tokens.clone();
     let config = state.config.clone();
-    let oidc_for_spawn = state.oidc_provider.clone();
     let config_root = PathBuf::from(&state.config_root);
     let footprint = state.footprint.clone();
     let archive_root = state.archive_root.clone();
@@ -644,17 +620,14 @@ async fn spawn_broadcast_task(
                                     let archive_root = archive_root.clone();
                                     let active_sessions = active_sessions.clone();
                                     let ws_bus = ws_bus.clone();
-                                    let access_tokens = access_tokens.clone();
                                     let config = config.clone();
-                                    let oidc_for_spawn = oidc_for_spawn.clone();
                                     let task_data = task_data.clone();
                                     tokio::spawn(async move {
                                         if let Some(task) = task_data {
                                             if let Err(e) = crate::orchestration::start_next_agent(
                                                 &db, &task, agent_type,
                                                 &config_root, &footprint, &archive_root,
-                                                &active_sessions, &ws_bus,
-                                                &access_tokens, &oidc_for_spawn, &config,
+                                                &active_sessions, &ws_bus, &config,
                                             ).await {
                                                 tracing::warn!("Failed to auto-advance to next agent: {e:?}");
                                             }
@@ -842,6 +815,7 @@ mod tests {
 
         let state = AppState {
             cfg_port: 0,
+            rauthy_port: None,
             db: client.clone(),
             default_user_id: user_id,
             footprint: tmp.path().to_str().unwrap().to_string(),
@@ -854,7 +828,6 @@ mod tests {
             api_key_pepper: b"test_pepper".to_vec(),
             ws_bus: BroadcastBus::new(),
             config: OfmConfig::default(),
-            access_tokens: Arc::new(Mutex::new(HashMap::new())),
         };
 
         TestCtx {

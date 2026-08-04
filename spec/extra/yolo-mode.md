@@ -58,32 +58,24 @@ walks the agent through five phases in sequence:
 2. **Implement** — work the To-Do List, checking items off.
 3. **Test** — execute every Testing Strategy checkbox, fixing failures before
    ticking a box.
-4. **Mark workflow complete** — run `complete-workflow.ts` (sets
-   `workflow_complete`).
-5. **PR + CI** — create-or-verify the PR, poll CI, fix failures, resolve
-   conflicts, and finish by running **`complete-pr.ts`** (sets
-   `pr_agent_complete`).
+4. **PR + CI** — create-or-verify the PR, poll CI, fix failures, resolve
+   conflicts. No completion scripts or flags exist.
 
-That last script is what makes YOLO **terminal**: completing the run sets
-`pr_agent_complete`, the same flag the core PR agent sets, so there is nothing
-left to chain. The completion handler treats a finished `yolo` run like a
-finished `pr` run — `yolo` is *not* in the chainable agent-type set in
-`buildAgentRunCompletionHandler`
-([`../reference/server/services/conversation/agentRunLifecycle.ts`](../reference/server/services/conversation/agentRunLifecycle.ts)),
-so when its stream ends the run is marked completed and the loop simply stops.
-YOLO never enters the implementation ⇄ review toggle or the
-`workflow_complete → (refinement) → PR` finish pipeline; it *is* the whole
-pipeline, run by one agent.
+That terminal ending is what makes YOLO **terminal**: a finished `yolo` run has
+nothing left to chain. The completion handler treats a finished `yolo` run like
+a finished `pr` run — `yolo` is *not* chainable, so when its stream ends the run
+is marked completed and the loop simply stops. YOLO never enters the
+implementation ⇄ review toggle or the `READY → (refinement) → PR` finish
+pipeline; it *is* the whole pipeline, run by one agent.
 
 The agent message is built by `generateYoloMessage` (taskDocPath, taskId, and
 the current PR URL) in
 [`../reference/server/constants/agentPrompts.ts`](../reference/server/constants/agentPrompts.ts).
 It deliberately **reuses the PR agent's create-or-verify block**:
 `buildPrCreateOrVerifyBlock` renders the same "PR already exists → verify"
-vs. "no PR yet → commit, push, `gh pr create`, and if nothing's ahead just run
-the completion script and stop" step that `generatePrAgentMessage` uses, and
-inlines it into the yolo prompt. So the PR/CI tail of YOLO behaves identically
-to the dedicated PR agent — see
+vs. "no PR yet → commit, push, `gh pr create`, and if nothing's ahead just stop"
+step that `generatePrAgentMessage` uses, and inlines it into the yolo prompt. So
+the PR/CI tail of YOLO behaves identically to the dedicated PR agent — see
 [`../core/pull-request-agent.md`](../core/pull-request-agent.md).
 
 ## No sub-agents — keep it one observable turn
@@ -105,9 +97,9 @@ shows **only** the YOLO agent; a normal task shows everything **except** YOLO.
 See `AgentSection` in
 [`../reference/src/components/AgentSection.tsx`](../reference/src/components/AgentSection.tsx)
 — `AGENT_TYPES.filter(a => yoloMode ? a.type === 'yolo' : a.type !== 'yolo')`.
-The same component computes the YOLO agent's "completed" state from
-`pr_agent_complete` (the same flag the PR agent's card uses), which is why a
-finished YOLO run reads as done even though it never ran a separate PR step.
+The same component computes the YOLO agent's "completed" state from the run's
+status, which is why a finished YOLO run reads as done even though it never ran
+a separate PR step.
 
 ## When to use which
 
@@ -124,14 +116,13 @@ finished YOLO run reads as done even though it never ran a separate PR step.
       the create handler into `tasksDb.create`.
 - [ ] A `yolo` agent type (in the agent-type enum) startable through the normal
       `startAgentRun` / `POST /agent-runs` path.
-- [ ] The yolo prompt: plan → implement → test → `complete-workflow` →
-      create-or-verify PR → CI loop → `complete-pr`, reusing the PR agent's
-      create-or-verify block.
+- [ ] The yolo prompt: plan → implement → test → create-or-verify PR → CI loop,
+      reusing the PR agent's create-or-verify block.
 - [ ] Disallow the sub-agent tool for `yolo` (same set as implementation).
 - [ ] Treat `yolo` as terminal — keep it **out** of the chainable set so the
       loop stops when its run ends.
 - [ ] UI: filter the agent panel by `yolo_mode` (yolo-only vs. everything-else)
-      and compute its completion from `pr_agent_complete`.
+      and compute its completion from the run's status.
 
 ## Reference map
 

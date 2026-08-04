@@ -71,12 +71,4 @@ mod tests {
         assert!(validate_for_harness(r#"{"a": 1}"#, "unknown").is_ok());
         assert!(validate_for_harness("{{{", "unknown").is_err());
     }
-
-    #[test]
-    fn test_validate_for_harness_ramalama() {
-        assert!(validate_for_harness(r#""phi4-mini""#, "ramalama").is_ok());
-        assert!(validate_for_harness(r#"{"model": "phi4-mini"}"#, "ramalama").is_ok());
-        assert!(validate_for_harness("{{{", "ramalama").is_err());
-        assert!(validate_for_harness("key: value", "ramalama").is_err());
-    }
 }

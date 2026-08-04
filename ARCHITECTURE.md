@@ -12,7 +12,8 @@ ofm/
 │   ├── logging.rs       # Tracing/logging init
 │   ├── db/              # mod.rs (DDL, migrations), schema.rs (models)
 │   ├── auth/            # OAuth/OIDC, JWKS, API keys, sessions
-│   ├── server/          # Axum router, state, error, routes/, ws/
+│   ├── server/          # Axum router, state, error, routes/, ws/, proxy/
+│   │   ├── proxy.rs     # `/auth` reverse proxy to the embedded rauthy container
 │   │   └── routes/
 │   │       └── conversations.rs  # Chat API endpoints (Phase 2)
 │   ├── webapp/          # Leptos SSR pages, islands, components
@@ -22,17 +23,14 @@ ofm/
 │   │       ├── message_stream.rs     # Streaming event display (Phase 5)
 │   │       ├── chat_input.rs         # Manual message input (Phase 5)
 │   ├── orchestration/   # State machine, guards, recovery, completion
-│   ├── providers/       # LlmProvider trait, opencode_sdk + ramalama providers
+│   ├── providers/       # LlmProvider trait, opencode_sdk providers
 │   │   ├── opencode_sdk_provider.rs  # Pooled opencode server provider
-│   │   ├── ramalama_provider.rs      # On-demand ramalama serve provider (phi4-mini)
-│   │   └── registry.rs               # Harness dispatch ("opencode" | "ramalama")
+│   │   └── registry.rs               # Harness dispatch ("opencode")
 │   ├── agents/          # Prompt builders (planning, impl, review, PR)
-│   ├── services/        # Auth, projects, tasks, settings, session, transcript, export_import
+│   ├── services/        # Auth, projects, tasks, settings, session, transcript, export_import, commits
 │   ├── archive/         # Task doc I/O, context prompt
 │   ├── worktree/        # Git worktree management
-│   ├── ramalama/        # One-shot SLM queries via ramalama sub-process (phi4-mini)
-│   ├── rauthy/          # Local rauthy lifecycle
-│   └── cli/             # CLI subcommands
+│   └── rauthy/          # Local rauthy lifecycle (docker), PUB_URL/env build, endpoint re-hosting helpers
 ├── tests/               # 13 integration test files
 ├── templates/           # Agent prompt templates
 └── assets/              # Bulma CSS, logos
@@ -76,7 +74,6 @@ The workspace has a single member crate (`ofm` binary) defined inline.
 | leptos_styling | 0.3 | Style sheet macro for Leptos |
 | pulldown-cmark | 0.13 | Markdown-to-HTML rendering |
 | ammonia | 4 | HTML sanitization |
-| clap | 4 | CLI argument parsing |
 | serde | 1 (derive) | Serialization/deserialization |
 | serde_json | 1 | JSON support |
 | serde_yaml | 0.9 | YAML config deserialization |
@@ -98,56 +95,23 @@ The workspace has a single member crate (`ofm` binary) defined inline.
 | base64 | 0.22 | Base64 encoding for PKCE |
 | url | 2 | URL parsing |
 | hex | 0.4 | Hex encoding |
+| gix | 0.86 | Pure-Rust git repository reading (commits, merge-base, trees, blobs) for the commit list & diff view |
+| similar | 3 | Line-diff classification (Equal/Delete/Insert) for two-column diffs |
+| hyper / hyper-util | 1 / 0.1 | Low-level HTTP client for the `/auth` reverse proxy (`src/server/proxy.rs`) |
+| bytes / http-body-util | 1 / 0.1 | Body buffering for the `/auth` reverse proxy |
 
 ## Application Lifecycle
 
 1. **Config**: Load `OfmConfig` from YAML file + env var overlay (`OFM_*`).
 2. **Logging**: Initialize tracing/logging based on config.
 3. **Database**: Start hiqlite node with `data_dir`, run pending migrations.
-4. **Rauthy**: If `OFM_RAUTHY_ENABLED`, spawn rauthy as a Docker container via `tokio::process::Command`, wait for health at the container's direct port, and assign the instance to `_rauthy_instance` before any fallible step so `Drop` removes the container (`docker rm -f ofm-rauthy-<footprint-hash>`) on every failure path. The container always binds `0.0.0.0` (`-p 0.0.0.0:{port}:8080`; Docker only accepts IPs for the host bind interface, and `OFM_HOSTNAME` may be a non-IP hostname) and advertises `PUB_URL={OFM_HOSTNAME}:{port}`, so the browser reaches rauthy directly on that hostname. The container runs with the host user's UID via Docker's `--user` flag so files in the rauthy data directory are owned by the host user and cleanup does not require root. The footprint-derived container name is stable, so a stale container from a SIGKILLed instance is reaped by the startup `docker rm -f` on the next run of the same footprint.
-5. **Server**: Start axum HTTP server with WebSocket support on configured `OFM_HOSTNAME:OFM_PORT`.
+4. **Rauthy**: If `OFM_RAUTHY_ENABLED`, spawn rauthy as a Docker container via `tokio::process::Command`, wait for health at the container's direct loopback port, and assign the instance to `_rauthy_instance` before any fallible step so `Drop` removes the container (`docker rm -f ofm-rauthy-<footprint-hash>`) on every failure path. The container binds loopback only (`-p 127.0.0.1:{port}:8080`; the browser reaches rauthy exclusively through OFM's `/auth` proxy, so the published port must not be reachable from the network) and advertises `PUB_URL={host[:port]}` derived from OFM's `pub_url` (`OFM_PUB_URL`). The browser reaches rauthy **exclusively through OFM's `/auth` reverse proxy** (`src/server/proxy.rs`): the axum router nests `/auth` → a hyper-util legacy client forwarding to `http://127.0.0.1:{rauthy_port}/auth/*`, preserving `Host`, overwriting `X-Forwarded-Host`/`X-Forwarded-Proto` from the configured `pub_url` (client-supplied values are never trusted — rauthy in `proxy_mode` trusts its proxy), and overwriting `X-Forwarded-For` with the direct peer IP (an incoming chain is preserved and the peer appended only when the peer is itself a proxy listed in `OFM_RAUTHY_TRUSTED_PROXIES`); the RFC 7239 `Forwarded` header is stripped so a client cannot spoof the source IP rauthy sees. `OFM_RAUTHY_PROXY_MODE`/`OFM_RAUTHY_TRUSTED_PROXIES` pass through to rauthy's `PROXY_MODE`/`TRUSTED_PROXIES` (default off). The `OidcEndpoints` handed to the browser are built by **re-hosting** rauthy's discovery paths onto `pub_url` (`rehost_endpoint` in `src/rauthy/mod.rs`) — rauthy's default mode advertises `http://{pub_url}/auth/v1/...`, so re-hosting fixes the scheme and guarantees a mis-set rauthy `PUB_URL` (e.g. a leftover `127.0.0.1`) can never leak into the authorization URL; OFM's own token/userinfo/revocation/JWKS calls go direct at loopback (the `AuthLayer` uses a `jwks_refresh_url` to refresh keys directly). The bootstrap `ofm` client's `allowed_origins` is set to the configured `pub_url` origin (`client_allowed_origin`) so rauthy's login-form `Origin` check accepts the browser even when its own `pub_url_with_scheme` derivation (http with `proxy_mode` off) differs from `OFM_PUB_URL`'s scheme. The container runs with the host user's UID via Docker's `--user` flag so files in the rauthy data directory are owned by the host user and cleanup does not require root. The footprint-derived container name is stable, so a stale container from a SIGKILLed instance is reaped by the startup `docker rm -f` on the next run of the same footprint. A `pub_url` change on an existing footprint likewise re-bootstraps the rauthy data volume: rauthy imports `clients.json` only on first init, so `ofm` records the bootstrapped `pub_url` in `{footprint}/rauthy/pub_url` and deletes `{footprint}/rauthy/data` when it changes (`ensure_pub_url_bootstrap` in `src/rauthy/mod.rs`), re-creating the admin account at startup. The re-created admin identity has a fresh OIDC `sub`; OFM records the invalidated subjects at `{footprint}/rauthy/relink_subjects`, and on the next login `find_or_create_user` (`src/services/auth.rs`) re-links the existing `users` row by `username` only when its current `oidc_subject` is one of the recorded ones (remapping it to the new subject), so login does not fail on the username UNIQUE constraint — re-link is never granted on a username collision alone.
+5. **Server**: Start axum HTTP server with WebSocket support on configured `OFM_HOSTNAME:OFM_PORT`, served via `into_make_service_with_connect_info::<SocketAddr>()` so the `/auth` reverse proxy (`src/server/proxy.rs`) can set `X-Forwarded-For` from the real peer IP.
 6. **WebSocket**: Accept connections, manage task subscriptions, stream agent events.
 7. **OpenCode provider sessions**: Spawn `opencode serve` subprocesses per user in their own process groups, manage lifecycle, stream events. Teardown kills each spawned process group precisely (`kill(-pgid)`); the pool is drained on shutdown.
 8. **Shutdown**: Graceful shutdown — stop accepting connections, kill subprocesses, remove the rauthy container by name, close DB.
 
-## OAuth Access Token Cache
-
-The `AppState` struct in `src/server/state.rs` contains an in-memory access token cache:
-```rust
-pub access_tokens: Arc<Mutex<HashMap<Uuid, String>>>,
-```
-
-Maps `user_id → OAuth access_token`. Populated on every token refresh:
-- In the background startup task in `src/main.rs` (refreshes all stored sessions)
-- In the `POST /api/auth/refresh` handler in `src/server/routes/auth.rs`
-
-On successful refresh, the token is stored and a WS broadcast `"agent token refreshed"` is sent to all active conversation topics for that user.
-
-### Expiry-Aware Cache Access
-
-The `get_or_refresh_token` helper in `src/orchestration/mod.rs` centralizes cache access with JWT expiry validation and OIDC refresh fallback. Both `start_next_agent` and the `send_message` handler use it.
-
-Access pattern:
-1. Check cache — if the cached token's `exp` claim is in the past, treat as cache miss
-2. On miss, if OIDC provider is configured, query the full session row (including persisted `access_token`) from the DB
-3. If the persisted `access_token` is non-empty, call `validate_access_token` against the OIDC `userinfo_endpoint`:
-   - Valid (200) → seed cache with persisted token, return
-   - Invalid (401) or network error → fall through to step 4
-4. Call `auth::refresh_access_token` to obtain a fresh token:
-   - On success → seed cache, persist new `access_token` to DB, return
-   - On `JwtToken` error → retry once after 500ms backoff:
-     - Retry success → cache + persist + return
-     - Retry fail → delete session, return `None`
-   - On `invalid_grant`/`invalid_token` → session already deleted by refresh function, return `None`
-5. On all other failures, log `tracing::error!` and return `None` (caller skips `.ofm_agent.json` write)
-
-### `.ofm_agent.json` Write Guards
-
-The `write_ofm_agent_json` function in `src/orchestration/mod.rs` guards against writing invalid tokens:
-- **Empty token check**: returns early with `tracing::error!` if `access_token` is empty
-- **Expired token check**: decodes the JWT `exp` claim via `decode_jwt_exp`; returns early with `tracing::error!` if the token has expired past `chrono::Utc::now()`
-
-### Session Cookie Clearing on Invalidated Refresh
+## Session Cookie Clearing on Invalidated Refresh
 
 When `refresh_access_token` receives `invalid_grant` or `invalid_token` from the OIDC provider, the session row is deleted from the DB. The `POST /api/auth/refresh` handler in `src/server/routes/auth.rs` now catches the error and clears the `ofm_session` cookie by calling `jar.remove(Cookie::from("ofm_session"))` before returning a 400 response with `"session expired, please re-authenticate"`.
 
@@ -193,48 +157,6 @@ The footprint value (`OFM_FOOTPRINT`) is plumbed through the provider chain:
 5. `get_or_spawn()` → `spawn_entry()` → `build_server_config()` templates the
    three-path allowlist.
 
-## RamaLama provider (on-demand SLM)
-
-When `OFM_RAMALAMA_PHI4_MINI_ENABLED=true` and `ramalama` is on PATH, a virtual
-built-in model config named `ramalama-mini` (sentinel UUID
-`00000000-0000-0000-0000-00000000dead`) appears in the Agent Settings dropdown.
-Assigning it to an agent type stores `harness: "ramalama"` with the sentinel as
-`provider_config_ref` (no config file is written).
-
-The `RamalamaProvider` (`src/providers/ramalama_provider.rs`) owns a per-conversation
-`ramalama serve` subprocess (llama.cpp backend) spawned on a random port:
-
-1. `ensure_started()` probes `ramalama` on PATH, picks a free port via
-   `rauthy::find_available_port()`, and spawns
-   `ramalama serve --port <port> --name <container> <model-ref>`. The model is
-   passed as a **positional argument** (`--name` is the container name, not the
-   model); short names like `phi4-mini` are resolved to `ollama://library/...:latest`.
-   The container is given a port-derived name (`ofm-ramalama-<port>`) so it can be
-   removed precisely on teardown. Stdout/stderr are piped to tracing readers.
-   Health is polled at `http://127.0.0.1:<port>/v1/models` (llama.cpp returns 404
-   for the Ollama-style `/api/tags`), also aborting if the child exits prematurely.
-   After readiness, `/v1/models` is queried to resolve the served model id
-   (e.g. `library/phi4-mini`), which may differ from the user-entered short name.
-   On any start failure the CLI is killed+reaped and the named container removed,
-   so a failed start never orphans either.
-2. On `start_turn`, an OpenAI-compatible provider snippet is generated pointing at
-   `http://127.0.0.1:<port>/v1`, declared as an `@ai-sdk/openai-compatible` custom
-   provider with a `models` map keyed by the served model id, merged into a base
-   opencode server config, and a **transient** `opencode serve` is spawned via
-   `opencode_sdk::create_opencode()`. The transient server and its client persist
-   on the provider so `resume_turn` can reuse the opencode `session_id`.
-3. `one_shot_prompt()` (used for conversation-title generation) reuses the running
-   `ramalama serve` and spins up a throwaway transient server per call.
-4. `shutdown()` kills+reaps the `ramalama serve` child, removes the named container
-   (`docker rm -f <name>` with a `ramalama stop <name>` fallback), and drops the
-   transient server (its `Drop` kills the opencode subprocess). `Drop` on the
-   provider is a belt-and-suspenders container removal + `start_kill()` for the
-   ramalama child.
-
-Because the ramalama host serves a single model/session at a time, this provider is
-NOT pooled — the process is owned by exactly one provider instance and torn down
-with it, unlike `OpenCodeSdkProvider`.
-
 ### Hardcoded `/tmp` fix
 
 Previously, `provider.start()` was called with `Path::new("/tmp")` *before* the
@@ -245,20 +167,12 @@ See `src/orchestration/mod.rs`.
 
 ## OFM Context Prompt Injection
 
-The `build_context_prompt()` in `src/archive/mod.rs` appends an "OFM Environment" section to every agent turn's prompt. This section describes the `.ofm_agent.json` file structure and provides `jq`-based instructions for reading connection details and deriving the task ID from the worktree directory name. The OAuth access token is **not** embedded in the prompt text — instead it is written to `.ofm_agent.json` in the worktree root (with `0600` permissions) as part of a structured JSON object. Agents parse the file with `jq` and pass the access token in `Authorization: Bearer` headers when calling the `agent-flags` endpoints.
-
-The `.ofm_agent.json` file has the following schema:
-```json
-{
-  "agentVars": {
-    "accessToken": "...",
-    "tokenExpiration": 1234567890,
-    "ofmHost": "127.0.0.1",
-    "ofmPort": 3183,
-    "ofmPid": 12345
-  }
-}
-```
+The `build_context_prompt()` in `src/archive/mod.rs` builds the agent's turn context
+prompt. The historical "OFM Environment" section (which documented a
+`.ofm_agent.json` file and `jq` instructions for calling the removed `agent-flags`
+endpoints) has been **removed** along with the file and endpoints themselves.
+The prompt retains the **Working Directory** (authoritative CWD + allowed paths),
+**Task Plan File**, **AGENTS.md Guidance**, and **Testing Configuration** sections.
 
 ### Session Directory Routing
 
@@ -272,19 +186,52 @@ and `session.abort`. This mirrors the reference implementation's `WorkspaceRouti
 the workspace directory per HTTP call and falls back to the server's `process.cwd()` when absent — so a
 session-row PATCH is insufficient and is no longer performed.
 
-### File Recreation on Resume
-
-In `src/server/routes/conversations.rs`, the `send_message()` handler recreates `.ofm_agent.json`
-with a fresh access token and expiration timestamp before resuming a provider turn. This ensures
-the agent always receives up-to-date credentials, even if the token expired between turns.
-
 ## Shared Agent Run Starting
 
 The `start_next_agent()` function in `src/orchestration/mod.rs` consolidates all agent-run startup logic (config resolution, guard checks, session creation, provider startup, context-prompt building, turn initiation, and broadcast task spawning). Both the HTTP handler (`post_create_agent_run` in `src/server/routes/agent_runs.rs`) and auto-advancement callers use this shared function.
 
 ## Auto-Advancement Wiring
 
-When an agent run completes and `completion_handler` returns `NextAction::StartAgent`, the broadcast task (in both `start_next_agent()` and the conversations broadcast task in `send_message()`) spawns a new task that calls `start_next_agent()` for the next phase. This wires auto-advancement through the implementation → review → PR pipeline without requiring the agent to signal completion via echo or curl (though curl-based flag endpoints are still available for specific phases like `complete-workflow` and `block-workflow`).
+When an agent run completes and `completion_handler` returns `NextAction::StartAgent`, the broadcast task (in both `start_next_agent()` and the conversations broadcast task in `send_message()`) spawns a new task that calls `start_next_agent()` for the next phase. This wires auto-advancement through the implementation → review → refinement → PR pipeline with no completion endpoints or scripts.
+
+For a **review** run, `completion_handler` reads the review conversation's **last model message** via `transcript::last_model_text` and does a case-sensitive substring search for the literal keyword `READY`:
+- **`READY` present** → finish pipeline: refinement (if configured), else PR (if configured), else Terminal.
+- **`READY` absent** → bounce back to implementation (the loop continues).
+
+## Git Commit List & Diff View
+
+The task detail experience exposes the task worktree's git history and per-commit
+diffs entirely server-side (no client-side JS polling; every GET re-renders).
+
+- **Service layer** (`src/services/commits.rs`): pure, synchronous gix reads —
+  `list_commits_for_worktree` (commits on the worktree branch since the
+  merge-base with the base branch, oldest→newest), `commit_diff` (first-parent
+  tree diff; empty tree for root commits), `parse_oid` / `resolve_oid`. The base
+  branch is resolved at render time mirroring `worktree::detect_default_branch`
+  (`refs/remotes/origin/HEAD` → checked-out branch → `"main"`), so the list
+  reflects base-branch advances without a schema change. All functions are
+  blocking and are invoked from handlers inside `tokio::task::spawn_blocking`
+  per AGENTS.md. Any error degrades to an empty state, never a 500.
+- **Commit table** (`src/webapp/components/commit_list.rs`): a Bulma `.box`
+  titled "Commits" with a `.table` (OID / Message / Author / Date / Files),
+  rows oldest→newest, each linking to `/webapp/projects/{project_id}/tasks/{task_id}/commits/{short_oid}`.
+  Rendered by `TaskDetailPage` beneath the Documentation box; empty branches
+  render "No commits yet.".
+- **Per-commit page** (`src/webapp/pages/commit_detail.rs`, route
+  `/webapp/projects/{project_id}/tasks/{task_id}/commits/{oid}` in
+  `src/webapp/mod.rs`): header box (short OID, summary, author, email,
+  timestamp) plus the two-column diff. Bad/unresolvable OIDs render
+  "Commit not found." with a back link.
+- **DiffView** (`src/webapp/components/diff_view.rs`): renders each changed file
+  as a header (path, status, +adds/−dels) plus a two-column table. The
+  pre-aligned `FileDiff.lines` sequence from `similar::TextDiff` drives the
+  columns: `Equal`/`Delete` populate the old column, `Equal`/`Insert` the new
+  column, with blank cells on the opposite side. Old/new line numbers render in
+  gutters; `.diff-add`/`.diff-del` tint added/deleted cells.
+- **Handlers**: `task_detail_handler` fetches the commit list via
+  `spawn_blocking` (`.ok().flatten()` → empty vec); `commit_detail_handler`
+  resolves the OID (`resolve_oid`) then diffs it. Both live in
+  `src/webapp/mod.rs`.
 
 ## WebSocket Real-Time Bus
 
@@ -313,7 +260,9 @@ All webapp UI follows the Islands Architecture pattern:
 
 ### UI Components
 
-- **Breadcrumbs**: Shared breadcrumb navigation system. `BreadcrumbItem` data struct holds `title`, `icon`, and `path`. A `breadcrumb_registry` module centralizes canonical breadcrumb definitions (e.g., `all_projects()`, `project()`, `task()`, `chat()`, `settings()`). Settings pages additionally use `settings_section()` / `settings_sub_page()` to trail breadcrumbs down to the active section and sub-page (e.g. All Projects → Settings → Providers & Agents → Model Configurations). The `Breadcrumbs` Leptos component renders Bulma `<nav class="breadcrumb">` markup. Breadcrumbs flow from page handler -> `render_shell()` -> `ShellPage` -> `Navbar`, appearing immediately after the WS status indicator in the navbar-start div.
+- **Breadcrumbs**: Shared breadcrumb navigation system. `BreadcrumbItem` data struct holds `title`, `icon`, and `path`. A `breadcrumb_registry` module centralizes canonical breadcrumb definitions (e.g., `all_projects()`, `project()`, `task()`, `chat()`, `commit()`, `settings()`). Settings pages additionally use `settings_section()` / `settings_sub_page()` to trail breadcrumbs down to the active section and sub-page (e.g. All Projects → Settings → Providers & Agents → Model Configurations). The `Breadcrumbs` Leptos component renders Bulma `<nav class="breadcrumb">` markup. Breadcrumbs flow from page handler -> `render_shell()` -> `ShellPage` -> `Navbar`, appearing immediately after the WS status indicator in the navbar-start div.
+- **CommitList** (`src/webapp/components/commit_list.rs`): commit-table `.box` for the task detail page (see *Git Commit List & Diff View*).
+- **DiffView** (`src/webapp/components/diff_view.rs`): two-column side-by-side diff renderer for the commit detail page (see *Git Commit List & Diff View*).
 - **SettingsDropdown** (`src/webapp/components/settings_dropdown.rs`): navbar split-button with both the label and arrow buttons toggling a one-level menu listing Providers & Agents, Import/Export, Account (the label no longer navigates directly). Replaced the former separate User Config and Settings navbar buttons.
 - **SettingsSidebar** (`src/webapp/components/settings_sidebar.rs`): section-local Bulma `.menu` sidebar. Defines the `SettingsSection`/`SettingsSubPage` enums and renders exactly one `is-active` link matching the active sub-page.
 - **Settings pages** (`src/webapp/pages/settings/`): freestanding pages under `/webapp/settings/*`, each a sidebar + content pane. `providers_agents.rs` (Model Configurations landing + Agent Settings), `import_export.rs` (Export landing + Import), `account.rs` (User Config landing, reuses `OnboardingForm`, + API Keys). `/webapp/settings` is kept as an alias for the Providers & Agents landing. The old tab-switching JS in `pages/settings.rs` was split into per-sub-page scripts (each self-contained, rendered only with its pane).

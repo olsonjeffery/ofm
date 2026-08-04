@@ -37,6 +37,7 @@ async fn setup_app() -> (String, tokio::task::JoinHandle<()>) {
     );
     let state = AppState {
         cfg_port: 0,
+        rauthy_port: None,
 
         db: client,
         default_user_id: user_id,
@@ -50,7 +51,6 @@ async fn setup_app() -> (String, tokio::task::JoinHandle<()>) {
         api_key_pepper: b"test_pepper".to_vec(),
         ws_bus: BroadcastBus::new(),
         config: OfmConfig::default(),
-        access_tokens: Arc::new(Mutex::new(HashMap::new())),
     };
 
     let app = server::router(state, auth_layer);

@@ -125,6 +125,36 @@ OFM_RAUTHY_ENABLED=true
 > the same `OFM_FOOTPRINT`. Leftover containers can be listed with
 > `docker ps --filter name=ofm-rauthy`.
 
+> ℹ️**RAUTHY VIA OFM'S `/auth` PROXY**: The browser reaches the embedded rauthy
+> **exclusively through `ofm`'s `/auth` route** — a single `OFM_PORT` serves
+> both the `ofm` webapp and rauthy's login/oidc endpoints. All absolute URLs
+> (`ofm`'s OIDC redirect URI, the post-logout URI, rauthy's `PUB_URL`, and the
+> rauthy `clients.json` redirect URIs) derive from `ofm`'s public URL, which is
+> set with `OFM_PUB_URL` (legacy alias: `OFM_URL`). Set `OFM_PUB_URL` to the
+> externally-visible origin when `ofm` runs behind a reverse proxy.
+>
+> ⚠️**`OFM_PUB_URL` CHANGE ON AN EXISTING FOOTPRINT**: rauthy imports the `ofm`
+> client's redirect URIs (built from `OFM_PUB_URL`) only on first initialization;
+> afterwards they are persisted in rauthy's DB at `{OFM_FOOTPRINT}/rauthy/data`
+> and are never re-imported. If you change `OFM_PUB_URL` (or the port-derived
+> default) on an existing rauthy-enabled footprint, `ofm` detects the change on
+> the next start and automatically deletes that data volume so the new redirect
+> URIs take effect — note this resets any rauthy users created in the admin UI
+> (the bootstrap admin account is recreated, with its password printed at
+> startup, and its OIDC identity gets a fresh `sub`). Your `ofm` login still
+> works after the re-bootstrap: `ofm` records the invalidated OIDC subjects at
+> `{OFM_FOOTPRINT}/rauthy/relink_subjects` and re-links the existing user row to
+> the new subject on the next login, so settings/projects are retained. The
+> re-link is authorized **only** by that recorded re-bootstrap — a login whose
+> `sub` matches no row is never rebound to an existing username on its own, so a
+> colliding `preferred_username` claim cannot take over another user's account.
+> Previously issued
+> rauthy tokens are invalidated (you'll be logged out once). If you are upgrading
+> from an `ofm` version that predates this
+> detection **and** changing `OFM_PUB_URL`/`OFM_PORT` in the same move, delete
+> `{OFM_FOOTPRINT}/rauthy/data` (or the whole footprint) once yourself before
+> restarting.
+
 **Installations using an OAuth provider will want to provide:**
 
 ```bash
@@ -148,30 +178,6 @@ At this point, you should have a server bounding to `0.0.0.0` and reachable at
 `localhost:3183` running on your machine (`3183` is the default port; Set the `OFM_PORT`
 environment variable if you wish for it to run on another port).
 
-### System Dependencies
-
-- **ramalama** (optional): Required for on-device SLM inference (`phi4-mini`). Enable via `OFM_RAMALAMA_PHI4_MINI_ENABLED=true` or `RAMALAMA_PHI4_MINI_ENABLED: true` in `ofm.yml`. When enabled, `ramalama` must be available on `PATH`. If not found, a `tracing::error!` is logged. See `src/ramalama/`.
-
-### RamaLama Provider
-
-When `OFM_RAMALAMA_PHI4_MINI_ENABLED=true` is set and `ramalama` is on `PATH`, a
-virtual built-in model config named **`ramalama-mini`** appears automatically in
-the **Agent Settings** dropdown for every agent type (including the
-`conversation_title` row) — no manual config creation is needed, and it does not
-appear in the **Model Configurations** list.
-
-Assign `ramalama-mini` to an agent type and enter `phi4-mini` (or any locally
-available ramalama model) as the model name. When that agent runs:
-
-1. `ramalama serve` is spawned on a random port (llama.cpp backend).
-2. Once healthy, an OpenAI-compatible provider config is auto-generated pointing
-   at `http://127.0.0.1:<port>/v1` with `apiKey: "none"`.
-3. A transient `opencode serve` is started with that provider config for the turn.
-4. When the turn ends (or ofm shuts down), the ramalama process is killed.
-
-The `conversation_title` agent type uses its own config for generating
-conversation titles, independent of the agent-run config. See
-`src/providers/ramalama_provider.rs` and `src/ramalama/`.
 
 > ℹ️`ofm` itself _does not_ consider running with a certificate/TLS+SSL as in-scope.
 > It is also recommend, if planning to expose `ofm` on the public internet, to
@@ -181,6 +187,44 @@ conversation titles, independent of the agent-run config. See
 > If encrypted traffic is mandatory within your organization, then `ofm` should
 > have the enclosing reverse proxy as an on-machine sidecar, with the `ofm` ports
 > blocked by a software firewall for non-localhost users.
+
+> ℹ️**REVERSE PROXY / MULTI-HOST**: `ofm` binds a single port (`OFM_HOSTNAME` +
+> `OFM_PORT`) and accepts any `Host` header — no host allowlist. Every absolute
+> URL `ofm` builds (OIDC redirect URI, post-logout URI, embedded-rauthy `PUB_URL`
+> and redirect URIs) derives from **one** configured public origin: `OFM_PUB_URL`
+> (default `http://127.0.0.1:{OFM_PORT}`, derived from a `0.0.0.0` hostname as
+> loopback). To run behind a proxy:
+>
+> ```bash
+> OFM_HOSTNAME=0.0.0.0 \
+> OFM_PUB_URL=https://ofm.example.com \
+> OFM_PORT=3183 \
+> cargo run
+> ```
+>
+> and have the proxy forward `https://ofm.example.com/*` → `127.0.0.1:3183`.
+> Browser logins route to the `OFM_PUB_URL` origin. When the embedded rauthy is
+> used, its published port binds loopback only (`-p 127.0.0.1:{port}:8080`) and
+> OFM's `/auth` reverse proxy derives `X-Forwarded-Host`/`X-Forwarded-Proto`
+> from `OFM_PUB_URL` (client-supplied values are ignored), sets `X-Forwarded-For`
+> to the direct peer IP (an incoming chain is preserved only when the peer is a
+> proxy listed in `OFM_RAUTHY_TRUSTED_PROXIES`), and strips `Forwarded`. The
+> browser is always redirected to the
+> `OFM_PUB_URL` origin for login — OFM re-hosts rauthy's advertised endpoints
+> onto `pub_url` (rauthy's own URLs would otherwise be `http://...` and could
+> leak a mis-set loopback host), and OFM's backend token/userinfo/JWKS calls go
+> direct to rauthy at loopback. Rauthy also lists the configured `pub_url` origin
+> in the bootstrap `ofm` client's `allowed_origins`, so its login-form `Origin`
+> check accepts the browser even when rauthy's own `pub_url_with_scheme`
+> derivation differs from `OFM_PUB_URL`'s scheme (without this, an `https://`
+> `OFM_PUB_URL` with `proxy_mode` off fails the login POST with rauthy's
+> `Coming from an external Origin` error). When you additionally enable
+> `OFM_RAUTHY_PROXY_MODE=true`, rauthy hardcodes an `https://` issuer, so
+> the `OFM_PUB_URL` origin must be TLS-terminated; you must also set
+> `OFM_RAUTHY_TRUSTED_PROXIES` to the proxy CIDR(s) (including the Docker bridge
+> subnet, e.g. `172.17.0.0/16`) or rauthy will block proxied requests. Changing
+> `OFM_PUB_URL` on an existing rauthy-enabled footprint re-bootstraps rauthy
+> automatically (see the rauthy note above).
 
 ## History & evolution
 
@@ -249,6 +293,11 @@ the CLI or be set up via a superviser system (e.g. [systemd][8])
   named [rauthy][5])
 - Several subtle tweaks on _vanilla_ `bottega` that reflect the tastes
 of `ofm`'s founding author
+- The task detail page is git-aware: it lists the task worktree's commits
+(since the merge-base with the base branch, oldest→newest, refreshed on every
+page load) and each commit opens a dedicated page with the changed-file list
+and a two-column source diff. See `src/services/commits.rs` and
+`src/webapp/pages/commit_detail.rs`.
 
 ## Contributing
 

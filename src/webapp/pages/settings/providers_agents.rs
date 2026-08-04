@@ -66,7 +66,6 @@ function loadConfigList() {
             }
             var html = '<table class="table is-fullwidth is-hoverable"><thead><tr><th>Name</th><th>Harness</th><th>Actions</th></tr></thead><tbody>';
             data.forEach(function(cfg) {
-                if (cfg.id === '00000000-0000-0000-0000-00000000dead') return;
                 html += '<tr>';
                 html += '<td>' + escapeHtml(cfg.name) + '</td>';
                 html += '<td>' + escapeHtml(cfg.harness) + '</td>';

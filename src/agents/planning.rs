@@ -20,7 +20,8 @@ mod tests {
         assert!(prompt.contains("### Step 1: Explore"));
         assert!(prompt.contains("### Step 2: Clarify"));
         assert!(prompt.contains("### Step 3: Write the plan"));
-        assert!(prompt.contains("### Step 4: Complete"));
+        assert!(!prompt.contains("### Step 4: Complete"));
+        assert!(!prompt.contains("complete-plan"));
         assert!(prompt.contains("## Original Request"));
         assert!(prompt.contains("## Overview"));
         assert!(prompt.contains("## Implementation Plan"));

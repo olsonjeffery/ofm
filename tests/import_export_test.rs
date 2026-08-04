@@ -50,6 +50,7 @@ async fn make_state_with_auth() -> (AppState, AuthLayer, String, tempfile::TempD
         db: client.clone(),
         jwks_cache: Arc::new(tokio::sync::RwLock::new(None)),
         issuer_url: None,
+        jwks_refresh_url: None,
         client_id: None,
         pepper: b"test_pepper_16".to_vec(),
         cookie_key: cookie::Key::generate(),
@@ -58,6 +59,7 @@ async fn make_state_with_auth() -> (AppState, AuthLayer, String, tempfile::TempD
 
     let state = AppState {
         cfg_port: 0,
+        rauthy_port: None,
         db: client,
         default_user_id: user_id,
         footprint: tmp.path().to_str().unwrap().to_string(),
@@ -70,7 +72,6 @@ async fn make_state_with_auth() -> (AppState, AuthLayer, String, tempfile::TempD
         api_key_pepper: b"test_pepper".to_vec(),
         ws_bus: BroadcastBus::new(),
         config: OfmConfig::default(),
-        access_tokens: Arc::new(Mutex::new(HashMap::new())),
     };
 
     (state, auth_layer, api_key_str, tmp)

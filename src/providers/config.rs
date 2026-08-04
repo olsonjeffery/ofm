@@ -92,9 +92,6 @@ impl ProviderConfigDir {
 pub fn merge_configs(base: &str, snippet: &ProviderConfig) -> Result<String, ProviderError> {
     match snippet.harness.as_str() {
         "opencode" => merge_json_configs(base, &snippet.raw_snippet),
-        // The ramalama harness builds its provider snippet at runtime
-        // (see `RamalamaProvider`); no file-based config merge is needed.
-        "ramalama" => Ok(base.to_string()),
         other => Err(ProviderError::Config(format!(
             "unsupported harness for config merge: {other}"
         ))),
@@ -164,18 +161,6 @@ mod tests {
         assert_eq!(v["outer"]["inner1"], "a");
         assert_eq!(v["outer"]["inner2"], "c");
         assert_eq!(v["outer"]["inner3"], "d");
-    }
-
-    #[test]
-    fn test_merge_ramalama_harness() {
-        let base = r#"{"provider": {}}"#;
-        let snippet = ProviderConfig {
-            harness: "ramalama".into(),
-            config_ref: "00000000-0000-0000-0000-00000000dead".into(),
-            raw_snippet: "ignored".into(),
-        };
-        let result = merge_configs(base, &snippet).unwrap();
-        assert_eq!(result, base, "ramalama merge must return base unchanged");
     }
 
     #[test]

@@ -72,6 +72,7 @@ async fn callback(
         &state.pkce_store,
         query.code,
         query.state,
+        &state.config.footprint,
     )
     .await?;
 
@@ -119,22 +120,6 @@ async fn refresh(State(state): State<AppState>, jar: PrivateCookieJar) -> Respon
             }
         };
 
-    let session = match crate::services::auth::find_session(&state.db, session_id).await {
-        Ok(Some(s)) => s,
-        Ok(None) => {
-            return (
-                jar.remove(Cookie::from("ofm_session")),
-                ServerError::BadRequest("session expired, please re-authenticate".into()),
-            )
-                .into_response();
-        }
-        Err(e) => return e.into_response(),
-    };
-    {
-        let mut cache = state.access_tokens.lock().await;
-        cache.insert(session.user_id, access_token.clone());
-    }
-
     (jar, Json(json!({ "access_token": access_token }))).into_response()
 }
 
@@ -156,7 +141,8 @@ async fn logout(
 
             if let Some(oidc) = &state.oidc_provider {
                 if let Some(ees) = &oidc.end_session_endpoint {
-                    let post_logout_uri = format!("http://127.0.0.1:{}/webapp", state.cfg_port);
+                    let post_logout_uri =
+                        format!("{}/webapp", state.config.pub_url.trim_end_matches('/'));
                     let mut url = format!(
                         "{}?client_id={}&post_logout_redirect_uri={}",
                         ees,

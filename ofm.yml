@@ -1,0 +1,60 @@
+# OFM configuration file
+# Environment variables always take precedence over values in this file.
+# This file was auto-generated. You can edit it; changes are preserved on restart.
+#
+# Secrets (API_KEY, RAFT_SECRET, API_SECRET, OIDC_CLIENT_SECRET) are never
+# written to this file — they must be set via environment variables.
+
+server:
+  # IP address or hostname to bind the HTTP server on.
+  # Env: OFM_HOSTNAME (default: 127.0.0.1)
+  HOSTNAME: 127.0.0.1
+  # TCP port to bind the HTTP server on.
+  # Env: OFM_PORT (default: 3183)
+  PORT: 3183
+  # Public-facing URL of this deployment. Used for all absolute URLs OFM builds
+  # (OIDC redirect URI, post-logout URI, rauthy redirect URIs) and for rauthy's own
+  # PUB_URL when self-hosting rauthy. Behind a reverse proxy, set this to the
+  # externally-visible origin (e.g. https://ofm.example.com).
+  # Env: OFM_PUB_URL (default: http://127.0.0.1:3183)
+  PUB_URL: https://htpc3090.tail34e6bf.ts.net:3184
+  # Legacy alias of PUB_URL (used by the CLI agent subcommand). Prefer PUB_URL.
+  # Env: OFM_URL (default: http://127.0.0.1:3183)
+  URL: https://htpc3090.tail34e6bf.ts.net:3184
+auth:
+  # OIDC issuer URL for external authentication.
+  # Env: OFM_OIDC_ISSUER_URL (default: https://auth.example.com)
+  # OIDC_ISSUER_URL: https://auth.example.com
+  # OIDC client ID registered with the issuer.
+  # Env: OFM_OIDC_CLIENT_ID (default: my-client)
+  # OIDC_CLIENT_ID: my-client
+  # Base URL for OAuth redirects.
+  # Env: OM_PRINT_BASE_URL (default: http://localhost:3183)
+  # BASE_URL: http://localhost:3183
+  # Explicit OIDC redirect URI. Computed from BASE_URL if not set.
+  # Env: OIDC_REDIRECT_URI (default: http://localhost:3183/api/auth/callback)
+  # OIDC_REDIRECT_URI: http://localhost:3183/api/auth/callback
+raft:
+  # Raft port for hiqlite cluster communication.
+  # Env: OFM_HIQLITE_RAFT_PORT (default: 8100)
+  HIQLITE_RAFT_PORT: 8100
+  # API port for hiqlite client connections.
+  # Env: OFM_HIQLITE_API_PORT (default: 8200)
+  HIQLITE_API_PORT: 8200
+rauthy:
+  # Enable the embedded rauthy OIDC provider.
+  # Env: OFM_RAUTHY_ENABLED (default: false)
+  RAUTHY_ENABLED: true
+  # Port for the embedded rauthy instance (0 = random available port).
+  # Env: OFM_RAUTHY_PORT (default: 0)
+  RAUTHY_PORT: 0
+  # Run rauthy behind a reverse proxy. When true, rauthy blocks every request whose source IP is not in TRUSTED_PROXIES (including health checks) and trusts X-Forwarded-* headers. Defaults to false.
+  # Env: OFM_RAUTHY_PROXY_MODE (default: false)
+  PROXY_MODE: false
+  # Newline-separated CIDRs trusted as reverse proxies when PROXY_MODE is true. Only needed for deployments that want real-client-IP hardening.
+  # Env: OFM_RAUTHY_TRUSTED_PROXIES (default: 127.0.0.1/32)
+  # TRUSTED_PROXIES: 127.0.0.1/32
+behavior:
+  # Log client IP and User-Agent for all requests.
+  # Env: OFM_INFO_LOG_CLIENT_DATA (default: false)
+  INFO_LOG_CLIENT_DATA: false

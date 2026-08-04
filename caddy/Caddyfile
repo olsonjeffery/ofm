@@ -1,0 +1,8 @@
+{
+	http_port 8080
+}
+
+htpc3090.tail34e6bf.ts.net:3184 {
+	reverse_proxy localhost:3183
+}
+

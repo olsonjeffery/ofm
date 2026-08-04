@@ -7,58 +7,51 @@
 > `struct`s, `enum`s, etc.
 > 
 > **Implementation status:** This extra is **not yet implemented** in the Rust
-> codebase. All citations into `reference/` are retained as guidance; they will
-> be replaced with `src/` equivalents when implementation begins.
+> codebase — the refinement prompt/harness do not exist yet. However, the
+> READY-driven routing that would invoke it **is** implemented: when a review's
+> last model message contains `READY`, `next_agent()` in
+> `src/orchestration/state_machine.rs` starts the **refinement** agent if a
+> refinement harness is configured, else the PR agent if configured, else
+> Terminal. Wiring a refinement harness config is all that remains.
 
 ## What it adds
 
 A single optional polish pass that runs **after review approves the work and
-before the PR is opened**. When review signals READY (`workflow_complete`),
-instead of going straight to the PR agent, the loop first runs a **refinement**
-agent that cleans up the just-written code: it simplifies the diff for clarity
-and runs a security pass over it, applying fixes in place. Only then does the
-PR agent run. The reviewed work ships a little tidier and a little safer,
-without a human in the loop.
+before the PR is opened**. When review signals READY (the `READY` keyword in the
+review's last model message), instead of going straight to the PR agent, the
+loop first runs a **refinement** agent that cleans up the just-written code: it
+simplifies the diff for clarity and runs a security pass over it, applying fixes
+in place. Only then does the PR agent run. The reviewed work ships a little
+tidier and a little safer, without a human in the loop.
 
 ## Why it's an extra (not core)
 
 Shipping a reviewed change as a PR is universal; an extra cleanup pass before
-that PR is a matter of taste. Remove this extra and the finish pipeline goes
-straight `workflow_complete → PR`, exactly as core describes.
+that PR is a matter of taste. Remove this extra (i.e. configure no refinement
+harness) and the finish pipeline goes straight `READY → PR`, exactly as core
+describes.
 
 ## Where it inserts
 
-The finish pipeline lives in the completion handler's `workflow_complete`
-branch — see `handleAgentChaining` in
-[`../reference/server/services/conversation/agentRunLifecycle.ts`](../reference/server/services/conversation/agentRunLifecycle.ts).
-Core's version of that branch reads "if `workflow_complete` and not yet
-`pr_agent_complete`, start the PR agent." This extra wedges one check **in
-front of** the PR check:
+The finish pipeline lives in `next_agent()` in
+[`../core/orchestration-loop.md`](../core/orchestration-loop.md). The review
+branch reads the `READY` keyword and decides, in order:
 
-- `workflow_complete` is set, and the finishing agent was **not** refinement,
-  and `refinement_complete` is **not** yet set → start the **refinement** agent
-  and return. Do not start PR yet.
-- The finishing agent **was** refinement → call `tasksDb.markRefinementComplete`
-  (sets `refinement_complete`) and fall through to the PR check, which now
-  starts the PR agent.
+- refinement harness configured → start the **refinement** agent.
+- else PR harness configured → start the **PR** agent.
+- else → **Terminal**.
 
-So a single refinement run is threaded in: review → refinement → PR. The
-ordering is the whole trick — the refinement check sits between the
-`workflow_complete` gate and the `pr_agent_complete` gate, the same way core's
-PR check does. Refinement is one of the agent types that the completion handler
-treats as chainable (alongside planning, implementation, review); see the
-`shouldChain` set in `buildAgentRunCompletionHandler` in the same file. The PR
-agent remains terminal.
+When the finishing agent **was** refinement, the handler simply falls through to
+the PR check and starts the PR agent. So a single refinement run is threaded in:
+review → refinement → PR. Refinement is one of the agent types that the
+completion handler treats as chainable (alongside planning, implementation,
+review). The PR agent remains terminal.
 
-Because the gate is the persistent `refinement_complete` flag (not "did
-refinement just run"), refinement runs **at most once** per task: a second trip
-through the `workflow_complete` branch finds the flag already set and skips
-straight to PR. `tasksDb.markRefinementComplete` and the companion
-`resetRefinementComplete` live in
-[`../reference/server/database/db.ts`](../reference/server/database/db.ts); the
-column is declared in
-[`../reference/server/database/init.sql`](../reference/server/database/init.sql)
-(`refinement_complete INTEGER DEFAULT 0 NOT NULL`).
+Because routing is driven by configuration rather than a `refinement_complete`
+flag, a second review that signals `READY` **after** refinement has run would
+re-run refinement. This is an acceptable divergence for a polish pass; if
+"at most once per task" is desired, add a persistent marker and check it in the
+review branch.
 
 ## What the agent actually does
 
@@ -94,8 +87,8 @@ The agent works in three steps:
 Hard constraints baked into the prompt: never edit the task doc, never run a
 completion script, never ask questions, never run tests (the PR agent owns CI).
 Refinement signals "done" simply by ending its turn — there is no refinement
-script. The flag is flipped by the **orchestrator** (`markRefinementComplete`)
-when it sees refinement was the finishing agent, not by the agent itself.
+script or flag. The orchestrator routes to the PR agent when refinement ends
+(`next_agent` chains refinement → PR).
 
 ## When to install it
 
@@ -107,8 +100,6 @@ PR untouched.
 
 ## What to build
 
-- [ ] A `refinement_complete` boolean on the task row, plus a setter
-      (`markRefinementComplete`) and ideally a reset.
 - [ ] The refinement prompt: spawn the two parallel sub-tasks (simplification +
       read-only security review), then apply the security fixes, then summarize
       — with the "no doc edits / no scripts / no tests / no questions"
@@ -116,31 +107,24 @@ PR untouched.
 - [ ] A `refinement` branch in the agent-message builder and in `startAgentRun`
       (no `disallowedTools` restriction — refinement *needs* the sub-agent
       tool).
-- [ ] In the completion handler's `workflow_complete` branch, insert the
-      refinement check **before** the PR check: start refinement if
-      `refinement_complete` is unset and the finisher wasn't refinement; when
-      the finisher *was* refinement, set the flag and fall through to PR.
 - [ ] `refinement` in the chainable agent-type set so the completion handler
-      routes after it.
+      routes after it (already implemented: `next_agent` chains refinement → PR).
 
 ## Reference map
 
-| Concern | File |
-|---|---|
-| Insertion point + flag flip | `../reference/server/services/conversation/agentRunLifecycle.ts` (`handleAgentChaining`, `workflow_complete` branch) |
-| What the agent does (prompt) | `../reference/server/constants/prompts/refinement.md` |
-| Message assembly | `../reference/server/constants/agentPrompts.ts` (`generateRefinementMessage`) |
-| Run start (no sub-agent ban) | `../reference/server/services/agentRunner.ts` (`case 'refinement'`) |
-| Flag setter | `../reference/server/database/db.ts` (`markRefinementComplete`, `resetRefinementComplete`) |
-| Column | `../reference/server/database/init.sql` (`refinement_complete`) |
-| UI completion state | `../reference/src/components/AgentSection.tsx` (refinement → `refinementComplete`) |
+| Concern | Rust (implemented) | Legacy reference |
+|---|---|---|
+| Routing (READY → refinement → PR) | `src/orchestration/state_machine.rs` (`next_agent`) | `../reference/server/services/conversation/agentRunLifecycle.ts` |
+| What the agent does (prompt) | — (not yet implemented) | `../reference/server/constants/prompts/refinement.md` |
+| Message assembly | `src/agents/refinement.rs` (`build_refinement_prompt`) | `../reference/server/constants/agentPrompts.ts` |
+| Run start (no sub-agent ban) | `src/orchestration/mod.rs` (`start_next_agent`) | `../reference/server/services/agentRunner.ts` |
 
 ## Boundaries (not in this spec)
 
-- The state machine the refinement check lives inside (chaining, the
-  `workflow_complete`/`pr_agent_complete` gates, the iteration cap) →
+- The state machine the refinement check lives inside (chaining, the READY
+  keyword routing, the iteration cap) →
   [`../core/orchestration-loop.md`](../core/orchestration-loop.md).
-- The review step that sets `workflow_complete` upstream →
+- The review step that signals READY upstream →
   [`../core/execution-loop.md`](../core/execution-loop.md).
 - The PR agent that runs after refinement →
   [`../core/pull-request-agent.md`](../core/pull-request-agent.md).

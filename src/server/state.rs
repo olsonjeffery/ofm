@@ -27,9 +27,9 @@ pub struct AppState {
     pub cookie_key: Key,
     pub api_key_pepper: Vec<u8>,
     pub cfg_port: u16,
+    pub rauthy_port: Option<u16>,
     pub ws_bus: Arc<BroadcastBus>,
     pub config: OfmConfig,
-    pub access_tokens: Arc<Mutex<HashMap<Uuid, String>>>,
 }
 
 impl FromRef<AppState> for Key {

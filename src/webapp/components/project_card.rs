@@ -20,6 +20,9 @@ pub fn ProjectCard(project: Project, task_counts: TaskCounts) -> impl IntoView {
         <a href={format!("/webapp/projects/{}", project.id)} class="card" style="display:block">
             <div class="card-header">
                 <p class="card-header-title">{project.name.clone()}</p>
+                <span class="card-header-icon">
+                    <span class="tag is-light card-number-pill">{format!("#{}", project.id)}</span>
+                </span>
             </div>
             <div class="card-content" style="padding:0.5rem">
                 <p class="subtitle is-7">{project.repo_folder_path.clone()}</p>
@@ -149,5 +152,16 @@ mod tests {
         assert!(!html.contains("in progress"));
         assert!(!html.contains("in review"));
         assert!(!html.contains("completed"));
+    }
+
+    #[test]
+    fn test_project_card_header_has_number_pill() {
+        let project = make_project();
+        let counts = TaskCounts::default();
+        let html = leptos::view! { <ProjectCard project task_counts=counts /> }.to_html();
+        assert!(html.contains("card-header-icon"));
+        assert!(html.contains("card-number-pill"));
+        assert!(html.contains("#1"));
+        assert!(html.contains("card-header-title"));
     }
 }

@@ -22,6 +22,16 @@ main {
 main:has(#chat-layout) {
     min-height: 0;
 }
+/* Task detail page manages its own height — no page-level scrollbar */
+main:has(.task-detail-page) {
+    min-height: 0;
+}
+body:has(.task-detail-page) {
+    overflow: hidden;
+}
+html:has(.task-detail-page) {
+    overflow: hidden;
+}
 
 /* ===== Navbar theming ===== */
 
@@ -262,11 +272,19 @@ div.buttons.has-addons:focus-visible {
     100% { box-shadow: 0 0 0 0.4rem transparent; }
 }
 
+a.card .card-header {
+    align-items: center;
+}
+
 a.card .card-header-title {
+    display: -webkit-box;
+    -webkit-box-orient: vertical;
+    -webkit-line-clamp: 2;
     overflow: hidden;
     text-overflow: ellipsis;
-    white-space: nowrap;
-    display: block;
+    overflow-wrap: break-word;
+    min-width: 0;
+    flex-grow: 1;
 }
 
 /* ===== Remove all drop shadows ===== */
@@ -576,3 +594,265 @@ hr.timestamp-separator {
 #edit-config-modal .modal-card-foot {
     justify-content: flex-end;
 }
+
+/* ===== Task detail page layout =====
+   The page fills the viewport; each panel scrolls independently.
+   Documentation takes the top half (max 50vh), commits the lower half. */
+.task-detail-page {
+    height: calc(100vh - 3.25rem);
+    padding: 1rem 1.5rem;
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+}
+
+.task-detail-page > .level,
+.task-detail-page > .notification,
+.task-detail-page > .box {
+    flex: none;
+}
+
+.task-detail-columns {
+    flex: 1;
+    min-height: 0;
+    margin: 0.5rem -0.75rem 0;
+    overflow: hidden;
+}
+
+.task-detail-columns > .column {
+    display: flex;
+    flex-direction: column;
+    min-height: 0;
+    overflow: hidden;
+}
+
+.task-detail-conversations {
+    overflow-y: auto;
+}
+
+.task-detail-right {
+    overflow: hidden;
+}
+
+.task-detail-doc {
+    flex: none;
+    max-height: 50vh;
+    overflow-y: auto;
+    margin-bottom: 0.75rem;
+    min-height: 0;
+}
+
+.task-detail-commits {
+    flex: 1;
+    min-height: 0;
+    overflow-y: auto;
+}
+
+/* ===== Commit list table ===== */
+.commit-table .table {
+    font-size: 0.875rem;
+}
+
+/* Arrow-of-time gutter: old at top, new at bottom, time flows downward */
+.commit-table .commit-time-col {
+    width: 2rem;
+    text-align: center;
+    position: relative;
+    padding: 0.375rem 0 !important;
+    vertical-align: middle;
+}
+
+.commit-table thead .commit-time-col {
+    color: var(--bulma-grey);
+    padding-top: 0.25rem !important;
+    padding-bottom: 0.25rem !important;
+}
+
+.commit-table tbody .commit-time-col::before {
+    content: "";
+    position: absolute;
+    left: 50%;
+    top: 0;
+    bottom: 0;
+    width: 2px;
+    margin-left: -1px;
+    background: var(--bulma-border);
+}
+
+.commit-table .commit-time-dot {
+    position: relative;
+    z-index: 1;
+    display: inline-block;
+    width: 0.625rem;
+    height: 0.625rem;
+    border-radius: 50%;
+    background: var(--bulma-primary);
+    border: 2px solid var(--bulma-white);
+    box-shadow: 0 0 0 1px var(--bulma-primary);
+}
+
+.commit-oid {
+    font-family: var(--bulma-family-code);
+    font-size: 0.8125rem;
+    white-space: nowrap;
+}
+
+.commit-oid .commit-copy-btn {
+    margin-left: 0.25rem;
+    height: 1.375rem;
+    min-height: 1.375rem;
+    padding: 0 0.3125rem;
+    vertical-align: middle;
+}
+
+.commit-oid .commit-copy-btn .icon.is-small {
+    height: 0.9375rem;
+    width: 0.9375rem;
+}
+
+.commit-table .commit-message {
+    max-width: 0;
+    width: 55%;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.commit-table .commit-date {
+    white-space: nowrap;
+}
+
+/* ===== Two-column diff ===== */
+.diff-toolbar {
+    display: flex;
+    align-items: center;
+    justify-content: flex-end;
+    margin-bottom: 0.75rem;
+}
+
+.diff-file {
+    margin-bottom: 1.5rem;
+}
+
+.diff-file-header {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    padding: 0.375rem 0.75rem;
+    background: var(--bulma-light);
+    border: 1px solid var(--bulma-border);
+    border-bottom: none;
+    border-radius: 4px 4px 0 0;
+    cursor: pointer;
+    user-select: none;
+}
+
+.diff-file-header::-webkit-details-marker {
+    display: none;
+}
+
+.diff-file-header .diff-toggle {
+    color: var(--bulma-grey);
+    transition: transform 0.15s ease;
+    flex: none;
+}
+
+.diff-file:not([open]) .diff-file-header {
+    border-bottom: 1px solid var(--bulma-border);
+    border-radius: 4px;
+}
+
+.diff-file:not([open]) .diff-toggle {
+    transform: rotate(-90deg);
+}
+
+.diff-file:not([open]) .diff-grid {
+    display: none;
+}
+
+.diff-file-path {
+    font-family: var(--bulma-family-code);
+    font-size: 0.8125rem;
+    flex: 1;
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.diff-stat {
+    font-family: var(--bulma-family-code);
+    font-size: 0.8125rem;
+    white-space: nowrap;
+}
+
+.diff-grid {
+    width: 100%;
+    table-layout: fixed;
+    border-collapse: collapse;
+    border: 1px solid var(--bulma-border);
+}
+
+.diff-grid td.diff-cell {
+    width: 50%;
+    vertical-align: top;
+    padding: 0;
+    border: none;
+    display: flex;
+    align-items: flex-start;
+}
+
+.diff-grid tr + tr td.diff-cell {
+    border-top: 1px solid var(--bulma-border-weak);
+}
+
+.diff-cell.diff-ctx {
+    background: var(--bulma-white);
+    color: inherit;
+}
+
+.diff-cell.diff-add {
+    background: hsl(var(--bulma-success-h), var(--bulma-success-s), 92%);
+}
+
+.diff-cell.diff-del {
+    background: hsl(var(--bulma-danger-h), var(--bulma-danger-s), 93%);
+}
+
+.diff-cell.diff-gap {
+    background: var(--bulma-light);
+}
+
+.diff-cell .diff-gutter {
+    display: inline-block;
+    width: 3rem;
+    padding-right: 0.5rem;
+    text-align: right;
+    color: var(--bulma-grey);
+    font-family: var(--bulma-family-code);
+    font-size: 0.75rem;
+    user-select: none;
+    vertical-align: top;
+    flex: none;
+}
+
+.diff-line-content {
+    display: inline-block;
+    flex: 1;
+    min-width: 0;
+    margin: 0;
+    padding: 0 0.5rem 0 0.25rem;
+    border: none;
+    background: none;
+    color: inherit;
+    font-family: var(--bulma-family-code);
+    font-size: 0.8125rem;
+    line-height: 1.4;
+    white-space: pre-wrap;
+    word-wrap: break-word;
+    overflow-wrap: break-word;
+    word-break: break-word;
+    vertical-align: top;
+    max-width: 100%;
+}
+

@@ -119,13 +119,63 @@ spawns `pty`s, maintains database state, and so on
    - Start a Docker container (`ghcr.io/sebadob/rauthy:latest`) at a random port
    that differs from the configured `ofm` `OFM_PORT`, managed via
    `tokio::process::Command` (see `src/rauthy/mod.rs`)
-   - Bind the container to `0.0.0.0` (`-p 0.0.0.0:{port}:8080`; Docker only
-   accepts IP addresses for the host bind interface) and advertise
-   `PUB_URL={OFM_HOSTNAME}:{port}`, so rauthy's OIDC discovery metadata and
-   referral URLs point at the hostname `ofm` is reachable on
-   - Have the browser talk to the rauthy container **directly** on its
-   published port — there is no `/auth` reverse proxy (see
+   - Bind the container to loopback (`-p 127.0.0.1:{port}:8080`, so rauthy is
+   not reachable from the network — the browser reaches it only through OFM's
+   `/auth` proxy) and advertise
+   `PUB_URL={host[:port]}` derived from OFM's `pub_url` (`OFM_PUB_URL`, default
+   `http://{connectable_host}:{OFM_PORT}`), so rauthy's OIDC discovery metadata
+   and referral URLs point at the origin `ofm` is reachable on
+   - Proxy all browser traffic to rauthy through OFM's `/auth` route (see
+   `src/server/proxy.rs`): the browser hits `{pub_url}/auth/*`, OFM forwards
+   verbatim to `http://127.0.0.1:{rauthy_port}/auth/*` while preserving the
+   incoming `Host` header, overwriting `X-Forwarded-Host`/`X-Forwarded-Proto`
+   from the configured `pub_url` (client-supplied values are never trusted —
+   rauthy in `proxy_mode` trusts its proxy) and appending the peer IP to
+   `X-Forwarded-For`. This satisfies "bind to one port, accept
+   hosts on different ports" (see
    [`extra/auth-and-multi-user.md`](./extra/auth-and-multi-user.md))
+   - Build the `OidcEndpoints` handed to the browser off OFM's `pub_url`, **not**
+   rauthy's self-reported discovery URLs: rauthy's default mode advertises
+   `http://{pub_url}/auth/v1/...` (scheme from `LISTEN_SCHEME`), so OFM re-hosts
+   the browser-facing authorization/end-session endpoints onto `pub_url` with
+   its configured scheme (`rehost_endpoint` in `src/rauthy/mod.rs`). This keeps
+   the authorization URL on the public origin even when the `pub_url` scheme is
+   `https`, and makes it impossible for a mis-set rauthy `PUB_URL` (e.g. a
+   leftover `127.0.0.1`) to leak into the URL the browser is redirected to. OFM's
+   own server-side calls (token exchange, userinfo, revocation, JWKS refresh)
+   go direct at loopback, not through the public origin.
+   - Optionally run rauthy in "behind proxy" mode via `OFM_RAUTHY_PROXY_MODE` /
+   `OFM_RAUTHY_TRUSTED_PROXIES` (rauthy `PROXY_MODE` / `TRUSTED_PROXIES` env).
+   **Defaults off.** When enabled, rauthy blocks every request whose source IP is
+   not in `TRUSTED_PROXIES` and — per rauthy's source — hardcodes an `https://`
+   issuer regardless of `LISTEN_SCHEME`/`X-Forwarded-Proto`; only enable it when
+   the `pub_url` origin is served over HTTPS by the enclosing reverse proxy.
+   - Bootstrap `clients.json` also lists the configured `pub_url` origin in the
+   `ofm` client's `allowed_origins` (`client_allowed_origin` in
+   `src/rauthy/mod.rs`): rauthy rejects any login-form/OIDC POST whose `Origin`
+   differs from its own `pub_url_with_scheme` (`400 BadRequest: Coming from an
+   external Origin`), and that derivation is `http://` with `proxy_mode` off —
+   so without this entry an `https://` `pub_url` with `proxy_mode` off would
+   make login impossible. Entries that cannot round-trip rauthy's origin
+   validation (e.g. IPv6-literal hosts) are omitted rather than failing the
+   bootstrap import.
+   - Re-bootstrap rauthy when `pub_url` changes on an existing footprint: rauthy
+   imports the bootstrap `clients.json` (redirect URIs = `{pub_url}/*`) only on
+   first initialization, so a changed public origin would otherwise be rejected
+   with `400 Invalid redirect uri` on every login. `ofm` records the bootstrapped
+   `pub_url` in `{footprint}/rauthy/pub_url` and deletes the rauthy data volume
+   (`{footprint}/rauthy/data`) on change before starting the container
+   (`ensure_pub_url_bootstrap` in `src/rauthy/mod.rs`), re-creating the admin
+   account at startup. The re-created admin identity has a **fresh OIDC `sub`**;
+   `ofm` records the now-invalidated `oidc_subject`s at
+   `{footprint}/rauthy/relink_subjects`, and on the next login re-links the
+   existing `users` row by `username` only if its current subject is one of
+   those recorded (remapping `oidc_subject` to the new subject —
+   `find_or_create_user` in `src/services/auth.rs`), so login succeeds instead
+   of failing on the username UNIQUE constraint. Re-linking is never authorized
+   by a username collision alone (`preferred_username` is a claim-controlled
+   value); without a recorded re-bootstrap the login is refused. Previously
+   issued rauthy sessions/tokens are invalidated.
 
 ## How to build from this spec
 
@@ -209,9 +259,8 @@ Opinionated features. Each is independent; implement what you want.
 | Reviewed/Updated for `ofm`? | Spec | What it adds |
 |---|---|---|
 | **✅ Yes** | [`extra/harnesses/opencode.md`](./extra/harnesses/opencode.md) | OpenCode integration: SDK-backed subprocess lifecycle, event mapping, transcript mirroring, credential delegation, and capabilities. |
-| **✅ Yes** | [`extra/harnesses/ramalama.md`](./extra/harnesses/ramalama.md) | On-demand ramalama + phi4-mini provider: per-conversation `ramalama serve` subprocess, sentinel-UUID virtual config entry, transient opencode adapter, and the `conversation_title` micro-task agent type. |
  | **✅ Yes** | [`extra/harnesses/opencode.md`](./extra/harnesses/opencode.md) | OpenCode SDK-backed provider integration: SDK-driven subprocess lifecycle, event mapping, credential delegation via `opencode.json`, session lifecycle. **Task 204 additions:** `provider_session_id` rename (provider-agnostic), `resume_turn` implementation for `OpenCodeSdkProvider`, `question.asked` event handling (mid-turn question → pause SSE → user reply → resume), `SessionStart` event persistence to DB, lazy provider recreation on restart. |
-| **✅ Yes** | [`extra/kanban-board.md`](./extra/kanban-board.md) | The opinionated projects/tasks board and 4-screen UI for authoring tasks. |
+| **✅ Yes** | [`extra/kanban-board.md`](./extra/kanban-board.md) | The opinionated projects/tasks board and 4-screen UI for authoring tasks. **Task 144 additions:** task detail page now renders a commit-list table (worktree commits since the merge-base with the base branch, oldest→newest, server-side on every load) and each commit links to a dedicated page with the changed-file list and a two-column diff — see [`core/task-and-workspace.md`](./core/task-and-workspace.md) and `src/services/commits.rs`. |
 | **🚫 No** | [`extra/refinement-agent.md`](./extra/refinement-agent.md) | An extra agent that polishes the work between review and PR. |
 | **🚫 No** | [`extra/yolo-mode.md`](./extra/yolo-mode.md) | A single-agent alternative to the multi-step pipeline. |
 | **🚫 No** | [`extra/pr-comment-retrigger.md`](./extra/pr-comment-retrigger.md) | Re-run the PR agent automatically when a PR receives review comments (periodic PR polling). |
@@ -243,33 +292,7 @@ equivalent exists at `src/`, prefer that citation.
   or line ranges. Treat each as "here is how we solved it," not "copy this."
   **Prefer `src/` citations over `reference/` wherever Rust equivalents exist.**
 
-## OAuth Access Token Injection
-
-The `AppState` contains an in-memory `access_tokens: Arc<Mutex<HashMap<Uuid, String>>>`
-cache that maps `user_id → OAuth access_token`. Tokens are populated on every
-refresh (both the background startup task and the `POST /api/auth/refresh` handler).
-
-When an agent run is started, the user's access token is written as part of a structured
-`.ofm_agent.json` file in the worktree root (`0600` permissions) rather than embedded in
-the prompt text. The JSON structure contains `accessToken`, `tokenExpiration` (Unix timestamp
-from the JWT `exp` claim), `ofmHost`, `ofmPort`, and `ofmPid`. The context prompt references
-this file and instructs agents to parse it with `jq` and derive the task ID from the worktree
-directory name. This avoids sending the credential to the LLM provider and prevents it from
-being persisted in the conversation transcript.
-
-Agents call the OFM server's `/api/tasks/{task_id}/{action}` endpoints via:
-```bash
-HOST=$(jq -r '.agentVars.ofmHost' .ofm_agent.json)
-PORT=$(jq -r '.agentVars.ofmPort' .ofm_agent.json)
-ACCESS_TOKEN=$(jq -r '.agentVars.accessToken' .ofm_agent.json)
-TASK_ID=$(basename "$(pwd)" | sed 's/task-//')
-curl -X POST "http://$HOST:$PORT/api/tasks/$TASK_ID/{action}" \
-  -H "Authorization: Bearer $ACCESS_TOKEN"
-```
-
-The `.ofm_agent.json` file (.ofm_token previously) is listed in `.gitignore` so it is never checked into version control.
-
-### Session Directory Routing
+## Session Directory Routing
 
 When `start_next_agent()` in `src/orchestration/mod.rs` creates a new agent session via the opencode SDK,
 the provider routes the task worktree path to the opencode server as a `directory` **query param** on every
@@ -283,21 +306,20 @@ server's `process.cwd()` when absent — a PATCH to the session row is **not** s
 re-resolve the directory per request. The `external_directory` allowlist in the server config already
 restricts writes to `{footprint}/worktrees/**`, `{footprint}/archive/**`, and `/tmp/**`.
 
-### Token Expiration Awareness
-
-The `.ofm_agent.json` file includes a `tokenExpiration` field derived from the JWT access token's `exp`
-claim (decoded server-side with no signature verification). The context prompt instructs agents to check
-this expiration before making API calls. If the token has expired or the agent receives HTTP 401 responses,
-it should end its turn and ask the user to resume with a nudge to create a fresh file.
-
 ## Auto-Advancement Wiring
 
-When an agent run completes and the `completion_handler` returns `StartAgent`,
-the broadcast task now calls `start_next_agent()` to automatically start the next
-phase agent. This wires the implementation → review → PR pipeline end-to-end
-without requiring the agent to call any completion endpoint (though curl-based
-flag endpoints remain available for `complete-plan`, `complete-workflow`,
-`block-workflow`, and `complete-pr`).
+When an agent run completes, the `completion_handler` decides the next phase and
+the broadcast task calls `start_next_agent()` to automatically start it. This
+wires the implementation → review → (refinement →) PR pipeline end-to-end with
+no completion endpoints or scripts.
+
+For a **review** run, the handler reads the review conversation's **last model
+message** (`transcript::last_model_text`) and does a case-sensitive substring
+search for the literal keyword `READY`:
+
+- **`READY` present** → the feature is approved → start refinement (if
+  configured), else PR (if configured), else Terminal.
+- **`READY` absent** → bounce back to implementation (the loop continues).
 
 The shared `start_next_agent()` function in `src/orchestration/mod.rs` contains
 all agent-run startup logic and is used by both the HTTP handler and

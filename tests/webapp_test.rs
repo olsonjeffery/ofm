@@ -6,6 +6,7 @@ use ofm::server;
 use ofm::server::state::AppState;
 use ofm::server::ws::bus::BroadcastBus;
 use std::collections::HashMap;
+use std::path::Path;
 use std::sync::atomic::{AtomicI64, Ordering};
 use std::sync::Arc;
 use tempfile::TempDir;
@@ -43,6 +44,7 @@ async fn make_state() -> (AppState, AuthLayer, TempDir) {
     );
     let state = AppState {
         cfg_port: 0,
+        rauthy_port: None,
 
         db: client,
         default_user_id: user_id,
@@ -56,7 +58,6 @@ async fn make_state() -> (AppState, AuthLayer, TempDir) {
         api_key_pepper: b"test_pepper".to_vec(),
         ws_bus: BroadcastBus::new(),
         config: OfmConfig::default(),
-        access_tokens: Arc::new(Mutex::new(HashMap::new())),
     };
     (state, auth_layer, tmp)
 }
@@ -84,6 +85,26 @@ async fn test_redirect_root_to_webapp() {
         resp.headers().get("location").unwrap().to_str().unwrap(),
         "/webapp"
     );
+}
+
+#[tokio::test]
+async fn test_proxy_router_not_mounted_without_rauthy() {
+    let (state, auth_layer, _tmp) = make_state().await;
+    let app = server::router(state, auth_layer);
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let addr = listener.local_addr().unwrap();
+
+    tokio::spawn(async move {
+        axum::serve(listener, app).await.unwrap();
+    });
+
+    let url = format!("http://{}/auth/v1/health", addr);
+    let client = reqwest::Client::new();
+    let resp = client.get(&url).send().await.unwrap();
+
+    // With `rauthy_port: None` the `/auth` nest is not mounted, so requests
+    // to it must 404 rather than being proxied anywhere.
+    assert_eq!(resp.status(), 404);
 }
 
 #[tokio::test]
@@ -312,6 +333,7 @@ async fn make_state_with_webapp_auth() -> (AppState, AuthLayer, TempDir) {
         db: client.clone(),
         jwks_cache: Arc::new(tokio::sync::RwLock::new(None)),
         issuer_url: None,
+        jwks_refresh_url: None,
         client_id: None,
         pepper: b"test".to_vec(),
         cookie_key: cookie::Key::generate(),
@@ -319,6 +341,7 @@ async fn make_state_with_webapp_auth() -> (AppState, AuthLayer, TempDir) {
     };
     let state = AppState {
         cfg_port: 0,
+        rauthy_port: None,
 
         db: client,
         default_user_id: user_id,
@@ -332,7 +355,6 @@ async fn make_state_with_webapp_auth() -> (AppState, AuthLayer, TempDir) {
         api_key_pepper: b"test_pepper".to_vec(),
         ws_bus: BroadcastBus::new(),
         config: OfmConfig::default(),
-        access_tokens: Arc::new(Mutex::new(HashMap::new())),
     };
     (state, auth_layer, tmp)
 }
@@ -371,6 +393,7 @@ async fn test_callback_skips_onboarding_when_completed() {
     let key = cookie::Key::generate();
     let state = AppState {
         cfg_port: 0,
+        rauthy_port: None,
         cookie_key: key.clone(),
         ..state
     };
@@ -423,6 +446,7 @@ async fn test_callback_routes_to_onboarding_when_not_completed() {
     let key = cookie::Key::generate();
     let state = AppState {
         cfg_port: 0,
+        rauthy_port: None,
         cookie_key: key.clone(),
         ..state
     };
@@ -475,6 +499,7 @@ async fn test_webapp_protected_route_allows_with_valid_session() {
     let key = cookie::Key::generate();
     let state = AppState {
         cfg_port: 0,
+        rauthy_port: None,
 
         cookie_key: key.clone(),
         ..state
@@ -620,6 +645,14 @@ async fn test_webapp_task_detail_page() {
     assert!(body.contains("No document yet"));
     assert!(body.contains("No conversations yet"));
     assert!(body.contains("agent-run-buttons"));
+    assert!(
+        body.contains("Commits"),
+        "task detail page should render the commits section"
+    );
+    assert!(
+        body.contains("No commits yet."),
+        "task without a worktree should show the commits empty state"
+    );
 }
 
 #[tokio::test]
@@ -637,6 +670,439 @@ async fn test_webapp_task_detail_page_404() {
     let client = reqwest::Client::new();
     let resp = client.get(&url).send().await.unwrap();
     assert_eq!(resp.status(), 404);
+}
+
+async fn git_run(dir: &Path, args: &[&str]) {
+    let out = tokio::process::Command::new("git")
+        .args(args)
+        .current_dir(dir)
+        .output()
+        .await
+        .expect("git spawn failed");
+    assert!(
+        out.status.success(),
+        "git {args:?} failed: {}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+}
+
+async fn git_stdout(dir: &Path, args: &[&str]) -> String {
+    let out = tokio::process::Command::new("git")
+        .args(args)
+        .current_dir(dir)
+        .output()
+        .await
+        .expect("git spawn failed");
+    assert!(
+        out.status.success(),
+        "git {args:?} failed: {}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+    String::from_utf8_lossy(&out.stdout).trim().to_string()
+}
+
+#[tokio::test]
+async fn test_webapp_task_detail_page_shows_commits_from_worktree() {
+    let (state, auth_layer, _tmp) = make_state().await;
+    let user_id = state.default_user_id;
+    let db = state.db.clone();
+    let app = server::router(state, auth_layer);
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let addr = listener.local_addr().unwrap();
+
+    tokio::spawn(async move {
+        axum::serve(listener, app).await.unwrap();
+    });
+
+    // Build a repo with a base commit, a simulated origin default branch, and a
+    // feature worktree holding one commit on top of the base.
+    let repo_dir = TempDir::new().unwrap();
+    let repo_path = repo_dir.path().to_string_lossy().to_string();
+    git_run(repo_dir.path(), &["init", "--initial-branch=main"]).await;
+    git_run(repo_dir.path(), &["config", "user.email", "test@test.com"]).await;
+    git_run(repo_dir.path(), &["config", "user.name", "Test"]).await;
+    tokio::fs::write(repo_dir.path().join("base.txt"), "base\n")
+        .await
+        .unwrap();
+    git_run(repo_dir.path(), &["add", "base.txt"]).await;
+    git_run(repo_dir.path(), &["commit", "-m", "base commit"]).await;
+    git_run(
+        repo_dir.path(),
+        &["update-ref", "refs/remotes/origin/main", "HEAD"],
+    )
+    .await;
+    git_run(
+        repo_dir.path(),
+        &[
+            "symbolic-ref",
+            "refs/remotes/origin/HEAD",
+            "refs/remotes/origin/main",
+        ],
+    )
+    .await;
+
+    let worktree_dir = repo_dir.path().join("wt-task-7");
+    git_run(
+        repo_dir.path(),
+        &[
+            "worktree",
+            "add",
+            "-b",
+            "task/7-demo",
+            worktree_dir.to_string_lossy().as_ref(),
+            "main",
+        ],
+    )
+    .await;
+    tokio::fs::write(worktree_dir.join("feature.txt"), "feature\n")
+        .await
+        .unwrap();
+    git_run(&worktree_dir, &["add", "feature.txt"]).await;
+    git_run(&worktree_dir, &["commit", "-m", "Add feature"]).await;
+    let sha = git_stdout(&worktree_dir, &["rev-parse", "HEAD"]).await;
+    let short_sha = &sha[..8];
+
+    let project_id = int64_id();
+    let task_id = int64_id();
+    let now = chrono::Utc::now().naive_utc().to_string();
+    db.execute(
+        "INSERT INTO projects (id, user_id, name, repo_folder_path, created_at) VALUES ($1, $2, $3, $4, $5)",
+        hiqlite::params!(project_id, user_id.to_string(), "Git Detail", repo_path.clone(), &now),
+    )
+    .await
+    .unwrap();
+    db.execute(
+        "INSERT INTO tasks (id, project_id, user_id, title, status, created_at) VALUES ($1, $2, $3, $4, $5, $6)",
+        hiqlite::params!(task_id, project_id, user_id.to_string(), "Git Task", "pending", &now),
+    )
+    .await
+    .unwrap();
+    db.execute(
+        "INSERT INTO worktrees (id, project_id, task_id, worktree_path, repo_path, branch, created_at) VALUES ($1, $2, $3, $4, $5, $6, $7)",
+        hiqlite::params!(
+            Uuid::new_v4().to_string(),
+            project_id,
+            task_id,
+            worktree_dir.to_string_lossy().to_string(),
+            repo_path,
+            "task/7-demo",
+            &now
+        ),
+    )
+    .await
+    .unwrap();
+
+    let url = format!(
+        "http://{}/webapp/projects/{}/tasks/{}",
+        addr, project_id, task_id
+    );
+    let client = reqwest::Client::new();
+    let resp = client.get(&url).send().await.unwrap();
+
+    assert_eq!(resp.status(), 200);
+    let body = resp.text().await.unwrap();
+    assert!(body.contains("Git Task"));
+    assert!(body.contains("Add feature"), "commit summary should render");
+    assert!(
+        body.contains(short_sha),
+        "commit short oid should render in the commits table"
+    );
+    assert!(
+        body.contains(&format!(
+            "/webapp/projects/{}/tasks/{}/commits/{}",
+            project_id, task_id, short_sha
+        )),
+        "commit row should link to the commit detail page"
+    );
+    assert!(
+        !body.contains("No commits yet."),
+        "commit list should be populated"
+    );
+}
+
+#[tokio::test]
+async fn test_webapp_commit_detail_page() {
+    let (state, auth_layer, _tmp) = make_state().await;
+    let user_id = state.default_user_id;
+    let db = state.db.clone();
+    let app = server::router(state, auth_layer);
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let addr = listener.local_addr().unwrap();
+
+    tokio::spawn(async move {
+        axum::serve(listener, app).await.unwrap();
+    });
+
+    let repo_dir = TempDir::new().unwrap();
+    let repo_path = repo_dir.path().to_string_lossy().to_string();
+    git_run(repo_dir.path(), &["init", "--initial-branch=main"]).await;
+    git_run(repo_dir.path(), &["config", "user.email", "test@test.com"]).await;
+    git_run(repo_dir.path(), &["config", "user.name", "Test"]).await;
+    tokio::fs::write(repo_dir.path().join("a.txt"), "one\n")
+        .await
+        .unwrap();
+    git_run(repo_dir.path(), &["add", "a.txt"]).await;
+    git_run(repo_dir.path(), &["commit", "-m", "base"]).await;
+    git_run(
+        repo_dir.path(),
+        &["update-ref", "refs/remotes/origin/main", "HEAD"],
+    )
+    .await;
+    git_run(
+        repo_dir.path(),
+        &[
+            "symbolic-ref",
+            "refs/remotes/origin/HEAD",
+            "refs/remotes/origin/main",
+        ],
+    )
+    .await;
+
+    let worktree_dir = repo_dir.path().join("wt-task-8");
+    git_run(
+        repo_dir.path(),
+        &[
+            "worktree",
+            "add",
+            "-b",
+            "task/8-demo",
+            worktree_dir.to_string_lossy().as_ref(),
+            "main",
+        ],
+    )
+    .await;
+    tokio::fs::write(worktree_dir.join("a.txt"), "one\ntwo\n")
+        .await
+        .unwrap();
+    git_run(&worktree_dir, &["add", "a.txt"]).await;
+    git_run(&worktree_dir, &["commit", "-m", "add second line"]).await;
+    let sha = git_stdout(&worktree_dir, &["rev-parse", "HEAD"]).await;
+    let short_sha = &sha[..8];
+
+    let project_id = int64_id();
+    let task_id = int64_id();
+    let now = chrono::Utc::now().naive_utc().to_string();
+    db.execute(
+        "INSERT INTO projects (id, user_id, name, repo_folder_path, created_at) VALUES ($1, $2, $3, $4, $5)",
+        hiqlite::params!(project_id, user_id.to_string(), "Diff Detail", repo_path.clone(), &now),
+    )
+    .await
+    .unwrap();
+    db.execute(
+        "INSERT INTO tasks (id, project_id, user_id, title, status, created_at) VALUES ($1, $2, $3, $4, $5, $6)",
+        hiqlite::params!(task_id, project_id, user_id.to_string(), "Diff Task", "pending", &now),
+    )
+    .await
+    .unwrap();
+    db.execute(
+        "INSERT INTO worktrees (id, project_id, task_id, worktree_path, repo_path, branch, created_at) VALUES ($1, $2, $3, $4, $5, $6, $7)",
+        hiqlite::params!(
+            Uuid::new_v4().to_string(),
+            project_id,
+            task_id,
+            worktree_dir.to_string_lossy().to_string(),
+            repo_path,
+            "task/8-demo",
+            &now
+        ),
+    )
+    .await
+    .unwrap();
+
+    let url = format!(
+        "http://{}/webapp/projects/{}/tasks/{}/commits/{}",
+        addr, project_id, task_id, short_sha
+    );
+    let client = reqwest::Client::new();
+    let resp = client.get(&url).send().await.unwrap();
+
+    assert_eq!(resp.status(), 200);
+    let body = resp.text().await.unwrap();
+    assert!(
+        body.contains("add second line"),
+        "commit summary should render"
+    );
+    assert!(body.contains("a.txt"), "changed file path should render");
+    assert!(body.contains("diff-grid"), "two-column diff should render");
+    assert!(body.contains("one\n"), "context line should render");
+    assert!(body.contains("two\n"), "inserted line should render");
+}
+
+#[tokio::test]
+async fn test_webapp_commit_detail_page_bad_oid_renders_not_found() {
+    let (state, auth_layer, _tmp) = make_state().await;
+    let user_id = state.default_user_id;
+    let db = state.db.clone();
+    let app = server::router(state, auth_layer);
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let addr = listener.local_addr().unwrap();
+
+    tokio::spawn(async move {
+        axum::serve(listener, app).await.unwrap();
+    });
+
+    let project_id = int64_id();
+    let task_id = int64_id();
+    let now = chrono::Utc::now().naive_utc().to_string();
+    db.execute(
+        "INSERT INTO projects (id, user_id, name, repo_folder_path, created_at) VALUES ($1, $2, $3, $4, $5)",
+        hiqlite::params!(project_id, user_id.to_string(), "No Commit", "/tmp/test", &now),
+    )
+    .await
+    .unwrap();
+    db.execute(
+        "INSERT INTO tasks (id, project_id, user_id, title, status, created_at) VALUES ($1, $2, $3, $4, $5, $6)",
+        hiqlite::params!(task_id, project_id, user_id.to_string(), "No Commit Task", "pending", &now),
+    )
+    .await
+    .unwrap();
+
+    let url = format!(
+        "http://{}/webapp/projects/{}/tasks/{}/commits/{}",
+        addr, project_id, task_id, "deadbeef"
+    );
+    let client = reqwest::Client::new();
+    let resp = client.get(&url).send().await.unwrap();
+
+    assert_eq!(resp.status(), 200);
+    let body = resp.text().await.unwrap();
+    assert!(
+        body.contains("Commit not found."),
+        "a bad oid should render the not-found empty state, not error"
+    );
+}
+
+#[tokio::test]
+async fn test_webapp_cross_user_task_access_returns_404() {
+    let (state, auth_layer, _tmp) = make_state().await;
+    let attacker_id = state.default_user_id;
+    let db = state.db.clone();
+    let app = server::router(state, auth_layer);
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let addr = listener.local_addr().unwrap();
+
+    tokio::spawn(async move {
+        axum::serve(listener, app).await.unwrap();
+    });
+
+    let repo_dir = TempDir::new().unwrap();
+    let repo_path = repo_dir.path().to_string_lossy().to_string();
+    git_run(repo_dir.path(), &["init", "--initial-branch=main"]).await;
+    git_run(repo_dir.path(), &["config", "user.email", "test@test.com"]).await;
+    git_run(repo_dir.path(), &["config", "user.name", "Test"]).await;
+    tokio::fs::write(repo_dir.path().join("secret.txt"), "secret\n")
+        .await
+        .unwrap();
+    git_run(repo_dir.path(), &["add", "secret.txt"]).await;
+    git_run(repo_dir.path(), &["commit", "-m", "base"]).await;
+    git_run(
+        repo_dir.path(),
+        &["update-ref", "refs/remotes/origin/main", "HEAD"],
+    )
+    .await;
+    git_run(
+        repo_dir.path(),
+        &[
+            "symbolic-ref",
+            "refs/remotes/origin/HEAD",
+            "refs/remotes/origin/main",
+        ],
+    )
+    .await;
+
+    let worktree_dir = repo_dir.path().join("wt-task-9");
+    git_run(
+        repo_dir.path(),
+        &[
+            "worktree",
+            "add",
+            "-b",
+            "task/9-demo",
+            worktree_dir.to_string_lossy().as_ref(),
+            "main",
+        ],
+    )
+    .await;
+    tokio::fs::write(worktree_dir.join("secret.txt"), "secret\nhidden\n")
+        .await
+        .unwrap();
+    git_run(&worktree_dir, &["add", "secret.txt"]).await;
+    git_run(&worktree_dir, &["commit", "-m", "leak me"]).await;
+    let sha = git_stdout(&worktree_dir, &["rev-parse", "HEAD"]).await;
+    let short_sha = &sha[..8];
+
+    let attacker_project_id = int64_id();
+    let victim_project_id = int64_id();
+    let victim_task_id = int64_id();
+    let victim_user_id = Uuid::new_v4();
+    let now = chrono::Utc::now().naive_utc().to_string();
+
+    // The victim owns a project + task with a worktree holding commits.
+    let now_str = chrono::Utc::now().format("%Y-%m-%d %H:%M:%S").to_string();
+    db.execute(
+        "INSERT INTO users (id, username, is_admin, is_active, created_at, has_completed_onboarding, is_technical) VALUES ($1, $2, $3, $4, $5, 1, 0)",
+        hiqlite::params!(victim_user_id.to_string(), "victim-user", 0, 1, now_str),
+    )
+    .await
+    .unwrap();
+
+    // The authenticated user owns a project, so the project ownership check
+    // passes, but the task belongs to a different user/project.
+    db.execute(
+        "INSERT INTO projects (id, user_id, name, repo_folder_path, created_at) VALUES ($1, $2, $3, $4, $5)",
+        hiqlite::params!(attacker_project_id, attacker_id.to_string(), "Attacker Proj", "/tmp/attacker", &now),
+    )
+    .await
+    .unwrap();
+    db.execute(
+        "INSERT INTO projects (id, user_id, name, repo_folder_path, created_at) VALUES ($1, $2, $3, $4, $5)",
+        hiqlite::params!(victim_project_id, victim_user_id.to_string(), "Victim Proj", repo_path.clone(), &now),
+    )
+    .await
+    .unwrap();
+    db.execute(
+        "INSERT INTO tasks (id, project_id, user_id, title, status, created_at) VALUES ($1, $2, $3, $4, $5, $6)",
+        hiqlite::params!(victim_task_id, victim_project_id, victim_user_id.to_string(), "Victim Task", "pending", &now),
+    )
+    .await
+    .unwrap();
+    db.execute(
+        "INSERT INTO worktrees (id, project_id, task_id, worktree_path, repo_path, branch, created_at) VALUES ($1, $2, $3, $4, $5, $6, $7)",
+        hiqlite::params!(
+            Uuid::new_v4().to_string(),
+            victim_project_id,
+            victim_task_id,
+            worktree_dir.to_string_lossy().to_string(),
+            repo_path,
+            "task/9-demo",
+            &now
+        ),
+    )
+    .await
+    .unwrap();
+
+    let client = reqwest::Client::new();
+    let task_detail_url = format!(
+        "http://{}/webapp/projects/{}/tasks/{}",
+        addr, attacker_project_id, victim_task_id
+    );
+    let resp = client.get(&task_detail_url).send().await.unwrap();
+    assert_eq!(
+        resp.status(),
+        404,
+        "another user's task must not render on the task detail page"
+    );
+
+    let commit_detail_url = format!(
+        "http://{}/webapp/projects/{}/tasks/{}/commits/{}",
+        addr, attacker_project_id, victim_task_id, short_sha
+    );
+    let resp = client.get(&commit_detail_url).send().await.unwrap();
+    assert_eq!(
+        resp.status(),
+        404,
+        "another user's commit diff must not render"
+    );
 }
 
 #[tokio::test]
@@ -801,6 +1267,7 @@ async fn test_webapp_protected_route_redirects_with_expired_session() {
     let key = cookie::Key::generate();
     let state = AppState {
         cfg_port: 0,
+        rauthy_port: None,
 
         cookie_key: key.clone(),
         ..state

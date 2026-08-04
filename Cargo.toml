@@ -32,11 +32,6 @@ chrono = { version = "0.4", features = ["serde"] }
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 tower-http = { version = "0.7", features = ["fs"] }
-
-# CLI
-clap = { version = "4", features = ["derive"] }
-
-# HTTP client for CLI agent subcommand
 reqwest = { version = "0.13.4", default-features = false, features = [
   "json",
   "rustls",
@@ -74,6 +69,9 @@ leptos_styling = { version = "0.3", features = ["ssr"] }
 # Rauthy lifecycle & reverse proxy
 bytes = "1"
 http-body-util = "0.1"
+hyper = { version = "1", features = ["client", "http1"] }
+hyper-util = { version = "0.1", features = ["client-legacy", "http1", "tokio"] }
+ipnet = "2"
 
 # Precise process-group teardown of spawned subprocesses (kill(-pgid))
 libc = "0.2"
@@ -87,6 +85,8 @@ html-escape = "0.2"
 
 # String similarity for echo detection
 strsim = "0.11"
+gix = "0.86.0"
+similar = "3.1.1"
 
 [dev-dependencies]
 percent-encoding = "2"

@@ -6,7 +6,6 @@ use std::os::unix::fs::PermissionsExt;
 mod agents;
 mod archive;
 mod auth;
-mod cli;
 mod config;
 mod db;
 mod logging;
@@ -16,12 +15,10 @@ mod orchestration;
 mod providers;
 mod rauthy;
 
-use clap::Parser;
 use server::ws::bus::BroadcastBus;
 use std::collections::HashMap;
 use std::sync::Arc;
 use tokio::sync::Mutex;
-use uuid::Uuid;
 
 mod server;
 mod services;
@@ -70,12 +67,6 @@ fn parse_oidc_discovery(
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
-    let args = cli::Cli::parse();
-    if let Some(cmd) = args.command {
-        cli::agent::handle_command(cmd).await?;
-        return Ok(());
-    }
-
     let cfg = config::OfmConfig::load();
 
     let logging_config = cfg
@@ -168,7 +159,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     let mut _rauthy_instance: Option<rauthy::RauthyInstance> = None;
 
-    let (auth_layer, oidc_provider) = if cfg.rauthy_enabled {
+    let (auth_layer, oidc_provider, rauthy_port) = if cfg.rauthy_enabled {
         let rp = if cfg.rauthy_port > 0 {
             cfg.rauthy_port
         } else {
@@ -176,23 +167,53 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         };
 
         tracing::info!("Starting embedded rauthy on port {}", rp);
-        let instance = rauthy::start_rauthy(&cfg.footprint, &cfg.hostname, rp, cfg.port).await?;
+        let (instance, rebootstrapped) = rauthy::start_rauthy(
+            &cfg.footprint,
+            &cfg.pub_url,
+            rp,
+            cfg.rauthy_proxy_mode,
+            cfg.rauthy_trusted_proxies.clone(),
+        )
+        .await?;
         // Assign before any fallible step below (health check, OIDC
         // discovery, JWKS fetch) so every failure path triggers `Drop` →
         // `docker rm -f <container>` rather than leaking the container.
+        let container_name = instance.container_name().to_string();
         _rauthy_instance = Some(instance);
-        let container_name = _rauthy_instance
-            .as_ref()
-            .expect("just assigned")
-            .container_name()
-            .to_string();
         rauthy::wait_until_healthy(rp, &container_name).await?;
         tracing::info!("rauthy is healthy");
 
-        let direct_base = format!("http://{}:{}", cfg.hostname, rp);
-        let discovery_url = format!("{}/.well-known/openid-configuration", direct_base);
+        // A re-bootstrap wiped rauthy's data volume, which recreates the admin
+        // identity with a fresh OIDC subject while OFM's user rows still hold
+        // the old ones. Record those now-invalid subjects so the next login can
+        // re-link exactly those rows to their new subjects (see
+        // `find_or_create_user`); without a re-bootstrap no re-link is ever
+        // authorized.
+        if rebootstrapped {
+            let subjects = db::oidc_subjects(&client).await?;
+            if !subjects.is_empty() {
+                rauthy::record_relink_subjects(&cfg.footprint, &subjects)?;
+            }
+        }
+
+        // Server-side discovery/JWKS stays direct at loopback — it does not go
+        // through the `/auth` proxy. Rauthy's discovery is used for the *path
+        // layout* of its endpoints, but the browser-facing origin always comes
+        // from OFM's configured `pub_url`: rauthy builds its advertised URLs
+        // from its own `PUB_URL` + `LISTEN_SCHEME`, and in default mode it
+        // always emits `http://` URLs (even for an `https://` pub_url) and
+        // would leak a mis-set `PUB_URL` (e.g. a leftover `127.0.0.1`) into the
+        // authorization URL handed to the browser. Re-hosting on `pub_url`
+        // guarantees the browser is always sent to the configured public origin
+        // with the configured scheme.
+        let direct_base = format!("http://127.0.0.1:{rp}");
+        let discovery_url = format!("{}/auth/v1/.well-known/openid-configuration", direct_base);
         let disc: serde_json::Value = reqwest::get(&discovery_url).await?.json().await?;
         let issuer = disc["issuer"].as_str().ok_or("missing issuer")?.to_string();
+        let jwks_uri = disc["jwks_uri"]
+            .as_str()
+            .ok_or("missing jwks_uri")?
+            .to_string();
         let (
             authorization_endpoint,
             token_endpoint,
@@ -200,19 +221,27 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             end_session_endpoint,
             userinfo_endpoint,
         ) = parse_oidc_discovery(&disc)?;
-        let redirect_uri = format!("http://{}:{}/api/auth/callback", cfg.hostname, cfg.port);
+        let public_base = cfg.pub_url.trim_end_matches('/').to_string();
+        let redirect_uri = format!("{public_base}/api/auth/callback");
         let client_id = cfg.oidc_client_id.clone().unwrap_or_else(|| "ofm".into());
 
-        let jwks_disc_url = format!(
-            "http://{}:{}/auth/v1/.well-known/openid-configuration",
-            cfg.hostname, rp
+        tracing::info!(
+            "rauthy OIDC: pub_url={public_base}, rauthy PUB_URL={}, advertised issuer={issuer}; \
+             browser authorization URL: {}",
+            rauthy::pub_url_host_port(&cfg.pub_url),
+            rauthy::rehost_endpoint(&authorization_endpoint, &public_base),
         );
-        let jwks_disc: serde_json::Value = reqwest::get(&jwks_disc_url).await?.json().await?;
-        let jwks_uri = jwks_disc["jwks_uri"]
-            .as_str()
-            .ok_or("missing jwks_uri")?
-            .to_string();
-        let jwks_resp: serde_json::Value = reqwest::get(&jwks_uri).await?.json().await?;
+
+        // The advertised `jwks_uri` is on the pub_url origin (the browser
+        // reaches it through the `/auth` proxy). OFM fetches the keys
+        // directly at loopback — the proxy is not up yet at this point — so
+        // re-host the advertised path on the direct base.
+        let jwks_uri_path = url::Url::parse(&jwks_uri)
+            .ok()
+            .map(|u| u.path().to_string())
+            .unwrap_or_else(|| "/auth/v1/oidc/certs".to_string());
+        let direct_jwks_url = format!("{direct_base}{jwks_uri_path}");
+        let jwks_resp: serde_json::Value = reqwest::get(&direct_jwks_url).await?.json().await?;
         let keys: std::collections::HashMap<String, jsonwebtoken::jwk::Jwk> = jwks_resp["keys"]
             .as_array()
             .ok_or("missing keys array")?
@@ -228,26 +257,38 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             issuer: issuer.clone(),
             client_id: client_id.clone(),
         };
+        // Refresh signing keys directly at loopback (never through the public
+        // origin / external reverse proxy); token verification still uses the
+        // advertised public issuer, which is what rauthy signs id_tokens with.
         let auth_layer_rauthy = auth::AuthLayer::from_cache(
             jwks_cache,
+            Some(&direct_jwks_url),
             client.clone(),
             api_key_pepper.clone(),
             cookie_key.clone(),
             default_user_id,
         );
         let oidc_endpoints = server::state::OidcEndpoints {
-            authorization_endpoint,
-            token_endpoint,
-            end_session_endpoint,
-            revocation_endpoint,
-            userinfo_endpoint,
+            // Browser-facing: always on the configured public origin (scheme +
+            // host + port). OFM's own server-side calls below go direct at
+            // loopback, so they never depend on the public origin or the
+            // external reverse proxy being reachable.
+            authorization_endpoint: rauthy::rehost_endpoint(&authorization_endpoint, &public_base),
+            token_endpoint: rauthy::rehost_endpoint(&token_endpoint, &direct_base),
+            end_session_endpoint: end_session_endpoint
+                .as_deref()
+                .map(|u| rauthy::rehost_endpoint(u, &public_base)),
+            revocation_endpoint: revocation_endpoint
+                .as_deref()
+                .map(|u| rauthy::rehost_endpoint(u, &direct_base)),
+            userinfo_endpoint: rauthy::rehost_endpoint(&userinfo_endpoint, &direct_base),
             client_id,
             client_secret: cfg.oidc_client_secret.clone(),
             redirect_uri,
             jwks_cache: Some(auth_layer_rauthy.jwks_cache.clone()),
             jwks_issuer: auth_layer_rauthy.issuer_url.clone(),
         };
-        (auth_layer_rauthy, Some(oidc_endpoints))
+        (auth_layer_rauthy, Some(oidc_endpoints), Some(rp))
     } else {
         let auth_layer = auth::AuthLayer::new(
             &cfg,
@@ -302,10 +343,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             jwks_issuer: auth_layer.issuer_url.clone(),
         });
 
-        (auth_layer, oidc_provider)
+        (auth_layer, oidc_provider, None)
     };
-
-    let access_tokens: Arc<Mutex<HashMap<Uuid, String>>> = Arc::new(Mutex::new(HashMap::new()));
 
     let state = server::state::AppState {
         db: client.clone(),
@@ -320,9 +359,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         cookie_key,
         api_key_pepper,
         cfg_port: cfg.port,
+        rauthy_port,
         ws_bus: BroadcastBus::new(),
         config: cfg.clone(),
-        access_tokens,
     };
     tracing::info!("Auth middleware: enabled");
 
@@ -330,7 +369,6 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     if let Some(ref oidc) = state.oidc_provider {
         let db = state.db.clone();
         let oidc = oidc.clone();
-        let access_tokens = state.access_tokens.clone();
         tokio::spawn(async move {
             let mut rows = match db
                 .query_raw("SELECT * FROM sessions", hiqlite::params!())
@@ -350,16 +388,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             for session in sessions {
                 let db = db.clone();
                 let oidc = oidc.clone();
-                let access_tokens = access_tokens.clone();
-                let user_id = session.user_id;
                 tokio::spawn(async move {
                     match crate::services::auth::refresh_access_token(&db, &oidc, session.id).await
                     {
-                        Ok(token) => {
-                            {
-                                let mut cache = access_tokens.lock().await;
-                                cache.insert(user_id, token);
-                            }
+                        Ok(_token) => {
                             tracing::info!("Startup refresh succeeded for session {}", session.id)
                         }
                         Err(e) => {
@@ -392,7 +424,12 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     let listener = tokio::net::TcpListener::bind(&addr).await?;
     let server_handle = tokio::spawn(async move {
-        if let Err(e) = axum::serve(listener, app).await {
+        if let Err(e) = axum::serve(
+            listener,
+            app.into_make_service_with_connect_info::<std::net::SocketAddr>(),
+        )
+        .await
+        {
             tracing::error!("Server error: {e}");
         }
     });

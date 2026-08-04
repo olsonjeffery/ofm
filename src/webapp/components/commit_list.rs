@@ -1,0 +1,230 @@
+use leptos::prelude::*;
+
+use crate::services::commits::CommitSummary;
+
+#[derive(Clone)]
+pub struct CommitListData {
+    pub project_id: i64,
+    pub task_id: i64,
+    pub commits: Vec<CommitSummary>,
+}
+
+#[component]
+pub fn CommitList(data: CommitListData) -> impl IntoView {
+    let commit_count = data.commits.len();
+    view! {
+        <div class="box commit-table">
+            <div class="level is-mobile" style="margin-bottom:0.5rem">
+                <div class="level-left">
+                    <h2 class="title is-4">"Commits"</h2>
+                </div>
+                <div class="level-right">
+                    <span class="tag is-grey is-light ml-1">{commit_count}</span>
+                </div>
+            </div>
+            {if data.commits.is_empty() {
+                view! {
+                    <p class="has-text-grey commit-empty">"No commits yet."</p>
+                }.into_any()
+            } else {
+                view! {
+                    <table class="table is-fullwidth is-hoverable is-narrow commit-table">
+                        <thead>
+                            <tr>
+                                <th class="commit-time-col" title="Oldest to newest (time flows downward)">
+                                    <span class="icon is-small"><i class="mdi mdi-arrow-down"></i></span>
+                                </th>
+                                <th>"OID"</th>
+                                <th>"Message"</th>
+                                <th>"Author"</th>
+                                <th>"Date"</th>
+                                <th>"Files"</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {data.commits.iter().map(move |commit| {
+                                let href = format!(
+                                    "/webapp/projects/{}/tasks/{}/commits/{}",
+                                    data.project_id, data.task_id, commit.short_oid
+                                );
+                                let message_href = href.clone();
+                                let short_oid = commit.short_oid.clone();
+                                let date = commit.authored_time.format("%Y-%m-%d %H:%M").to_string();
+                                let author = commit.author_name.clone();
+                                view! {
+                                    <tr>
+                                        <td class="commit-time-col"><span class="commit-time-dot"></span></td>
+                                        <td class="commit-oid">
+                                            <a href=href title={commit.oid.to_string()}>{commit.short_oid.clone()}</a>
+                                            <button type="button" class="button is-small commit-copy-btn"
+                                                    data-commit-oid=short_oid title="Copy commit hash">
+                                                <span class="icon is-small"><i class="mdi mdi-content-copy"></i></span>
+                                            </button>
+                                        </td>
+                                        <td class="commit-message"><a href=message_href>{commit.summary.clone()}</a></td>
+                                        <td>{author}</td>
+                                        <td class="commit-date">{date}</td>
+                                        <td class="has-text-right">{commit.files_changed}</td>
+                                    </tr>
+                                }
+                            }).collect::<Vec<_>>()}
+                        </tbody>
+                    </table>
+                }.into_any()
+            }}
+        </div>
+        <script>
+            {r#"document.addEventListener('DOMContentLoaded',function(){
+                var buttons=document.querySelectorAll('.commit-copy-btn');
+                buttons.forEach(function(btn){
+                    btn.addEventListener('click',function(){
+                        var oid=btn.getAttribute('data-commit-oid');
+                        if(!oid)return;
+                        navigator.clipboard.writeText(oid).then(function(){
+                            var icon=btn.querySelector('i');
+                            if(icon){icon.classList.remove('mdi-content-copy');icon.classList.add('mdi-check');}
+                            setTimeout(function(){
+                                if(icon){icon.classList.remove('mdi-check');icon.classList.add('mdi-content-copy');}
+                            },1500);
+                        }).catch(function(){
+                            alert('Failed to copy commit hash.');
+                        });
+                    });
+                });
+            });"#}
+        </script>
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use chrono::{DateTime, NaiveDateTime, Utc};
+    use gix::ObjectId;
+
+    fn make_commit(i: i64, summary: &str) -> CommitSummary {
+        let oid = ObjectId::from_hex(b"deadbeefdeadbeefdeadbeefdeadbeefdeadbeef").unwrap();
+        CommitSummary {
+            oid,
+            short_oid: "deadbeef".into(),
+            summary: summary.into(),
+            author_name: format!("Author {i}"),
+            author_email: format!("author{i}@example.com"),
+            authored_time: DateTime::<Utc>::from_naive_utc_and_offset(
+                NaiveDateTime::parse_from_str("2024-06-01 12:00:00", "%Y-%m-%d %H:%M:%S").unwrap(),
+                Utc,
+            ),
+            files_changed: 3,
+        }
+    }
+
+    #[test]
+    fn commit_list_empty_state() {
+        let data = CommitListData {
+            project_id: 1,
+            task_id: 2,
+            commits: vec![],
+        };
+        let html = leptos::view! { <CommitList data /> }.to_html();
+        assert!(html.contains("Commits"));
+        assert!(html.contains("No commits yet."));
+        assert!(!html.contains(r#"class="commit-oid""#));
+    }
+
+    #[test]
+    fn commit_list_renders_rows_with_links() {
+        let data = CommitListData {
+            project_id: 1,
+            task_id: 2,
+            commits: vec![make_commit(1, "Implement feature")],
+        };
+        let html = leptos::view! { <CommitList data /> }.to_html();
+        assert!(html.contains("Implement feature"));
+        assert!(html.contains("Author 1"));
+        assert!(html.contains("2024-06-01"));
+        assert!(html.contains("deadbeef"));
+        assert!(html.contains("3"));
+        assert!(
+            html.contains(r#"href="/webapp/projects/1/tasks/2/commits/deadbeef""#),
+            "row should link to the commit page"
+        );
+    }
+
+    #[test]
+    fn commit_list_renders_copy_button_with_short_oid() {
+        let data = CommitListData {
+            project_id: 1,
+            task_id: 2,
+            commits: vec![make_commit(1, "Implement feature")],
+        };
+        let html = leptos::view! { <CommitList data /> }.to_html();
+        assert!(
+            html.contains("commit-copy-btn"),
+            "each commit row should render a copy button"
+        );
+        assert!(
+            html.contains(r#"data-commit-oid="deadbeef""#),
+            "copy button should carry the 8-char commit hash to copy"
+        );
+        assert!(
+            html.contains("mdi-content-copy"),
+            "copy button should use the copy icon"
+        );
+    }
+
+    #[test]
+    fn commit_list_renders_oldest_first_rows() {
+        let first = make_commit(1, "First commit");
+        let second = make_commit(2, "Second commit");
+        let data = CommitListData {
+            project_id: 1,
+            task_id: 2,
+            commits: vec![first, second],
+        };
+        let html = leptos::view! { <CommitList data /> }.to_html();
+        let first_pos = html.find("First commit").unwrap();
+        let second_pos = html.find("Second commit").unwrap();
+        assert!(
+            first_pos < second_pos,
+            "oldest commit should render above the newest"
+        );
+    }
+
+    #[test]
+    fn commit_list_empty_state_no_table() {
+        let data = CommitListData {
+            project_id: 1,
+            task_id: 2,
+            commits: vec![],
+        };
+        let html = leptos::view! { <CommitList data /> }.to_html();
+        assert!(!html.contains("<table"));
+        assert!(!html.contains("<tbody>"));
+    }
+
+    #[test]
+    fn commit_list_renders_arrow_of_time_indicator() {
+        let data = CommitListData {
+            project_id: 1,
+            task_id: 2,
+            commits: vec![
+                make_commit(1, "First commit"),
+                make_commit(2, "Second commit"),
+            ],
+        };
+        let html = leptos::view! { <CommitList data /> }.to_html();
+        assert!(
+            html.contains("commit-time-col"),
+            "timeline gutter column should render"
+        );
+        assert!(
+            html.contains("mdi-arrow-down"),
+            "downward arrow should indicate time flows downward"
+        );
+        assert_eq!(
+            html.matches("commit-time-dot").count(),
+            2,
+            "each commit row should have a timeline dot"
+        );
+    }
+}

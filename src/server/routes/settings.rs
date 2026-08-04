@@ -9,7 +9,6 @@ use uuid::Uuid;
 
 use crate::auth::AuthUser;
 use crate::db::schema::UserModelConfig;
-use crate::providers::RLML_MINI_SENTINEL_ID;
 use crate::server::state::AppState;
 use crate::services::export_import;
 use crate::services::settings::{self, AgentModelSetting};
@@ -66,7 +65,7 @@ async fn list_models_handler(
     State(state): State<AppState>,
     auth: AuthUser,
 ) -> Result<Json<Vec<UserModelConfig>>, (StatusCode, Json<ErrorResponse>)> {
-    let mut configs = settings::list_model_configs(&state.db, auth.user_id)
+    let configs = settings::list_model_configs(&state.db, auth.user_id)
         .await
         .map_err(|e| {
             (
@@ -74,22 +73,6 @@ async fn list_models_handler(
                 Json(ErrorResponse::new(e.to_string())),
             )
         })?;
-
-    // Virtual built-in entry for the on-demand ramalama provider. Only
-    // present when the feature flag is enabled; identified by the sentinel
-    // UUID so server-side code skips file writes and the frontend filters it
-    // out of the Model Configurations tab.
-    if state.config.ramalama_phi4_mini_enabled {
-        configs.push(UserModelConfig {
-            id: Uuid::parse_str(RLML_MINI_SENTINEL_ID).expect("valid sentinel UUID"),
-            user_id: auth.user_id,
-            name: "ramalama-mini".into(),
-            config_body: "\"phi4-mini\"".into(),
-            harness: "ramalama".into(),
-            created_at: chrono::Utc::now().naive_utc(),
-            updated_at: chrono::Utc::now().naive_utc(),
-        });
-    }
 
     Ok(Json(configs))
 }

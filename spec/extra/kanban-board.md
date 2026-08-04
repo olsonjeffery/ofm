@@ -67,6 +67,12 @@ Chat) with a back button at each level.
 | **Task Detail** | `/projects/:projectId/tasks/:taskId` | The task doc (editable markdown), the conversation list, and the **AgentSection** Run buttons. |
 | **Chat** | `/projects/:projectId/tasks/:taskId/chat/:conversationId` | One streaming conversation — manual chat or a resumed agent run. |
 
+The Rust webapp cards (`src/webapp/components/project_card.rs` for the Dashboard
+project-card grid, `src/webapp/components/task_card.rs` for the Board kanban
+task cards) render a `#<id>` number pill — the SQLite row id (`projects.id` /
+`tasks.id`) — in the upper-right of each `card-header`, and clamp the card title
+to 2 lines with an ellipsis on the overflow row.
+
 **All ids in the URL are SQLite row ids.** `:projectId`, `:taskId`,
 `:conversationId` map straight to `projects.id` / `tasks.id` /
 `conversations.id`. A shared link is therefore directly queryable against the
@@ -173,8 +179,7 @@ The button surface only needs to handle the loop's documented responses:
   credentials for this user; open the connect-provider modal.
 
 Each agent's button derives its visual state — Run / Running / Completed /
-Failed — by reading the agent-run's `status` and the relevant **task flags**
-(`workflow_complete`, `pr_agent_complete`, …), never by interpreting prose. This
+Failed — by reading the agent-run's `status`, never by interpreting prose. This
 is the same DB-driven truth the completion handler uses; the UI is just a second
 reader of those booleans. The little chat-bubble button beside a finished run
 deep-links to that run's conversation so the human can read what it did.

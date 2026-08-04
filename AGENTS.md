@@ -13,9 +13,8 @@
 
 ## Sub-process Lifecycle & Cleanup
 
-`ofm` spawns long-lived subprocesses in three places: `opencode serve` (per-user
-pool, `src/opencode_sdk/`), `ramalama serve` (per-conversation,
-`src/providers/ramalama_provider.rs`), and the rauthy Docker container
+`ofm` spawns long-lived subprocesses in two places: `opencode serve` (per-user
+pool, `src/opencode_sdk/`), and the rauthy Docker container
 (`src/rauthy/`). Rules that keep them from leaking:
 
 - **Every long-lived subprocess is owned by exactly one RAII owner whose
@@ -23,15 +22,7 @@ pool, `src/opencode_sdk/`), `ramalama serve` (per-conversation,
   `std::process::Child`/`tokio::process::Child` do not kill on drop by default.
 - **Spawn children into their own process group** (`process_group(0)`), so a
   Ctrl-C to the ofm process group cannot orphan them, and teardown can target
-  `kill(-pgid)` — covering any grandchildren — precisely. The `ramalama serve`
-  child is the deliberate exception: it is killed via `start_kill()`/`kill()`
-  on its owned handle (see `RamalamaProvider::shutdown()`).
-- **Killing the `ramalama serve` CLI alone orphans its docker/podman
-  container** (the container runs under the engine, not the CLI). The
-  ramalama provider assigns a port-derived name (`ofm-ramalama-<port>`) via
-  `--name` and removes it precisely on teardown: `docker rm -f <name>` with a
-  `ramalama stop <name>` fallback. On `ensure_started()` failure the same
-  cleanup runs so no orphaned container survives a failed start.
+  `kill(-pgid)` — covering any grandchildren — precisely.
 - **Never bulk-kill** with `grep`/`sed`/`killall`/`pkill`. Kill precisely by
   PID, by process group you created, or by named container (`docker rm -f <name>`).
 - **Integration tests reaching the opencode server pool must hold a
@@ -75,13 +66,15 @@ All env vars use the `OFM_` prefix. Key ones:
 |---|---|---|
 | `OFM_PORT` | `3183` | HTTP listen port |
 | `OFM_HOSTNAME` | `127.0.0.1` | HTTP listen hostname |
+| `OFM_PUB_URL` | `http://{connectable_host}:{port}` | Public origin used for all absolute URLs (OIDC redirect, rauthy PUB_URL, redirect URIs). Legacy alias: `OFM_URL` |
 | `OFM_FOOTPRINT` | `~/.ofm` | Per-user data directory (archive, config, DB) |
-| `OFM_RAUTHY_ENABLED` | `false` | Enable local rauthy OIDC provider |
+| `OFM_RAUTHY_ENABLED` | `false` | Enable local rauthy OIDC provider (browser reaches it via OFM's `/auth` proxy) |
 | `OFM_RAUTHY_PORT` | `0` (random) | Port for rauthy instance (0 = random) |
+| `OFM_RAUTHY_PROXY_MODE` | `false` | Run rauthy behind a reverse proxy (rauthy `PROXY_MODE`; hardcodes https issuer — requires HTTPS-served `OFM_PUB_URL`) |
+| `OFM_RAUTHY_TRUSTED_PROXIES` | unset | Newline-separated CIDRs trusted when `OFM_RAUTHY_PROXY_MODE` is true (include the Docker bridge subnet, e.g. `172.17.0.0/16`) |
 | `OFM_OIDC_ISSUER_URL` | unset | OIDC issuer URL for external auth |
 | `OFM_OIDC_CLIENT_ID` | unset | OIDC client ID |
 | `OFM_API_KEY` | unset | API key for machine access |
-| `OFM_RAMALAMA_PHI4_MINI_ENABLED` | `false` | Enable the virtual "ramalama-mini" provider (requires `ramalama` CLI on PATH) |
 
 ## Playwright CLI Setup (one-time, per user)
 
@@ -156,14 +149,18 @@ The `.ofm` directory is gitignored so it won't accidentally be committed.
 > restarting `ofm`) between testing phases, if a reset of `ofm` state is desired,
 > or if the admin password is lost.
 
-## `ramalama` provider testing
-
-To exercise the on-demand "ramalama-mini" provider (Agent Settings dropdown,
-conversation-title generation, end-to-end agent run), the `ramalama` CLI must be
-on `PATH` and the server started with `OFM_RAMALAMA_PHI4_MINI_ENABLED=true` (see
-the env var table above). Without the CLI, agent runs assigned to the
-ramalama-mini config fail gracefully at provider `start()` with a clear log
-message. Verify the CLI is available with `which ramalama`.
+> ⚠️**Changing `OFM_PUB_URL` / `OFM_PORT` on an existing rauthy-enabled
+> footprint**: rauthy re-imports the `ofm` client redirect URIs (which derive
+> from `pub_url`) only on first bootstrap. `ofm` records the bootstrap `pub_url`
+> at `{footprint}/rauthy/pub_url` and, on detecting a change, automatically
+> deletes `{footprint}/rauthy/data` (re-creating the admin account with a fresh
+> OIDC `sub`; its password is printed at startup). The next login still works —
+> `ofm` re-links the existing user row to the new subject by username
+> (`find_or_create_user` in `src/services/auth.rs`) — but you will be logged
+> out once (old rauthy sessions are invalid). Footprints created by older `ofm`
+> versions have no marker — if you change `OFM_PUB_URL`/`OFM_PORT` while
+> upgrading from one, delete `{footprint}/rauthy/data` (or the footprint) once
+> yourself.
 
 ## Unit / Integration Tests
 

@@ -34,6 +34,9 @@ pub fn TaskCard(data: TaskCardData) -> impl IntoView {
         <a href={format!("/webapp/projects/{}/tasks/{}", data.task.project_id, data.task.id)} class="card" style="display:block" data-task-id={data.task.id.to_string()}>
             <div class="card-header">
                 <p class="card-header-title">{data.task.title.clone()}</p>
+                <span class="card-header-icon">
+                    <span class="tag is-light card-number-pill">{format!("#{}", data.task.id)}</span>
+                </span>
             </div>
             <div class="card-content" style="padding:0.5rem">
                 <div class="level is-mobile" style="margin-bottom:0">
@@ -85,12 +88,8 @@ mod tests {
             user_id: Uuid::new_v4(),
             title: "Test Task".into(),
             status: status.into(),
-            workflow_complete: false,
             workflow_blocked: false,
             workflow_run_count: 0,
-            planification_complete: false,
-            pr_agent_complete: false,
-            refinement_complete: false,
             yolo_mode: false,
             created_at: NaiveDateTime::parse_from_str("2024-06-01 12:00:00", "%Y-%m-%d %H:%M:%S")
                 .unwrap(),
@@ -174,5 +173,15 @@ mod tests {
         let data = make_data("pending", vec![AgentType::Planification], None);
         let html = leptos::view! { <TaskCard data /> }.to_html();
         assert!(!html.contains("is-pulse"));
+    }
+
+    #[test]
+    fn test_task_card_header_has_number_pill() {
+        let data = make_data("pending", vec![], None);
+        let html = leptos::view! { <TaskCard data /> }.to_html();
+        assert!(html.contains("card-header-icon"));
+        assert!(html.contains("card-number-pill"));
+        assert!(html.contains("#1"));
+        assert!(html.contains("card-header-title"));
     }
 }

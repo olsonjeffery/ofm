@@ -201,12 +201,8 @@ mod tests {
             user_id: uuid::Uuid::new_v4(),
             title: format!("Task-{}", status),
             status: status.into(),
-            workflow_complete: false,
             workflow_blocked: false,
             workflow_run_count: 0,
-            planification_complete: false,
-            pr_agent_complete: false,
-            refinement_complete: false,
             yolo_mode: false,
             created_at: NaiveDateTime::parse_from_str("2024-06-01 12:00:00", "%Y-%m-%d %H:%M:%S")
                 .unwrap(),

@@ -1,6 +1,5 @@
 pub mod config;
 pub mod opencode_sdk_provider;
-pub mod ramalama_provider;
 pub mod registry;
 pub mod types;
 
@@ -60,14 +59,6 @@ pub struct HarnessConfig {
     pub effort: Option<String>,
     pub scope: ScopeType,
 }
-
-/// Sentinel UUID identifying the virtual "ramalama-mini" model config.
-///
-/// The entry is not stored in `user_model_configs`; it is injected into the
-/// config-list API response at runtime when `ramalama_phi4_mini_enabled` is
-/// set. Server-side code checks for this sentinel to skip file writes, and
-/// the `loadConfigList()` JS filters it out of the Model Configurations tab.
-pub const RLML_MINI_SENTINEL_ID: &str = "00000000-0000-0000-0000-00000000dead";
 
 const RESPONSE_FOLLOWS_TOKEN: &str = "<<RESPONSE FOLLOWS>>";
 

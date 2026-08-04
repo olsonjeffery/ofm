@@ -48,12 +48,8 @@ const MIGRATIONS: &[(&str, &str)] = &[
             user_id TEXT NOT NULL REFERENCES users(id),
             title TEXT NOT NULL,
             status TEXT NOT NULL DEFAULT 'pending',
-            workflow_complete INTEGER NOT NULL DEFAULT 0,
             workflow_blocked INTEGER NOT NULL DEFAULT 0,
             workflow_run_count INTEGER NOT NULL DEFAULT 0,
-            planification_complete INTEGER NOT NULL DEFAULT 0,
-            pr_agent_complete INTEGER NOT NULL DEFAULT 0,
-            refinement_complete INTEGER NOT NULL DEFAULT 0,
             yolo_mode INTEGER NOT NULL DEFAULT 0,
             created_at TEXT NOT NULL DEFAULT ''
         )",
@@ -282,4 +278,24 @@ pub async fn ensure_default_user(client: &Client) -> Result<Uuid, Box<dyn std::e
         )
         .await?;
     Ok(id)
+}
+
+/// All OIDC subjects currently bound to user rows. `main` calls this right
+/// after a rauthy re-bootstrap wipes rauthy's data volume, so the subjects that
+/// are about to be orphaned can be recorded for the auth service's one-shot
+/// re-link authorization.
+pub async fn oidc_subjects(client: &Client) -> Result<Vec<String>, Box<dyn std::error::Error>> {
+    let mut rows = client
+        .query_raw(
+            "SELECT oidc_subject FROM users WHERE oidc_subject IS NOT NULL AND oidc_subject != ''",
+            hiqlite::params!(),
+        )
+        .await?;
+    let mut subjects = Vec::new();
+    for row in rows.iter_mut() {
+        if let Some(sub) = row.get::<Option<String>>("oidc_subject") {
+            subjects.push(sub);
+        }
+    }
+    Ok(subjects)
 }

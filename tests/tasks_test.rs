@@ -58,6 +58,7 @@ async fn setup_app() -> TestApp {
     );
     let state = AppState {
         cfg_port: 0,
+        rauthy_port: None,
 
         db: client.clone(),
         default_user_id: user_id,
@@ -71,7 +72,6 @@ async fn setup_app() -> TestApp {
         api_key_pepper: b"test_pepper".to_vec(),
         ws_bus: BroadcastBus::new(),
         config: OfmConfig::default(),
-        access_tokens: Arc::new(Mutex::new(HashMap::new())),
     };
 
     let app = server::router(state, auth_layer);
@@ -164,6 +164,7 @@ async fn setup_app_with_git() -> TestApp {
     );
     let state = AppState {
         cfg_port: 0,
+        rauthy_port: None,
 
         db: client.clone(),
         default_user_id: user_id,
@@ -177,7 +178,6 @@ async fn setup_app_with_git() -> TestApp {
         api_key_pepper: b"test_pepper".to_vec(),
         ws_bus: BroadcastBus::new(),
         config: OfmConfig::default(),
-        access_tokens: Arc::new(Mutex::new(HashMap::new())),
     };
 
     let app = server::router(state, auth_layer);

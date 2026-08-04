@@ -109,6 +109,7 @@ async fn insert_user(
 fn make_app_state(client: hiqlite::Client, user_id: Uuid, oidc: Option<OidcEndpoints>) -> AppState {
     AppState {
         cfg_port: 0,
+        rauthy_port: None,
         db: client,
         default_user_id: user_id,
         footprint: "/tmp".into(),
@@ -121,7 +122,6 @@ fn make_app_state(client: hiqlite::Client, user_id: Uuid, oidc: Option<OidcEndpo
         api_key_pepper: b"test_pepper".to_vec(),
         ws_bus: BroadcastBus::new(),
         config: OfmConfig::default(),
-        access_tokens: Arc::new(Mutex::new(HashMap::new())),
     }
 }
 
@@ -262,6 +262,7 @@ async fn test_me_returns_401_without_token() {
         db: client.clone(),
         jwks_cache: Arc::new(tokio::sync::RwLock::new(None)),
         issuer_url: None,
+        jwks_refresh_url: None,
         client_id: None,
         pepper: b"test".to_vec(),
         cookie_key: cookie::Key::generate(),
@@ -300,6 +301,7 @@ async fn test_me_returns_user() {
         db: client.clone(),
         jwks_cache: Arc::new(tokio::sync::RwLock::new(Some(cache))),
         issuer_url: Some("test-issuer".to_string()),
+        jwks_refresh_url: None,
         client_id: Some("test-client".to_string()),
         pepper: b"test".to_vec(),
         cookie_key: cookie::Key::generate(),
@@ -345,6 +347,7 @@ async fn test_generate_api_key() {
         db: client.clone(),
         jwks_cache: Arc::new(tokio::sync::RwLock::new(Some(cache))),
         issuer_url: Some("test-issuer".to_string()),
+        jwks_refresh_url: None,
         client_id: Some("test-client".to_string()),
         pepper: b"test_pepper".to_vec(),
         cookie_key: cookie::Key::generate(),
@@ -354,6 +357,7 @@ async fn test_generate_api_key() {
     // Use deterministic cookie_key matching the pepper
     let state = AppState {
         cfg_port: 0,
+        rauthy_port: None,
 
         cookie_key,
         ..state
@@ -418,6 +422,7 @@ async fn test_revoke_api_key() {
         db: client.clone(),
         jwks_cache: Arc::new(tokio::sync::RwLock::new(Some(cache))),
         issuer_url: Some("test-issuer".to_string()),
+        jwks_refresh_url: None,
         client_id: Some("test-client".to_string()),
         pepper: b"test".to_vec(),
         cookie_key: cookie::Key::generate(),
@@ -470,6 +475,7 @@ async fn test_api_key_auth_accesses_protected_route() {
         db: client.clone(),
         jwks_cache: Arc::new(tokio::sync::RwLock::new(Some(cache))),
         issuer_url: Some("test-issuer".to_string()),
+        jwks_refresh_url: None,
         client_id: Some("test-client".to_string()),
         pepper: b"test".to_vec(),
         cookie_key: cookie::Key::generate(),
@@ -522,6 +528,7 @@ async fn test_admin_list_users() {
         db: client.clone(),
         jwks_cache: Arc::new(tokio::sync::RwLock::new(Some(cache))),
         issuer_url: Some("test-issuer".to_string()),
+        jwks_refresh_url: None,
         client_id: Some("test-client".to_string()),
         pepper: b"test".to_vec(),
         cookie_key: cookie::Key::generate(),
@@ -567,6 +574,7 @@ async fn test_admin_list_denied_for_non_admin() {
         db: client.clone(),
         jwks_cache: Arc::new(tokio::sync::RwLock::new(Some(cache))),
         issuer_url: Some("test-issuer".to_string()),
+        jwks_refresh_url: None,
         client_id: Some("test-client".to_string()),
         pepper: b"test".to_vec(),
         cookie_key: cookie::Key::generate(),
@@ -619,6 +627,7 @@ async fn test_admin_update_user() {
         db: client.clone(),
         jwks_cache: Arc::new(tokio::sync::RwLock::new(Some(cache))),
         issuer_url: Some("test-issuer".to_string()),
+        jwks_refresh_url: None,
         client_id: Some("test-client".to_string()),
         pepper: b"test".to_vec(),
         cookie_key: cookie::Key::generate(),
@@ -674,6 +683,7 @@ async fn test_admin_cannot_self_demote() {
         db: client.clone(),
         jwks_cache: Arc::new(tokio::sync::RwLock::new(Some(cache))),
         issuer_url: Some("test-issuer".to_string()),
+        jwks_refresh_url: None,
         client_id: Some("test-client".to_string()),
         pepper: b"test".to_vec(),
         cookie_key: cookie::Key::generate(),
@@ -748,6 +758,7 @@ async fn test_me_returns_unauthorized_when_no_user_matches_jwt() {
         db: client.clone(),
         jwks_cache: Arc::new(tokio::sync::RwLock::new(Some(cache))),
         issuer_url: Some("test-issuer".to_string()),
+        jwks_refresh_url: None,
         client_id: Some("test-client".to_string()),
         pepper: b"test".to_vec(),
         cookie_key: cookie::Key::generate(),
@@ -960,6 +971,7 @@ async fn test_refresh_with_session_cookie() {
     let key = cookie::Key::generate();
     let state = AppState {
         cfg_port: 0,
+        rauthy_port: None,
 
         db: client.clone(),
         default_user_id,
@@ -973,7 +985,6 @@ async fn test_refresh_with_session_cookie() {
         api_key_pepper: b"test_pepper".to_vec(),
         ws_bus: BroadcastBus::new(),
         config: OfmConfig::default(),
-        access_tokens: Arc::new(Mutex::new(HashMap::new())),
     };
     let auth_layer = AuthLayer::disabled(
         state.db.clone(),
@@ -1056,6 +1067,7 @@ async fn test_onboarding_with_valid_auth() {
         db: client.clone(),
         jwks_cache,
         issuer_url: Some("test-issuer".to_string()),
+        jwks_refresh_url: None,
         client_id: Some("test-client".to_string()),
         pepper: b"test".to_vec(),
         cookie_key: cookie::Key::generate(),
@@ -1108,6 +1120,7 @@ async fn test_onboarding_with_missing_fields_returns_400() {
         db: client.clone(),
         jwks_cache: Arc::new(tokio::sync::RwLock::new(Some(cache))),
         issuer_url: Some("test-issuer".to_string()),
+        jwks_refresh_url: None,
         client_id: Some("test-client".to_string()),
         pepper: b"test".to_vec(),
         cookie_key: cookie::Key::generate(),
@@ -1193,6 +1206,7 @@ async fn test_onboarding_without_auth_returns_401() {
         db: client.clone(),
         jwks_cache: Arc::new(tokio::sync::RwLock::new(None)),
         issuer_url: Some("test-issuer".to_string()),
+        jwks_refresh_url: None,
         client_id: Some("test-client".to_string()),
         pepper: b"test".to_vec(),
         cookie_key: cookie::Key::generate(),
@@ -1273,6 +1287,7 @@ async fn test_refresh_failure_clears_session_cookie() {
     let key = cookie::Key::generate();
     let state = AppState {
         cfg_port: 0,
+        rauthy_port: None,
         db: client.clone(),
         default_user_id,
         footprint: "/tmp".into(),
@@ -1285,7 +1300,6 @@ async fn test_refresh_failure_clears_session_cookie() {
         api_key_pepper: b"test_pepper".to_vec(),
         ws_bus: BroadcastBus::new(),
         config: OfmConfig::default(),
-        access_tokens: Arc::new(Mutex::new(HashMap::new())),
     };
     let auth_layer = AuthLayer::disabled(
         state.db.clone(),

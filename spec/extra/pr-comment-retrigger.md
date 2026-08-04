@@ -133,7 +133,7 @@ commentAuthor, fileContext}`.
 The resulting prompt (`pr-feedback.md`,
 [`reference/server/constants/prompts/pr-feedback.md`](../reference/server/constants/prompts/pr-feedback.md))
 tells the agent to address every feedback item at its file/line, test, commit +
-push, re-poll CI, resolve conflicts, and finally run `complete-pr.ts` — the same
+push, re-poll CI, resolve conflicts, and end when mergeable — the same
 bounded CI/conflict procedure as the normal PR prompt. **This reuses the normal
 PR agent and the normal completion flow**: the run is an ordinary `pr`-type
 `task_agent_runs` row with a linked conversation; its stream end hits the same

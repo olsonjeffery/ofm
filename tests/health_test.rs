@@ -36,6 +36,7 @@ async fn make_state() -> (AppState, AuthLayer, TempDir) {
     );
     let state = AppState {
         cfg_port: 0,
+        rauthy_port: None,
 
         db: client,
         default_user_id: user_id,
@@ -49,7 +50,6 @@ async fn make_state() -> (AppState, AuthLayer, TempDir) {
         api_key_pepper: b"test_pepper".to_vec(),
         ws_bus: BroadcastBus::new(),
         config: OfmConfig::default(),
-        access_tokens: Arc::new(Mutex::new(HashMap::new())),
     };
     (state, auth_layer, tmp)
 }

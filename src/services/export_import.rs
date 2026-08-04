@@ -154,9 +154,8 @@ pub async fn build_export(
 
         let db_tasks: Vec<crate::db::schema::Task> = client
             .query_map::<crate::db::schema::Task, _>(
-                "SELECT id, project_id, user_id, title, status, workflow_complete, \
-                 workflow_blocked, workflow_run_count, planification_complete, \
-                 pr_agent_complete, refinement_complete, yolo_mode, created_at \
+                "SELECT id, project_id, user_id, title, status, \
+                 workflow_blocked, workflow_run_count, yolo_mode, created_at \
                  FROM tasks WHERE project_id = $1 ORDER BY created_at",
                 hiqlite::params!(project_id),
             )
