@@ -132,6 +132,19 @@ OFM_RAUTHY_ENABLED=true
 > rauthy `clients.json` redirect URIs) derive from `ofm`'s public URL, which is
 > set with `OFM_PUB_URL` (legacy alias: `OFM_URL`). Set `OFM_PUB_URL` to the
 > externally-visible origin when `ofm` runs behind a reverse proxy.
+>
+> ⚠️**`OFM_PUB_URL` CHANGE ON AN EXISTING FOOTPRINT**: rauthy imports the `ofm`
+> client's redirect URIs (built from `OFM_PUB_URL`) only on first initialization;
+> afterwards they are persisted in rauthy's DB at `{OFM_FOOTPRINT}/rauthy/data`
+> and are never re-imported. If you change `OFM_PUB_URL` (or the port-derived
+> default) on an existing rauthy-enabled footprint, `ofm` detects the change on
+> the next start and automatically deletes that data volume so the new redirect
+> URIs take effect — note this resets any rauthy users created in the admin UI
+> (the bootstrap admin account is recreated, with its password printed at
+> startup). If you are upgrading from an `ofm` version that predates this
+> detection **and** changing `OFM_PUB_URL`/`OFM_PORT` in the same move, delete
+> `{OFM_FOOTPRINT}/rauthy/data` (or the whole footprint) once yourself before
+> restarting.
 
 **Installations using an OAuth provider will want to provide:**
 
@@ -193,7 +206,9 @@ environment variable if you wish for it to run on another port).
 > `OFM_RAUTHY_PROXY_MODE=true`, rauthy hardcodes an `https://` issuer, so
 > the `OFM_PUB_URL` origin must be TLS-terminated; you must also set
 > `OFM_RAUTHY_TRUSTED_PROXIES` to the proxy CIDR(s) (including the Docker bridge
-> subnet, e.g. `172.17.0.0/16`) or rauthy will block proxied requests.
+> subnet, e.g. `172.17.0.0/16`) or rauthy will block proxied requests. Changing
+> `OFM_PUB_URL` on an existing rauthy-enabled footprint re-bootstraps rauthy
+> automatically (see the rauthy note above).
 
 ## History & evolution
 

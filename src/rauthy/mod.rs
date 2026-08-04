@@ -155,6 +155,81 @@ pub fn rehost_endpoint(url: &str, base: &str) -> String {
     }
 }
 
+/// Path of the rauthy data volume mounted into the container at `/app/data`.
+fn rauthy_data_dir(footprint: &str) -> String {
+    format!("{footprint}/rauthy/data")
+}
+
+/// Marker file recording the pub_url used at the last rauthy bootstrap. Rauthy
+/// imports the bootstrap `clients.json` (whose redirect URIs are `{pub_url}/*`)
+/// only on first initialization; afterwards the `ofm` client's redirect URIs
+/// live in rauthy's DB and are never re-imported from the file. Comparing the
+/// recorded value against the current `pub_url` lets OFM detect a changed
+/// public origin and re-bootstrap the data volume instead of failing every
+/// login with rauthy's `400 Invalid redirect uri`.
+fn pub_url_marker_path(footprint: &str) -> std::path::PathBuf {
+    std::path::PathBuf::from(format!("{footprint}/rauthy")).join("pub_url")
+}
+
+/// True when `previous` (the pub_url recorded at the last bootstrap) and
+/// `current` would register different redirect URIs (`{pub_url}/*`) with
+/// rauthy. A trailing-slash difference alone is not a change —
+/// `client_redirect_uri` trims it.
+fn pub_url_changed(previous: Option<&str>, current: &str) -> bool {
+    match previous {
+        Some(prev) => client_redirect_uri(prev.trim()) != client_redirect_uri(current),
+        None => false,
+    }
+}
+
+/// Detect a `pub_url` change since the last rauthy bootstrap and re-bootstrap
+/// the rauthy data volume if so.
+///
+/// Rauthy imports `clients.json` only on first initialization; the `ofm`
+/// client's redirect URIs are then persisted in rauthy's DB and never
+/// re-imported. If an operator changes `OFM_PUB_URL` (or the port-derived
+/// default) on an existing rauthy-enabled footprint, rauthy would answer every
+/// callback with `400 Invalid redirect uri` and login would be impossible.
+/// Wiping the data volume re-triggers the bootstrap with the new redirect URIs;
+/// the admin account is recreated at startup (its password is printed in the
+/// startup logs). This is the recovery planned into startup for a config
+/// change, mirroring the container reap planned in for a SIGKILL.
+///
+/// An existing data volume with **no** marker means a pre-marker OFM version
+/// bootstrapped it; the old pub_url is unknowable, so OFM logs guidance and
+/// leaves the volume intact (a same-config in-place upgrade must not destroy
+/// rauthy users).
+fn ensure_pub_url_bootstrap(footprint: &str, pub_url: &str) -> std::io::Result<()> {
+    let data_dir = rauthy_data_dir(footprint);
+    std::fs::create_dir_all(&data_dir)?;
+    let marker = pub_url_marker_path(footprint);
+    match std::fs::read_to_string(&marker).ok() {
+        Some(previous) if client_redirect_uri(previous.trim()) != client_redirect_uri(pub_url) => {
+            tracing::warn!(
+                "pub_url changed from '{}' to '{pub_url}'; re-bootstrapping rauthy by deleting \
+                 its data volume at '{data_dir}'. Any users created in rauthy's admin UI are \
+                 reset; the bootstrap admin account is recreated at startup.",
+                previous.trim(),
+            );
+            std::fs::remove_dir_all(&data_dir)?;
+            std::fs::create_dir_all(&data_dir)?;
+        }
+        Some(_) => {}
+        None => {
+            if std::fs::read_dir(&data_dir)?.next().is_some() {
+                tracing::warn!(
+                    "Existing rauthy data at '{data_dir}' has no bootstrap marker (created by a \
+                     pre-pub_url OFM version). If OFM_PUB_URL or OFM_PORT changed since that \
+                     rauthy DB was created, delete '{data_dir}' and restart so the client \
+                     redirect URIs are re-imported."
+                );
+            }
+        }
+    }
+    std::fs::write(&marker, pub_url.trim_end_matches('/'))?;
+    Ok(())
+}
+
 pub async fn start_rauthy(
     footprint: &str,
     pub_url: &str,
@@ -174,8 +249,11 @@ pub async fn start_rauthy(
         .await
         .ok();
 
-    let data_dir = format!("{}/rauthy/data", footprint);
-    std::fs::create_dir_all(&data_dir)?;
+    let data_dir = rauthy_data_dir(footprint);
+    // Rauthy imports the bootstrap `clients.json` (redirect URIs = `{pub_url}/*`)
+    // only on first initialization; a changed `pub_url` on an existing footprint
+    // must therefore re-bootstrap the data volume (see `ensure_pub_url_bootstrap`).
+    ensure_pub_url_bootstrap(footprint, pub_url)?;
     // Rauthy runs as the host user's UID via docker --user flag on Unix (so
     // files written to the mounted volume are owned by the host user). On
     // Windows the --user flag is omitted. Ensure the mounted data volume is
@@ -463,6 +541,101 @@ mod tests {
         assert_eq!(
             super::client_redirect_uri("https://ofm.example.com/"),
             "https://ofm.example.com/*"
+        );
+    }
+
+    #[test]
+    fn test_pub_url_changed() {
+        // No previous bootstrap → never a change.
+        assert!(!super::pub_url_changed(None, "http://localhost:3258"));
+        // Trailing slash only → same redirect URI → not a change.
+        assert!(!super::pub_url_changed(
+            Some("http://localhost:3258/"),
+            "http://localhost:3258"
+        ));
+        // Identical pub_url → not a change.
+        assert!(!super::pub_url_changed(
+            Some("http://localhost:3258"),
+            "http://localhost:3258"
+        ));
+        // Different origin (this is the stale-redirect-URI login breaker).
+        assert!(super::pub_url_changed(
+            Some("http://127.0.0.1:3258"),
+            "http://localhost:3258"
+        ));
+        assert!(super::pub_url_changed(
+            Some("http://localhost:3258"),
+            "http://localhost:3259"
+        ));
+    }
+
+    #[test]
+    fn test_ensure_pub_url_bootstrap_wipes_data_on_change() {
+        let dir = tempfile::tempdir().unwrap();
+        let footprint = dir.path().to_str().unwrap();
+        super::ensure_pub_url_bootstrap(footprint, "http://127.0.0.1:3258").unwrap();
+        let sentinel = super::rauthy_data_dir(footprint) + "/db.sqlite";
+        std::fs::write(&sentinel, "rauthy db").unwrap();
+
+        super::ensure_pub_url_bootstrap(footprint, "http://localhost:3258").unwrap();
+
+        assert!(
+            !std::path::Path::new(&sentinel).exists(),
+            "data volume must be wiped when pub_url changes"
+        );
+        assert_eq!(
+            std::fs::read_to_string(super::pub_url_marker_path(footprint)).unwrap(),
+            "http://localhost:3258"
+        );
+    }
+
+    #[test]
+    fn test_ensure_pub_url_bootstrap_keeps_data_when_unchanged() {
+        let dir = tempfile::tempdir().unwrap();
+        let footprint = dir.path().to_str().unwrap();
+        super::ensure_pub_url_bootstrap(footprint, "http://localhost:3258/").unwrap();
+        let sentinel = super::rauthy_data_dir(footprint) + "/db.sqlite";
+        std::fs::write(&sentinel, "rauthy db").unwrap();
+
+        // Trailing-slash difference is not a change → data survives.
+        super::ensure_pub_url_bootstrap(footprint, "http://localhost:3258").unwrap();
+
+        assert!(
+            std::path::Path::new(&sentinel).exists(),
+            "data volume must be kept when pub_url is unchanged"
+        );
+    }
+
+    #[test]
+    fn test_ensure_pub_url_bootstrap_no_marker_keeps_data() {
+        let dir = tempfile::tempdir().unwrap();
+        let footprint = dir.path().to_str().unwrap();
+        // Simulate a pre-marker OFM version: data volume exists, no marker.
+        let data_dir = super::rauthy_data_dir(footprint);
+        std::fs::create_dir_all(&data_dir).unwrap();
+        let sentinel = data_dir + "/db.sqlite";
+        std::fs::write(&sentinel, "rauthy db").unwrap();
+
+        super::ensure_pub_url_bootstrap(footprint, "http://localhost:3258").unwrap();
+
+        assert!(
+            std::path::Path::new(&sentinel).exists(),
+            "unmarked pre-existing data must not be wiped on upgrade"
+        );
+        assert_eq!(
+            std::fs::read_to_string(super::pub_url_marker_path(footprint)).unwrap(),
+            "http://localhost:3258"
+        );
+    }
+
+    #[test]
+    fn test_ensure_pub_url_bootstrap_first_boot_writes_marker() {
+        let dir = tempfile::tempdir().unwrap();
+        let footprint = dir.path().to_str().unwrap();
+        super::ensure_pub_url_bootstrap(footprint, "http://localhost:3258/").unwrap();
+        assert_eq!(
+            std::fs::read_to_string(super::pub_url_marker_path(footprint)).unwrap(),
+            "http://localhost:3258"
         );
     }
 

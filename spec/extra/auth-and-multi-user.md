@@ -251,6 +251,20 @@ Rauthy runs as a Docker container (`ghcr.io/sebadob/rauthy:latest`) managed by
 - The `clients.json` redirect URIs (`redirect_uris` /
   `post_logout_redirect_uris`) are built from `pub_url` as `{pub_url}/*`, so the
   OAuth callback and post-logout targets point at the origin OFM serves on.
+- **`pub_url` change re-bootstrap**: rauthy imports the bootstrap `clients.json`
+  only on first initialization; afterwards the `ofm` client's redirect URIs live
+  in rauthy's DB and are never re-imported from the file. A changed `pub_url`
+  (new `OFM_PUB_URL`, or a different port-derived default) on an existing
+  footprint would therefore be rejected by rauthy with `400 Invalid redirect
+  uri` on every login. `ofm` records the pub_url used at bootstrap in
+  `{footprint}/rauthy/pub_url` and, on detecting a change, deletes
+  `{footprint}/rauthy/data` before starting the container so the new redirect
+  URIs are imported (`ensure_pub_url_bootstrap` in `src/rauthy/mod.rs`). Note
+  this resets any rauthy users created in the admin UI — the bootstrap admin is
+  recreated at startup. A data volume with **no** marker (created by a
+  pre-pub_url OFM version) is left intact; upgrading from such a version *and*
+  changing `pub_url`/`OFM_PORT` in the same move requires deleting
+  `{footprint}/rauthy/data` once by hand.
 - Health check: `GET /health` (via `http://127.0.0.1:{port}/health` — loopback
   reaches the `127.0.0.1`-published port regardless of the `pub_url` host
   resolvability) must return 200 before `ofm` marks itself ready. This probe is
@@ -724,7 +738,7 @@ become per-user / membership-gated:
 | Non-technical auto-advance after planning | `reference/server/services/conversation/agentRunLifecycle.ts` (retained from reference) |
 | Non-technical planning prompt selection | `reference/server/constants/agentPrompts.ts`, `reference/server/services/agentRunner.ts` (retained from reference) |
 | WebSocket per-action access checks | `reference/server/websocket/dispatch.ts` (retained from reference) |
-| Rauthy Docker lifecycle (`PUB_URL` off OFM `pub_url`; `/auth` reverse proxy; container removed by name in `Drop`; startup reap of stale footprint containers; `PROXY_MODE`/`TRUSTED_PROXIES` behind-proxy wiring) | `src/rauthy/mod.rs`, `src/server/proxy.rs` |
+| Rauthy Docker lifecycle (`PUB_URL` off OFM `pub_url`; `/auth` reverse proxy; container removed by name in `Drop`; startup reap of stale footprint containers; `PROXY_MODE`/`TRUSTED_PROXIES` behind-proxy wiring; `pub_url`-change data-volume re-bootstrap) | `src/rauthy/mod.rs`, `src/server/proxy.rs` |
 | Admin UI | `reference/src/pages/AdminPage.tsx`, `reference/src/components/Admin/` (retained from reference) |
 
 ## Boundaries (not in this spec)

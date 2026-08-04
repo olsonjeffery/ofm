@@ -150,6 +150,14 @@ spawns `pty`s, maintains database state, and so on
    not in `TRUSTED_PROXIES` and — per rauthy's source — hardcodes an `https://`
    issuer regardless of `LISTEN_SCHEME`/`X-Forwarded-Proto`; only enable it when
    the `pub_url` origin is served over HTTPS by the enclosing reverse proxy.
+   - Re-bootstrap rauthy when `pub_url` changes on an existing footprint: rauthy
+   imports the bootstrap `clients.json` (redirect URIs = `{pub_url}/*`) only on
+   first initialization, so a changed public origin would otherwise be rejected
+   with `400 Invalid redirect uri` on every login. `ofm` records the bootstrapped
+   `pub_url` in `{footprint}/rauthy/pub_url` and deletes the rauthy data volume
+   (`{footprint}/rauthy/data`) on change before starting the container
+   (`ensure_pub_url_bootstrap` in `src/rauthy/mod.rs`), re-creating the admin
+   account at startup.
 
 ## How to build from this spec
 

@@ -149,6 +149,15 @@ The `.ofm` directory is gitignored so it won't accidentally be committed.
 > restarting `ofm`) between testing phases, if a reset of `ofm` state is desired,
 > or if the admin password is lost.
 
+> ⚠️**Changing `OFM_PUB_URL` / `OFM_PORT` on an existing rauthy-enabled
+> footprint**: rauthy re-imports the `ofm` client redirect URIs (which derive
+> from `pub_url`) only on first bootstrap. `ofm` records the bootstrap `pub_url`
+> at `{footprint}/rauthy/pub_url` and, on detecting a change, automatically
+> deletes `{footprint}/rauthy/data` (re-creating the admin account; its
+> password is printed at startup). Footprints created by older `ofm` versions
+> have no marker — if you change `OFM_PUB_URL`/`OFM_PORT` while upgrading from
+> one, delete `{footprint}/rauthy/data` (or the footprint) once yourself.
+
 ## Unit / Integration Tests
 
 ```bash
