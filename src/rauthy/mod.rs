@@ -123,6 +123,38 @@ pub fn client_redirect_uri(pub_url: &str) -> String {
     format!("{}/*", pub_url.trim_end_matches('/'))
 }
 
+/// Re-host an absolute URL (e.g. an endpoint from rauthy's OIDC discovery) onto
+/// a different base origin, keeping the path and query. The path is taken from
+/// the parsed URL; scheme-less input is treated as `http` (matching
+/// `pub_url_host_port`). If the input cannot be parsed as a URL it is appended
+/// verbatim to the base.
+///
+/// OFM never hands rauthy's self-reported endpoints to the browser verbatim:
+/// rauthy builds them from its own `PUB_URL` + `LISTEN_SCHEME`, and in default
+/// (non-`proxy_mode`) mode it always emits `http://` URLs — even for an
+/// `https://` `pub_url` — so the discovery response is used only for the path
+/// layout while the origin always comes from OFM's configured `pub_url`.
+///
+/// - `("http://127.0.0.1:3183/auth/v1/oidc/authorize", "https://ofm.example.com:3184")`
+///   → `"https://ofm.example.com:3184/auth/v1/oidc/authorize"`
+/// - `("http://127.0.0.1:3183/auth/v1/token?x=1", "http://127.0.0.1:18080")`
+///   → `"http://127.0.0.1:18080/auth/v1/token?x=1"`
+pub fn rehost_endpoint(url: &str, base: &str) -> String {
+    let input = if url.contains("://") {
+        url.to_string()
+    } else {
+        format!("http://{url}")
+    };
+    let base = base.trim_end_matches('/');
+    match url::Url::parse(&input) {
+        Ok(parsed) => match parsed.query() {
+            Some(q) => format!("{}{}?{}", base, parsed.path(), q),
+            None => format!("{}{}", base, parsed.path()),
+        },
+        Err(_) => format!("{}/{}", base, url.trim_start_matches('/')),
+    }
+}
+
 pub async fn start_rauthy(
     footprint: &str,
     pub_url: &str,
@@ -431,6 +463,68 @@ mod tests {
         assert_eq!(
             super::client_redirect_uri("https://ofm.example.com/"),
             "https://ofm.example.com/*"
+        );
+    }
+
+    #[test]
+    fn test_rehost_endpoint_https_pub_url() {
+        // rauthy (default mode) advertises an `http://` authorization endpoint
+        // for an `https://` pub_url; re-hosting must fix scheme + host while
+        // keeping the path.
+        assert_eq!(
+            super::rehost_endpoint(
+                "http://127.0.0.1:3183/auth/v1/oidc/authorize",
+                "https://htpc3090.tail34e6bf.ts.net:3184",
+            ),
+            "https://htpc3090.tail34e6bf.ts.net:3184/auth/v1/oidc/authorize"
+        );
+    }
+
+    #[test]
+    fn test_rehost_endpoint_loopback_direct() {
+        // Server-side endpoints are re-hosted onto the direct loopback base.
+        assert_eq!(
+            super::rehost_endpoint(
+                "http://127.0.0.1:3183/auth/v1/token",
+                "http://127.0.0.1:18080",
+            ),
+            "http://127.0.0.1:18080/auth/v1/token"
+        );
+    }
+
+    #[test]
+    fn test_rehost_endpoint_preserves_query_and_default_port() {
+        assert_eq!(
+            super::rehost_endpoint(
+                "http://localhost:8080/auth/v1/authorize?foo=1&bar=2",
+                "https://ofm.example.com",
+            ),
+            "https://ofm.example.com/auth/v1/authorize?foo=1&bar=2"
+        );
+        assert_eq!(
+            super::rehost_endpoint(
+                "http://localhost:8080/auth/v1/logout",
+                "https://ofm.example.com",
+            ),
+            "https://ofm.example.com/auth/v1/logout"
+        );
+    }
+
+    #[test]
+    fn test_rehost_endpoint_trailing_slash_bases() {
+        // Trailing slashes on either input must not double up.
+        assert_eq!(
+            super::rehost_endpoint("http://127.0.0.1:3183/auth/v1/", "https://ofm.example.com/",),
+            "https://ofm.example.com/auth/v1/"
+        );
+    }
+
+    #[test]
+    fn test_rehost_endpoint_schemeless_input() {
+        // Scheme-less endpoint input is treated as http and re-hosted.
+        assert_eq!(
+            super::rehost_endpoint("127.0.0.1:3183/auth/v1/end", "https://ofm.example.com"),
+            "https://ofm.example.com/auth/v1/end"
         );
     }
 

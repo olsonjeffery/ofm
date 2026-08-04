@@ -134,6 +134,16 @@ spawns `pty`s, maintains database state, and so on
    `X-Forwarded-For`. This satisfies "bind to one port, accept
    hosts on different ports" (see
    [`extra/auth-and-multi-user.md`](./extra/auth-and-multi-user.md))
+   - Build the `OidcEndpoints` handed to the browser off OFM's `pub_url`, **not**
+   rauthy's self-reported discovery URLs: rauthy's default mode advertises
+   `http://{pub_url}/auth/v1/...` (scheme from `LISTEN_SCHEME`), so OFM re-hosts
+   the browser-facing authorization/end-session endpoints onto `pub_url` with
+   its configured scheme (`rehost_endpoint` in `src/rauthy/mod.rs`). This keeps
+   the authorization URL on the public origin even when the `pub_url` scheme is
+   `https`, and makes it impossible for a mis-set rauthy `PUB_URL` (e.g. a
+   leftover `127.0.0.1`) to leak into the URL the browser is redirected to. OFM's
+   own server-side calls (token exchange, userinfo, revocation, JWKS refresh)
+   go direct at loopback, not through the public origin.
    - Optionally run rauthy in "behind proxy" mode via `OFM_RAUTHY_PROXY_MODE` /
    `OFM_RAUTHY_TRUSTED_PROXIES` (rauthy `PROXY_MODE` / `TRUSTED_PROXIES` env).
    **Defaults off.** When enabled, rauthy blocks every request whose source IP is

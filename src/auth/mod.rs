@@ -14,7 +14,7 @@ use tokio::sync::RwLock;
 use tower::{Layer, Service};
 use uuid::Uuid;
 
-use crate::auth::jwks::{fetch_jwks, verify_token, JwksCache, VerifyError};
+use crate::auth::jwks::{fetch_jwks, fetch_jwks_direct, verify_token, JwksCache, VerifyError};
 use crate::auth::session::{AuthMethod, Session};
 use crate::config::OfmConfig;
 use crate::db::schema::{SessionDb, User};
@@ -107,6 +107,11 @@ pub struct AuthLayer {
     pub db: hiqlite::Client,
     pub jwks_cache: Arc<RwLock<Option<JwksCache>>>,
     pub issuer_url: Option<String>,
+    /// Optional JWKS URL used to refresh signing keys without a discovery
+    /// round-trip. When set (embedded rauthy), keys are re-fetched directly
+    /// from this URL while token verification still uses `issuer_url` — the
+    /// embedded provider is reached at loopback, not through the public origin.
+    pub jwks_refresh_url: Option<String>,
     pub client_id: Option<String>,
     pub pepper: Vec<u8>,
     pub cookie_key: Key,
@@ -125,6 +130,7 @@ impl AuthLayer {
             db,
             jwks_cache: Arc::new(RwLock::new(None)),
             issuer_url: None,
+            jwks_refresh_url: None,
             client_id: None,
             pepper,
             cookie_key,
@@ -135,16 +141,22 @@ impl AuthLayer {
     fn spawn_jwks_refresh(
         cache: Arc<RwLock<Option<JwksCache>>>,
         issuer_url: &str,
+        refresh_url: Option<&str>,
         client_id: &str,
     ) {
         let bg_cache = cache;
         let bg_issuer = issuer_url.to_string();
+        let bg_refresh = refresh_url.map(|s| s.to_string());
         let bg_client_id = client_id.to_string();
         tokio::spawn(async move {
             let mut interval = tokio::time::interval(std::time::Duration::from_secs(3600));
             loop {
                 interval.tick().await;
-                match fetch_jwks(&bg_issuer, &bg_client_id).await {
+                let result = match bg_refresh.as_deref() {
+                    Some(uri) => fetch_jwks_direct(uri, &bg_issuer, &bg_client_id).await,
+                    None => fetch_jwks(&bg_issuer, &bg_client_id).await,
+                };
+                match result {
                     Ok(new_cache) => *bg_cache.write().await = Some(new_cache),
                     Err(e) => tracing::warn!("JWKS refresh failed: {e}"),
                 }
@@ -154,6 +166,7 @@ impl AuthLayer {
 
     pub fn from_cache(
         jwks_cache: JwksCache,
+        refresh_url: Option<&str>,
         db: hiqlite::Client,
         pepper: Vec<u8>,
         cookie_key: Key,
@@ -163,13 +176,14 @@ impl AuthLayer {
         let client_id = jwks_cache.client_id.clone();
         let cache = Arc::new(RwLock::new(Some(jwks_cache)));
 
-        Self::spawn_jwks_refresh(cache.clone(), &issuer_url, &client_id);
+        Self::spawn_jwks_refresh(cache.clone(), &issuer_url, refresh_url, &client_id);
 
         Self {
             enabled: true,
             db,
             jwks_cache: cache,
             issuer_url: Some(issuer_url),
+            jwks_refresh_url: refresh_url.map(|s| s.to_string()),
             client_id: Some(client_id),
             pepper,
             cookie_key,
@@ -188,6 +202,7 @@ impl AuthLayer {
         let cache = fetch_jwks(issuer_url, client_id).await?;
         Ok(Self::from_cache(
             cache,
+            None,
             db,
             pepper,
             cookie_key,
@@ -208,13 +223,14 @@ impl AuthLayer {
             let cache = fetch_jwks(issuer_url, &client_id).await?;
             let cache = Arc::new(RwLock::new(Some(cache)));
 
-            Self::spawn_jwks_refresh(cache.clone(), issuer_url, &client_id);
+            Self::spawn_jwks_refresh(cache.clone(), issuer_url, None, &client_id);
 
             Ok(Self {
                 enabled: true,
                 db,
                 jwks_cache: cache,
                 issuer_url: Some(issuer_url.clone()),
+                jwks_refresh_url: None,
                 client_id: Some(client_id),
                 pepper,
                 cookie_key,
@@ -275,7 +291,11 @@ impl AuthLayer {
                         return Err(AuthError::JwksFetchError("no issuer URL".into()));
                     };
                     let client_id = self.client_id.clone().unwrap_or_default();
-                    match fetch_jwks(issuer_url, &client_id).await {
+                    let refresh_result = match self.jwks_refresh_url.as_deref() {
+                        Some(uri) => fetch_jwks_direct(uri, issuer_url, &client_id).await,
+                        None => fetch_jwks(issuer_url, &client_id).await,
+                    };
+                    match refresh_result {
                         Ok(new_cache) => {
                             *self.jwks_cache.write().await = Some(new_cache);
                         }
@@ -531,6 +551,7 @@ mod tests {
             db: client,
             jwks_cache: Arc::new(RwLock::new(None)),
             issuer_url: Some("http://localhost".into()),
+            jwks_refresh_url: None,
             client_id: Some("test-client".into()),
             pepper: b"test".to_vec(),
             cookie_key: Key::generate(),
@@ -576,6 +597,7 @@ mod tests {
             db: client.clone(),
             jwks_cache,
             issuer_url: Some("test-issuer".to_string()),
+            jwks_refresh_url: None,
             client_id: Some("test-client".to_string()),
             pepper: b"test".to_vec(),
             cookie_key: Key::generate(),
@@ -657,6 +679,7 @@ mod tests {
             db: client,
             jwks_cache,
             issuer_url: Some("test-issuer".to_string()),
+            jwks_refresh_url: None,
             client_id: Some("test-client".to_string()),
             pepper: b"test".to_vec(),
             cookie_key: Key::generate(),
@@ -718,6 +741,7 @@ mod tests {
             db: client,
             jwks_cache: Arc::new(RwLock::new(None)),
             issuer_url: None,
+            jwks_refresh_url: None,
             client_id: None,
             pepper: b"test".to_vec(),
             cookie_key: Key::generate(),

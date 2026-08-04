@@ -210,9 +210,21 @@ origin over **HTTPS**. rauthy forwards these to its `PROXY_MODE` /
   enclosing reverse proxy; a plain-HTTP `pub_url` with `PROXY_MODE` produces
   https referral URLs the browser cannot reach.
 - When `proxy_mode` is off (the default), rauthy's issuer uses rauthy's
-  `LISTEN_SCHEME` (`http`), so the discovery/authorize/callback/logout URLs are
-  all `http://{pub_url}/auth/v1/...` and work through the `/auth` proxy without
-  TLS.
+  `LISTEN_SCHEME` (`http`), so rauthy's self-reported discovery URLs are
+  `http://{pub_url}/auth/v1/...`. OFM does **not** hand those to the browser
+  verbatim: it uses rauthy's discovery only for the *path layout* and re-hosts
+  every browser-facing endpoint (authorization, end-session) onto OFM's
+  configured `pub_url` (`rehost_endpoint` in `src/rauthy/mod.rs`). The browser is
+  therefore always sent to the configured public origin **with the configured
+  scheme** — e.g. `https://ofm.example.com:3184/auth/v1/oidc/authorize` even
+  though rauthy advertises `http://...`. This also guarantees a mis-set rauthy
+  `PUB_URL` (e.g. a leftover `127.0.0.1`) can never leak into the authorization
+  URL handed to the browser.
+- OFM's own server-side rauthy calls (token exchange, userinfo, revocation, JWKS
+  refresh) go **direct at loopback** (`http://127.0.0.1:{rauthy_port}/auth/v1/...`),
+  never round-tripping through the public origin or the external reverse proxy.
+  Tokens are still verified against rauthy's advertised issuer (the `iss` claim
+  it actually signs), not the loopback URL.
 
 ### Docker container lifecycle
 

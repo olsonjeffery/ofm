@@ -195,7 +195,21 @@ impl OfmConfig {
         let yaml_path = find_yaml_path(&config_root);
         let yaml_cfg: Option<OfmConfigFile> = yaml_path.as_ref().and_then(|p| {
             let content = std::fs::read_to_string(p).ok()?;
-            serde_yaml::from_str(&content).ok()
+            match serde_yaml::from_str(&content) {
+                Ok(cfg) => Some(cfg),
+                Err(e) => {
+                    // A malformed file (e.g. a typo'd boolean such as `truw`)
+                    // must not silently discard the whole config — that would
+                    // reset `pub_url`/hostname to loopback defaults and break
+                    // login behind a reverse proxy with no visible cause. Log
+                    // it loudly so the operator knows the file is being
+                    // ignored in favour of env vars / defaults.
+                    tracing::error!(
+                        "Failed to parse config file '{p}': {e}. Ignoring it and using environment/defaults."
+                    );
+                    None
+                }
+            }
         });
 
         let api_key = std::env::var("OFM_API_KEY").ok();

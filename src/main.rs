@@ -188,10 +188,15 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         tracing::info!("rauthy is healthy");
 
         // Server-side discovery/JWKS stays direct at loopback — it does not go
-        // through the `/auth` proxy. Rauthy's discovery now reports
-        // `issuer = {pub_url}/auth/v1`, which OFM parses and hands to the
-        // browser (so the browser's authorize/token/userinfo URLs are all on
-        // the pub_url origin, reached through the `/auth` proxy).
+        // through the `/auth` proxy. Rauthy's discovery is used for the *path
+        // layout* of its endpoints, but the browser-facing origin always comes
+        // from OFM's configured `pub_url`: rauthy builds its advertised URLs
+        // from its own `PUB_URL` + `LISTEN_SCHEME`, and in default mode it
+        // always emits `http://` URLs (even for an `https://` pub_url) and
+        // would leak a mis-set `PUB_URL` (e.g. a leftover `127.0.0.1`) into the
+        // authorization URL handed to the browser. Re-hosting on `pub_url`
+        // guarantees the browser is always sent to the configured public origin
+        // with the configured scheme.
         let direct_base = format!("http://127.0.0.1:{rp}");
         let discovery_url = format!("{}/auth/v1/.well-known/openid-configuration", direct_base);
         let disc: serde_json::Value = reqwest::get(&discovery_url).await?.json().await?;
@@ -207,8 +212,16 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             end_session_endpoint,
             userinfo_endpoint,
         ) = parse_oidc_discovery(&disc)?;
-        let redirect_uri = format!("{}/api/auth/callback", cfg.pub_url.trim_end_matches('/'));
+        let public_base = cfg.pub_url.trim_end_matches('/').to_string();
+        let redirect_uri = format!("{public_base}/api/auth/callback");
         let client_id = cfg.oidc_client_id.clone().unwrap_or_else(|| "ofm".into());
+
+        tracing::info!(
+            "rauthy OIDC: pub_url={public_base}, rauthy PUB_URL={}, advertised issuer={issuer}; \
+             browser authorization URL: {}",
+            rauthy::pub_url_host_port(&cfg.pub_url),
+            rauthy::rehost_endpoint(&authorization_endpoint, &public_base),
+        );
 
         // The advertised `jwks_uri` is on the pub_url origin (the browser
         // reaches it through the `/auth` proxy). OFM fetches the keys
@@ -235,19 +248,31 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             issuer: issuer.clone(),
             client_id: client_id.clone(),
         };
+        // Refresh signing keys directly at loopback (never through the public
+        // origin / external reverse proxy); token verification still uses the
+        // advertised public issuer, which is what rauthy signs id_tokens with.
         let auth_layer_rauthy = auth::AuthLayer::from_cache(
             jwks_cache,
+            Some(&direct_jwks_url),
             client.clone(),
             api_key_pepper.clone(),
             cookie_key.clone(),
             default_user_id,
         );
         let oidc_endpoints = server::state::OidcEndpoints {
-            authorization_endpoint,
-            token_endpoint,
-            end_session_endpoint,
-            revocation_endpoint,
-            userinfo_endpoint,
+            // Browser-facing: always on the configured public origin (scheme +
+            // host + port). OFM's own server-side calls below go direct at
+            // loopback, so they never depend on the public origin or the
+            // external reverse proxy being reachable.
+            authorization_endpoint: rauthy::rehost_endpoint(&authorization_endpoint, &public_base),
+            token_endpoint: rauthy::rehost_endpoint(&token_endpoint, &direct_base),
+            end_session_endpoint: end_session_endpoint
+                .as_deref()
+                .map(|u| rauthy::rehost_endpoint(u, &public_base)),
+            revocation_endpoint: revocation_endpoint
+                .as_deref()
+                .map(|u| rauthy::rehost_endpoint(u, &direct_base)),
+            userinfo_endpoint: rauthy::rehost_endpoint(&userinfo_endpoint, &direct_base),
             client_id,
             client_secret: cfg.oidc_client_secret.clone(),
             redirect_uri,

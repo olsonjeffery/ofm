@@ -89,6 +89,40 @@ pub async fn fetch_jwks(issuer_url: &str, client_id: &str) -> Result<JwksCache, 
     })
 }
 
+/// Fetch the signing keys directly from a JWKS URL without a discovery
+/// round-trip. Used when the issuer used for token verification differs from
+/// the URL used to reach the provider — e.g. embedded rauthy, where tokens are
+/// verified against the advertised public issuer but the keys are fetched
+/// directly at loopback rather than round-tripping through the public origin.
+pub async fn fetch_jwks_direct(
+    jwks_uri: &str,
+    issuer: &str,
+    client_id: &str,
+) -> Result<JwksCache, AuthError> {
+    let client = reqwest::Client::new();
+    let jwks_resp = client
+        .get(jwks_uri)
+        .send()
+        .await
+        .map_err(|e| AuthError::JwksFetchError(e.to_string()))?;
+    let jwks: JwksResponse = jwks_resp
+        .json()
+        .await
+        .map_err(|e| AuthError::JwksFetchError(e.to_string()))?;
+
+    let keys: HashMap<String, Jwk> = jwks
+        .keys
+        .into_iter()
+        .filter_map(|jwk| jwk.common.key_id.clone().map(|kid| (kid, jwk)))
+        .collect();
+
+    Ok(JwksCache {
+        keys,
+        issuer: issuer.to_string(),
+        client_id: client_id.to_string(),
+    })
+}
+
 pub fn verify_token(token: &str, cache: &JwksCache) -> Result<Claims, VerifyError> {
     let header =
         jsonwebtoken::decode_header(token).map_err(|e| VerifyError::InvalidToken(e.to_string()))?;
@@ -312,5 +346,53 @@ mod tests {
 
         let result = fetch_jwks(&format!("http://{}", addr), "client-id").await;
         assert!(matches!(result, Err(AuthError::JwksFetchError(_))));
+    }
+
+    #[tokio::test]
+    async fn test_fetch_jwks_direct_preserves_issuer() {
+        use axum::{routing::get, Json, Router};
+        use serde_json::json;
+
+        let key = b"test-hmac-secret-key-32-bytes-long!";
+        let jwk = make_test_jwk(key, "kid-direct");
+        let app = Router::new().route(
+            "/auth/v1/oidc/certs",
+            get(|| async move { Json(json!({ "keys": [jwk] })) }),
+        );
+
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let addr = listener.local_addr().unwrap();
+        tokio::spawn(async move {
+            axum::serve(listener, app).await.unwrap();
+        });
+
+        let cache = fetch_jwks_direct(
+            &format!("http://{addr}/auth/v1/oidc/certs"),
+            "https://ofm.example.com/auth/v1/",
+            "ofm",
+        )
+        .await
+        .unwrap();
+
+        // The issuer used for verification is preserved verbatim (it must match
+        // the `iss` claim of tokens rauthy signs), regardless of the URL used
+        // to fetch the keys.
+        assert_eq!(cache.issuer, "https://ofm.example.com/auth/v1/");
+        assert_eq!(cache.client_id, "ofm");
+        assert!(cache.keys.contains_key("kid-direct"));
+
+        // And the fetched key verifies a token signed with it.
+        let claims = Claims {
+            sub: "user-123".to_string(),
+            iss: "https://ofm.example.com/auth/v1/".to_string(),
+            aud: serde_json::json!("ofm"),
+            exp: 9_999_999_999,
+            iat: Some(1_000_000_000),
+        };
+        let mut header = Header::new(Algorithm::HS256);
+        header.kid = Some("kid-direct".to_string());
+        let token = encode(&header, &claims, &EncodingKey::from_secret(key)).unwrap();
+        let result = verify_token(&token, &cache);
+        assert_eq!(result.unwrap().sub, "user-123");
     }
 }

@@ -333,6 +333,7 @@ async fn make_state_with_webapp_auth() -> (AppState, AuthLayer, TempDir) {
         db: client.clone(),
         jwks_cache: Arc::new(tokio::sync::RwLock::new(None)),
         issuer_url: None,
+        jwks_refresh_url: None,
         client_id: None,
         pepper: b"test".to_vec(),
         cookie_key: cookie::Key::generate(),

@@ -185,7 +185,11 @@ environment variable if you wish for it to run on another port).
 > used, its published port binds loopback only (`-p 127.0.0.1:{port}:8080`) and
 > OFM's `/auth` reverse proxy derives `X-Forwarded-Host`/`X-Forwarded-Proto`
 > from `OFM_PUB_URL` (client-supplied values are ignored) while appending the
-> peer IP to `X-Forwarded-For`. When you additionally enable
+> peer IP to `X-Forwarded-For`. The browser is always redirected to the
+> `OFM_PUB_URL` origin for login — OFM re-hosts rauthy's advertised endpoints
+> onto `pub_url` (rauthy's own URLs would otherwise be `http://...` and could
+> leak a mis-set loopback host), and OFM's backend token/userinfo/JWKS calls go
+> direct to rauthy at loopback. When you additionally enable
 > `OFM_RAUTHY_PROXY_MODE=true`, rauthy hardcodes an `https://` issuer, so
 > the `OFM_PUB_URL` origin must be TLS-terminated; you must also set
 > `OFM_RAUTHY_TRUSTED_PROXIES` to the proxy CIDR(s) (including the Docker bridge

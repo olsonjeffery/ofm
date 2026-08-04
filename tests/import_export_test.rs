@@ -50,6 +50,7 @@ async fn make_state_with_auth() -> (AppState, AuthLayer, String, tempfile::TempD
         db: client.clone(),
         jwks_cache: Arc::new(tokio::sync::RwLock::new(None)),
         issuer_url: None,
+        jwks_refresh_url: None,
         client_id: None,
         pepper: b"test_pepper_16".to_vec(),
         cookie_key: cookie::Key::generate(),
