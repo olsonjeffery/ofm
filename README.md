@@ -180,10 +180,13 @@ environment variable if you wish for it to run on another port).
 > cargo run
 > ```
 >
-> and have the proxy forward `https://ofm.example.com/*` → `127.0.0.1:3183`
-> (preserving `X-Forwarded-Proto`/`X-Forwarded-Host`). Browser logins route to
-> the `OFM_PUB_URL` origin. When the embedded rauthy is used and you additionally
-> enable `OFM_RAUTHY_PROXY_MODE=true`, rauthy hardcodes an `https://` issuer, so
+> and have the proxy forward `https://ofm.example.com/*` → `127.0.0.1:3183`.
+> Browser logins route to the `OFM_PUB_URL` origin. When the embedded rauthy is
+> used, its published port binds loopback only (`-p 127.0.0.1:{port}:8080`) and
+> OFM's `/auth` reverse proxy derives `X-Forwarded-Host`/`X-Forwarded-Proto`
+> from `OFM_PUB_URL` (client-supplied values are ignored) while appending the
+> peer IP to `X-Forwarded-For`. When you additionally enable
+> `OFM_RAUTHY_PROXY_MODE=true`, rauthy hardcodes an `https://` issuer, so
 > the `OFM_PUB_URL` origin must be TLS-terminated; you must also set
 > `OFM_RAUTHY_TRUSTED_PROXIES` to the proxy CIDR(s) (including the Docker bridge
 > subnet, e.g. `172.17.0.0/16`) or rauthy will block proxied requests.

@@ -12,7 +12,11 @@
 //!   outbound request and the inbound response.
 //! - The original incoming `Host` header is preserved (rauthy uses it for
 //!   cookie domain selection).
-//! - `X-Forwarded-Host` / `X-Forwarded-Proto` are passed through when present.
+//! - `X-Forwarded-Host` / `X-Forwarded-Proto` are derived from the configured
+//!   `pub_url` and overwritten on every request. Client-supplied values are
+//!   never trusted: rauthy (in `proxy_mode`) trusts its proxies'
+//!   `X-Forwarded-*`, so forwarding client values would let a client dictate
+//!   the host/scheme rauthy uses to build absolute URLs.
 //! - The peer IP is appended to `X-Forwarded-For` so rauthy (in `proxy_mode`)
 //!   sees the real client IP when OFM itself sits behind an external proxy.
 
@@ -39,31 +43,62 @@ const HOP_BY_HOP: &[&str] = &[
 
 const MAX_BODY_BYTES: usize = 16 * 1024 * 1024;
 
+/// The public `scheme` and `host[:port]` derived from the configured `pub_url`,
+/// sent to rauthy as `X-Forwarded-Proto` / `X-Forwarded-Host`. Rauthy's
+/// `PUB_URL` env is the `host[:port]` portion of the same `pub_url`, so rauthy
+/// always sees a forwarded origin that matches the origin it advertises.
+fn forwarded_origin(pub_url: &str) -> (String, String) {
+    // url::Url would treat "myhost.local:18080" as scheme "myhost.local", so
+    // normalise scheme-less input to http — matching pub_url_host_port.
+    let input = if pub_url.contains("://") {
+        pub_url.to_string()
+    } else {
+        format!("http://{pub_url}")
+    };
+    let scheme = url::Url::parse(&input)
+        .map(|u| u.scheme().to_string())
+        .unwrap_or_else(|_| "http".to_string());
+    (crate::rauthy::pub_url_host_port(pub_url), scheme)
+}
+
 /// Build a standalone `/auth` router that proxies to the rauthy container on
 /// `rauthy_port`. Returns a `Router<()>` so it can be nested into any state.
-pub fn rauthy_proxy_router(rauthy_port: u16) -> Router {
+pub fn rauthy_proxy_router(rauthy_port: u16, pub_url: &str) -> Router {
     let client = hyper_util::client::legacy::Client::builder(hyper_util::rt::TokioExecutor::new())
         .build(hyper_util::client::legacy::connect::HttpConnector::new());
-    Router::new()
-        .fallback(proxy_handler)
-        .with_state((client, rauthy_port))
+    let (forwarded_host, forwarded_proto) = forwarded_origin(pub_url);
+    Router::new().fallback(proxy_handler).with_state((
+        client,
+        rauthy_port,
+        forwarded_host,
+        forwarded_proto,
+    ))
+}
+
+fn bad_gateway(msg: &'static str) -> Response<Body> {
+    Response::builder()
+        .status(StatusCode::BAD_GATEWAY)
+        .body(Body::from(msg))
+        .unwrap()
 }
 
 async fn proxy_handler(
     ConnectInfo(peer): ConnectInfo<SocketAddr>,
-    State((client, rauthy_port)): State<(ProxyClient, u16)>,
+    State((client, rauthy_port, forwarded_host, forwarded_proto)): State<(
+        ProxyClient,
+        u16,
+        String,
+        String,
+    )>,
     req: Request<Body>,
 ) -> Response<Body> {
-    let (parts, body) = req.into_parts();
+    let (mut parts, body) = req.into_parts();
 
     let body_bytes = match axum::body::to_bytes(body, MAX_BODY_BYTES).await {
         Ok(bytes) => bytes,
         Err(e) => {
             tracing::warn!(error = %e, "rauthy proxy: failed to buffer request body");
-            return Response::builder()
-                .status(StatusCode::BAD_GATEWAY)
-                .body(Body::from("failed to buffer request body"))
-                .unwrap();
+            return bad_gateway("failed to buffer request body");
         }
     };
 
@@ -75,97 +110,75 @@ async fn proxy_handler(
     // axum's `nest_service("/auth", ...)` strips the `/auth` prefix before
     // calling this handler, so re-prepend it for the upstream request —
     // rauthy serves everything under `/auth/v1/*`.
-    let target_uri =
-        match format!("http://127.0.0.1:{rauthy_port}/auth{path_and_query}").parse::<Uri>() {
-            Ok(uri) => uri,
-            Err(e) => {
-                tracing::warn!(error = %e, "rauthy proxy: invalid target URI");
-                return Response::builder()
-                    .status(StatusCode::BAD_GATEWAY)
-                    .body(Body::from("invalid target URI"))
-                    .unwrap();
-            }
-        };
-
-    let mut builder = Request::builder().method(parts.method).uri(target_uri);
-
-    if let Some(headers) = builder.headers_mut() {
-        for (name, value) in parts.headers.iter() {
-            if HOP_BY_HOP.contains(&name.as_str()) {
-                continue;
-            }
-            headers.append(name, value.clone());
-        }
-        // Append the peer IP to X-Forwarded-For (or start it if absent).
-        let xff = parts
-            .headers
-            .get("x-forwarded-for")
-            .and_then(|v| v.to_str().ok())
-            .filter(|s| !s.is_empty());
-        let xff_value = match xff {
-            Some(existing) => format!("{existing}, {}", peer.ip()),
-            None => peer.ip().to_string(),
-        };
-        headers.insert(
-            "x-forwarded-for",
-            HeaderValue::from_str(&xff_value).unwrap_or_else(|_| HeaderValue::from_static("")),
-        );
-    }
-
-    let request = match builder.body(Body::from(body_bytes)) {
-        Ok(req) => req,
+    parts.uri = match format!("http://127.0.0.1:{rauthy_port}/auth{path_and_query}").parse::<Uri>()
+    {
+        Ok(uri) => uri,
         Err(e) => {
-            tracing::warn!(error = %e, "rauthy proxy: failed to build request");
-            return Response::builder()
-                .status(StatusCode::BAD_GATEWAY)
-                .body(Body::from("failed to build request"))
-                .unwrap();
+            tracing::warn!(error = %e, "rauthy proxy: invalid target URI");
+            return bad_gateway("invalid target URI");
         }
     };
 
-    match client.request(request).await {
-        Ok(resp) => {
-            let (parts, resp_body) = resp.into_parts();
-            let mut headers = parts.headers.clone();
-            for name in HOP_BY_HOP {
-                headers.remove(*name);
-            }
-            match resp_body
-                .collect()
-                .await
-                .map(|collected| collected.to_bytes())
-            {
-                Ok(bytes) => Response::builder()
-                    .status(parts.status)
-                    .version(parts.version)
-                    .body(Body::from(bytes))
-                    .map(|mut resp| {
-                        *resp.headers_mut() = headers;
-                        resp
-                    })
-                    .unwrap_or_else(|_| {
-                        Response::builder()
-                            .status(StatusCode::BAD_GATEWAY)
-                            .body(Body::from("failed to build response"))
-                            .unwrap()
-                    }),
-                Err(e) => {
-                    tracing::warn!(error = %e, "rauthy proxy: failed to read response body");
-                    Response::builder()
-                        .status(StatusCode::BAD_GATEWAY)
-                        .body(Body::from("failed to read response body"))
-                        .unwrap()
-                }
-            }
-        }
+    // Strip hop-by-hop headers. X-Forwarded-Host/Proto are always overwritten
+    // with the configured public origin (never forwarded from the client),
+    // and the peer IP is appended to X-Forwarded-For (or starts it).
+    let mut headers = std::mem::take(&mut parts.headers);
+    for name in HOP_BY_HOP {
+        headers.remove(*name);
+    }
+    headers.insert(
+        "x-forwarded-host",
+        HeaderValue::from_str(&forwarded_host).unwrap_or_else(|_| HeaderValue::from_static("")),
+    );
+    headers.insert(
+        "x-forwarded-proto",
+        HeaderValue::from_str(&forwarded_proto).unwrap_or_else(|_| HeaderValue::from_static("")),
+    );
+    let xff_value = match headers.get("x-forwarded-for") {
+        Some(existing) => match existing.to_str() {
+            Ok(v) if !v.is_empty() => format!("{v}, {}", peer.ip()),
+            _ => peer.ip().to_string(),
+        },
+        None => peer.ip().to_string(),
+    };
+    headers.insert(
+        "x-forwarded-for",
+        HeaderValue::from_str(&xff_value).unwrap_or_else(|_| HeaderValue::from_static("")),
+    );
+    parts.headers = headers;
+
+    let request = Request::from_parts(parts, Body::from(body_bytes));
+
+    let resp = match client.request(request).await {
+        Ok(resp) => resp,
         Err(e) => {
             tracing::warn!(error = %e, "rauthy proxy: upstream request failed");
-            Response::builder()
-                .status(StatusCode::BAD_GATEWAY)
-                .body(Body::from("upstream request failed"))
-                .unwrap()
+            return bad_gateway("upstream request failed");
         }
+    };
+
+    let (resp_parts, resp_body) = resp.into_parts();
+    let mut headers = resp_parts.headers.clone();
+    for name in HOP_BY_HOP {
+        headers.remove(*name);
     }
+    let bytes = match resp_body.collect().await.map(|c| c.to_bytes()) {
+        Ok(bytes) => bytes,
+        Err(e) => {
+            tracing::warn!(error = %e, "rauthy proxy: failed to read response body");
+            return bad_gateway("failed to read response body");
+        }
+    };
+
+    Response::builder()
+        .status(resp_parts.status)
+        .version(resp_parts.version)
+        .body(Body::from(bytes))
+        .map(|mut resp| {
+            *resp.headers_mut() = headers;
+            resp
+        })
+        .unwrap_or_else(|_| bad_gateway("failed to build response"))
 }
 
 #[cfg(test)]
@@ -218,8 +231,8 @@ mod tests {
     }
 
     /// Spawn the proxy router on a random port and return its base URL.
-    async fn spawn_proxy(rauthy_port: u16) -> String {
-        let app = rauthy_proxy_router(rauthy_port);
+    async fn spawn_proxy(rauthy_port: u16, pub_url: &str) -> String {
+        let app = rauthy_proxy_router(rauthy_port, pub_url);
         let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
         let addr = listener.local_addr().unwrap();
         tokio::spawn(async move {
@@ -236,12 +249,16 @@ mod tests {
     #[tokio::test]
     async fn test_proxy_forwards_request_and_relays_response() {
         let (echo_port, _echo_handle) = spawn_echo_server().await;
-        let proxy_base = spawn_proxy(echo_port).await;
+        let proxy_base = spawn_proxy(echo_port, "https://ofm.example.com").await;
 
         let resp = reqwest::Client::new()
             .post(format!("{proxy_base}/v1/authorize?code=abc&state=xyz"))
             .header("host", "ofm.example.com")
-            .header("x-forwarded-proto", "https")
+            // Client-supplied X-Forwarded-* must be ignored: rauthy (in
+            // proxy_mode) trusts its proxy, so forwarding client values would
+            // let a client dictate the origin rauthy builds URLs with.
+            .header("x-forwarded-proto", "http")
+            .header("x-forwarded-host", "evil.example.com")
             .header("x-forwarded-for", "203.0.113.9")
             .body("hello rauthy")
             .send()
@@ -256,8 +273,10 @@ mod tests {
         assert_eq!(parsed["path"], "/auth/v1/authorize");
         assert_eq!(parsed["query"], "code=abc&state=xyz");
         assert_eq!(parsed["body"], "hello rauthy");
-        // Host is preserved; X-Forwarded-Proto passes through; peer IP appended
+        // Host is preserved; X-Forwarded-* derive from the configured pub_url,
+        // not the client; peer IP is appended to X-Forwarded-For.
         assert_eq!(parsed["headers"]["host"], "ofm.example.com");
+        assert_eq!(parsed["headers"]["x-forwarded-host"], "ofm.example.com");
         assert_eq!(parsed["headers"]["x-forwarded-proto"], "https");
         let xff = parsed["headers"]["x-forwarded-for"].as_str().unwrap();
         assert!(xff.starts_with("203.0.113.9, "), "xff={xff}");
@@ -270,7 +289,7 @@ mod tests {
     #[tokio::test]
     async fn test_proxy_relays_non_2xx_status() {
         let (echo_port, _echo_handle) = spawn_echo_server().await;
-        let proxy_base = spawn_proxy(echo_port).await;
+        let proxy_base = spawn_proxy(echo_port, "http://127.0.0.1:3258").await;
 
         let resp = reqwest::Client::new()
             .post(format!("{proxy_base}/v1/not-found?status=404"))
@@ -296,5 +315,22 @@ mod tests {
         for h in ["connection", "transfer-encoding", "upgrade", "keep-alive"] {
             assert!(HOP_BY_HOP.contains(&h), "{h} must be hop-by-hop");
         }
+    }
+
+    #[test]
+    fn test_forwarded_origin_derived_from_pub_url() {
+        assert_eq!(
+            super::forwarded_origin("http://127.0.0.1:3258"),
+            ("127.0.0.1:3258".to_string(), "http".to_string())
+        );
+        assert_eq!(
+            super::forwarded_origin("https://ofm.example.com"),
+            ("ofm.example.com".to_string(), "https".to_string())
+        );
+        // Scheme-less input is treated as http (matches pub_url_host_port).
+        assert_eq!(
+            super::forwarded_origin("myhost.local:18080"),
+            ("myhost.local:18080".to_string(), "http".to_string())
+        );
     }
 }

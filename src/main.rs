@@ -158,15 +158,13 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     };
 
     let mut _rauthy_instance: Option<rauthy::RauthyInstance> = None;
-    let mut _rauthy_port: Option<u16> = None;
 
-    let (auth_layer, oidc_provider) = if cfg.rauthy_enabled {
+    let (auth_layer, oidc_provider, rauthy_port) = if cfg.rauthy_enabled {
         let rp = if cfg.rauthy_port > 0 {
             cfg.rauthy_port
         } else {
             rauthy::find_available_port()?
         };
-        _rauthy_port = Some(rp);
 
         tracing::info!("Starting embedded rauthy on port {}", rp);
         let instance = rauthy::start_rauthy(
@@ -198,6 +196,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         let discovery_url = format!("{}/auth/v1/.well-known/openid-configuration", direct_base);
         let disc: serde_json::Value = reqwest::get(&discovery_url).await?.json().await?;
         let issuer = disc["issuer"].as_str().ok_or("missing issuer")?.to_string();
+        let jwks_uri = disc["jwks_uri"]
+            .as_str()
+            .ok_or("missing jwks_uri")?
+            .to_string();
         let (
             authorization_endpoint,
             token_endpoint,
@@ -208,13 +210,6 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         let redirect_uri = format!("{}/api/auth/callback", cfg.pub_url.trim_end_matches('/'));
         let client_id = cfg.oidc_client_id.clone().unwrap_or_else(|| "ofm".into());
 
-        let jwks_disc_url =
-            format!("http://127.0.0.1:{rp}/auth/v1/.well-known/openid-configuration");
-        let jwks_disc: serde_json::Value = reqwest::get(&jwks_disc_url).await?.json().await?;
-        let jwks_uri = jwks_disc["jwks_uri"]
-            .as_str()
-            .ok_or("missing jwks_uri")?
-            .to_string();
         // The advertised `jwks_uri` is on the pub_url origin (the browser
         // reaches it through the `/auth` proxy). OFM fetches the keys
         // directly at loopback — the proxy is not up yet at this point — so
@@ -259,7 +254,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             jwks_cache: Some(auth_layer_rauthy.jwks_cache.clone()),
             jwks_issuer: auth_layer_rauthy.issuer_url.clone(),
         };
-        (auth_layer_rauthy, Some(oidc_endpoints))
+        (auth_layer_rauthy, Some(oidc_endpoints), Some(rp))
     } else {
         let auth_layer = auth::AuthLayer::new(
             &cfg,
@@ -314,7 +309,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             jwks_issuer: auth_layer.issuer_url.clone(),
         });
 
-        (auth_layer, oidc_provider)
+        (auth_layer, oidc_provider, None)
     };
 
     let state = server::state::AppState {
@@ -330,7 +325,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         cookie_key,
         api_key_pepper,
         cfg_port: cfg.port,
-        rauthy_port: _rauthy_port,
+        rauthy_port,
         ws_bus: BroadcastBus::new(),
         config: cfg.clone(),
     };

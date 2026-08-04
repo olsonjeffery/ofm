@@ -229,17 +229,18 @@ Rauthy runs as a Docker container (`ghcr.io/sebadob/rauthy:latest`) managed by
 - The container name is deterministic and footprint-derived
   (`ofm-rauthy-<hash>`), stable across restarts of the same footprint and
   unique across worktree footprints.
-- The container always binds `0.0.0.0` via `-p 0.0.0.0:{port}:8080` (Docker only
-  accepts IP addresses for the host bind interface, and the `pub_url` host may
-  be a non-IP hostname). The browser reaches rauthy **exclusively through OFM's
-  `/auth` reverse proxy** at `{pub_url}/auth/v1/*`; the `pub_url` is injected via
+- The container always binds `127.0.0.1` via `-p 127.0.0.1:{port}:8080` (loopback:
+  the browser reaches rauthy **exclusively through OFM's `/auth` reverse proxy**
+  at `{pub_url}/auth/v1/*`, so the published port must not be reachable from the
+  network; `127.0.0.1` is an IP address, so it works even when the `pub_url` host
+  is a non-IP hostname). The `pub_url` is injected via
   rauthy's `PUB_URL` env rather than the bootstrap directory (which only parses
   `clients.json`/`users.json` etc.).
 - The `clients.json` redirect URIs (`redirect_uris` /
   `post_logout_redirect_uris`) are built from `pub_url` as `{pub_url}/*`, so the
   OAuth callback and post-logout targets point at the origin OFM serves on.
 - Health check: `GET /health` (via `http://127.0.0.1:{port}/health` — loopback
-  reaches the `0.0.0.0`-published port regardless of the `pub_url` host
+  reaches the `127.0.0.1`-published port regardless of the `pub_url` host
   resolvability) must return 200 before `ofm` marks itself ready. This probe is
   direct (loopback), not through the proxy, and works with `PROXY_MODE` only if
   the loopback/docker-bridge source IP is trusted.

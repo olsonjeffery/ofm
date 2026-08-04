@@ -22,8 +22,11 @@ pub fn router(state: AppState, auth_layer: AuthLayer) -> Router {
     // `/auth` is public (the browser hits the rauthy login page without an
     // OFM session) and only exists when rauthy is hosted locally. `state` is
     // moved into `with_state` below, so read `rauthy_port` first.
-    if let Some(rp) = state.rauthy_port {
-        public = public.nest_service("/auth", rauthy_proxy_router(rp));
+    if let Some(rauthy_port) = state.rauthy_port {
+        public = public.nest_service(
+            "/auth",
+            rauthy_proxy_router(rauthy_port, &state.config.pub_url),
+        );
     }
 
     // Public webapp routes (no auth)

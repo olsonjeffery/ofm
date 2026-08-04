@@ -152,9 +152,9 @@ impl OfmConfig {
                 .map(|base| format!("{}/api/auth/callback", base.trim_end_matches('/')))
         });
         let pub_url = resolve_pub_url(
-            std::env::var("OFM_PUB_URL").ok(),
+            env_opt_or("OFM_PUB_URL"),
             None,
-            std::env::var("OFM_URL").ok(),
+            env_opt_or("OFM_URL"),
             None,
             &hostname,
             port,
@@ -181,7 +181,7 @@ impl OfmConfig {
             rauthy_enabled: env_bool("OFM_RAUTHY_ENABLED").unwrap_or(false),
             rauthy_port: env_u16("OFM_RAUTHY_PORT").unwrap_or(0),
             rauthy_proxy_mode: env_bool("OFM_RAUTHY_PROXY_MODE").unwrap_or(false),
-            rauthy_trusted_proxies: std::env::var("OFM_RAUTHY_TRUSTED_PROXIES").ok(),
+            rauthy_trusted_proxies: env_opt_or("OFM_RAUTHY_TRUSTED_PROXIES"),
             logging_config_path,
             info_log_client_data: env_bool("OFM_INFO_LOG_CLIENT_DATA").unwrap_or(false),
         }
