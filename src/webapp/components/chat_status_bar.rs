@@ -15,38 +15,34 @@ pub fn ChatStatusBar(
 
     let is_processing_class = if processing { "is-processing" } else { "" };
 
+    let agent_block = agent_type.map(|agent_type| {
+        let type_class = format!("is-agent-{}", agent_type);
+        let base_icon = format!("mdi mdi-{} agent-status-icon", agent_type.icon());
+        let icon_class = if processing {
+            format!("{base_icon} is-pulse")
+        } else {
+            base_icon
+        };
+        view! {
+            <span class=format!("chat-status-agent {}", type_class)>
+                <span class="icon">
+                    <i class=icon_class></i>
+                </span>
+                <span class="agent-type-label">{agent_type.label()}</span>
+            </span>
+        }
+    });
+
+    let model_block = (!model_label.is_empty())
+        .then(|| view! { <span class="agent-model-label">{model_label}</span> });
+
     view! {
         <div id="chat-status-bar"
              class=format!("chat-status-bar {}", is_processing_class)
              aria-live="polite">
             <div class="chat-status-info">
-                {match agent_type {
-                    Some(agent_type) => {
-                        let type_str = agent_type.to_string();
-                        let type_class = format!("is-agent-{}", type_str);
-                        let icon_class = if processing {
-                            format!("mdi mdi-{} agent-status-icon is-pulse", agent_type.icon())
-                        } else {
-                            format!("mdi mdi-{} agent-status-icon", agent_type.icon())
-                        };
-                        view! {
-                            <span class=format!("chat-status-agent {}", type_class)>
-                                <span class="icon">
-                                    <i class=icon_class></i>
-                                </span>
-                                <span class="agent-type-label">{agent_type.label()}</span>
-                            </span>
-                        }
-                            .into_any()
-                    }
-                    None => ().into_any(),
-                }}
-                {if model_label.is_empty() {
-                    ().into_any()
-                } else {
-                    view! { <span class="agent-model-label">{model_label.clone()}</span> }
-                        .into_any()
-                }}
+                {agent_block}
+                {model_block}
             </div>
             <div class="chat-status-actions">
                 <span id="agent-status-label">{status_text}</span>
