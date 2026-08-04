@@ -87,6 +87,7 @@ pub async fn handle_callback(
     pkce_store: &Arc<Mutex<HashMap<String, PkceEntry>>>,
     code: String,
     state: String,
+    footprint: &str,
 ) -> Result<CallbackResult, ServerError> {
     let entry = pkce_store
         .lock()
@@ -169,7 +170,7 @@ pub async fn handle_callback(
     let expires_at = session_expires_at();
 
     let (user_id, has_completed_onboarding, user_token_version) =
-        find_or_create_user(db, &sub, username, &now).await?;
+        find_or_create_user(db, &sub, username, &now, footprint).await?;
 
     let session_id = Uuid::new_v4();
     db.execute(
@@ -451,11 +452,20 @@ async fn find_user_by_username(
 /// footprint) recreates the admin identity with a fresh `oidc_subject` while
 /// OFM's users row still holds the old one, so re-linking the existing row to
 /// the new subject avoids failing the INSERT on the username UNIQUE constraint.
+///
+/// The username fallback is only ever authorized when a rauthy re-bootstrap
+/// invalidated the existing row's subject: `main` records the pre-wipe subjects
+/// in `{footprint}/rauthy/relink_subjects` when it detects one (see
+/// `rauthy::record_relink_subjects`). Re-linking on a username collision alone
+/// is refused — `preferred_username` is a claim-controlled value, and silently
+/// rebinding a row would let anyone who can mint an id_token with a colliding
+/// username take over that user's account.
 async fn find_or_create_user(
     db: &hiqlite::Client,
     sub: &str,
     username: Option<String>,
     now: &str,
+    footprint: &str,
 ) -> Result<(Uuid, bool, i32), ServerError> {
     if let Some(user) = find_user_by_oidc_sub(db, sub).await? {
         db.execute(
@@ -470,9 +480,16 @@ async fn find_or_create_user(
     let id = Uuid::new_v4();
     let username = username.unwrap_or_else(|| sub.to_string());
     if let Some(existing) = find_user_by_username(db, &username).await? {
+        let relink_authorized = crate::rauthy::relink_subjects(footprint)
+            .contains(existing.oidc_subject.as_deref().unwrap_or_default());
+        if !relink_authorized {
+            return Err(ServerError::Conflict(format!(
+                "username '{username}' is already taken by another identity"
+            )));
+        }
         tracing::warn!(
-            "OIDC subject for user '{}' changed ({} -> {}); re-linking to the new subject \
-             instead of failing the login",
+            "OIDC subject for user '{}' changed ({} -> {}) after a rauthy re-bootstrap; \
+             re-linking to the new subject",
             username,
             existing.oidc_subject.as_deref().unwrap_or("(none)"),
             sub,
@@ -840,13 +857,19 @@ mod tests {
 
     #[tokio::test]
     async fn test_find_or_create_user_creates_on_first_login() {
-        let (client, _tmp) = create_test_db().await;
+        let (client, tmp) = create_test_db().await;
+        let footprint = tmp.path().to_str().unwrap();
         let now = chrono::Utc::now().format("%Y-%m-%d %H:%M:%S").to_string();
 
-        let (user_id, onboarding, token_version) =
-            find_or_create_user(&client, "fresh-sub", Some("freshuser".into()), &now)
-                .await
-                .unwrap();
+        let (user_id, onboarding, token_version) = find_or_create_user(
+            &client,
+            "fresh-sub",
+            Some("freshuser".into()),
+            &now,
+            footprint,
+        )
+        .await
+        .unwrap();
 
         assert!(!onboarding);
         assert_eq!(token_version, 0);
@@ -857,7 +880,8 @@ mod tests {
 
     #[tokio::test]
     async fn test_find_or_create_user_relinks_on_subject_change() {
-        let (client, _tmp) = create_test_db().await;
+        let (client, tmp) = create_test_db().await;
+        let footprint = tmp.path().to_str().unwrap();
         let user_id = uuid::Uuid::new_v4();
         let now = chrono::Utc::now().format("%Y-%m-%d %H:%M:%S").to_string();
         client
@@ -868,11 +892,18 @@ mod tests {
             .await
             .unwrap();
 
-        // Simulate a rauthy re-bootstrap: same username, brand-new subject.
-        let (resolved_id, onboarding, _) =
-            find_or_create_user(&client, "new-sub", Some("admin@localhost".into()), &now)
-                .await
-                .unwrap();
+        // Simulate a rauthy re-bootstrap: main recorded the pre-wipe subject,
+        // then the same username logs in with a brand-new subject.
+        crate::rauthy::record_relink_subjects(footprint, &["old-sub".to_string()]).unwrap();
+        let (resolved_id, onboarding, _) = find_or_create_user(
+            &client,
+            "new-sub",
+            Some("admin@localhost".into()),
+            &now,
+            footprint,
+        )
+        .await
+        .unwrap();
 
         assert_eq!(
             resolved_id, user_id,
@@ -890,6 +921,57 @@ mod tests {
         // Exactly one user row remains.
         let users = list_users(&client).await.unwrap();
         assert_eq!(users.len(), 1);
+
+        // A second subject change without another re-bootstrap must fail
+        // closed: the row's subject (new-sub) is no longer in the recorded set.
+        let err = find_or_create_user(
+            &client,
+            "third-sub",
+            Some("admin@localhost".into()),
+            &now,
+            footprint,
+        )
+        .await
+        .unwrap_err();
+        assert!(
+            matches!(err, ServerError::Conflict(_)),
+            "re-link without a re-bootstrap must be refused, got: {err:?}"
+        );
+        let user = get_user_by_id(&client, user_id).await.unwrap().unwrap();
+        assert_eq!(user.oidc_subject.as_deref(), Some("new-sub"));
+    }
+
+    #[tokio::test]
+    async fn test_find_or_create_user_refuses_relink_without_rebootstrap() {
+        let (client, tmp) = create_test_db().await;
+        let footprint = tmp.path().to_str().unwrap();
+        let user_id = uuid::Uuid::new_v4();
+        let now = chrono::Utc::now().format("%Y-%m-%d %H:%M:%S").to_string();
+        client
+            .execute(
+                "INSERT INTO users (id, username, oidc_subject, is_active, created_at, has_completed_onboarding, is_technical) VALUES ($1, $2, $3, 1, $4, 1, 0)",
+                hiqlite::params!(user_id.to_string(), "admin@localhost", "old-sub", now.clone()),
+            )
+            .await
+            .unwrap();
+
+        // No re-bootstrap was recorded for this footprint: a login presenting a
+        // fresh sub with a colliding username must not take over the row.
+        let err = find_or_create_user(
+            &client,
+            "attacker-sub",
+            Some("admin@localhost".into()),
+            &now,
+            footprint,
+        )
+        .await
+        .unwrap_err();
+        assert!(
+            matches!(err, ServerError::Conflict(_)),
+            "username collision without a recorded re-bootstrap must be refused, got: {err:?}"
+        );
+        let user = get_user_by_id(&client, user_id).await.unwrap().unwrap();
+        assert_eq!(user.oidc_subject.as_deref(), Some("old-sub"));
     }
 
     #[tokio::test]

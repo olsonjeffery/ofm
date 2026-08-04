@@ -215,118 +215,77 @@ impl OfmConfig {
         let api_key = std::env::var("OFM_API_KEY").ok();
         warn_if_short_api_key(&api_key);
 
+        let yaml_server = yaml_cfg.as_ref().and_then(|y| y.server.as_ref());
+        let yaml_auth = yaml_cfg.as_ref().and_then(|y| y.auth.as_ref());
+        let yaml_raft = yaml_cfg.as_ref().and_then(|y| y.raft.as_ref());
+        let yaml_rauthy = yaml_cfg.as_ref().and_then(|y| y.rauthy.as_ref());
+        let yaml_behavior = yaml_cfg.as_ref().and_then(|y| y.behavior.as_ref());
+
         let hostname = env_opt_or("OFM_HOSTNAME")
-            .or_else(|| {
-                yaml_cfg
-                    .as_ref()
-                    .and_then(|y| y.server.as_ref()?.hostname.clone())
-            })
+            .or_else(|| yaml_server.and_then(|s| s.hostname.clone()))
             .unwrap_or_else(|| "127.0.0.1".into());
 
         let port = env_u16("OFM_PORT")
-            .or_else(|| yaml_cfg.as_ref().and_then(|y| y.server.as_ref()?.port))
+            .or_else(|| yaml_server.and_then(|s| s.port))
             .unwrap_or(3183u16);
 
         let pub_url = resolve_pub_url(
             env_opt_or("OFM_PUB_URL"),
-            yaml_cfg
-                .as_ref()
-                .and_then(|y| y.server.as_ref()?.pub_url.clone()),
+            yaml_server.and_then(|s| s.pub_url.clone()),
             env_opt_or("OFM_URL"),
-            yaml_cfg
-                .as_ref()
-                .and_then(|y| y.server.as_ref()?.url.clone()),
+            yaml_server.and_then(|s| s.url.clone()),
             &hostname,
             port,
         );
         let url = pub_url.clone();
 
-        let base_url = env_opt_or("OM_PRINT_BASE_URL").or_else(|| {
-            yaml_cfg
-                .as_ref()
-                .and_then(|y| y.auth.as_ref()?.base_url.clone())
-        });
+        let base_url =
+            env_opt_or("OM_PRINT_BASE_URL").or_else(|| yaml_auth.and_then(|g| g.base_url.clone()));
 
         let oidc_redirect_uri = env_opt_or("OIDC_REDIRECT_URI")
-            .or_else(|| {
-                yaml_cfg
-                    .as_ref()
-                    .and_then(|y| y.auth.as_ref()?.oidc_redirect_uri.clone())
-            })
+            .or_else(|| yaml_auth.and_then(|g| g.oidc_redirect_uri.clone()))
             .or_else(|| {
                 base_url
                     .as_ref()
                     .map(|base| format!("{}/api/auth/callback", base.trim_end_matches('/')))
             });
 
-        let oidc_issuer_url = env_opt_or(OFM_OIDC_ISSUER_URL).or_else(|| {
-            yaml_cfg
-                .as_ref()
-                .and_then(|y| y.auth.as_ref()?.oidc_issuer_url.clone())
-        });
+        let oidc_issuer_url = env_opt_or(OFM_OIDC_ISSUER_URL)
+            .or_else(|| yaml_auth.and_then(|g| g.oidc_issuer_url.clone()));
 
-        let oidc_client_id = env_opt_or(OFM_OIDC_CLIENT_ID).or_else(|| {
-            yaml_cfg
-                .as_ref()
-                .and_then(|y| y.auth.as_ref()?.oidc_client_id.clone())
-        });
+        let oidc_client_id = env_opt_or(OFM_OIDC_CLIENT_ID)
+            .or_else(|| yaml_auth.and_then(|g| g.oidc_client_id.clone()));
 
         let oidc_client_secret = env_opt_or("OIDC_CLIENT_SECRET");
 
         let hiqlite_raft_port = env_u16("OFM_HIQLITE_RAFT_PORT")
-            .or_else(|| {
-                yaml_cfg
-                    .as_ref()
-                    .and_then(|y| y.raft.as_ref()?.hiqlite_raft_port)
-            })
+            .or_else(|| yaml_raft.and_then(|g| g.hiqlite_raft_port))
             .unwrap_or(8100u16);
 
         let hiqlite_api_port = env_u16("OFM_HIQLITE_API_PORT")
-            .or_else(|| {
-                yaml_cfg
-                    .as_ref()
-                    .and_then(|y| y.raft.as_ref()?.hiqlite_api_port)
-            })
+            .or_else(|| yaml_raft.and_then(|g| g.hiqlite_api_port))
             .unwrap_or(8200u16);
 
         let rauthy_enabled = env_bool("OFM_RAUTHY_ENABLED")
-            .or_else(|| {
-                yaml_cfg
-                    .as_ref()
-                    .and_then(|y| y.rauthy.as_ref()?.rauthy_enabled)
-            })
+            .or_else(|| yaml_rauthy.and_then(|g| g.rauthy_enabled))
             .unwrap_or(false);
 
         let rauthy_port = env_u16("OFM_RAUTHY_PORT")
-            .or_else(|| {
-                yaml_cfg
-                    .as_ref()
-                    .and_then(|y| y.rauthy.as_ref()?.rauthy_port)
-            })
+            .or_else(|| yaml_rauthy.and_then(|g| g.rauthy_port))
             .unwrap_or(0u16);
 
         let rauthy_proxy_mode = env_bool("OFM_RAUTHY_PROXY_MODE")
-            .or_else(|| {
-                yaml_cfg
-                    .as_ref()
-                    .and_then(|y| y.rauthy.as_ref()?.proxy_mode)
-            })
+            .or_else(|| yaml_rauthy.and_then(|g| g.proxy_mode))
             .unwrap_or(false);
 
-        let rauthy_trusted_proxies = env_opt_or("OFM_RAUTHY_TRUSTED_PROXIES").or_else(|| {
-            yaml_cfg
-                .as_ref()
-                .and_then(|y| y.rauthy.as_ref()?.trusted_proxies.clone())
-        });
+        let rauthy_trusted_proxies = env_opt_or("OFM_RAUTHY_TRUSTED_PROXIES")
+            .or_else(|| yaml_rauthy.and_then(|g| g.trusted_proxies.clone()));
 
         let archive_root = format!("{footprint}/archive");
         let data_dir = format!("{footprint}/hiqlite");
 
-        let info_log_client_data = env_bool("OFM_INFO_LOG_CLIENT_DATA").or_else(|| {
-            yaml_cfg
-                .as_ref()
-                .and_then(|y| y.behavior.as_ref()?.log_data)
-        });
+        let info_log_client_data =
+            env_bool("OFM_INFO_LOG_CLIENT_DATA").or_else(|| yaml_behavior.and_then(|g| g.log_data));
 
         // Check for logging config file
         let logging_config_path = env_opt_or("OFM_LOGGING_CONFIG").or_else(|| {

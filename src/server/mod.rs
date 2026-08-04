@@ -25,7 +25,11 @@ pub fn router(state: AppState, auth_layer: AuthLayer) -> Router {
     if let Some(rauthy_port) = state.rauthy_port {
         public = public.nest_service(
             "/auth",
-            rauthy_proxy_router(rauthy_port, &state.config.pub_url),
+            rauthy_proxy_router(
+                rauthy_port,
+                &state.config.pub_url,
+                state.config.rauthy_trusted_proxies.as_deref(),
+            ),
         );
     }
 

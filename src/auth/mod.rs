@@ -118,6 +118,19 @@ pub struct AuthLayer {
     pub default_user_id: Uuid,
 }
 
+/// Fetch signing keys either directly from `refresh_url` (embedded rauthy) or
+/// via a discovery round-trip from `issuer_url`.
+async fn refresh_jwks(
+    refresh_url: Option<&str>,
+    issuer_url: &str,
+    client_id: &str,
+) -> Result<JwksCache, AuthError> {
+    match refresh_url {
+        Some(uri) => fetch_jwks_direct(uri, issuer_url, client_id).await,
+        None => fetch_jwks(issuer_url, client_id).await,
+    }
+}
+
 impl AuthLayer {
     pub fn disabled(
         db: hiqlite::Client,
@@ -152,11 +165,7 @@ impl AuthLayer {
             let mut interval = tokio::time::interval(std::time::Duration::from_secs(3600));
             loop {
                 interval.tick().await;
-                let result = match bg_refresh.as_deref() {
-                    Some(uri) => fetch_jwks_direct(uri, &bg_issuer, &bg_client_id).await,
-                    None => fetch_jwks(&bg_issuer, &bg_client_id).await,
-                };
-                match result {
+                match refresh_jwks(bg_refresh.as_deref(), &bg_issuer, &bg_client_id).await {
                     Ok(new_cache) => *bg_cache.write().await = Some(new_cache),
                     Err(e) => tracing::warn!("JWKS refresh failed: {e}"),
                 }
@@ -291,11 +300,9 @@ impl AuthLayer {
                         return Err(AuthError::JwksFetchError("no issuer URL".into()));
                     };
                     let client_id = self.client_id.clone().unwrap_or_default();
-                    let refresh_result = match self.jwks_refresh_url.as_deref() {
-                        Some(uri) => fetch_jwks_direct(uri, issuer_url, &client_id).await,
-                        None => fetch_jwks(issuer_url, &client_id).await,
-                    };
-                    match refresh_result {
+                    match refresh_jwks(self.jwks_refresh_url.as_deref(), issuer_url, &client_id)
+                        .await
+                    {
                         Ok(new_cache) => {
                             *self.jwks_cache.write().await = Some(new_cache);
                         }

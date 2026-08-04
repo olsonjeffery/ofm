@@ -142,8 +142,13 @@ OFM_RAUTHY_ENABLED=true
 > URIs take effect — note this resets any rauthy users created in the admin UI
 > (the bootstrap admin account is recreated, with its password printed at
 > startup, and its OIDC identity gets a fresh `sub`). Your `ofm` login still
-> works after the re-bootstrap: `ofm` re-links the existing user row to the new
-> subject on the next login, so settings/projects are retained. Previously issued
+> works after the re-bootstrap: `ofm` records the invalidated OIDC subjects at
+> `{OFM_FOOTPRINT}/rauthy/relink_subjects` and re-links the existing user row to
+> the new subject on the next login, so settings/projects are retained. The
+> re-link is authorized **only** by that recorded re-bootstrap — a login whose
+> `sub` matches no row is never rebound to an existing username on its own, so a
+> colliding `preferred_username` claim cannot take over another user's account.
+> Previously issued
 > rauthy tokens are invalidated (you'll be logged out once). If you are upgrading
 > from an `ofm` version that predates this
 > detection **and** changing `OFM_PUB_URL`/`OFM_PORT` in the same move, delete
@@ -201,12 +206,19 @@ environment variable if you wish for it to run on another port).
 > Browser logins route to the `OFM_PUB_URL` origin. When the embedded rauthy is
 > used, its published port binds loopback only (`-p 127.0.0.1:{port}:8080`) and
 > OFM's `/auth` reverse proxy derives `X-Forwarded-Host`/`X-Forwarded-Proto`
-> from `OFM_PUB_URL` (client-supplied values are ignored) while appending the
-> peer IP to `X-Forwarded-For`. The browser is always redirected to the
+> from `OFM_PUB_URL` (client-supplied values are ignored), sets `X-Forwarded-For`
+> to the direct peer IP (an incoming chain is preserved only when the peer is a
+> proxy listed in `OFM_RAUTHY_TRUSTED_PROXIES`), and strips `Forwarded`. The
+> browser is always redirected to the
 > `OFM_PUB_URL` origin for login — OFM re-hosts rauthy's advertised endpoints
 > onto `pub_url` (rauthy's own URLs would otherwise be `http://...` and could
 > leak a mis-set loopback host), and OFM's backend token/userinfo/JWKS calls go
-> direct to rauthy at loopback. When you additionally enable
+> direct to rauthy at loopback. Rauthy also lists the configured `pub_url` origin
+> in the bootstrap `ofm` client's `allowed_origins`, so its login-form `Origin`
+> check accepts the browser even when rauthy's own `pub_url_with_scheme`
+> derivation differs from `OFM_PUB_URL`'s scheme (without this, an `https://`
+> `OFM_PUB_URL` with `proxy_mode` off fails the login POST with rauthy's
+> `Coming from an external Origin` error). When you additionally enable
 > `OFM_RAUTHY_PROXY_MODE=true`, rauthy hardcodes an `https://` issuer, so
 > the `OFM_PUB_URL` origin must be TLS-terminated; you must also set
 > `OFM_RAUTHY_TRUSTED_PROXIES` to the proxy CIDR(s) (including the Docker bridge

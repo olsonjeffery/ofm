@@ -167,7 +167,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         };
 
         tracing::info!("Starting embedded rauthy on port {}", rp);
-        let instance = rauthy::start_rauthy(
+        let (instance, rebootstrapped) = rauthy::start_rauthy(
             &cfg.footprint,
             &cfg.pub_url,
             rp,
@@ -178,14 +178,23 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         // Assign before any fallible step below (health check, OIDC
         // discovery, JWKS fetch) so every failure path triggers `Drop` →
         // `docker rm -f <container>` rather than leaking the container.
+        let container_name = instance.container_name().to_string();
         _rauthy_instance = Some(instance);
-        let container_name = _rauthy_instance
-            .as_ref()
-            .expect("just assigned")
-            .container_name()
-            .to_string();
         rauthy::wait_until_healthy(rp, &container_name).await?;
         tracing::info!("rauthy is healthy");
+
+        // A re-bootstrap wiped rauthy's data volume, which recreates the admin
+        // identity with a fresh OIDC subject while OFM's user rows still hold
+        // the old ones. Record those now-invalid subjects so the next login can
+        // re-link exactly those rows to their new subjects (see
+        // `find_or_create_user`); without a re-bootstrap no re-link is ever
+        // authorized.
+        if rebootstrapped {
+            let subjects = db::oidc_subjects(&client).await?;
+            if !subjects.is_empty() {
+                rauthy::record_relink_subjects(&cfg.footprint, &subjects)?;
+            }
+        }
 
         // Server-side discovery/JWKS stays direct at loopback — it does not go
         // through the `/auth` proxy. Rauthy's discovery is used for the *path

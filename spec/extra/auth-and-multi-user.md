@@ -220,6 +220,19 @@ origin over **HTTPS**. rauthy forwards these to its `PROXY_MODE` /
   though rauthy advertises `http://...`. This also guarantees a mis-set rauthy
   `PUB_URL` (e.g. a leftover `127.0.0.1`) can never leak into the authorization
   URL handed to the browser.
+- rauthy additionally rejects any login-form / OIDC POST whose `Origin` header
+  is not its own `pub_url_with_scheme` (derived as `http://` with `proxy_mode`
+  off, `https://` with it on) and not in the OAuth client's `allowed_origins`
+  (`400 BadRequest: Coming from an external Origin ...`). To keep login working
+  when the browser's origin is the configured `pub_url` but rauthy's own
+  derivation differs (e.g. `https://` `pub_url` with `proxy_mode` off), OFM
+  sets the bootstrap `ofm` client's `allowed_origins` to the configured
+  `pub_url` origin (`client_allowed_origin` in `src/rauthy/mod.rs`; omitted when
+  the origin cannot round-trip rauthy's `^(http|https)://[a-z0-9.:-]+$`
+  validation, e.g. an IPv6-literal host). Since `clients.json` is imported only
+  on first bootstrap, an existing footprint bootstrapped before this field was
+  added must be re-bootstrapped once (change `OFM_PUB_URL`, or delete
+  `{footprint}/rauthy/data`) to pick it up.
 - OFM's own server-side rauthy calls (token exchange, userinfo, revocation, JWKS
   refresh) go **direct at loopback** (`http://127.0.0.1:{rauthy_port}/auth/v1/...`),
   never round-tripping through the public origin or the external reverse proxy.
@@ -263,11 +276,16 @@ Rauthy runs as a Docker container (`ghcr.io/sebadob/rauthy:latest`) managed by
   this resets any rauthy users created in the admin UI — the bootstrap admin is
   recreated at startup **with a fresh OIDC `sub`**, and all previously issued
   rauthy tokens/sessions become invalid. OFM's own `users` rows keep their old
-  `oidc_subject`; on the next login `find_or_create_user`
-  (`src/services/auth.rs`) re-links the existing row by `username` and remaps
-  its `oidc_subject` to the new subject instead of failing the INSERT on the
+  `oidc_subject`; on startup OFM records those invalidated subjects at
+  `{footprint}/rauthy/relink_subjects`, and on the next login
+  `find_or_create_user` (`src/services/auth.rs`) re-links the existing row by
+  `username` **only when its current `oidc_subject` is one of the recorded
+  ones**, remapping it to the new subject instead of failing the INSERT on the
   username UNIQUE constraint — so the next browser login after a re-bootstrap
   simply works (user settings, onboarding state, and projects are retained).
+  Re-linking is never granted on a username collision alone: `preferred_username`
+  is a claim-controlled value, so without a recorded re-bootstrap the login is
+  refused rather than silently rebinding the row to a stranger's identity.
   A data volume with **no** marker (created by a
   pre-pub_url OFM version) is left intact; upgrading from such a version *and*
   changing `pub_url`/`OFM_PORT` in the same move requires deleting

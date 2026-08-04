@@ -90,9 +90,20 @@ fn spawn_reader(reader: impl tokio::io::AsyncRead + Unpin + Send + 'static, labe
     });
 }
 
+/// Treat scheme-less input as `http` so `url::Url` can parse it. Rauthy's own
+/// URLs are `http` unless `proxy_mode` is set, and `pub_url` may be given
+/// without a scheme, so both cases need `http://` prepended before parsing.
+pub(crate) fn with_http_scheme(input: &str) -> String {
+    if input.contains("://") {
+        input.to_string()
+    } else {
+        format!("http://{input}")
+    }
+}
+
 /// Extract the `host[:port]` portion of a public URL for rauthy's `PUB_URL`
 /// env (a single scalar `host[:port]`; the scheme is set via `LISTEN_SCHEME`
-/// + forwarded `X-Forwarded-Proto`). Scheme-less inputs are treated as `http`.
+/// + forwarded `X-Forwarded-Proto`).
 ///
 /// - `"http://127.0.0.1:3258"` → `"127.0.0.1:3258"`
 /// - `"https://ofm.example.com"` → `"ofm.example.com"` (well-known default port
@@ -101,12 +112,7 @@ fn spawn_reader(reader: impl tokio::io::AsyncRead + Unpin + Send + 'static, labe
 /// - `"ofm.example.com:443"` → `"ofm.example.com:443"` (scheme-less input keeps
 ///   its explicit port)
 pub fn pub_url_host_port(pub_url: &str) -> String {
-    let input = if pub_url.contains("://") {
-        pub_url.to_string()
-    } else {
-        format!("http://{pub_url}")
-    };
-    let Ok(url) = url::Url::parse(&input) else {
+    let Ok(url) = url::Url::parse(&with_http_scheme(pub_url)) else {
         return pub_url.trim_end_matches('/').to_string();
     };
     let host = url.host_str().unwrap_or("localhost").to_string();
@@ -125,8 +131,7 @@ pub fn client_redirect_uri(pub_url: &str) -> String {
 
 /// Re-host an absolute URL (e.g. an endpoint from rauthy's OIDC discovery) onto
 /// a different base origin, keeping the path and query. The path is taken from
-/// the parsed URL; scheme-less input is treated as `http` (matching
-/// `pub_url_host_port`). If the input cannot be parsed as a URL it is appended
+/// the parsed URL. If the input cannot be parsed as a URL it is appended
 /// verbatim to the base.
 ///
 /// OFM never hands rauthy's self-reported endpoints to the browser verbatim:
@@ -140,13 +145,8 @@ pub fn client_redirect_uri(pub_url: &str) -> String {
 /// - `("http://127.0.0.1:3183/auth/v1/token?x=1", "http://127.0.0.1:18080")`
 ///   → `"http://127.0.0.1:18080/auth/v1/token?x=1"`
 pub fn rehost_endpoint(url: &str, base: &str) -> String {
-    let input = if url.contains("://") {
-        url.to_string()
-    } else {
-        format!("http://{url}")
-    };
     let base = base.trim_end_matches('/');
-    match url::Url::parse(&input) {
+    match url::Url::parse(&with_http_scheme(url)) {
         Ok(parsed) => match parsed.query() {
             Some(q) => format!("{}{}?{}", base, parsed.path(), q),
             None => format!("{}{}", base, parsed.path()),
@@ -171,6 +171,40 @@ fn pub_url_marker_path(footprint: &str) -> std::path::PathBuf {
     std::path::PathBuf::from(format!("{footprint}/rauthy")).join("pub_url")
 }
 
+/// Marker file recording the OIDC subjects orphaned by the most recent rauthy
+/// re-bootstrap (newline-separated). A re-bootstrap wipes rauthy's data volume,
+/// which recreates the bootstrap admin identity with a fresh `oidc_subject`
+/// while OFM's user rows still hold the old ones. The auth service reads this
+/// file so a login whose `sub` matches no row may only re-link an existing user
+/// row whose previous subject is known to have been invalidated by that
+/// re-bootstrap — never on a username collision alone.
+fn relink_subjects_path(footprint: &str) -> std::path::PathBuf {
+    std::path::PathBuf::from(format!("{footprint}/rauthy")).join("relink_subjects")
+}
+
+/// Persist the subjects invalidated by a rauthy re-bootstrap (see
+/// `relink_subjects_path`). Called by `main` right after a re-bootstrap is
+/// detected, while the pre-wipe subjects are still in OFM's users table.
+pub fn record_relink_subjects(footprint: &str, subjects: &[String]) -> std::io::Result<()> {
+    std::fs::create_dir_all(format!("{footprint}/rauthy"))?;
+    let mut set: Vec<&str> = subjects.iter().map(String::as_str).collect();
+    set.sort_unstable();
+    set.dedup();
+    std::fs::write(relink_subjects_path(footprint), set.join("\n"))
+}
+
+/// Read the subjects orphaned by the most recent rauthy re-bootstrap (empty
+/// set if none recorded).
+pub fn relink_subjects(footprint: &str) -> std::collections::HashSet<String> {
+    std::fs::read_to_string(relink_subjects_path(footprint))
+        .unwrap_or_default()
+        .lines()
+        .map(str::trim)
+        .filter(|line| !line.is_empty())
+        .map(str::to_string)
+        .collect()
+}
+
 /// True when `previous` (the pub_url recorded at the last bootstrap) and
 /// `current` would register different redirect URIs (`{pub_url}/*`) with
 /// rauthy. A trailing-slash difference alone is not a change —
@@ -183,7 +217,7 @@ fn pub_url_changed(previous: Option<&str>, current: &str) -> bool {
 }
 
 /// Detect a `pub_url` change since the last rauthy bootstrap and re-bootstrap
-/// the rauthy data volume if so.
+/// the rauthy data volume if so. Returns `true` when the volume was wiped.
 ///
 /// Rauthy imports `clients.json` only on first initialization; the `ofm`
 /// client's redirect URIs are then persisted in rauthy's DB and never
@@ -199,12 +233,12 @@ fn pub_url_changed(previous: Option<&str>, current: &str) -> bool {
 /// bootstrapped it; the old pub_url is unknowable, so OFM logs guidance and
 /// leaves the volume intact (a same-config in-place upgrade must not destroy
 /// rauthy users).
-fn ensure_pub_url_bootstrap(footprint: &str, pub_url: &str) -> std::io::Result<()> {
+fn ensure_pub_url_bootstrap(footprint: &str, pub_url: &str) -> std::io::Result<bool> {
     let data_dir = rauthy_data_dir(footprint);
     std::fs::create_dir_all(&data_dir)?;
     let marker = pub_url_marker_path(footprint);
-    match std::fs::read_to_string(&marker).ok() {
-        Some(previous) if client_redirect_uri(previous.trim()) != client_redirect_uri(pub_url) => {
+    let rebootstrapped = match std::fs::read_to_string(&marker).ok() {
+        Some(previous) if pub_url_changed(Some(previous.as_str()), pub_url) => {
             tracing::warn!(
                 "pub_url changed from '{}' to '{pub_url}'; re-bootstrapping rauthy by deleting \
                  its data volume at '{data_dir}'. Any users created in rauthy's admin UI are \
@@ -213,8 +247,9 @@ fn ensure_pub_url_bootstrap(footprint: &str, pub_url: &str) -> std::io::Result<(
             );
             std::fs::remove_dir_all(&data_dir)?;
             std::fs::create_dir_all(&data_dir)?;
+            true
         }
-        Some(_) => {}
+        Some(_) => false,
         None => {
             if std::fs::read_dir(&data_dir)?.next().is_some() {
                 tracing::warn!(
@@ -224,10 +259,11 @@ fn ensure_pub_url_bootstrap(footprint: &str, pub_url: &str) -> std::io::Result<(
                      redirect URIs are re-imported."
                 );
             }
+            false
         }
-    }
+    };
     std::fs::write(&marker, pub_url.trim_end_matches('/'))?;
-    Ok(())
+    Ok(rebootstrapped)
 }
 
 pub async fn start_rauthy(
@@ -236,7 +272,7 @@ pub async fn start_rauthy(
     port: u16,
     proxy_mode: bool,
     trusted_proxies: Option<String>,
-) -> Result<RauthyInstance, BoxError> {
+) -> Result<(RauthyInstance, bool), BoxError> {
     let name = container_name(footprint);
     // Reap any stale container left behind by a previously SIGKILLed ofm
     // instance for this footprint. The footprint-derived name is stable, so
@@ -253,7 +289,9 @@ pub async fn start_rauthy(
     // Rauthy imports the bootstrap `clients.json` (redirect URIs = `{pub_url}/*`)
     // only on first initialization; a changed `pub_url` on an existing footprint
     // must therefore re-bootstrap the data volume (see `ensure_pub_url_bootstrap`).
-    ensure_pub_url_bootstrap(footprint, pub_url)?;
+    // The returned flag tells `main` to record the invalidated OIDC subjects so
+    // the next login can re-link the existing user rows.
+    let rebootstrapped = ensure_pub_url_bootstrap(footprint, pub_url)?;
     // Rauthy runs as the host user's UID via docker --user flag on Unix (so
     // files written to the mounted volume are owned by the host user). On
     // Windows the --user flag is omitted. Ensure the mounted data volume is
@@ -289,11 +327,51 @@ pub async fn start_rauthy(
         spawn_reader(stderr, "rauthy");
     }
 
-    Ok(RauthyInstance {
-        port,
-        container_name: name,
-        child: Some(child),
-    })
+    Ok((
+        RauthyInstance {
+            port,
+            container_name: name,
+            child: Some(child),
+        },
+        rebootstrapped,
+    ))
+}
+
+/// The origin rauthy's `allowed_origins` check should treat as same-origin for
+/// the `ofm` client, or `None` if the configured `pub_url` cannot be expressed
+/// as one. Rauthy validates bootstrap `allowed_origins` entries against
+/// `^(http|https)://[a-z0-9.:-]+$` (`migration/bootstrap/types.rs`), so
+/// IPv6-literal hosts and URLs with a path/query yield `None` and the field is
+/// omitted rather than failing the bootstrap import.
+///
+/// Without this, rauthy's login-form origin check rejects browsers whose
+/// `Origin` differs from rauthy's own `pub_url_with_scheme` derivation — e.g.
+/// an `https://` `pub_url` with `proxy_mode` off (the default), where rauthy
+/// derives `http://{host}` and answers the login POST with
+/// `400 BadRequest: Coming from an external Origin ... which is not allowed`.
+fn client_allowed_origin(pub_url: &str) -> Option<String> {
+    let url = url::Url::parse(&with_http_scheme(pub_url)).ok()?;
+    if !matches!(url.scheme(), "http" | "https") {
+        return None;
+    }
+    if matches!(url.host(), Some(url::Host::Ipv6(_))) || url.path() != "/" {
+        return None;
+    }
+    let host = url.host_str()?;
+    // rauthy validates `allowed_origins` entries against `^(http|https)://[a-z0-9.:-]+$`,
+    // so only emit origins that round-trip through that pattern. `url` normalizes
+    // the host to lowercase, leaving `[a-z0-9.-]` for plain domains.
+    if !host
+        .bytes()
+        .all(|b| b.is_ascii_lowercase() || b.is_ascii_digit() || b == b'.' || b == b'-')
+    {
+        return None;
+    }
+    let host_port = match url.port() {
+        Some(p) => format!("{host}:{p}"),
+        None => host.to_string(),
+    };
+    Some(format!("{}://{host_port}", url.scheme()))
 }
 
 /// Bootstrap `clients.json` for the rauthy container. The OAuth callback /
@@ -302,7 +380,7 @@ pub async fn start_rauthy(
 /// hardcoded `localhost`/`127.0.0.1`.
 fn build_client_config(pub_url: &str) -> serde_json::Value {
     let redirect_uri = client_redirect_uri(pub_url);
-    serde_json::json!([{
+    let mut client = serde_json::json!({
         "id": "ofm",
         "name": "Ofm",
         "enabled": true,
@@ -321,7 +399,11 @@ fn build_client_config(pub_url: &str) -> serde_json::Value {
         "default_scopes": ["openid", "profile", "email"],
         "challenges": ["S256"],
         "force_mfa": false,
-    }])
+    });
+    if let Some(origin) = client_allowed_origin(pub_url) {
+        client["allowed_origins"] = serde_json::json!([origin]);
+    }
+    serde_json::json!([client])
 }
 
 /// `docker run` argument list for the rauthy container. Pure so the docker
@@ -509,6 +591,49 @@ mod tests {
         assert_eq!(
             config[0]["post_logout_redirect_uris"][0].as_str(),
             Some("http://192.168.1.50:3183/*")
+        );
+        assert_eq!(
+            config[0]["allowed_origins"][0].as_str(),
+            Some("http://192.168.1.50:3183"),
+            "the configured pub_url must be a same-origin for rauthy's login POST"
+        );
+    }
+
+    #[test]
+    fn test_client_allowed_origin() {
+        assert_eq!(
+            super::client_allowed_origin("https://ofm.example.com:3184"),
+            Some("https://ofm.example.com:3184".to_string())
+        );
+        assert_eq!(
+            super::client_allowed_origin("http://127.0.0.1:3258"),
+            Some("http://127.0.0.1:3258".to_string())
+        );
+        assert_eq!(
+            super::client_allowed_origin("https://ofm.example.com/"),
+            Some("https://ofm.example.com".to_string())
+        );
+        // Scheme-less input is treated as http (matches pub_url_host_port).
+        assert_eq!(
+            super::client_allowed_origin("ofm.example.com:3184"),
+            Some("http://ofm.example.com:3184".to_string())
+        );
+        // Origins rauthy's allowed_origins validation cannot represent must be
+        // omitted, not bootstrapped (rauthy rejects them on import).
+        assert_eq!(super::client_allowed_origin("http://[::1]:3183"), None);
+        assert_eq!(
+            super::client_allowed_origin("https://ofm.example.com/base"),
+            None
+        );
+        assert_eq!(super::client_allowed_origin("ftp://ofm.example.com"), None);
+    }
+
+    #[test]
+    fn test_build_client_config_omits_unrepresentable_origin() {
+        let config = super::build_client_config("http://[::1]:3183");
+        assert!(
+            config[0].get("allowed_origins").is_none(),
+            "IPv6-literal pub_url must not set allowed_origins: {config}"
         );
     }
 

@@ -72,6 +72,7 @@ async fn callback(
         &state.pkce_store,
         query.code,
         query.state,
+        &state.config.footprint,
     )
     .await?;
 

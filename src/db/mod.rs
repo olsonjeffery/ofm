@@ -279,3 +279,23 @@ pub async fn ensure_default_user(client: &Client) -> Result<Uuid, Box<dyn std::e
         .await?;
     Ok(id)
 }
+
+/// All OIDC subjects currently bound to user rows. `main` calls this right
+/// after a rauthy re-bootstrap wipes rauthy's data volume, so the subjects that
+/// are about to be orphaned can be recorded for the auth service's one-shot
+/// re-link authorization.
+pub async fn oidc_subjects(client: &Client) -> Result<Vec<String>, Box<dyn std::error::Error>> {
+    let mut rows = client
+        .query_raw(
+            "SELECT oidc_subject FROM users WHERE oidc_subject IS NOT NULL AND oidc_subject != ''",
+            hiqlite::params!(),
+        )
+        .await?;
+    let mut subjects = Vec::new();
+    for row in rows.iter_mut() {
+        if let Some(sub) = row.get::<Option<String>>("oidc_subject") {
+            subjects.push(sub);
+        }
+    }
+    Ok(subjects)
+}

@@ -150,6 +150,15 @@ spawns `pty`s, maintains database state, and so on
    not in `TRUSTED_PROXIES` and — per rauthy's source — hardcodes an `https://`
    issuer regardless of `LISTEN_SCHEME`/`X-Forwarded-Proto`; only enable it when
    the `pub_url` origin is served over HTTPS by the enclosing reverse proxy.
+   - Bootstrap `clients.json` also lists the configured `pub_url` origin in the
+   `ofm` client's `allowed_origins` (`client_allowed_origin` in
+   `src/rauthy/mod.rs`): rauthy rejects any login-form/OIDC POST whose `Origin`
+   differs from its own `pub_url_with_scheme` (`400 BadRequest: Coming from an
+   external Origin`), and that derivation is `http://` with `proxy_mode` off —
+   so without this entry an `https://` `pub_url` with `proxy_mode` off would
+   make login impossible. Entries that cannot round-trip rauthy's origin
+   validation (e.g. IPv6-literal hosts) are omitted rather than failing the
+   bootstrap import.
    - Re-bootstrap rauthy when `pub_url` changes on an existing footprint: rauthy
    imports the bootstrap `clients.json` (redirect URIs = `{pub_url}/*`) only on
    first initialization, so a changed public origin would otherwise be rejected
@@ -158,10 +167,15 @@ spawns `pty`s, maintains database state, and so on
    (`{footprint}/rauthy/data`) on change before starting the container
    (`ensure_pub_url_bootstrap` in `src/rauthy/mod.rs`), re-creating the admin
    account at startup. The re-created admin identity has a **fresh OIDC `sub`**;
-   on the next login `ofm` re-links the existing `users` row by `username` and
-   remaps its `oidc_subject` to the new subject (`find_or_create_user` in
-   `src/services/auth.rs`), so login succeeds instead of failing on the username
-   UNIQUE constraint. Previously issued rauthy sessions/tokens are invalidated.
+   `ofm` records the now-invalidated `oidc_subject`s at
+   `{footprint}/rauthy/relink_subjects`, and on the next login re-links the
+   existing `users` row by `username` only if its current subject is one of
+   those recorded (remapping `oidc_subject` to the new subject —
+   `find_or_create_user` in `src/services/auth.rs`), so login succeeds instead
+   of failing on the username UNIQUE constraint. Re-linking is never authorized
+   by a username collision alone (`preferred_username` is a claim-controlled
+   value); without a recorded re-bootstrap the login is refused. Previously
+   issued rauthy sessions/tokens are invalidated.
 
 ## How to build from this spec
 
