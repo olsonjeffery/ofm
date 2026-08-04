@@ -1,0 +1,8 @@
+{
+	http_port 8080
+}
+
+some.host.com:3184 {
+	reverse_proxy localhost:3183
+}
+

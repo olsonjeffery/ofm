@@ -27,3 +27,5 @@ data/
 
 # codecov artifacts
 *profraw
+
+Caddyfile
