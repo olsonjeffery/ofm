@@ -14,12 +14,13 @@ runtime a human drives by hand:
 > handles `question.asked` SSE events. When opencode asks a question mid-turn,
 > the SSE connection is paused (the reader returns without sending `Done`), the
 > `QuestionAsked` event is rendered in the message stream as a styled box with
-> option tags, and the thinking bar hides. The user replies via the chat input;
-> `resume_turn` POSTs the reply to `/session/{id}/message` and opens a fresh SSE
-> connection to continue reading events. The `provider_session_id` column
-> (provider-agnostic rename of `omp_session_id`) persists the real session ID
-> emitted by `SessionStart`, enabling session continuity across restarts via
-> lazy provider recreation.
+> option tags, and the permanently-visible chat status bar switches to its idle
+> "Agent Idle" state (with the Stop Agent button disabled). The user replies via
+> the chat input; `resume_turn` POSTs the reply to `/session/{id}/message` and
+> opens a fresh SSE connection to continue reading events. The
+> `provider_session_id` column (provider-agnostic rename of `omp_session_id`)
+> persists the real session ID emitted by `SessionStart`, enabling session
+> continuity across restarts via lazy provider recreation.
 
 - **Slash commands** — type `/foo args`, get the body of a markdown command file
   expanded inline before the turn runs.

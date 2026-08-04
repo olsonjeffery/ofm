@@ -1147,6 +1147,7 @@ async fn test_webapp_chat_page_no_conversations_renders_empty() {
     assert!(body.contains("Chat"));
     assert!(!body.contains("Conversations"), "sidebar should not appear");
     assert!(body.contains("chat-footer"));
+    assert!(body.contains("chat-status-bar"));
 }
 
 #[tokio::test]
@@ -1196,6 +1197,8 @@ async fn test_webapp_chat_page_with_conversation_url() {
     let body = resp.text().await.unwrap();
     assert!(body.contains("Chat Task With Conv"));
     assert!(body.contains("chat-footer"));
+    assert!(body.contains("chat-status-bar"));
+    assert!(body.contains("Agent Idle"));
     assert!(body.contains(&conv_id.to_string()));
     assert!(
         !body.contains("is-one-quarter"),

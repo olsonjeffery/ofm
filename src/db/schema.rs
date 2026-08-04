@@ -65,6 +65,18 @@ impl std::str::FromStr for AgentType {
 }
 
 impl AgentType {
+    pub fn label(&self) -> &'static str {
+        match self {
+            Self::Planification => "Planification",
+            Self::Implementation => "Implementation",
+            Self::Refinement => "Refinement",
+            Self::Review => "Review",
+            Self::Pr => "PR",
+            Self::Yolo => "Yolo",
+            Self::ConversationTitle => "Conversation Title",
+        }
+    }
+
     pub fn icon(&self) -> &'static str {
         match self {
             Self::Planification => "file-document-outline",
