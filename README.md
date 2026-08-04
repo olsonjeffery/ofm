@@ -141,7 +141,11 @@ OFM_RAUTHY_ENABLED=true
 > the next start and automatically deletes that data volume so the new redirect
 > URIs take effect — note this resets any rauthy users created in the admin UI
 > (the bootstrap admin account is recreated, with its password printed at
-> startup). If you are upgrading from an `ofm` version that predates this
+> startup, and its OIDC identity gets a fresh `sub`). Your `ofm` login still
+> works after the re-bootstrap: `ofm` re-links the existing user row to the new
+> subject on the next login, so settings/projects are retained. Previously issued
+> rauthy tokens are invalidated (you'll be logged out once). If you are upgrading
+> from an `ofm` version that predates this
 > detection **and** changing `OFM_PUB_URL`/`OFM_PORT` in the same move, delete
 > `{OFM_FOOTPRINT}/rauthy/data` (or the whole footprint) once yourself before
 > restarting.

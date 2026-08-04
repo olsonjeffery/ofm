@@ -157,7 +157,11 @@ spawns `pty`s, maintains database state, and so on
    `pub_url` in `{footprint}/rauthy/pub_url` and deletes the rauthy data volume
    (`{footprint}/rauthy/data`) on change before starting the container
    (`ensure_pub_url_bootstrap` in `src/rauthy/mod.rs`), re-creating the admin
-   account at startup.
+   account at startup. The re-created admin identity has a **fresh OIDC `sub`**;
+   on the next login `ofm` re-links the existing `users` row by `username` and
+   remaps its `oidc_subject` to the new subject (`find_or_create_user` in
+   `src/services/auth.rs`), so login succeeds instead of failing on the username
+   UNIQUE constraint. Previously issued rauthy sessions/tokens are invalidated.
 
 ## How to build from this spec
 

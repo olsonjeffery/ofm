@@ -261,7 +261,14 @@ Rauthy runs as a Docker container (`ghcr.io/sebadob/rauthy:latest`) managed by
   `{footprint}/rauthy/data` before starting the container so the new redirect
   URIs are imported (`ensure_pub_url_bootstrap` in `src/rauthy/mod.rs`). Note
   this resets any rauthy users created in the admin UI — the bootstrap admin is
-  recreated at startup. A data volume with **no** marker (created by a
+  recreated at startup **with a fresh OIDC `sub`**, and all previously issued
+  rauthy tokens/sessions become invalid. OFM's own `users` rows keep their old
+  `oidc_subject`; on the next login `find_or_create_user`
+  (`src/services/auth.rs`) re-links the existing row by `username` and remaps
+  its `oidc_subject` to the new subject instead of failing the INSERT on the
+  username UNIQUE constraint — so the next browser login after a re-bootstrap
+  simply works (user settings, onboarding state, and projects are retained).
+  A data volume with **no** marker (created by a
   pre-pub_url OFM version) is left intact; upgrading from such a version *and*
   changing `pub_url`/`OFM_PORT` in the same move requires deleting
   `{footprint}/rauthy/data` once by hand.

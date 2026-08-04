@@ -168,27 +168,8 @@ pub async fn handle_callback(
     let now = chrono::Utc::now().format("%Y-%m-%d %H:%M:%S").to_string();
     let expires_at = session_expires_at();
 
-    let existing_user = find_user_by_oidc_sub(db, &sub).await?;
-    let user_token_version = existing_user.as_ref().map(|u| u.token_version).unwrap_or(0);
-    let (user_id, has_completed_onboarding) = if let Some(user) = existing_user {
-        db.execute(
-            "UPDATE users SET last_login = $1 WHERE id = $2",
-            hiqlite::params!(now.clone(), user.id.to_string()),
-        )
-        .await
-        .map_err(|e| ServerError::Internal(e.to_string()))?;
-        (user.id, user.has_completed_onboarding)
-    } else {
-        let id = Uuid::new_v4();
-        let username = username.unwrap_or_else(|| sub.clone());
-        db.execute(
-            "INSERT INTO users (id, username, oidc_subject, is_active, created_at, is_technical) VALUES ($1, $2, $3, 1, $4, 1)",
-            hiqlite::params!(id.to_string(), username, sub, now.clone()),
-        )
-        .await
-        .map_err(|e| ServerError::Internal(e.to_string()))?;
-        (id, false)
-    };
+    let (user_id, has_completed_onboarding, user_token_version) =
+        find_or_create_user(db, &sub, username, &now).await?;
 
     let session_id = Uuid::new_v4();
     db.execute(
@@ -445,6 +426,77 @@ async fn find_user_by_oidc_sub(
         .await
         .map_err(|e| ServerError::Internal(e.to_string()))?;
     Ok(rows.first_mut().map(|row| User::from(&mut *row)))
+}
+
+async fn find_user_by_username(
+    db: &hiqlite::Client,
+    username: &str,
+) -> Result<Option<User>, ServerError> {
+    let mut rows = db
+        .query_raw(
+            "SELECT * FROM users WHERE username = $1",
+            hiqlite::params!(username),
+        )
+        .await
+        .map_err(|e| ServerError::Internal(e.to_string()))?;
+    Ok(rows.first_mut().map(|row| User::from(&mut *row)))
+}
+
+/// Locate the OFM user row for an OIDC login, creating it if needed.
+///
+/// Returns `(user_id, has_completed_onboarding, token_version)`.
+///
+/// Lookup is by `oidc_subject` first. On a miss the row is looked up by
+/// `username`: a rauthy re-bootstrap (e.g. `OFM_PUB_URL` changed on an existing
+/// footprint) recreates the admin identity with a fresh `oidc_subject` while
+/// OFM's users row still holds the old one, so re-linking the existing row to
+/// the new subject avoids failing the INSERT on the username UNIQUE constraint.
+async fn find_or_create_user(
+    db: &hiqlite::Client,
+    sub: &str,
+    username: Option<String>,
+    now: &str,
+) -> Result<(Uuid, bool, i32), ServerError> {
+    if let Some(user) = find_user_by_oidc_sub(db, sub).await? {
+        db.execute(
+            "UPDATE users SET last_login = $1 WHERE id = $2",
+            hiqlite::params!(now, user.id.to_string()),
+        )
+        .await
+        .map_err(|e| ServerError::Internal(e.to_string()))?;
+        return Ok((user.id, user.has_completed_onboarding, user.token_version));
+    }
+
+    let id = Uuid::new_v4();
+    let username = username.unwrap_or_else(|| sub.to_string());
+    if let Some(existing) = find_user_by_username(db, &username).await? {
+        tracing::warn!(
+            "OIDC subject for user '{}' changed ({} -> {}); re-linking to the new subject \
+             instead of failing the login",
+            username,
+            existing.oidc_subject.as_deref().unwrap_or("(none)"),
+            sub,
+        );
+        db.execute(
+            "UPDATE users SET oidc_subject = $1, last_login = $2 WHERE id = $3",
+            hiqlite::params!(sub, now, existing.id.to_string()),
+        )
+        .await
+        .map_err(|e| ServerError::Internal(e.to_string()))?;
+        return Ok((
+            existing.id,
+            existing.has_completed_onboarding,
+            existing.token_version,
+        ));
+    }
+
+    db.execute(
+        "INSERT INTO users (id, username, oidc_subject, is_active, created_at, is_technical) VALUES ($1, $2, $3, 1, $4, 1)",
+        hiqlite::params!(id.to_string(), username, sub, now),
+    )
+    .await
+    .map_err(|e| ServerError::Internal(e.to_string()))?;
+    Ok((id, false, 0))
 }
 
 pub async fn find_session(
@@ -758,6 +810,86 @@ mod tests {
         let (client, _tmp) = create_test_db().await;
         let found = find_user_by_oidc_sub(&client, "nonexistent").await.unwrap();
         assert!(found.is_none());
+    }
+
+    #[tokio::test]
+    async fn test_find_user_by_username() {
+        let (client, _tmp) = create_test_db().await;
+        let user_id = uuid::Uuid::new_v4();
+        let now = chrono::Utc::now().format("%Y-%m-%d %H:%M:%S").to_string();
+        client
+            .execute(
+                "INSERT INTO users (id, username, oidc_subject, is_active, created_at, has_completed_onboarding, is_technical) VALUES ($1, $2, $3, 1, $4, 1, 0)",
+                hiqlite::params!(user_id.to_string(), "byusername", "by-username-sub", now),
+            )
+            .await
+            .unwrap();
+
+        let found = find_user_by_username(&client, "byusername").await.unwrap();
+        assert!(found.is_some());
+        assert_eq!(
+            found.unwrap().oidc_subject.as_deref(),
+            Some("by-username-sub")
+        );
+
+        let missing = find_user_by_username(&client, "no-such-user")
+            .await
+            .unwrap();
+        assert!(missing.is_none());
+    }
+
+    #[tokio::test]
+    async fn test_find_or_create_user_creates_on_first_login() {
+        let (client, _tmp) = create_test_db().await;
+        let now = chrono::Utc::now().format("%Y-%m-%d %H:%M:%S").to_string();
+
+        let (user_id, onboarding, token_version) =
+            find_or_create_user(&client, "fresh-sub", Some("freshuser".into()), &now)
+                .await
+                .unwrap();
+
+        assert!(!onboarding);
+        assert_eq!(token_version, 0);
+        let user = get_user_by_id(&client, user_id).await.unwrap().unwrap();
+        assert_eq!(user.username, "freshuser");
+        assert_eq!(user.oidc_subject.as_deref(), Some("fresh-sub"));
+    }
+
+    #[tokio::test]
+    async fn test_find_or_create_user_relinks_on_subject_change() {
+        let (client, _tmp) = create_test_db().await;
+        let user_id = uuid::Uuid::new_v4();
+        let now = chrono::Utc::now().format("%Y-%m-%d %H:%M:%S").to_string();
+        client
+            .execute(
+                "INSERT INTO users (id, username, oidc_subject, is_active, created_at, has_completed_onboarding, is_technical) VALUES ($1, $2, $3, 1, $4, 1, 0)",
+                hiqlite::params!(user_id.to_string(), "admin@localhost", "old-sub", now.clone()),
+            )
+            .await
+            .unwrap();
+
+        // Simulate a rauthy re-bootstrap: same username, brand-new subject.
+        let (resolved_id, onboarding, _) =
+            find_or_create_user(&client, "new-sub", Some("admin@localhost".into()), &now)
+                .await
+                .unwrap();
+
+        assert_eq!(
+            resolved_id, user_id,
+            "existing user must be re-used, not a duplicate inserted"
+        );
+        assert!(onboarding, "has_completed_onboarding must survive re-link");
+        let user = get_user_by_id(&client, user_id).await.unwrap().unwrap();
+        assert_eq!(
+            user.oidc_subject.as_deref(),
+            Some("new-sub"),
+            "oidc_subject must be remapped to the new subject"
+        );
+        assert_eq!(user.username, "admin@localhost");
+
+        // Exactly one user row remains.
+        let users = list_users(&client).await.unwrap();
+        assert_eq!(users.len(), 1);
     }
 
     #[tokio::test]
