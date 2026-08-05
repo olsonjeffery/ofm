@@ -42,7 +42,8 @@ The workspace has a single member crate (`ofm` binary) defined inline.
 ## Database
 
 - **Engine**: [hiqlite](https://crates.io/crates/hiqlite) — async, Raft-capable embedded SQLite with built-in durability via WAL + auto-heal crash recovery. Single-node deployment eliminates the Mutex bottleneck in axum handlers.
-- **Schema**: 15+ tables defined via raw SQL DDL in `src/db/mod.rs`. Project and task IDs use `INTEGER PRIMARY KEY AUTOINCREMENT`; other UUIDs (users, sessions, conversations) are stored as `TEXT`. Booleans are `INTEGER` (0/1), JSON as `TEXT`, and timestamps as ISO 8601 `TEXT` strings.
+- **Schema**: 15+ tables defined via raw SQL DDL in `src/db/mod.rs`. Project and task IDs use `INTEGER PRIMARY KEY AUTOINCREMENT`; other UUIDs (users, sessions, conversations) are stored as `TEXT`. Booleans are `INTEGER` (0/1), JSON as `TEXT`, and timestamps as naive **UTC** `TEXT` strings in `"YYYY-MM-DD HH:MM:SS"` (no timezone marker).
+- **Timestamps contract**: All timestamps are stored as UTC. They are emitted on the wire as naive UTC — space-separated in WS payloads (`"YYYY-MM-DD HH:MM:SS"`) and `T`-separated in JSON via chrono serde (`"YYYY-MM-DDTHH:MM:SS"`). **All display conversion to the browser's local timezone/locale happens client-side** via the `OfmTime` helper in `src/webapp/shim/runtime.rs`: SSR components emit a machine-readable `data-utc="<RFC3339 UTC>"` attribute plus `data-utc-format` (`"pill"` | `"datetime"` | `"date"`) on every rendered timestamp, keeping the server-rendered UTC text as a no-JS fallback, and `OfmTime.apply()` rewrites `textContent` in the browser's zone on `DOMContentLoaded` (and after island fetches). The `utc_attr()` helper in `src/webapp/components/datetime.rs` produces the RFC 3339 UTC attribute value.
 - **Migration system**: A `_migrations` tracking table records which migrations have been applied. Each migration is a named SQL DDL statement; only unapplied migrations execute on startup.
 
 ### Tables
@@ -274,6 +275,7 @@ All webapp UI follows the Islands Architecture pattern:
 - The shell page is SSR-rendered via `leptos::ssr::render_to_string` from a plain axum handler.
 - Each functional UI unit ("island") is a Leptos `#[component]` rendered to an HTML fragment by its own axum endpoint (`/webapp/islands/{name}`).
 - A minimal inline JS runtime fetches islands and supports re-fetch via `[data-island-refresh]` buttons.
+- The same runtime script (`global_runtime_script` in `src/webapp/shim/runtime.rs`, loaded in `<head>` by `ShellPage`) exposes the `OfmTime` helper, which parses naive-UTC timestamp strings as UTC and formats them in the browser's locale/timezone. SSR components emit `data-utc`/`data-utc-format` attributes (see the *Database → Timestamps contract* note); `OfmTime.apply()` localizes them on `DOMContentLoaded` and after island fetches, so the client-side live-update paths (`chat.rs`, `task_detail.rs`) reuse the same formatting as page-load rendering.
 - Auth is enforced by the existing `AuthLayer` and per-handler `AuthUser` extractor.
 - Styling via Bulma CSS with MDI icons.
 
@@ -338,7 +340,7 @@ match a group flagged `is_oauth_scope`.
 
 - **snake_case** naming for all columns and Rust identifiers
 - **Custom error types** via `src/server/error.rs` — `AppError` enum with typed HTTP responses, replacing `Box<dyn Error>`
-- **`TEXT` storage** for UUIDs (users, sessions, conversations, etc.), timestamps, and JSON values; project/task IDs use `INTEGER` (SQLite convention)
+- **`TEXT` storage** for UUIDs (users, sessions, conversations, etc.), timestamps (naive UTC `"YYYY-MM-DD HH:MM:SS"`), and JSON values; project/task IDs use `INTEGER` (SQLite convention)
 - **`AuthLayer` Tower middleware** for request authentication (JWT via JWKS, API key hash lookup)
 - **`spawn_blocking`** for blocking I/O operations (PTY reads), sending events through `mpsc::Sender::blocking_send`
 - **Drop non-`Send` rows before awaits**: hiqlite `Row`s are not `Send`, so any query that feeds an access-check `.await` must be extracted to owned values first (see the two-pass loops in `src/services/tasks.rs`).

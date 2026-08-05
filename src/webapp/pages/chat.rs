@@ -76,24 +76,6 @@ document.addEventListener('DOMContentLoaded', function() {{
         updateBackToTopPill();
     }}, 2000);
 
-    // Format timestamp for display in newest-timestamp pill
-    function formatTimestamp(tsStr) {{
-        if (!tsStr) return '';
-        var now = new Date();
-        var parts = tsStr.split(' ');
-        if (parts.length < 2) return tsStr;
-        var dateParts = parts[0].split('-');
-        var timeParts = parts[1].split(':');
-        var d = new Date(parseInt(dateParts[0]), parseInt(dateParts[1]) - 1, parseInt(dateParts[2]), parseInt(timeParts[0]), parseInt(timeParts[1]));
-        var isToday = d.getDate() === now.getDate() && d.getMonth() === now.getMonth() && d.getFullYear() === now.getFullYear();
-        if (isToday) {{
-            return ('0' + d.getHours()).slice(-2) + ':' + ('0' + d.getMinutes()).slice(-2);
-        }} else {{
-            var months = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
-            return months[d.getMonth()] + ' ' + ('0' + d.getDate()).slice(-2) + ', ' + ('0' + d.getHours()).slice(-2) + ':' + ('0' + d.getMinutes()).slice(-2);
-        }}
-    }}
-
     // Streaming tool-result dedup tracker
     var renderedMessageIds = {{}};
 
@@ -184,13 +166,13 @@ document.addEventListener('DOMContentLoaded', function() {{
                         }}
                         // Prepend user-timestamp pill for user_text events
                         if (msg.event_type === 'user_text' && msg.payload && msg.payload.timestamp) {{
-                            var userTsHtml = '<div class="level"><div class="timestamp-pill tag is-light">' + formatTimestamp(msg.payload.timestamp) + '</div></div>';
+                            var userTsHtml = '<div class="level"><div class="timestamp-pill tag is-light">' + window.OfmTime.formatTimestamp(msg.payload.timestamp) + '</div></div>';
                             container.insertAdjacentHTML('beforeend', userTsHtml);
                         }}
                         container.insertAdjacentHTML('beforeend', eventHtml);
                         // Append newest-timestamp pill below the new event with separator
                         if (msg.payload && msg.payload.timestamp) {{
-                            var newTsHtml = '<div id="newest-timestamp-pill" class="level"><div class="timestamp-pill tag is-light">' + formatTimestamp(msg.payload.timestamp) + '</div></div>';
+                            var newTsHtml = '<div id="newest-timestamp-pill" class="level"><div class="timestamp-pill tag is-light">' + window.OfmTime.formatTimestamp(msg.payload.timestamp) + '</div></div>';
                             container.insertAdjacentHTML('beforeend', newTsHtml);
                         }}
                         // Track message_id / tool_use_id for future dedup

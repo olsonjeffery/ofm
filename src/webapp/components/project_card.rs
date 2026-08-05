@@ -16,6 +16,7 @@ pub fn ProjectCard(project: Project, task_counts: TaskCounts) -> impl IntoView {
         + task_counts.in_review
         + task_counts.completed;
     let created = project.created_at.format("%Y-%m-%d").to_string();
+    let created_utc = crate::webapp::components::datetime::utc_attr(&project.created_at);
     view! {
         <a href={format!("/webapp/projects/{}", project.id)} class="card" style="display:block">
             <div class="card-header">
@@ -46,7 +47,7 @@ pub fn ProjectCard(project: Project, task_counts: TaskCounts) -> impl IntoView {
             </div>
             <div class="card-footer">
                 <div class="card-footer-item" style="justify-content:flex-start;border-right:none">
-                    <small class="has-text-grey">{created}</small>
+                    <small class="has-text-grey" data-utc={created_utc} data-utc-format="date">{created}</small>
                 </div>
                 <div class="card-footer-item" style="justify-content:flex-end">
                     <button
@@ -98,6 +99,15 @@ mod tests {
         assert!(html.contains("2 in review"));
         assert!(html.contains("5 completed"));
         assert!(html.contains("/webapp/projects/1"));
+    }
+
+    #[test]
+    fn test_project_card_date_has_data_utc() {
+        let project = make_project();
+        let counts = TaskCounts::default();
+        let html = leptos::view! { <ProjectCard project task_counts=counts /> }.to_html();
+        assert!(html.contains(r#"data-utc="2024-01-15T10:00:00Z""#));
+        assert!(html.contains(r#"data-utc-format="date""#));
     }
 
     #[test]

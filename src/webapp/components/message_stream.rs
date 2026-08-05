@@ -917,6 +917,21 @@ mod tests {
     }
 
     #[test]
+    fn test_build_timestamp_pill_has_data_utc() {
+        let ts = NaiveDateTime::parse_from_str("2023-06-15 14:30:00", "%Y-%m-%d %H:%M:%S").unwrap();
+        let html = build_timestamp_pill(&ts, false);
+        assert!(html.contains(r#"data-utc="2023-06-15T14:30:00Z""#));
+        assert!(html.contains(r#"data-utc-format="pill""#));
+    }
+
+    #[test]
+    fn test_build_timestamp_pill_keeps_fallback_text() {
+        let ts = NaiveDateTime::parse_from_str("2023-06-15 14:30:00", "%Y-%m-%d %H:%M:%S").unwrap();
+        let html = build_timestamp_pill(&ts, false);
+        assert!(html.contains("Jun 15, 14:30"));
+    }
+
+    #[test]
     fn test_tool_use_with_null_input_not_rendered() {
         let ts = test_ts();
         let messages = vec![ProviderEvent::ToolUse {
@@ -1323,11 +1338,13 @@ fn build_timestamp_pill(timestamp: &NaiveDateTime, is_newest: bool) -> String {
     } else {
         ""
     };
+    let utc = crate::webapp::components::datetime::utc_attr(timestamp);
     format!(
         r#"
-            <div {newest} class="level"><div class="timestamp-pill tag is-light">{ts}</div></div>
+            <div {newest} class="level"><div class="timestamp-pill tag is-light" data-utc="{utc}" data-utc-format="pill">{ts}</div></div>
         "#,
         newest = newest_id,
+        utc = utc,
         ts = format_timestamp_pill(*timestamp),
     )
 }

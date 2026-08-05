@@ -273,11 +273,11 @@ pub fn TaskDetailPage(
                                 var convId=msg.payload.conversation_id;
                                 var dateEl=document.querySelector('.conversation-date[data-conv-id="'+convId+'"]');
                                 if(dateEl){
-                                    var now=new Date();
-                                    var months=['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
-                                    var h=now.getHours().toString().padStart(2,'0');
-                                    var m=now.getMinutes().toString().padStart(2,'0');
-                                    dateEl.textContent=months[now.getMonth()]+' '+now.getDate()+', '+h+':'+m;
+                                    var ts=msg.payload.timestamp;
+                                    if(ts&&window.OfmTime){
+                                        dateEl.setAttribute('data-utc',ts);
+                                        dateEl.textContent=window.OfmTime.format(ts,'datetime');
+                                    }
                                     dateEl.classList.remove('is-pulsed');
                                     void dateEl.offsetWidth;
                                     dateEl.classList.add('is-pulsed');

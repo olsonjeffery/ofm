@@ -30,6 +30,7 @@ fn phase_color(at: &AgentType) -> &'static str {
 #[component]
 pub fn TaskCard(data: TaskCardData) -> impl IntoView {
     let created = data.task.created_at.format("%Y-%m-%d").to_string();
+    let created_utc = crate::webapp::components::datetime::utc_attr(&data.task.created_at);
     view! {
         <a href={format!("/webapp/projects/{}/tasks/{}", data.task.project_id, data.task.id)} class="card" style="display:block" data-task-id={data.task.id.to_string()}>
             <div class="card-header">
@@ -57,7 +58,7 @@ pub fn TaskCard(data: TaskCardData) -> impl IntoView {
             </div>
             <div class="card-footer">
                 <div class="card-footer-item" style="justify-content:flex-start;border-right:none">
-                    <small class="has-text-grey">{created}</small>
+                    <small class="has-text-grey" data-utc={created_utc} data-utc-format="date">{created}</small>
                 </div>
                 <div class="card-footer-item" style="justify-content:flex-end">
                     <button
@@ -114,6 +115,8 @@ mod tests {
         let html = leptos::view! { <TaskCard data /> }.to_html();
         assert!(html.contains("Test Task"));
         assert!(html.contains("2024-06-01"));
+        assert!(html.contains(r#"data-utc="2024-06-01T12:00:00Z""#));
+        assert!(html.contains(r#"data-utc-format="date""#));
         assert!(html.contains(r#"class="card""#));
         assert!(html.contains("card-header-title"));
         assert!(html.contains("card-footer"));

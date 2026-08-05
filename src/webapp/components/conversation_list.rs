@@ -37,6 +37,13 @@ fn format_conversation_date(
         .to_string()
 }
 
+fn conversation_utc_attr(
+    created_at: &chrono::NaiveDateTime,
+    updated_at: &chrono::NaiveDateTime,
+) -> String {
+    crate::webapp::components::datetime::utc_attr(updated_at.max(created_at))
+}
+
 #[component]
 pub fn ConversationList(
     conversations: Vec<ConversationWithRun>,
@@ -78,6 +85,7 @@ pub fn ConversationList(
                             cwr.conversation.model.clone()
                         };
                         let date_str = format_conversation_date(&cwr.conversation.created_at, &cwr.conversation.updated_at);
+                        let date_utc = conversation_utc_attr(&cwr.conversation.created_at, &cwr.conversation.updated_at);
                         let status = cwr.run.as_ref().map(|r| &r.status);
                         let curr_agent_color = match agent_type {
                             Some(AgentType::Planification) => "var(--bulma-info)",
@@ -109,6 +117,7 @@ pub fn ConversationList(
                                             <span class={format!("tag {}", run_status_class(s))}>{run_status_label(s)}</span>
                                         })}
                                         <span class="has-text-grey conversation-date" data-conv-id={conv_id.to_string()}
+                                               data-utc={date_utc} data-utc-format="datetime"
                                                style="white-space:nowrap;font-size:0.65rem">
                                             {date_str}
                                         </span>
@@ -285,7 +294,29 @@ mod tests {
         let html =
             leptos::view! { <ConversationList conversations=convs active_id=None task_id="1".to_owned() /> }.to_html();
         assert!(html.contains("Jun 15"));
+        assert!(html.contains(r#"data-utc="2024-06-15T14:30:00Z""#));
+        assert!(html.contains(r#"data-utc-format="datetime""#));
         assert!(!html.contains("ago"));
         assert!(!html.contains("Just now"));
+    }
+
+    #[test]
+    fn test_conversation_date_utc_uses_max_updated_created() {
+        let conv_id = uuid::Uuid::new_v4();
+        let created =
+            NaiveDateTime::parse_from_str("2024-06-10 08:00:00", "%Y-%m-%d %H:%M:%S").unwrap();
+        let updated =
+            NaiveDateTime::parse_from_str("2024-06-15 14:30:00", "%Y-%m-%d %H:%M:%S").unwrap();
+        let mut conv = make_conversation(conv_id, "Dated Chat");
+        conv.created_at = created;
+        conv.updated_at = updated;
+        let convs = vec![ConversationWithRun {
+            conversation: conv,
+            run: None,
+        }];
+        let html =
+            leptos::view! { <ConversationList conversations=convs active_id=None task_id="1".to_owned() /> }.to_html();
+        assert!(html.contains(r#"data-utc="2024-06-15T14:30:00Z""#));
+        assert!(!html.contains(r#"data-utc="2024-06-10T08:00:00Z""#));
     }
 }

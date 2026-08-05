@@ -177,6 +177,24 @@ spawns `pty`s, maintains database state, and so on
    value); without a recorded re-bootstrap the login is refused. Previously
    issued rauthy sessions/tokens are invalidated.
 
+### Timestamps
+
+All timestamps are stored as naive **UTC** `TEXT` strings in `"YYYY-MM-DD HH:MM:SS"`
+(no timezone marker) and written via `chrono::Utc::now().naive_utc()`. They are
+emitted on the wire as naive UTC — space-separated in WebSocket payloads
+(`"YYYY-MM-DD HH:MM:SS"`) and `T`-separated in JSON via chrono serde
+(`"YYYY-MM-DDTHH:MM:SS"`). **Display conversion to the browser's local
+timezone/locale is done entirely on the frontend.** SSR components keep the
+server-rendered UTC text as a no-JS fallback and additionally emit a
+machine-readable `data-utc="<RFC3339 UTC>"` attribute plus a
+`data-utc-format` (`"pill"` | `"datetime"` | `"date"`) hint; the client-side
+`OfmTime` helper (`global_runtime_script` in `src/webapp/shim/runtime.rs`,
+`utc_attr()` in `src/webapp/components/datetime.rs`) parses the value as UTC
+and rewrites the element's text in the browser's zone on `DOMContentLoaded`
+and after island fetches. Live WebSocket-update paths (`src/webapp/pages/chat.rs`,
+`src/webapp/pages/task_detail.rs`) reuse the same `OfmTime` formatting so
+live values always agree with page-load rendering.
+
 ## How to build from this spec
 
 Point a coding agent at this file and say "build this." Then:
