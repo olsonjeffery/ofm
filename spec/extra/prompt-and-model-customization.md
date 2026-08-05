@@ -15,7 +15,13 @@ makes both **configurable** — the *what an agent says* and the *what runs it*.
 > provider configs (Anthropic / OpenAI / OpenCode Go / OpenRouter /
 > OpenAI-compatible ± auth) into structured JSON files tracked by
 > `user_model_configs` with `harness = "rig"`; those configs are **not yet
-> executable** — execution is deferred to a future story (RIG 1). The
+> executable** — execution is deferred to a future story (RIG 1). Capture-time
+> hardening (`src/providers/rig_config.rs`, `src/services/settings.rs`):
+> `base_url` must be an `http(s)` URL to a public host (loopback, link-local,
+> private, and cloud-metadata endpoints are rejected at save), provider config
+> files are written `0600` (owner-readable only — they may hold API keys), and
+> served configs mask the stored `api_key` (the real secret is never re-served;
+> a masked key submitted unchanged on edit preserves the stored key). The
 > prompt-override layer (two-tier file loader, template engine, per-agent
 > message composition) is **not yet implemented**.
 

@@ -1,5 +1,8 @@
 use std::path::PathBuf;
 
+#[cfg(unix)]
+use std::os::unix::fs::PermissionsExt;
+
 use serde::{Deserialize, Serialize};
 
 use super::ProviderError;
@@ -13,6 +16,18 @@ pub struct ProviderConfig {
 
 pub struct ProviderConfigDir {
     root: PathBuf,
+}
+
+/// The harness implied by a config filename: `"rig"` for `*.rig.json`,
+/// `"opencode"` for `*.json`, else `None`.
+pub fn harness_for_config_name(name: &str) -> Option<&'static str> {
+    if name.ends_with(".rig.json") {
+        Some("rig")
+    } else if name.ends_with(".json") {
+        Some("opencode")
+    } else {
+        None
+    }
 }
 
 impl ProviderConfigDir {
@@ -59,15 +74,11 @@ impl ProviderConfigDir {
         } else {
             raw_snippet
         };
-        let harness = if name.ends_with(".rig.json") {
-            "rig"
-        } else if name.ends_with(".json") {
-            "opencode"
-        } else {
-            return Err(ProviderError::Config(format!(
+        let harness = harness_for_config_name(name).ok_or_else(|| {
+            ProviderError::Config(format!(
                 "unknown config type for '{name}': expected .json or .rig.json extension"
-            )));
-        };
+            ))
+        })?;
         Ok(ProviderConfig {
             harness: harness.to_string(),
             config_ref: name.to_string(),
@@ -78,7 +89,12 @@ impl ProviderConfigDir {
     pub fn write_provider_config(&self, name: &str, content: &str) -> Result<(), ProviderError> {
         self.ensure_exists()?;
         let path = self.config_path(name);
-        std::fs::write(&path, content).map_err(|e| ProviderError::Config(e.to_string()))
+        std::fs::write(&path, content).map_err(|e| ProviderError::Config(e.to_string()))?;
+        // Config files may hold provider api keys; keep them owner-readable only.
+        #[cfg(unix)]
+        std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o600))
+            .map_err(|e| ProviderError::Config(e.to_string()))?;
+        Ok(())
     }
 
     pub fn delete_provider_config(&self, name: &str) -> Result<(), ProviderError> {
@@ -223,6 +239,19 @@ mod tests {
         let loaded = cfg_dir.load_provider_config("abc.rig.json").unwrap();
         assert_eq!(loaded.harness, "rig");
         assert!(loaded.raw_snippet.contains("rig-provider"));
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn test_write_provider_config_permissions_0600() {
+        let tmp = TempDir::new().unwrap();
+        let cfg_dir = ProviderConfigDir::new(tmp.path());
+        cfg_dir.ensure_exists().unwrap();
+        cfg_dir
+            .write_provider_config("secret.rig.json", r#"{"api_key": "sk-123"}"#)
+            .unwrap();
+        let meta = std::fs::metadata(cfg_dir.config_path("secret.rig.json")).unwrap();
+        assert_eq!(meta.permissions().mode() & 0o777, 0o600);
     }
 
     #[test]

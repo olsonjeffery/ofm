@@ -291,38 +291,6 @@ function loadRigProviders() {
         });
 }
 
-document.addEventListener('DOMContentLoaded', function() {
-    loadRigProviders();
-    applyVendorView('rig-vendor', 'rig-base-url-field', 'rig-api-key-field', 'rig-base-url', 'rig-api-key');
-    document.getElementById('rig-vendor').addEventListener('change', function() {
-        applyVendorView('rig-vendor', 'rig-base-url-field', 'rig-api-key-field', 'rig-base-url', 'rig-api-key');
-    });
-
-    var btn = document.getElementById('btn-add-rig-provider');
-    if (btn) {
-        btn.addEventListener('click', function() {
-            var payload = collectRigForm('rig');
-            if (!payload.name) { alert('Name is required.'); return; }
-            apiCall('/api/settings/rig-providers', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify(payload)
-            })
-            .then(function(r) {
-                if (!r.ok) return r.json().then(function(j) { throw new Error(j.error || 'Failed to save'); });
-                return r.json();
-            })
-            .then(function() {
-                document.getElementById('rig-name').value = '';
-                document.getElementById('rig-models').value = '';
-                document.getElementById('rig-api-key').value = '';
-                loadRigProviders();
-            })
-            .catch(function(err) { alert('Error: ' + err.message); });
-        });
-    }
-});
-
 window.editRigProvider = function(id) {
     apiCall('/api/settings/rig-providers/' + id)
         .then(function(r) { return r.json(); })
@@ -369,6 +337,36 @@ window.deleteRigProvider = function(id) {
 };
 
 document.addEventListener('DOMContentLoaded', function() {
+    loadRigProviders();
+    applyVendorView('rig-vendor', 'rig-base-url-field', 'rig-api-key-field', 'rig-base-url', 'rig-api-key');
+    document.getElementById('rig-vendor').addEventListener('change', function() {
+        applyVendorView('rig-vendor', 'rig-base-url-field', 'rig-api-key-field', 'rig-base-url', 'rig-api-key');
+    });
+
+    var btn = document.getElementById('btn-add-rig-provider');
+    if (btn) {
+        btn.addEventListener('click', function() {
+            var payload = collectRigForm('rig');
+            if (!payload.name) { alert('Name is required.'); return; }
+            apiCall('/api/settings/rig-providers', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(payload)
+            })
+            .then(function(r) {
+                if (!r.ok) return r.json().then(function(j) { throw new Error(j.error || 'Failed to save'); });
+                return r.json();
+            })
+            .then(function() {
+                document.getElementById('rig-name').value = '';
+                document.getElementById('rig-models').value = '';
+                document.getElementById('rig-api-key').value = '';
+                loadRigProviders();
+            })
+            .catch(function(err) { alert('Error: ' + err.message); });
+        });
+    }
+
     var vendorSelect = document.getElementById('edit-rig-vendor');
     if (vendorSelect) {
         vendorSelect.addEventListener('change', function() {

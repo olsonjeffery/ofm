@@ -61,7 +61,7 @@ pub fn webapp_protected_routes() -> Router<AppState> {
             get(commit_detail_handler),
         )
         .route("/webapp/onboarding", get(onboarding_handler))
-        .route("/webapp/settings", get(settings_handler))
+        .route("/webapp/settings", get(settings_providers_handler))
         .route(
             "/webapp/settings/providers-agents",
             get(settings_providers_handler),
@@ -223,17 +223,6 @@ async fn render_settings(
         breadcrumb_registry::settings_sub_page(sub_page),
     ];
     Html(render_shell(&body, Some(user_json), breadcrumbs, agents))
-}
-
-async fn settings_handler(auth: AuthUser, State(state): State<AppState>) -> Html<String> {
-    render_settings(
-        &state,
-        &auth,
-        SettingsSection::ProvidersAgents,
-        SettingsSubPage::ModelConfig,
-        pages::settings::providers_agents::render(SettingsSubPage::ModelConfig),
-    )
-    .await
 }
 
 async fn settings_providers_handler(auth: AuthUser, State(state): State<AppState>) -> Html<String> {

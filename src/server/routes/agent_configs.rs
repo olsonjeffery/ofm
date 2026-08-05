@@ -12,7 +12,7 @@ use uuid::Uuid;
 
 use crate::auth::AuthUser;
 use crate::db::schema::{AgentHarnessConfig, AgentType, ScopeType};
-use crate::providers::config::ProviderConfigDir;
+use crate::providers::config::{harness_for_config_name, ProviderConfigDir};
 use crate::providers::registry;
 use crate::server::{error::ServerError, state::AppState};
 use crate::services;
@@ -142,11 +142,9 @@ async fn list_provider_config_files(
     let files: Vec<ProviderConfigFile> = names
         .into_iter()
         .map(|name| ProviderConfigFile {
-            harness: if name.ends_with(".rig.json") {
-                "rig".to_string()
-            } else {
-                "opencode".to_string()
-            },
+            harness: harness_for_config_name(&name)
+                .unwrap_or("opencode")
+                .to_string(),
             name,
         })
         .collect();

@@ -27,8 +27,7 @@ pub async fn resolve_provider(
         "opencode" => OpenCodeSdkProvider::new(config, config_root, log_data, footprint)
             .await
             .map(|p| Box::new(p) as Box<dyn LlmProvider>),
-        "rig" => Err(not_yet_executable_error(config)),
-        other => Err(ProviderError::Protocol(format!("unknown harness: {other}"))),
+        other => Err(unsupported_harness_error(config, other)),
     }
 }
 
@@ -48,15 +47,18 @@ pub async fn resolve_provider_for_user(
             p.set_user_id(user_id);
             Ok(Box::new(p) as Box<dyn LlmProvider>)
         }
-        "rig" => Err(not_yet_executable_error(config)),
-        other => Err(ProviderError::Protocol(format!("unknown harness: {other}"))),
+        other => Err(unsupported_harness_error(config, other)),
     }
 }
 
 /// A Rig-selected agent config must not run until RIG 1 lands. Surface a clear
 /// "not yet executable" state instead of a confusing unknown-harness error.
-fn not_yet_executable_error(config: &HarnessConfig) -> ProviderError {
-    ProviderError::Protocol(rig_not_yet_executable_message(&config.provider_config_ref))
+fn unsupported_harness_error(config: &HarnessConfig, other: &str) -> ProviderError {
+    if other == "rig" {
+        ProviderError::Protocol(rig_not_yet_executable_message(&config.provider_config_ref))
+    } else {
+        ProviderError::Protocol(format!("unknown harness: {other}"))
+    }
 }
 
 /// The user-facing message for a rig-selected agent config that cannot be
@@ -125,20 +127,16 @@ pub async fn resolve_agent_config_statuses(
         };
         let result =
             resolve_harness_config(db, &agent_type, Some(&user_id), Some(project_id)).await;
-        match result {
-            Ok(cfg) => results.push(AgentConfigStatus {
-                agent_type: at_str.to_string(),
-                configured: true,
-                scope: Some(cfg.scope.to_string()),
-                label: cfg.model,
-            }),
-            Err(_) => results.push(AgentConfigStatus {
-                agent_type: at_str.to_string(),
-                configured: false,
-                scope: None,
-                label: None,
-            }),
-        }
+        let (configured, scope, label) = match result {
+            Ok(cfg) => (true, Some(cfg.scope.to_string()), cfg.model),
+            Err(_) => (false, None, None),
+        };
+        results.push(AgentConfigStatus {
+            agent_type: at_str.to_string(),
+            configured,
+            scope,
+            label,
+        });
     }
     results
 }

@@ -26,27 +26,22 @@ pub fn validate(input: &str) -> Result<(), ConfigFormatError> {
 }
 
 pub fn validate_for_harness(input: &str, harness: &str) -> Result<(), ConfigFormatError> {
-    match harness {
-        "opencode" => {
-            let msg = "config body must be valid JSON for opencode harness";
-            if serde_json::from_str::<Value>(input).is_err() {
-                return Err(ConfigFormatError::InvalidInput(msg.into()));
-            }
-            Ok(())
-        }
-        "rig" => {
-            let msg = "config body must be a valid Rig provider config";
-            let cfg: RigProviderConfig = serde_json::from_str(input)
-                .map_err(|_| ConfigFormatError::InvalidInput(msg.into()))?;
-            cfg.validate().map_err(ConfigFormatError::InvalidInput)
-        }
-        _ => {
-            if serde_json::from_str::<Value>(input).is_err() {
-                return Err(ConfigFormatError::InvalidInput(INVALID_INPUT_MSG.into()));
-            }
-            Ok(())
-        }
+    if harness == "rig" {
+        let msg = "config body must be a valid Rig provider config";
+        let cfg: RigProviderConfig =
+            serde_json::from_str(input).map_err(|_| ConfigFormatError::InvalidInput(msg.into()))?;
+        return cfg.validate().map_err(ConfigFormatError::InvalidInput);
     }
+
+    let msg = if harness == "opencode" {
+        "config body must be valid JSON for opencode harness"
+    } else {
+        INVALID_INPUT_MSG
+    };
+    if serde_json::from_str::<Value>(input).is_err() {
+        return Err(ConfigFormatError::InvalidInput(msg.into()));
+    }
+    Ok(())
 }
 
 #[cfg(test)]

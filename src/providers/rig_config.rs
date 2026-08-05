@@ -125,27 +125,22 @@ impl RigProviderConfig {
         if self.name.trim().is_empty() {
             return Err("provider name is required".into());
         }
-        if self.vendor.requires_base_url()
-            && self
-                .base_url
-                .as_deref()
-                .map(str::trim)
-                .unwrap_or_default()
-                .is_empty()
-        {
+        if self.vendor.requires_base_url() && is_blank(self.base_url.as_deref()) {
             return Err(format!(
                 "base_url is required for vendor '{}'",
                 self.vendor.label()
             ));
         }
-        if self.vendor.requires_api_key()
-            && self
-                .api_key
-                .as_deref()
-                .map(str::trim)
-                .unwrap_or_default()
-                .is_empty()
-        {
+        if self.vendor.accepts_base_url() {
+            if let Some(base_url) = self.base_url.as_deref() {
+                if !is_safe_base_url(base_url) {
+                    return Err(
+                        "base_url must be an http(s) URL to a public endpoint (internal hosts are not allowed)".into(),
+                    );
+                }
+            }
+        }
+        if self.vendor.requires_api_key() && is_blank(self.api_key.as_deref()) {
             return Err(format!(
                 "api_key is required for vendor '{}'",
                 self.vendor.label()
@@ -162,6 +157,38 @@ impl RigProviderConfig {
     /// The model ids exposed by this config (manual list or cached list).
     pub fn available_models(&self) -> Vec<String> {
         self.model_list_mode.models(&self.models)
+    }
+}
+
+fn is_blank(value: Option<&str>) -> bool {
+    value.map(str::trim).unwrap_or_default().is_empty()
+}
+
+/// Whether `base_url` is an acceptable provider endpoint: an `http(s)` URL
+/// pointing at a non-internal host. Capture-time hardening against a latent
+/// SSRF primitive — RIG 1 must re-validate at execution time before making
+/// any request to the captured URL.
+fn is_safe_base_url(base_url: &str) -> bool {
+    let Ok(parsed) = url::Url::parse(base_url) else {
+        return false;
+    };
+    if !matches!(parsed.scheme(), "http" | "https") {
+        return false;
+    }
+    match parsed.host() {
+        Some(url::Host::Ipv4(ip)) => !(ip.is_loopback() || ip.is_private() || ip.is_link_local()),
+        Some(url::Host::Ipv6(ip)) => {
+            !(ip.is_loopback() || ip.is_unicast_link_local() || ip.is_unique_local())
+        }
+        Some(url::Host::Domain(host)) => {
+            let host = host.to_ascii_lowercase();
+            host != "localhost"
+                && !host.ends_with(".localhost")
+                && !host.ends_with(".local")
+                && !host.ends_with(".internal")
+                && host != "metadata.google.internal"
+        }
+        None => false,
     }
 }
 
@@ -276,6 +303,42 @@ mod tests {
         let mut cfg2 = sample_cfg(RigVendor::OpenAiCompatibleNoAuth);
         cfg2.api_key = None;
         assert!(cfg2.validate().is_ok());
+    }
+
+    #[test]
+    fn test_validate_rejects_internal_base_url() {
+        for bad in [
+            "http://127.0.0.1:11434/v1",
+            "http://[::1]:8080/v1",
+            "http://localhost:8080/v1",
+            "http://192.168.1.10/v1",
+            "http://10.0.0.5/v1",
+            "http://169.254.169.254/latest/meta-data",
+            "http://foo.internal/v1",
+            "http://myhost.local/v1",
+            "https://metadata.google.internal/computeMetadata",
+            "ftp://example.com/v1",
+            "file:///etc/passwd",
+            "not-a-url",
+        ] {
+            let mut cfg = sample_cfg(RigVendor::OpenAiCompatible);
+            cfg.base_url = Some(bad.into());
+            assert!(cfg.validate().is_err(), "expected rejection for {bad}");
+        }
+    }
+
+    #[test]
+    fn test_validate_accepts_public_base_url() {
+        for good in [
+            "https://api.openai.com/v1",
+            "https://opencode.ai/zen/go/v1",
+            "http://example.com/v1",
+            "https://api.anthropic.com",
+        ] {
+            let mut cfg = sample_cfg(RigVendor::OpenAiCompatible);
+            cfg.base_url = Some(good.into());
+            assert!(cfg.validate().is_ok(), "expected acceptance for {good}");
+        }
     }
 
     #[test]

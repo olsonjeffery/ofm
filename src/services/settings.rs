@@ -6,13 +6,13 @@ use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
 use crate::db::schema::{AgentHarnessConfig, AgentType, ScopeType, UserModelConfig};
-use crate::providers;
 use crate::providers::config::ProviderConfigDir;
 use crate::providers::rig_config::RigProviderConfig;
 use crate::services::agent_configs;
 use crate::services::config_format;
 
 const RIG_HARNESS: &str = "rig";
+const OPENCODE_HARNESS: &str = "opencode";
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct AgentModelSetting {
@@ -81,15 +81,7 @@ pub async fn create_model_config(
     // Write the provider config file immediately so the config is selectable
     // and its model listing is enumerable (Agent Settings dropdown) even
     // before the user first saves agent settings.
-    if harness == RIG_HARNESS {
-        write_rig_provider_config_file(config_root, &id, config_body);
-    } else {
-        let filename = format!("{}.json", id);
-        let cfg_dir = ProviderConfigDir::new(config_root);
-        if let Err(e) = cfg_dir.write_provider_config(&filename, config_body) {
-            tracing::warn!("Failed to write provider config '{}': {e:?}", filename);
-        }
-    }
+    write_provider_config_file(config_root, &config_filename(&id, harness), config_body);
 
     get_model_config(client, user_id, id)
         .await
@@ -129,53 +121,54 @@ pub async fn update_model_config(
         .map_err(|e| e.to_string())
 }
 
-fn with_existing_config<F>(config_root: &Path, id: &Uuid, f: F)
-where
-    F: Fn(&str) -> Result<(), providers::ProviderError>,
-{
-    let cfg_dir = ProviderConfigDir::new(config_root);
-    for filename in [format!("{}.rig.json", id), format!("{}.json", id)] {
-        if cfg_dir.config_path(&filename).exists() {
-            if let Err(e) = f(&filename) {
-                tracing::warn!("Failed to update config file '{}': {e:?}", filename);
-            }
-        }
+fn config_filename(id: &Uuid, harness: &str) -> String {
+    if harness == RIG_HARNESS {
+        format!("{}.rig.json", id)
+    } else {
+        format!("{}.json", id)
     }
 }
 
 fn provider_config_filename(model_cfg: &UserModelConfig) -> String {
-    if model_cfg.harness == RIG_HARNESS {
-        format!("{}.rig.json", model_cfg.id)
-    } else {
-        format!("{}.json", model_cfg.id)
+    config_filename(&model_cfg.id, &model_cfg.harness)
+}
+
+fn write_provider_config_file(config_root: &Path, filename: &str, content: &str) {
+    let cfg_dir = ProviderConfigDir::new(config_root);
+    if let Err(e) = cfg_dir.write_provider_config(filename, content) {
+        tracing::warn!("Failed to write config file '{}': {e:?}", filename);
+    }
+}
+
+fn delete_provider_config_file(config_root: &Path, filename: &str) {
+    let cfg_dir = ProviderConfigDir::new(config_root);
+    if let Err(e) = cfg_dir.delete_provider_config(filename) {
+        tracing::warn!("Failed to delete config file '{}': {e:?}", filename);
     }
 }
 
 fn sync_provider_config_file(config_root: &Path, id: &Uuid, harness: &str, config_body: &str) {
     let cfg_dir = ProviderConfigDir::new(config_root);
-    let target = if harness == RIG_HARNESS {
-        format!("{}.rig.json", id)
+    let (target, stale) = if harness == RIG_HARNESS {
+        (
+            config_filename(id, RIG_HARNESS),
+            config_filename(id, OPENCODE_HARNESS),
+        )
     } else {
-        format!("{}.json", id)
+        (
+            config_filename(id, OPENCODE_HARNESS),
+            config_filename(id, RIG_HARNESS),
+        )
     };
-    for stale in [format!("{}.json", id), format!("{}.rig.json", id)] {
-        if stale != target && cfg_dir.config_path(&stale).exists() {
-            if let Err(e) = cfg_dir.delete_provider_config(&stale) {
-                tracing::warn!("Failed to delete stale config file '{}': {e:?}", stale);
-            }
-        }
-    }
+    delete_provider_config_file(config_root, &stale);
     if cfg_dir.config_path(&target).exists() {
-        if let Err(e) = cfg_dir.write_provider_config(&target, config_body) {
-            tracing::warn!("Failed to write config file '{}': {e:?}", target);
-        }
+        write_provider_config_file(config_root, &target, config_body);
     }
 }
 
 fn remove_provider_config_file(config_root: &Path, id: &Uuid) {
-    with_existing_config(config_root, id, |filename| {
-        ProviderConfigDir::new(config_root).delete_provider_config(filename)
-    });
+    delete_provider_config_file(config_root, &config_filename(id, RIG_HARNESS));
+    delete_provider_config_file(config_root, &config_filename(id, OPENCODE_HARNESS));
 }
 
 pub async fn delete_model_config(
@@ -282,12 +275,7 @@ pub async fn upsert_agent_models(
                             validate_rig_model_selection(&model_cfg, setting)?;
                         }
                         let filename = provider_config_filename(&model_cfg);
-                        let cfg_dir = ProviderConfigDir::new(config_root);
-                        if let Err(e) =
-                            cfg_dir.write_provider_config(&filename, &model_cfg.config_body)
-                        {
-                            tracing::warn!("Failed to write provider config '{}': {e}", filename);
-                        }
+                        write_provider_config_file(config_root, &filename, &model_cfg.config_body);
                         (model_cfg.harness, filename)
                     }
                     Err(_) => {
@@ -356,13 +344,23 @@ fn validate_rig_model_selection(
 
 // ── Rig provider config CRUD ─────────────────────────────────────────────────
 
-fn rig_config_filename(id: &Uuid) -> String {
-    format!("{}.rig.json", id)
+/// Mask a provider api key for display so the real secret is never re-served
+/// to the client: `sk-1234567890` → `••••7890`. The masked value doubles as
+/// the "unchanged" sentinel the update path maps back to the stored key.
+fn mask_api_key(key: &str) -> String {
+    let key = key.trim();
+    let last4: String = key.chars().rev().take(4).collect();
+    if last4.chars().count() < 4 {
+        "••••".to_string()
+    } else {
+        format!("••••{}", last4.chars().rev().collect::<String>())
+    }
 }
 
 fn rig_provider_from_row(row: UserModelConfig) -> Result<RigProviderWithConfig, String> {
-    let config: RigProviderConfig = serde_json::from_str(&row.config_body)
+    let mut config: RigProviderConfig = serde_json::from_str(&row.config_body)
         .map_err(|e| format!("stored rig config '{}' is invalid: {e}", row.name))?;
+    config.api_key = config.api_key.as_deref().map(mask_api_key);
     Ok(RigProviderWithConfig {
         id: row.id,
         user_id: row.user_id,
@@ -371,22 +369,6 @@ fn rig_provider_from_row(row: UserModelConfig) -> Result<RigProviderWithConfig, 
         created_at: row.created_at,
         updated_at: row.updated_at,
     })
-}
-
-fn write_rig_provider_config_file(config_root: &Path, id: &Uuid, config_body: &str) {
-    let filename = rig_config_filename(id);
-    let cfg_dir = ProviderConfigDir::new(config_root);
-    if let Err(e) = cfg_dir.write_provider_config(&filename, config_body) {
-        tracing::warn!("Failed to write rig provider config '{}': {e:?}", filename);
-    }
-}
-
-fn remove_rig_provider_config_file(config_root: &Path, id: &Uuid) {
-    let filename = rig_config_filename(id);
-    let cfg_dir = ProviderConfigDir::new(config_root);
-    if let Err(e) = cfg_dir.delete_provider_config(&filename) {
-        tracing::warn!("Failed to delete rig provider config '{}': {e:?}", filename);
-    }
 }
 
 /// List the current user's saved Rig provider configs.
@@ -464,7 +446,11 @@ pub async fn create_rig_provider(
         .await
         .map_err(|e| e.to_string())?;
 
-    write_rig_provider_config_file(config_root, &id, &config_body);
+    write_provider_config_file(
+        config_root,
+        &config_filename(&id, RIG_HARNESS),
+        &config_body,
+    );
 
     get_rig_provider(client, user_id, id)
         .await
@@ -478,8 +464,23 @@ pub async fn update_rig_provider(
     user_id: Uuid,
     config_root: &Path,
     id: Uuid,
-    cfg: RigProviderConfig,
+    mut cfg: RigProviderConfig,
 ) -> Result<Option<RigProviderWithConfig>, String> {
+    let existing = get_rig_provider_row(client, user_id, id).await?;
+    let Some(existing_row) = existing else {
+        return Ok(None);
+    };
+    // A client that left the key untouched submits the masked preview from the
+    // read response; map it back to the stored secret instead of overwriting it.
+    let stored_key = serde_json::from_str::<RigProviderConfig>(&existing_row.config_body)
+        .ok()
+        .and_then(|c| c.api_key);
+    if let Some(submitted) = &cfg.api_key {
+        if stored_key.as_deref().map(mask_api_key).as_deref() == Some(submitted.as_str()) {
+            cfg.api_key = stored_key;
+        }
+    }
+
     cfg.validate()?;
     let config_body = serde_json::to_string(&cfg).map_err(|e| e.to_string())?;
     let now = chrono::Utc::now().naive_utc().to_string();
@@ -501,7 +502,11 @@ pub async fn update_rig_provider(
         return Ok(None);
     }
 
-    write_rig_provider_config_file(config_root, &id, &config_body);
+    write_provider_config_file(
+        config_root,
+        &config_filename(&id, RIG_HARNESS),
+        &config_body,
+    );
 
     get_rig_provider(client, user_id, id)
         .await
@@ -523,7 +528,7 @@ pub async fn delete_rig_provider(
         .await
         .map_err(|e| e.to_string())?;
     if rows > 0 {
-        remove_rig_provider_config_file(config_root, &id);
+        delete_provider_config_file(config_root, &config_filename(&id, RIG_HARNESS));
     }
     Ok(rows > 0)
 }
@@ -764,5 +769,80 @@ mod tests {
         // An unknown config id resolves to an empty ref (no file is written),
         // which is the pre-existing opencode flow's behavior.
         assert!(setting.model_config_id.is_none());
+    }
+
+    #[tokio::test]
+    async fn test_rig_provider_api_key_masked_in_reads() {
+        let ctx = setup().await;
+        let created = create_rig_provider(
+            &ctx.client,
+            ctx.user_id,
+            &ctx.config_root,
+            sample_rig(crate::providers::rig_config::RigVendor::OpenAi),
+        )
+        .await
+        .unwrap();
+        assert_eq!(created.config.api_key.as_deref(), Some("••••-123"));
+        let listed = list_rig_providers(&ctx.client, ctx.user_id).await.unwrap();
+        let served = listed[0].config.api_key.as_deref().unwrap();
+        assert!(served.contains("••••"));
+        assert!(!served.contains("sk-123"));
+        let fetched = get_rig_provider(&ctx.client, ctx.user_id, created.id)
+            .await
+            .unwrap()
+            .unwrap();
+        assert_eq!(fetched.config.api_key.as_deref(), Some("••••-123"));
+    }
+
+    #[tokio::test]
+    async fn test_update_rig_provider_blank_key_keeps_stored() {
+        let ctx = setup().await;
+        let created = create_rig_provider(
+            &ctx.client,
+            ctx.user_id,
+            &ctx.config_root,
+            sample_rig(crate::providers::rig_config::RigVendor::OpenAi),
+        )
+        .await
+        .unwrap();
+        // The read response carries the masked key; submitting it unchanged
+        // must preserve the stored secret rather than overwriting it.
+        let mut cfg = created.config.clone();
+        cfg.name = "renamed".into();
+        update_rig_provider(&ctx.client, ctx.user_id, &ctx.config_root, created.id, cfg)
+            .await
+            .unwrap()
+            .unwrap();
+        let row = get_rig_provider_row(&ctx.client, ctx.user_id, created.id)
+            .await
+            .unwrap()
+            .unwrap();
+        let stored: RigProviderConfig = serde_json::from_str(&row.config_body).unwrap();
+        assert_eq!(stored.api_key.as_deref(), Some("sk-123"));
+    }
+
+    #[tokio::test]
+    async fn test_update_rig_provider_new_key_replaces() {
+        let ctx = setup().await;
+        let created = create_rig_provider(
+            &ctx.client,
+            ctx.user_id,
+            &ctx.config_root,
+            sample_rig(crate::providers::rig_config::RigVendor::OpenAi),
+        )
+        .await
+        .unwrap();
+        let mut cfg = created.config.clone();
+        cfg.api_key = Some("sk-new-key".into());
+        update_rig_provider(&ctx.client, ctx.user_id, &ctx.config_root, created.id, cfg)
+            .await
+            .unwrap()
+            .unwrap();
+        let row = get_rig_provider_row(&ctx.client, ctx.user_id, created.id)
+            .await
+            .unwrap()
+            .unwrap();
+        let stored: RigProviderConfig = serde_json::from_str(&row.config_body).unwrap();
+        assert_eq!(stored.api_key.as_deref(), Some("sk-new-key"));
     }
 }
