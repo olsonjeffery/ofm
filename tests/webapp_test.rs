@@ -216,6 +216,114 @@ async fn test_webapp_navbar_shows_running_agent() {
 }
 
 #[tokio::test]
+async fn test_agent_status_endpoint_returns_running_question_and_blocked() {
+    let (state, auth_layer, _tmp) = make_state().await;
+    let user_id = state.default_user_id;
+    let db = state.db.clone();
+    let app = server::router(state, auth_layer);
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let addr = listener.local_addr().unwrap();
+
+    tokio::spawn(async move {
+        axum::serve(listener, app).await.unwrap();
+    });
+
+    let now = chrono::Utc::now().naive_utc().to_string();
+
+    let running_project = int64_id();
+    let running_task = int64_id();
+    let conv_id = Uuid::new_v4();
+    db.execute(
+        "INSERT INTO projects (id, user_id, name, repo_folder_path, created_at) VALUES ($1, $2, $3, $4, $5)",
+        hiqlite::params!(running_project, user_id.to_string(), "Running Proj", "/tmp/running-test", &now),
+    )
+    .await
+    .unwrap();
+    db.execute(
+        "INSERT INTO tasks (id, project_id, user_id, title, status, created_at) VALUES ($1, $2, $3, $4, $5, $6)",
+        hiqlite::params!(running_task, running_project, user_id.to_string(), "Running Task", "pending", &now),
+    )
+    .await
+    .unwrap();
+    db.execute(
+        "INSERT INTO conversations (id, task_id, provider_session_id, model, effort, created_at, updated_at) VALUES ($1, $2, $3, $4, $5, $6, $7)",
+        hiqlite::params!(conv_id.to_string(), running_task, "sess-running", "gpt-4", "balanced", &now, &now),
+    )
+    .await
+    .unwrap();
+    db.execute(
+        "INSERT INTO task_agent_runs (id, task_id, agent_type, status, conversation_id, created_at) VALUES ($1, $2, $3, $4, $5, $6)",
+        hiqlite::params!(Uuid::new_v4().to_string(), running_task, "implementation", "running", conv_id.to_string(), &now),
+    )
+    .await
+    .unwrap();
+
+    let question_project = int64_id();
+    let question_task = int64_id();
+    db.execute(
+        "INSERT INTO projects (id, user_id, name, repo_folder_path, created_at) VALUES ($1, $2, $3, $4, $5)",
+        hiqlite::params!(question_project, user_id.to_string(), "Question Proj", "/tmp/question-test", &now),
+    )
+    .await
+    .unwrap();
+    db.execute(
+        "INSERT INTO tasks (id, project_id, user_id, title, status, created_at) VALUES ($1, $2, $3, $4, $5, $6)",
+        hiqlite::params!(question_task, question_project, user_id.to_string(), "Question Task", "pending", &now),
+    )
+    .await
+    .unwrap();
+    db.execute(
+        "INSERT INTO conversations (id, task_id, provider_session_id, model, effort, created_at, updated_at) VALUES ($1, $2, $3, $4, $5, $6, $7)",
+        hiqlite::params!(Uuid::new_v4().to_string(), question_task, "sess-question", "gpt-4", "balanced", &now, &now),
+    )
+    .await
+    .unwrap();
+    db.execute(
+        "INSERT INTO messages (project_key, session_id, seq, entry_json, timestamp) VALUES ($1, $2, 1, $3, $4)",
+        hiqlite::params!(question_task, "sess-question",
+            serde_json::json!({"type": "question_asked", "session_id": "sess-question", "questions": [{"question": "Pick one", "options": []}], "timestamp": "2024-01-01T00:00:00"}).to_string(),
+            &now),
+    )
+    .await
+    .unwrap();
+
+    let blocked_project = int64_id();
+    let blocked_task = int64_id();
+    db.execute(
+        "INSERT INTO projects (id, user_id, name, repo_folder_path, created_at) VALUES ($1, $2, $3, $4, $5)",
+        hiqlite::params!(blocked_project, user_id.to_string(), "Blocked Proj", "/tmp/blocked-test", &now),
+    )
+    .await
+    .unwrap();
+    db.execute(
+        "INSERT INTO tasks (id, project_id, user_id, title, status, workflow_blocked, created_at) VALUES ($1, $2, $3, $4, $5, 1, $6)",
+        hiqlite::params!(blocked_task, blocked_project, user_id.to_string(), "Blocked Task", "pending", &now),
+    )
+    .await
+    .unwrap();
+
+    let url = format!("http://{}/api/tasks/agent-status", addr);
+    let client = reqwest::Client::new();
+    let resp = client.get(&url).send().await.unwrap();
+
+    assert_eq!(resp.status(), 200);
+    let body: serde_json::Value = resp.json().await.unwrap();
+
+    let running = body["agents"].as_array().unwrap();
+    assert_eq!(running.len(), 1, "should list the running agent");
+    assert_eq!(running[0]["task_id"], running_task);
+    assert_eq!(running[0]["agent_type"], "implementation");
+
+    let questions = body["questions"].as_array().unwrap();
+    assert_eq!(questions.len(), 1, "should list the open-question task");
+    assert_eq!(questions[0]["task_id"], question_task);
+
+    let blocked = body["blocked"].as_array().unwrap();
+    assert_eq!(blocked.len(), 1, "should list the blocked task");
+    assert_eq!(blocked[0]["task_id"], blocked_task);
+}
+
+#[tokio::test]
 async fn test_webapp_dashboard_page() {
     let (state, auth_layer, _tmp) = make_state().await;
     let app = server::router(state, auth_layer);

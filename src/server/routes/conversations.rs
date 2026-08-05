@@ -137,6 +137,10 @@ async fn send_message(
         hiqlite::params!(conv_id.to_string()),
     ).await;
 
+    // Sending a message re-activates a completed/failed run — the run shows as
+    // "running" again, so the global agent status feed must refresh.
+    crate::orchestration::broadcast_agent_status(&state.ws_bus, "refresh").await;
+
     if body.text.trim().is_empty() {
         return Err(ServerError::BadRequest("message text is required".into()));
     }
@@ -583,6 +587,10 @@ async fn spawn_broadcast_task(
 
                         let (event_type, payload) = event.to_ws_event();
                         let is_done = matches!(event, ProviderEvent::Done { .. });
+                        let is_question = matches!(
+                            event,
+                            ProviderEvent::QuestionAsked { .. }
+                        );
 
                         let payload = if let Some(obj) = payload.as_object() {
                             let mut map = obj.clone();
@@ -602,6 +610,10 @@ async fn spawn_broadcast_task(
                         };
 
                         ws_bus.broadcast(&topic, msg).await;
+
+                        if is_question {
+                            crate::orchestration::broadcast_agent_status(&ws_bus, "question").await;
+                        }
 
                         if is_done {
                             completed_normally.store(true, Ordering::SeqCst);
@@ -685,22 +697,7 @@ async fn spawn_broadcast_task(
             };
             ws_bus.broadcast(&topic, msg).await;
 
-            let sys_topic = WsTopic {
-                kind: WsTopicKind::System,
-                id: TopicId(0),
-            };
-            ws_bus
-                .broadcast(
-                    &sys_topic,
-                    ServerMessage::Event {
-                        topic: sys_topic.clone(),
-                        event_type: "agent_status".to_string(),
-                        timestamp: chrono::Utc::now(),
-                        payload: serde_json::json!({"action": "refresh"}),
-                        html: None,
-                    },
-                )
-                .await;
+            crate::orchestration::broadcast_agent_status(&ws_bus, "failed").await;
         }
     });
 }

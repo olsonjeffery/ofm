@@ -1,6 +1,6 @@
 use crate::archive;
 use crate::auth::AuthUser;
-use crate::db::schema::{ActiveAgent, Task};
+use crate::db::schema::{ActiveAgent, GlobalAgentStatus, Task};
 use crate::server::error::ServerError;
 use crate::server::state::AppState;
 use crate::server::ws::message::{ServerMessage, TopicId, WsTopic, WsTopicKind};
@@ -53,6 +53,7 @@ pub fn tasks_router() -> Router<AppState> {
     Router::new()
         .route("/", get(list_tasks).post(create_task))
         .route("/active-agents", get(active_agents_handler))
+        .route("/agent-status", get(agent_status_handler))
         .route("/{id}", get(get_task).put(update_task).delete(delete_task))
         .nest("/{id}/agent-runs", super::agent_runs::agent_runs_router())
         .nest(
@@ -70,6 +71,16 @@ async fn active_agents_handler(
         .await
         .map_err(|e| ServerError::Internal(e.to_string()))?;
     Ok(Json(agents))
+}
+
+async fn agent_status_handler(
+    auth: AuthUser,
+    State(state): State<AppState>,
+) -> Result<Json<GlobalAgentStatus>, ServerError> {
+    let status = services::tasks::get_global_agent_status(&state.db, &auth.user_id)
+        .await
+        .map_err(|e| ServerError::Internal(e.to_string()))?;
+    Ok(Json(status))
 }
 
 pub async fn create_task(
