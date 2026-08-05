@@ -178,6 +178,24 @@ pub struct ActiveAgent {
     pub conversation_name: Option<String>,
 }
 
+/// A task reference for the global agent-status feed (open questions, blocked
+/// tasks) with just enough context to build a deep link in the UI.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct TaskStatusSummary {
+    pub project_id: i64,
+    pub project_title: String,
+    pub task_id: i64,
+    pub task_title: String,
+}
+
+/// Aggregate, user-scoped view of agent activity for the navbar dropdown.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct GlobalAgentStatus {
+    pub agents: Vec<ActiveAgent>,
+    pub questions: Vec<TaskStatusSummary>,
+    pub blocked: Vec<TaskStatusSummary>,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "snake_case")]
 pub enum ScopeType {
@@ -492,6 +510,17 @@ impl From<&mut Row<'_>> for ActiveAgent {
                 .parse()
                 .expect("invalid UUID in database"),
             conversation_name: row.get("conversation_name"),
+        }
+    }
+}
+
+impl From<&mut Row<'_>> for TaskStatusSummary {
+    fn from(row: &mut Row<'_>) -> Self {
+        Self {
+            project_id: row.get::<i64>("project_id"),
+            project_title: row.get("project_title"),
+            task_id: row.get::<i64>("task_id"),
+            task_title: row.get("task_title"),
         }
     }
 }
