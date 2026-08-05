@@ -166,6 +166,15 @@ pub fn start_next_agent<'a>(
             }
         };
 
+        // Rig configs are capture-only until RIG 1 lands. Reject the run
+        // *before* `start_session` inserts a run row so the agent is cleanly
+        // blocked from execution with an actionable message.
+        if harness_config.harness == "rig" {
+            return Err(ServerError::Conflict(
+                registry::rig_not_yet_executable_message(&harness_config.provider_config_ref),
+            ));
+        }
+
         guards::one_running_per_task(db, task.id).await?;
         guards::iteration_cap(task)?;
 

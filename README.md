@@ -63,6 +63,14 @@ or needed user intervention to get a coding agent back on-track
 basis
 - The [`opencode`][17] open-source, multi-provider capable coding agent harness
 is the built-in provider
+- **Rig-based Providers**: Settings → *Providers & Agents* → **Rig-based
+  Providers** (`/webapp/settings/providers-agents/rig-providers`) lets a user
+  capture provider configs for Anthropic, OpenAI (service), OpenCode Go,
+  OpenRouter, and OpenAI-compatible endpoints (with or without an auth header)
+  as structured JSON files. These configs can then be attached to a user's
+  per-agent model preferences in *Agent Settings* (the model dropdown is
+  populated from the provider configs' model listings — both Rig and opencode).
+  Config **capture only**: executing through Rig clients is a future story.
 - The user _owns_ the local installations of the coding agent, so they can customize
 then with whatever skills, safeguards, etc are appropriate for the user case or
 organizational requirements; This avenue of customization provides a positive feedback

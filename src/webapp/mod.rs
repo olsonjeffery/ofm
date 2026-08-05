@@ -61,7 +61,7 @@ pub fn webapp_protected_routes() -> Router<AppState> {
             get(commit_detail_handler),
         )
         .route("/webapp/onboarding", get(onboarding_handler))
-        .route("/webapp/settings", get(settings_handler))
+        .route("/webapp/settings", get(settings_providers_handler))
         .route(
             "/webapp/settings/providers-agents",
             get(settings_providers_handler),
@@ -73,6 +73,10 @@ pub fn webapp_protected_routes() -> Router<AppState> {
         .route(
             "/webapp/settings/providers-agents/agent-settings",
             get(settings_agent_settings_handler),
+        )
+        .route(
+            "/webapp/settings/providers-agents/rig-providers",
+            get(settings_rig_providers_handler),
         )
         .route(
             "/webapp/settings/import-export",
@@ -221,17 +225,6 @@ async fn render_settings(
     Html(render_shell(&body, Some(user_json), breadcrumbs, agents))
 }
 
-async fn settings_handler(auth: AuthUser, State(state): State<AppState>) -> Html<String> {
-    render_settings(
-        &state,
-        &auth,
-        SettingsSection::ProvidersAgents,
-        SettingsSubPage::ModelConfig,
-        pages::settings::providers_agents::render(SettingsSubPage::ModelConfig),
-    )
-    .await
-}
-
 async fn settings_providers_handler(auth: AuthUser, State(state): State<AppState>) -> Html<String> {
     render_settings(
         &state,
@@ -253,6 +246,20 @@ async fn settings_agent_settings_handler(
         SettingsSection::ProvidersAgents,
         SettingsSubPage::AgentSettings,
         pages::settings::providers_agents::render(SettingsSubPage::AgentSettings),
+    )
+    .await
+}
+
+async fn settings_rig_providers_handler(
+    auth: AuthUser,
+    State(state): State<AppState>,
+) -> Html<String> {
+    render_settings(
+        &state,
+        &auth,
+        SettingsSection::ProvidersAgents,
+        SettingsSubPage::RigProviders,
+        pages::settings::rig_providers::render(SettingsSubPage::RigProviders),
     )
     .await
 }

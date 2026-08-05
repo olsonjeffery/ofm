@@ -116,6 +116,11 @@ pub mod breadcrumb_registry {
                 "account-tie",
                 "/webapp/settings/providers-agents/agent-settings",
             ),
+            SettingsSubPage::RigProviders => (
+                "Rig-based Providers",
+                "server-network",
+                "/webapp/settings/providers-agents/rig-providers",
+            ),
             SettingsSubPage::Export => (
                 "Export",
                 "export-variant",
@@ -272,6 +277,11 @@ mod tests {
                 SettingsSubPage::AgentSettings,
                 "Agent Settings",
                 "/webapp/settings/providers-agents/agent-settings",
+            ),
+            (
+                SettingsSubPage::RigProviders,
+                "Rig-based Providers",
+                "/webapp/settings/providers-agents/rig-providers",
             ),
             (
                 SettingsSubPage::Export,
