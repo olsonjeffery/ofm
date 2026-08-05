@@ -1,4 +1,5 @@
 use crate::db::schema::Project;
+use crate::webapp::components::datetime::utc_attr;
 use leptos::prelude::*;
 
 #[derive(Debug, Clone, Default)]
@@ -16,7 +17,7 @@ pub fn ProjectCard(project: Project, task_counts: TaskCounts) -> impl IntoView {
         + task_counts.in_review
         + task_counts.completed;
     let created = project.created_at.format("%Y-%m-%d").to_string();
-    let created_utc = crate::webapp::components::datetime::utc_attr(&project.created_at);
+    let created_utc = utc_attr(&project.created_at);
     view! {
         <a href={format!("/webapp/projects/{}", project.id)} class="card" style="display:block">
             <div class="card-header">

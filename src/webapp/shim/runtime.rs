@@ -36,22 +36,22 @@ pub fn global_runtime_script() -> String {
             return d.getFullYear()===now.getFullYear() && d.getMonth()===now.getMonth() && d.getDate()===now.getDate();
         },
         formats: {
-            pill: function(d, t) {
-                if (t._isToday(d)) return t._pad(d.getHours()) + ':' + t._pad(d.getMinutes());
-                return t._months[d.getMonth()] + ' ' + t._pad(d.getDate()) + ', ' + t._pad(d.getHours()) + ':' + t._pad(d.getMinutes());
+            pill: function(d) {
+                if (this._isToday(d)) return this._pad(d.getHours()) + ':' + this._pad(d.getMinutes());
+                return this._months[d.getMonth()] + ' ' + this._pad(d.getDate()) + ', ' + this._pad(d.getHours()) + ':' + this._pad(d.getMinutes());
             },
-            datetime: function(d, t) {
-                return t._months[d.getMonth()] + ' ' + t._pad(d.getDate()) + ', ' + t._pad(d.getHours()) + ':' + t._pad(d.getMinutes());
+            datetime: function(d) {
+                return this._months[d.getMonth()] + ' ' + this._pad(d.getDate()) + ', ' + this._pad(d.getHours()) + ':' + this._pad(d.getMinutes());
             },
-            date: function(d, t) {
-                return d.getFullYear() + '-' + t._pad(d.getMonth()+1) + '-' + t._pad(d.getDate());
+            date: function(d) {
+                return d.getFullYear() + '-' + this._pad(d.getMonth()+1) + '-' + this._pad(d.getDate());
             }
         },
         format: function(tsStr, name) {
             var d = this.parseUtc(tsStr);
             if (!d) return tsStr ? String(tsStr) : '';
             var fmt = this.formats[name] || this.formats.datetime;
-            return fmt.call(this, d, this);
+            return fmt.call(this, d);
         },
         formatTimestamp: function(tsStr) { return this.format(tsStr, 'pill'); },
         apply: function(scope) {
@@ -59,7 +59,8 @@ pub fn global_runtime_script() -> String {
             var els = scope.querySelectorAll('[data-utc]');
             for (var i = 0; i < els.length; i++) {
                 var el = els[i];
-                var txt = this.format(el.getAttribute('data-utc'), el.getAttribute('data-utc-format') || 'datetime');
+                var name = el.getAttribute('data-utc-format') || 'datetime';
+                var txt = this.format(el.getAttribute('data-utc'), name);
                 if (txt && el.textContent !== txt) el.textContent = txt;
             }
         }

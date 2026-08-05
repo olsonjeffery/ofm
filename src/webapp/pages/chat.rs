@@ -115,6 +115,10 @@ document.addEventListener('DOMContentLoaded', function() {{
         }});
     }});
 
+    function buildTimestampPill(tsStr, idAttr) {{
+        return '<div ' + (idAttr ? idAttr + ' ' : '') + 'class="level"><div class="timestamp-pill tag is-light">' + window.OfmTime.formatTimestamp(tsStr) + '</div></div>';
+    }}
+
     // WS event handling with conversation_id filtering
     if (window.OfmWS && taskId) {{
         window.OfmWS.subscribe({{ kind: 'task', id: parseInt(taskId) }}, function(msg) {{
@@ -166,14 +170,12 @@ document.addEventListener('DOMContentLoaded', function() {{
                         }}
                         // Prepend user-timestamp pill for user_text events
                         if (msg.event_type === 'user_text' && msg.payload && msg.payload.timestamp) {{
-                            var userTsHtml = '<div class="level"><div class="timestamp-pill tag is-light">' + window.OfmTime.formatTimestamp(msg.payload.timestamp) + '</div></div>';
-                            container.insertAdjacentHTML('beforeend', userTsHtml);
+                            container.insertAdjacentHTML('beforeend', buildTimestampPill(msg.payload.timestamp));
                         }}
                         container.insertAdjacentHTML('beforeend', eventHtml);
                         // Append newest-timestamp pill below the new event with separator
                         if (msg.payload && msg.payload.timestamp) {{
-                            var newTsHtml = '<div id="newest-timestamp-pill" class="level"><div class="timestamp-pill tag is-light">' + window.OfmTime.formatTimestamp(msg.payload.timestamp) + '</div></div>';
-                            container.insertAdjacentHTML('beforeend', newTsHtml);
+                            container.insertAdjacentHTML('beforeend', buildTimestampPill(msg.payload.timestamp, 'id="newest-timestamp-pill"'));
                         }}
                         // Track message_id / tool_use_id for future dedup
                         var dk = msg.payload.message_id || msg.payload.tool_use_id || '';

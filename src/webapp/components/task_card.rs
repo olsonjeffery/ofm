@@ -1,4 +1,5 @@
 use crate::db::schema::{AgentType, Task};
+use crate::webapp::components::datetime::utc_attr;
 use leptos::prelude::*;
 
 #[derive(Clone)]
@@ -30,7 +31,7 @@ fn phase_color(at: &AgentType) -> &'static str {
 #[component]
 pub fn TaskCard(data: TaskCardData) -> impl IntoView {
     let created = data.task.created_at.format("%Y-%m-%d").to_string();
-    let created_utc = crate::webapp::components::datetime::utc_attr(&data.task.created_at);
+    let created_utc = utc_attr(&data.task.created_at);
     view! {
         <a href={format!("/webapp/projects/{}/tasks/{}", data.task.project_id, data.task.id)} class="card" style="display:block" data-task-id={data.task.id.to_string()}>
             <div class="card-header">

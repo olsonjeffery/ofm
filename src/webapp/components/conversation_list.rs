@@ -1,4 +1,5 @@
 use crate::db::schema::{AgentType, ConversationWithRun, RunStatus};
+use crate::webapp::components::datetime::utc_attr;
 use leptos::prelude::*;
 
 fn run_status_class(status: &RunStatus) -> &'static str {
@@ -25,23 +26,6 @@ pub fn is_valid_name(name: &str) -> bool {
     name.len() >= 3
         && !name.starts_with("Generate a 1-3 word title")
         && !name.starts_with("generate a 1-3 word title")
-}
-
-fn format_conversation_date(
-    created_at: &chrono::NaiveDateTime,
-    updated_at: &chrono::NaiveDateTime,
-) -> String {
-    updated_at
-        .max(created_at)
-        .format("%b %d, %H:%M")
-        .to_string()
-}
-
-fn conversation_utc_attr(
-    created_at: &chrono::NaiveDateTime,
-    updated_at: &chrono::NaiveDateTime,
-) -> String {
-    crate::webapp::components::datetime::utc_attr(updated_at.max(created_at))
 }
 
 #[component]
@@ -84,8 +68,9 @@ pub fn ConversationList(
                         } else {
                             cwr.conversation.model.clone()
                         };
-                        let date_str = format_conversation_date(&cwr.conversation.created_at, &cwr.conversation.updated_at);
-                        let date_utc = conversation_utc_attr(&cwr.conversation.created_at, &cwr.conversation.updated_at);
+                        let effective_ts = cwr.conversation.updated_at.max(cwr.conversation.created_at);
+                        let date_str = effective_ts.format("%b %d, %H:%M").to_string();
+                        let date_utc = utc_attr(&effective_ts);
                         let status = cwr.run.as_ref().map(|r| &r.status);
                         let curr_agent_color = match agent_type {
                             Some(AgentType::Planification) => "var(--bulma-info)",

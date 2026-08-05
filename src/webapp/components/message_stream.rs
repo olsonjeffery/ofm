@@ -1,4 +1,5 @@
 use crate::providers::types::ProviderEvent;
+use crate::webapp::components::datetime::utc_attr;
 use chrono::NaiveDateTime;
 use leptos::prelude::*;
 use pulldown_cmark::Options;
@@ -1338,13 +1339,12 @@ fn build_timestamp_pill(timestamp: &NaiveDateTime, is_newest: bool) -> String {
     } else {
         ""
     };
-    let utc = crate::webapp::components::datetime::utc_attr(timestamp);
     format!(
         r#"
             <div {newest} class="level"><div class="timestamp-pill tag is-light" data-utc="{utc}" data-utc-format="pill">{ts}</div></div>
         "#,
         newest = newest_id,
-        utc = utc,
+        utc = utc_attr(timestamp),
         ts = format_timestamp_pill(*timestamp),
     )
 }
