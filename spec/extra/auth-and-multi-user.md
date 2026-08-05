@@ -368,9 +368,10 @@ Key differences from the reference:
 4. If found, UPDATE `last_login`.
 5. Return the local `id` and attributes to set up the session.
 
-The `project_members` join table is unchanged from the reference — it remains
-a many-to-many `(project_id, user_id)` join, unique on the pair,
-cascade-deleted with either parent.
+The reference's `project_members` join table is **not carried over** — it is
+folded into the groups mechanism and dropped (`drop_project_members` migration).
+Project-level access is now modeled as the owner's group membership; see
+[Groups / Organizations (access control)](#groups--organizations-access-control).
 
 ## Per-user API keys
 
