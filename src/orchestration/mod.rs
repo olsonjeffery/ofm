@@ -224,19 +224,7 @@ pub fn start_next_agent<'a>(
         .await
         .map_err(|e| ServerError::Internal(e.to_string()))?;
 
-        let topic = system_topic();
-        ws_bus
-            .broadcast(
-                &topic,
-                ServerMessage::Event {
-                    topic: topic.clone(),
-                    event_type: "agent_status".to_string(),
-                    timestamp: chrono::Utc::now(),
-                    payload: serde_json::json!({"action": "refresh"}),
-                    html: None,
-                },
-            )
-            .await;
+        broadcast_agent_status(ws_bus, "refresh").await;
 
         let mut provider = registry::resolve_provider_for_user(
             &harness_config,

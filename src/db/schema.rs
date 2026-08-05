@@ -514,6 +514,17 @@ impl From<&mut Row<'_>> for ActiveAgent {
     }
 }
 
+impl From<&mut Row<'_>> for TaskStatusSummary {
+    fn from(row: &mut Row<'_>) -> Self {
+        Self {
+            project_id: row.get::<i64>("project_id"),
+            project_title: row.get("project_title"),
+            task_id: row.get::<i64>("task_id"),
+            task_title: row.get("task_title"),
+        }
+    }
+}
+
 impl From<&mut Row<'_>> for UserModelConfig {
     fn from(row: &mut Row<'_>) -> Self {
         Self {

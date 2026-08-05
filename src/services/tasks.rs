@@ -322,12 +322,7 @@ async fn task_summary(client: &Client, user_id: &Uuid, task_id: i64) -> Option<T
         .await
         .ok()?;
     let row = rows.first_mut()?;
-    Some(TaskStatusSummary {
-        project_id: row.get("project_id"),
-        project_title: row.get("project_title"),
-        task_id: row.get("task_id"),
-        task_title: row.get("task_title"),
-    })
+    Some(TaskStatusSummary::from(row))
 }
 
 /// Tasks awaiting user input: a conversation whose newest persisted event is a
@@ -368,8 +363,7 @@ pub async fn get_open_question_tasks(
             let entry: String = msg_row.get("entry_json");
             let is_question = serde_json::from_str::<serde_json::Value>(&entry)
                 .ok()
-                .map(|v| v.get("type").and_then(|t| t.as_str()) == Some("question_asked"))
-                .unwrap_or(false);
+                .is_some_and(|v| v.get("type").and_then(|t| t.as_str()) == Some("question_asked"));
             if is_question {
                 task_ids.push(task_id);
             }
@@ -409,12 +403,7 @@ pub async fn get_blocked_tasks(
         .await?;
     let mut tasks = Vec::with_capacity(rows.len());
     for mut row in rows {
-        tasks.push(TaskStatusSummary {
-            project_id: row.get("project_id"),
-            project_title: row.get("project_title"),
-            task_id: row.get("task_id"),
-            task_title: row.get("task_title"),
-        });
+        tasks.push(TaskStatusSummary::from(&mut row));
     }
     Ok(tasks)
 }

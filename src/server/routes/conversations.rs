@@ -587,10 +587,7 @@ async fn spawn_broadcast_task(
 
                         let (event_type, payload) = event.to_ws_event();
                         let is_done = matches!(event, ProviderEvent::Done { .. });
-                        let is_question = matches!(
-                            event,
-                            ProviderEvent::QuestionAsked { .. }
-                        );
+                        let is_question = matches!(event, ProviderEvent::QuestionAsked { .. });
 
                         let payload = if let Some(obj) = payload.as_object() {
                             let mut map = obj.clone();

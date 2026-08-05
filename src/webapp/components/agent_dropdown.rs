@@ -213,38 +213,26 @@ pub fn AgentDropdown(active_agents: Vec<ActiveAgent>) -> impl IntoView {
                     container.innerHTML = html;
                 }
 
+                function renderTaskSection(containerId, tasks, heading, headingClass, icon) {
+                    var container = document.getElementById(containerId);
+                    if (!container) return;
+                    var html = '';
+                    if (tasks.length > 0) {
+                        html += '<hr class="dropdown-divider">';
+                        html += '<div class="dropdown-item has-text-weight-semibold is-size-7 ' + headingClass + '">' +
+                            '<span class="icon is-small"><i class="mdi mdi-' + icon + '"></i></span>' +
+                            '<span>' + heading + '</span></div>';
+                        for (var i = 0; i < tasks.length; i++) {
+                            html += taskEntryHtml(tasks[i], icon);
+                        }
+                    }
+                    container.innerHTML = html;
+                }
+
                 function renderTaskSections() {
                     var status = window.__agentStatus || null;
-                    var questions = (status && status.questions) || [];
-                    var blocked = (status && status.blocked) || [];
-                    var qContainer = document.getElementById('agent-question-entries');
-                    if (qContainer) {
-                        var qHtml = '';
-                        if (questions.length > 0) {
-                            qHtml += '<hr class="dropdown-divider">';
-                            qHtml += '<div class="dropdown-item has-text-weight-semibold is-size-7 has-text-cyan">' +
-                                '<span class="icon is-small"><i class="mdi mdi-help-circle-outline"></i></span>' +
-                                '<span>Needs your input</span></div>';
-                            for (var i = 0; i < questions.length; i++) {
-                                qHtml += taskEntryHtml(questions[i], 'help-circle-outline');
-                            }
-                        }
-                        qContainer.innerHTML = qHtml;
-                    }
-                    var bContainer = document.getElementById('agent-blocked-entries');
-                    if (bContainer) {
-                        var bHtml = '';
-                        if (blocked.length > 0) {
-                            bHtml += '<hr class="dropdown-divider">';
-                            bHtml += '<div class="dropdown-item has-text-weight-semibold is-size-7 has-text-danger">' +
-                                '<span class="icon is-small"><i class="mdi mdi-alert-circle-outline"></i></span>' +
-                                '<span>Blocked</span></div>';
-                            for (var j = 0; j < blocked.length; j++) {
-                                bHtml += taskEntryHtml(blocked[j], 'alert-circle-outline');
-                            }
-                        }
-                        bContainer.innerHTML = bHtml;
-                    }
+                    renderTaskSection('agent-question-entries', (status && status.questions) || [], 'Needs your input', 'has-text-cyan', 'help-circle-outline');
+                    renderTaskSection('agent-blocked-entries', (status && status.blocked) || [], 'Blocked', 'has-text-danger', 'alert-circle-outline');
                 }
 
                 function updateAgentCount(count) {
