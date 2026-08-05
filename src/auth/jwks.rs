@@ -52,6 +52,13 @@ pub enum VerifyError {
     WrongIssuer(String),
 }
 
+fn keys_from_jwks(jwks: JwksResponse) -> HashMap<String, Jwk> {
+    jwks.keys
+        .into_iter()
+        .filter_map(|jwk| jwk.common.key_id.clone().map(|kid| (kid, jwk)))
+        .collect()
+}
+
 pub async fn fetch_jwks(issuer_url: &str, client_id: &str) -> Result<JwksCache, AuthError> {
     let client = reqwest::Client::new();
 
@@ -86,11 +93,7 @@ pub async fn fetch_jwks(issuer_url: &str, client_id: &str) -> Result<JwksCache, 
         .await
         .map_err(|e| AuthError::JwksFetchError(e.to_string()))?;
 
-    let keys: HashMap<String, Jwk> = jwks
-        .keys
-        .into_iter()
-        .filter_map(|jwk| jwk.common.key_id.clone().map(|kid| (kid, jwk)))
-        .collect();
+    let keys = keys_from_jwks(jwks);
 
     Ok(JwksCache {
         keys,
@@ -121,11 +124,7 @@ pub async fn fetch_jwks_direct(
         .await
         .map_err(|e| AuthError::JwksFetchError(e.to_string()))?;
 
-    let keys: HashMap<String, Jwk> = jwks
-        .keys
-        .into_iter()
-        .filter_map(|jwk| jwk.common.key_id.clone().map(|kid| (kid, jwk)))
-        .collect();
+    let keys = keys_from_jwks(jwks);
 
     Ok(JwksCache {
         keys,

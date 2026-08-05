@@ -63,6 +63,30 @@ pub fn tasks_router() -> Router<AppState> {
         .route("/{id}/worktree/recreate", post(recreate_worktree_handler))
 }
 
+/// Fetch a task and verify `auth` may access it (`write=false` → read-only,
+/// `write=true` → contributor+). Returns 404 when the task is missing or not
+/// accessible, so callers never leak its existence.
+pub(crate) async fn authorized_task(
+    state: &AppState,
+    auth: &AuthUser,
+    task_id: i64,
+    write: bool,
+) -> Result<Task, ServerError> {
+    let task = services::tasks::get_task(&state.db, task_id)
+        .await
+        .map_err(|_| ServerError::NotFound("Task not found".into()))?;
+    let has_access = if write {
+        services::access::has_task_flow_write_access(&state.db, auth, &task).await
+    } else {
+        services::access::has_task_flow_access(&state.db, auth, &task).await
+    }
+    .map_err(|e| ServerError::Internal(e.to_string()))?;
+    if !has_access {
+        return Err(ServerError::NotFound("Task not found".into()));
+    }
+    Ok(task)
+}
+
 async fn active_agents_handler(
     auth: AuthUser,
     State(state): State<AppState>,
@@ -109,15 +133,7 @@ pub async fn create_task(
         .unwrap_or("pending")
         .to_string();
 
-    let project = services::projects::get_project(&state.db, body.project_id)
-        .await
-        .map_err(|_| ServerError::NotFound("Project not found".into()))?;
-    let has_access = services::access::has_project_write_access(&state.db, &auth, &project)
-        .await
-        .map_err(|e| ServerError::Internal(e.to_string()))?;
-    if !has_access {
-        return Err(ServerError::NotFound("Project not found".into()));
-    }
+    let project = super::projects::authorized_project(&state, &auth, body.project_id, true).await?;
     let task = services::tasks::create_task(
         &state.db,
         body.project_id,
@@ -180,15 +196,7 @@ async fn list_tasks(
     State(state): State<AppState>,
     Query(query): Query<ListTasksQuery>,
 ) -> Result<Json<Vec<Task>>, ServerError> {
-    let project = services::projects::get_project(&state.db, query.project_id)
-        .await
-        .map_err(|_| ServerError::NotFound("Project not found".into()))?;
-    let has_access = services::access::has_project_access(&state.db, &auth, &project)
-        .await
-        .map_err(|e| ServerError::Internal(e.to_string()))?;
-    if !has_access {
-        return Err(ServerError::NotFound("Project not found".into()));
-    }
+    super::projects::authorized_project(&state, &auth, query.project_id, false).await?;
     let tasks = services::tasks::list_tasks(&state.db, query.project_id)
         .await
         .map_err(|e| ServerError::Internal(e.to_string()))?;
@@ -200,15 +208,7 @@ async fn get_task(
     State(state): State<AppState>,
     Path(id): Path<i64>,
 ) -> Result<Json<TaskDetailResponse>, ServerError> {
-    let task = services::tasks::get_task(&state.db, id)
-        .await
-        .map_err(|_| ServerError::NotFound("Task not found".into()))?;
-    let has_access = services::access::has_task_flow_access(&state.db, &auth, &task)
-        .await
-        .map_err(|e| ServerError::Internal(e.to_string()))?;
-    if !has_access {
-        return Err(ServerError::NotFound("Task not found".into()));
-    }
+    let task = authorized_task(&state, &auth, id, false).await?;
 
     let worktree = services::tasks::get_worktree_by_task(&state.db, id)
         .await
@@ -253,15 +253,7 @@ async fn update_task(
     Path(id): Path<i64>,
     Json(body): Json<UpdateTaskRequest>,
 ) -> Result<Json<Task>, ServerError> {
-    let existing = services::tasks::get_task(&state.db, id)
-        .await
-        .map_err(|_| ServerError::NotFound("Task not found".into()))?;
-    let has_access = services::access::has_task_flow_write_access(&state.db, &auth, &existing)
-        .await
-        .map_err(|e| ServerError::Internal(e.to_string()))?;
-    if !has_access {
-        return Err(ServerError::NotFound("Task not found".into()));
-    }
+    authorized_task(&state, &auth, id, true).await?;
     if body.title.is_none() && body.status.is_none() && body.doc_content.is_none() {
         return Err(ServerError::BadRequest(
             "at least one field (title, status, doc_content) must be provided".into(),
@@ -335,15 +327,7 @@ async fn delete_task(
     State(state): State<AppState>,
     Path(id): Path<i64>,
 ) -> Result<axum::http::StatusCode, ServerError> {
-    let task = services::tasks::get_task(&state.db, id)
-        .await
-        .map_err(|_| ServerError::NotFound("Task not found".into()))?;
-    let has_access = services::access::has_task_flow_write_access(&state.db, &auth, &task)
-        .await
-        .map_err(|e| ServerError::Internal(e.to_string()))?;
-    if !has_access {
-        return Err(ServerError::NotFound("Task not found".into()));
-    }
+    let task = authorized_task(&state, &auth, id, true).await?;
     let worktree = services::tasks::get_worktree_by_task(&state.db, id)
         .await
         .ok();
@@ -380,15 +364,7 @@ pub async fn recreate_worktree_handler(
     State(state): State<AppState>,
     Path(id): Path<i64>,
 ) -> Result<(StatusCode, Json<CreateWorktreeResult>), ServerError> {
-    let task = services::tasks::get_task(&state.db, id)
-        .await
-        .map_err(|_| ServerError::NotFound("Task not found".into()))?;
-    let has_access = services::access::has_task_flow_write_access(&state.db, &auth, &task)
-        .await
-        .map_err(|e| ServerError::Internal(e.to_string()))?;
-    if !has_access {
-        return Err(ServerError::NotFound("Task not found".into()));
-    }
+    let task = authorized_task(&state, &auth, id, true).await?;
     let worktree = services::tasks::get_worktree_by_task(&state.db, id)
         .await
         .map_err(|_| ServerError::NotFound("No worktree for task".into()))?;

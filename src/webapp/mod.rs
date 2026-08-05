@@ -18,7 +18,7 @@ use leptos::prelude::*;
 use uuid::Uuid;
 
 use crate::auth::AuthUser;
-use crate::db::schema::ActiveAgent;
+use crate::db::schema::{ActiveAgent, Project, Task};
 use crate::server::error::ServerError;
 use crate::server::state::AppState;
 use crate::services;
@@ -32,6 +32,44 @@ async fn active_agents(db: &hiqlite::Client, auth: &AuthUser) -> Vec<ActiveAgent
     services::tasks::get_running_agents(db, auth)
         .await
         .unwrap_or_default()
+}
+
+/// Fetch a project and verify `auth` may read it (owner or group member).
+/// Returns 404 when missing or inaccessible.
+async fn require_project(
+    state: &AppState,
+    auth: &AuthUser,
+    project_id: i64,
+) -> Result<Project, ServerError> {
+    let project = services::projects::get_project(&state.db, project_id)
+        .await
+        .map_err(|_| ServerError::NotFound("Project not found".into()))?;
+    let has_access = services::access::has_project_access(&state.db, auth, &project)
+        .await
+        .map_err(|e| ServerError::Internal(e.to_string()))?;
+    if !has_access {
+        return Err(ServerError::NotFound("Project not found".into()));
+    }
+    Ok(project)
+}
+
+/// Fetch a task and verify `auth` may read it (owner or group member). Returns
+/// 404 when missing or inaccessible.
+async fn require_task(
+    state: &AppState,
+    auth: &AuthUser,
+    task_id: i64,
+) -> Result<Task, ServerError> {
+    let task = services::tasks::get_task(&state.db, task_id)
+        .await
+        .map_err(|_| ServerError::NotFound("Task not found".into()))?;
+    let has_access = services::access::has_task_flow_access(&state.db, auth, &task)
+        .await
+        .map_err(|e| ServerError::Internal(e.to_string()))?;
+    if !has_access {
+        return Err(ServerError::NotFound("Task not found".into()));
+    }
+    Ok(task)
 }
 
 pub fn webapp_routes() -> Router<AppState> {
@@ -394,15 +432,7 @@ async fn board_handler(
 ) -> Result<Html<String>, ServerError> {
     let user_json = serde_json::to_string(&auth).unwrap_or_default();
     let agents = active_agents(&state.db, &auth).await;
-    let project = services::projects::get_project(&state.db, project_id)
-        .await
-        .map_err(|_| ServerError::NotFound("Project not found".into()))?;
-    let has_access = services::access::has_project_access(&state.db, &auth, &project)
-        .await
-        .map_err(|e| ServerError::Internal(e.to_string()))?;
-    if !has_access {
-        return Err(ServerError::NotFound("Project not found".into()));
-    }
+    let project = require_project(&state, &auth, project_id).await?;
     let tasks = services::tasks::list_tasks(&state.db, project_id)
         .await
         .map_err(|e| ServerError::Internal(e.to_string()))?;
@@ -445,23 +475,10 @@ async fn task_detail_handler(
     let user_json = serde_json::to_string(&auth).unwrap_or_default();
     let agents = active_agents(&state.db, &auth).await;
 
-    let project = services::projects::get_project(&state.db, project_id)
-        .await
-        .map_err(|_| ServerError::NotFound("Project not found".into()))?;
-    let has_project_access = services::access::has_project_access(&state.db, &auth, &project)
-        .await
-        .map_err(|e| ServerError::Internal(e.to_string()))?;
-    if !has_project_access {
-        return Err(ServerError::NotFound("Project not found".into()));
-    }
+    let project = require_project(&state, &auth, project_id).await?;
 
-    let task = services::tasks::get_task(&state.db, task_id)
-        .await
-        .map_err(|_| ServerError::NotFound("Task not found".into()))?;
-    let has_task_access = services::access::has_task_flow_access(&state.db, &auth, &task)
-        .await
-        .map_err(|e| ServerError::Internal(e.to_string()))?;
-    if !has_task_access || task.project_id != project_id {
+    let task = require_task(&state, &auth, task_id).await?;
+    if task.project_id != project_id {
         return Err(ServerError::NotFound("Task not found".into()));
     }
 
@@ -530,23 +547,10 @@ async fn commit_detail_handler(
     let user_json = serde_json::to_string(&auth).unwrap_or_default();
     let agents = active_agents(&state.db, &auth).await;
 
-    let project = services::projects::get_project(&state.db, project_id)
-        .await
-        .map_err(|_| ServerError::NotFound("Project not found".into()))?;
-    let has_project_access = services::access::has_project_access(&state.db, &auth, &project)
-        .await
-        .map_err(|e| ServerError::Internal(e.to_string()))?;
-    if !has_project_access {
-        return Err(ServerError::NotFound("Project not found".into()));
-    }
+    let project = require_project(&state, &auth, project_id).await?;
 
-    let task = services::tasks::get_task(&state.db, task_id)
-        .await
-        .map_err(|_| ServerError::NotFound("Task not found".into()))?;
-    let has_task_access = services::access::has_task_flow_access(&state.db, &auth, &task)
-        .await
-        .map_err(|e| ServerError::Internal(e.to_string()))?;
-    if !has_task_access || task.project_id != project_id {
+    let task = require_task(&state, &auth, task_id).await?;
+    if task.project_id != project_id {
         return Err(ServerError::NotFound("Task not found".into()));
     }
 
@@ -637,25 +641,9 @@ async fn chat_handler(
     State(state): State<AppState>,
     Path((project_id, task_id)): Path<(i64, i64)>,
 ) -> Result<Html<String>, ServerError> {
-    let project = services::projects::get_project(&state.db, project_id)
-        .await
-        .map_err(|_| ServerError::NotFound("Project not found".into()))?;
-    let has_project_access = services::access::has_project_access(&state.db, &auth, &project)
-        .await
-        .map_err(|e| ServerError::Internal(e.to_string()))?;
-    if !has_project_access {
-        return Err(ServerError::NotFound("Project not found".into()));
-    }
+    let project = require_project(&state, &auth, project_id).await?;
 
-    let task = services::tasks::get_task(&state.db, task_id)
-        .await
-        .map_err(|_| ServerError::NotFound("Task not found".into()))?;
-    let has_task_access = services::access::has_task_flow_access(&state.db, &auth, &task)
-        .await
-        .map_err(|e| ServerError::Internal(e.to_string()))?;
-    if !has_task_access {
-        return Err(ServerError::NotFound("Task not found".into()));
-    }
+    let task = require_task(&state, &auth, task_id).await?;
 
     let conversations = services::tasks::list_conversations_for_task(&state.db, task_id)
         .await
@@ -708,25 +696,9 @@ async fn chat_handler_with_conv(
     let user_json = serde_json::to_string(&auth).unwrap_or_default();
     let agents = active_agents(&state.db, &auth).await;
 
-    let project = services::projects::get_project(&state.db, project_id)
-        .await
-        .map_err(|_| ServerError::NotFound("Project not found".into()))?;
-    let has_project_access = services::access::has_project_access(&state.db, &auth, &project)
-        .await
-        .map_err(|e| ServerError::Internal(e.to_string()))?;
-    if !has_project_access {
-        return Err(ServerError::NotFound("Project not found".into()));
-    }
+    let project = require_project(&state, &auth, project_id).await?;
 
-    let task = services::tasks::get_task(&state.db, task_id)
-        .await
-        .map_err(|_| ServerError::NotFound("Task not found".into()))?;
-    let has_task_access = services::access::has_task_flow_access(&state.db, &auth, &task)
-        .await
-        .map_err(|e| ServerError::Internal(e.to_string()))?;
-    if !has_task_access {
-        return Err(ServerError::NotFound("Task not found".into()));
-    }
+    let task = require_task(&state, &auth, task_id).await?;
 
     let conv = session::resume_session(&state.db, conversation_id)
         .await

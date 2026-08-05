@@ -173,9 +173,8 @@ pub async fn handle_callback(
         find_or_create_user(db, &sub, username, &now, footprint).await?;
 
     // Capture the granted OAuth scopes (access-token `scope` claim, token
-    // response `scope`, and/or userinfo echo) unioned with the discovery
-    // `scopes_supported`, and persist them so membership-by-scope can be
-    // evaluated offline against the DB.
+    // response `scope`, and/or userinfo echo) and persist them so
+    // membership-by-scope can be evaluated offline against the DB.
     let scopes = capture_user_scopes(oidc, &token_data, &access_token).await;
     if !scopes.is_empty() {
         db.execute(
@@ -585,10 +584,7 @@ fn client_secret_param(client_secret: &Option<String>) -> String {
 }
 
 fn parse_scope_list(s: &str) -> Vec<String> {
-    s.split_whitespace()
-        .map(|s| s.to_string())
-        .filter(|s| !s.is_empty())
-        .collect()
+    s.split_whitespace().map(str::to_string).collect()
 }
 
 /// Best-effort fetch of a `scope` echo from the userinfo endpoint.
@@ -610,10 +606,13 @@ async fn fetch_userinfo_scope(oidc: &OidcEndpoints, access_token: &str) -> Optio
     body["scope"].as_str().map(|s| s.to_string())
 }
 
-/// Collect the OAuth scopes granted to a user at login: the token response's
-/// `scope` field, the access token's `scope` claim (id_tokens generally omit
-/// it), a best-effort userinfo `scope` echo, unioned with the provider's
-/// advertised `scopes_supported`. Deduplicated and sorted.
+/// Collect the OAuth scopes actually granted to a user at login: the token
+/// response's `scope` field, the access token's `scope` claim (id_tokens
+/// generally omit it), and a best-effort userinfo `scope` echo. The provider's
+/// advertised `scopes_supported` is deliberately NOT included — advertising a
+/// scope is not the same as granting it, and folding every advertised scope
+/// into every user would make scope-named groups grant membership to everyone.
+/// Deduplicated and sorted.
 async fn capture_user_scopes(
     oidc: &OidcEndpoints,
     token_data: &serde_json::Value,
@@ -640,8 +639,6 @@ async fn capture_user_scopes(
     if let Some(scope) = fetch_userinfo_scope(oidc, access_token).await {
         scopes.extend(parse_scope_list(&scope));
     }
-
-    scopes.extend(oidc.scopes_supported.iter().cloned());
 
     scopes.sort();
     scopes.dedup();

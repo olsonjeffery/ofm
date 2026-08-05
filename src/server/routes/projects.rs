@@ -87,20 +87,36 @@ async fn list_projects(
     Ok(Json(projects))
 }
 
+/// Fetch a project and verify `auth` may access it (`write=false` → read-only,
+/// `write=true` → contributor+). Returns 404 when the project is missing or not
+/// accessible, so callers never leak its existence.
+pub(crate) async fn authorized_project(
+    state: &AppState,
+    auth: &AuthUser,
+    project_id: i64,
+    write: bool,
+) -> Result<Project, ServerError> {
+    let project = services::projects::get_project(&state.db, project_id)
+        .await
+        .map_err(|_| ServerError::NotFound("Project not found".into()))?;
+    let has_access = if write {
+        services::access::has_project_write_access(&state.db, auth, &project).await
+    } else {
+        services::access::has_project_access(&state.db, auth, &project).await
+    }
+    .map_err(|e| ServerError::Internal(e.to_string()))?;
+    if !has_access {
+        return Err(ServerError::NotFound("Project not found".into()));
+    }
+    Ok(project)
+}
+
 async fn get_project(
     auth: AuthUser,
     State(state): State<AppState>,
     Path(id): Path<i64>,
 ) -> Result<Json<Project>, ServerError> {
-    let project = services::projects::get_project(&state.db, id)
-        .await
-        .map_err(|_| ServerError::NotFound("Project not found".into()))?;
-    let has_access = services::access::has_project_access(&state.db, &auth, &project)
-        .await
-        .map_err(|e| ServerError::Internal(e.to_string()))?;
-    if !has_access {
-        return Err(ServerError::NotFound("Project not found".into()));
-    }
+    let project = authorized_project(&state, &auth, id, false).await?;
     Ok(Json(project))
 }
 
@@ -110,15 +126,7 @@ async fn update_project(
     Path(id): Path<i64>,
     Json(body): Json<UpdateProjectRequest>,
 ) -> Result<Json<Project>, ServerError> {
-    let existing = services::projects::get_project(&state.db, id)
-        .await
-        .map_err(|_| ServerError::NotFound("Project not found".into()))?;
-    let has_access = services::access::has_project_write_access(&state.db, &auth, &existing)
-        .await
-        .map_err(|e| ServerError::Internal(e.to_string()))?;
-    if !has_access {
-        return Err(ServerError::NotFound("Project not found".into()));
-    }
+    authorized_project(&state, &auth, id, true).await?;
     if body.name.as_deref().is_some_and(|n| n.trim().is_empty()) {
         return Err(ServerError::BadRequest("name must not be empty".into()));
     }
@@ -165,15 +173,7 @@ async fn delete_project(
     State(state): State<AppState>,
     Path(id): Path<i64>,
 ) -> Result<Json<serde_json::Value>, ServerError> {
-    let existing = services::projects::get_project(&state.db, id)
-        .await
-        .map_err(|_| ServerError::NotFound("Project not found".into()))?;
-    let has_access = services::access::has_project_write_access(&state.db, &auth, &existing)
-        .await
-        .map_err(|e| ServerError::Internal(e.to_string()))?;
-    if !has_access {
-        return Err(ServerError::NotFound("Project not found".into()));
-    }
+    authorized_project(&state, &auth, id, true).await?;
     let deleted = services::projects::delete_project(&state.db, id)
         .await
         .map_err(|e| ServerError::Internal(e.to_string()))?;

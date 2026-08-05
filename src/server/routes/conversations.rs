@@ -57,15 +57,7 @@ async fn list_conversations(
     State(state): State<AppState>,
     Path(task_id): Path<i64>,
 ) -> Result<Json<Vec<ConversationWithRun>>, ServerError> {
-    let task = tasks::get_task(&state.db, task_id)
-        .await
-        .map_err(|_| ServerError::NotFound("Task not found".into()))?;
-    let has_access = crate::services::access::has_task_flow_access(&state.db, &auth, &task)
-        .await
-        .map_err(|e| ServerError::Internal(e.to_string()))?;
-    if !has_access {
-        return Err(ServerError::NotFound("Task not found".into()));
-    }
+    super::tasks::authorized_task(&state, &auth, task_id, false).await?;
     let convs = tasks::list_conversations_for_task(&state.db, task_id)
         .await
         .map_err(|e| ServerError::Internal(e.to_string()))?;
@@ -77,15 +69,7 @@ async fn get_conversation(
     State(state): State<AppState>,
     Path((task_id, conv_id)): Path<(i64, Uuid)>,
 ) -> Result<Json<ConversationDetail>, ServerError> {
-    let task = tasks::get_task(&state.db, task_id)
-        .await
-        .map_err(|_| ServerError::NotFound("Task not found".into()))?;
-    let has_access = crate::services::access::has_task_flow_access(&state.db, &auth, &task)
-        .await
-        .map_err(|e| ServerError::Internal(e.to_string()))?;
-    if !has_access {
-        return Err(ServerError::NotFound("Task not found".into()));
-    }
+    super::tasks::authorized_task(&state, &auth, task_id, false).await?;
     let conv = session::resume_session(&state.db, conv_id)
         .await
         .map_err(|_| ServerError::NotFound("Conversation not found".into()))?;
@@ -116,15 +100,7 @@ async fn send_message(
     Path((task_id, conv_id)): Path<(i64, Uuid)>,
     Json(body): Json<SendMessageRequest>,
 ) -> Result<StatusCode, ServerError> {
-    let task = tasks::get_task(&state.db, task_id)
-        .await
-        .map_err(|_| ServerError::NotFound("Task not found".into()))?;
-    let has_access = crate::services::access::has_task_flow_write_access(&state.db, &auth, &task)
-        .await
-        .map_err(|e| ServerError::Internal(e.to_string()))?;
-    if !has_access {
-        return Err(ServerError::NotFound("Task not found".into()));
-    }
+    let task = super::tasks::authorized_task(&state, &auth, task_id, true).await?;
     let conv = session::resume_session(&state.db, conv_id)
         .await
         .map_err(|_| ServerError::NotFound("Conversation not found".into()))?;

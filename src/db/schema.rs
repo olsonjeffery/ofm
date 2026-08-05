@@ -298,10 +298,9 @@ pub struct User {
     pub token_version: i32,
     pub created_at: String,
     pub last_login: Option<String>,
-    /// Space-delimited OAuth scopes granted to the user at login (union of
-    /// discovery `scopes_supported` that were actually granted and the live
-    /// access-token/userinfo `scope` claim). Used to evaluate membership of
-    /// groups with `is_oauth_scope` set.
+    /// Space-delimited OAuth scopes granted to the user at login (from the
+    /// token response, access-token `scope` claim, and/or userinfo echo).
+    /// Used to evaluate membership of groups with `is_oauth_scope` set.
     pub scopes: String,
 }
 

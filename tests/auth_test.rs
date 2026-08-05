@@ -1534,18 +1534,16 @@ async fn test_callback_captures_scopes() {
     assert_eq!(rows.len(), 1, "callback should create the user");
     let stored: String = rows[0].get("scopes");
     let scopes: Vec<&str> = stored.split_whitespace().collect();
-    // access-token claim + userinfo echo + discovery scopes_supported unioned.
-    assert!(
-        scopes.contains(&"openid"),
-        "discovery scopes_supported folded in"
-    );
+    // access-token claim + userinfo echo only; discovery scopes_supported is
+    // NOT folded in (advertising a scope is not the same as granting it).
     assert!(
         scopes.contains(&"billing:read"),
         "access-token scope captured"
     );
     assert!(scopes.contains(&"extra:scope"), "userinfo scope captured");
+    assert!(scopes.contains(&"openid"), "access-token scope captured");
     assert!(
-        scopes.contains(&"custom:scope"),
-        "discovery scopes_supported folded in"
+        !scopes.contains(&"custom:scope"),
+        "discovery scopes_supported must not grant unrequested scopes"
     );
 }

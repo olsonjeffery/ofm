@@ -89,25 +89,28 @@ fn parse_level(level: &str) -> Result<GroupLevel, ServerError> {
     level.parse().map_err(ServerError::BadRequest)
 }
 
+async fn username_for_user(state: &AppState, user_id: Uuid) -> Result<String, ServerError> {
+    let mut rows = state
+        .db
+        .query_raw(
+            "SELECT username FROM users WHERE id = $1",
+            hiqlite::params!(user_id.to_string()),
+        )
+        .await
+        .map_err(|e| ServerError::Internal(e.to_string()))?;
+    Ok(rows
+        .first_mut()
+        .map(|r| r.get::<String>("username"))
+        .unwrap_or_default())
+}
+
 /// Enrich a group row for the admin UI: owner username, effective member
 /// count, and whether it is the bootstrap `admins` group.
 async fn group_payload(
     state: &AppState,
     group: &crate::db::schema::Group,
 ) -> Result<serde_json::Value, ServerError> {
-    let owner_username = {
-        let mut rows = state
-            .db
-            .query_raw(
-                "SELECT username FROM users WHERE id = $1",
-                hiqlite::params!(group.owner_id.to_string()),
-            )
-            .await
-            .map_err(|e| ServerError::Internal(e.to_string()))?;
-        rows.first_mut()
-            .map(|r| r.get::<String>("username"))
-            .unwrap_or_default()
-    };
+    let owner_username = username_for_user(state, group.owner_id).await?;
 
     let member_count = groups::resolve_members(&state.db, &group.id)
         .await
@@ -211,12 +214,13 @@ async fn scopes_available(
         .map(|o| o.scopes_supported.clone())
         .unwrap_or_default();
     // Union in admin-entered scope names (groups created with is_oauth_scope).
-    let groups = groups::list_groups(&state.db).await?;
-    for group in groups {
-        if group.is_oauth_scope && !scopes.contains(&group.name) {
-            scopes.push(group.name);
-        }
-    }
+    scopes.extend(
+        groups::list_groups(&state.db)
+            .await?
+            .into_iter()
+            .filter(|g| g.is_oauth_scope)
+            .map(|g| g.name),
+    );
     scopes.sort();
     scopes.dedup();
     Ok(Json(json!({ "scopes": scopes })))
@@ -232,29 +236,16 @@ async fn list_members(
 
     let mut member_payload = Vec::with_capacity(members.len());
     for member in members {
-        let (username, level, effective) = if let Some(uid) = member.user_id {
-            let username = {
-                let mut rows = state
-                    .db
-                    .query_raw(
-                        "SELECT username FROM users WHERE id = $1",
-                        hiqlite::params!(uid.to_string()),
-                    )
-                    .await
-                    .map_err(|e| ServerError::Internal(e.to_string()))?;
-                rows.first_mut()
-                    .map(|r| r.get::<String>("username"))
-                    .unwrap_or_default()
-            };
-            (Some(username), member.level.clone(), None)
+        let (username, subgroup_name) = if let Some(uid) = member.user_id {
+            (Some(username_for_user(&state, uid).await?), None)
         } else if let Some(sgid) = member.member_group_id {
             let name = groups::get_group(&state.db, sgid)
                 .await
                 .map(|g| g.name)
                 .unwrap_or_default();
-            (None, member.level.clone(), Some(name))
+            (None, Some(name))
         } else {
-            (None, member.level.clone(), None)
+            (None, None)
         };
 
         member_payload.push(json!({
@@ -263,8 +254,8 @@ async fn list_members(
             "user_id": member.user_id,
             "username": username,
             "member_group_id": member.member_group_id,
-            "subgroup_name": effective,
-            "level": level,
+            "subgroup_name": subgroup_name,
+            "level": member.level,
             "created_at": member.created_at,
         }));
     }

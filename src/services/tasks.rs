@@ -13,6 +13,21 @@ fn db_err(e: crate::services::groups::GroupError) -> hiqlite::Error {
     hiqlite::Error::new(e.to_string())
 }
 
+/// Whether `owner` (an optional resource owner) is accessible to `user` at
+/// read level. A missing owner row is treated as not accessible.
+async fn owner_accessible(
+    client: &Client,
+    user: &AuthUser,
+    owner: Option<Uuid>,
+) -> Result<bool, hiqlite::Error> {
+    match owner {
+        Some(uid) => access::has_resource_access(client, user, uid, GroupLevel::ReadOnly)
+            .await
+            .map_err(db_err),
+        None => Ok(false),
+    }
+}
+
 fn utc_now() -> String {
     chrono::Utc::now().format("%Y-%m-%d %H:%M:%S").to_string()
 }
@@ -338,13 +353,7 @@ pub async fn get_running_agents(
 
     let mut agents = Vec::with_capacity(pending.len());
     for (agent, owner) in pending {
-        let accessible = match owner {
-            Some(uid) => access::has_resource_access(client, user, uid, GroupLevel::ReadOnly)
-                .await
-                .map_err(db_err)?,
-            None => false,
-        };
-        if accessible {
+        if owner_accessible(client, user, owner).await? {
             agents.push(agent);
         }
     }
@@ -470,13 +479,7 @@ pub async fn get_blocked_tasks(
 
     let mut tasks = Vec::with_capacity(pending.len());
     for (summary, owner) in pending {
-        let accessible = match owner {
-            Some(uid) => access::has_resource_access(client, user, uid, GroupLevel::ReadOnly)
-                .await
-                .map_err(db_err)?,
-            None => false,
-        };
-        if accessible {
+        if owner_accessible(client, user, owner).await? {
             tasks.push(summary);
         }
     }

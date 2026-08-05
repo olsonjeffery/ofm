@@ -43,15 +43,7 @@ async fn post_create_agent_run(
         "Starting agent run"
     );
 
-    let task = tasks::get_task(&state.db, task_id)
-        .await
-        .map_err(|_| ServerError::NotFound("Task not found".into()))?;
-    let has_access = crate::services::access::has_task_flow_write_access(&state.db, &auth, &task)
-        .await
-        .map_err(|e| ServerError::Internal(e.to_string()))?;
-    if !has_access {
-        return Err(ServerError::NotFound("Task not found".into()));
-    }
+    let task = super::tasks::authorized_task(&state, &auth, task_id, true).await?;
 
     let config_root = PathBuf::from(&state.config_root);
 
@@ -76,15 +68,7 @@ async fn reset_agent_runs(
     State(state): State<AppState>,
     Path(task_id): Path<i64>,
 ) -> Result<StatusCode, ServerError> {
-    let task = tasks::get_task(&state.db, task_id)
-        .await
-        .map_err(|_| ServerError::NotFound("Task not found".into()))?;
-    let has_access = crate::services::access::has_task_flow_write_access(&state.db, &auth, &task)
-        .await
-        .map_err(|e| ServerError::Internal(e.to_string()))?;
-    if !has_access {
-        return Err(ServerError::NotFound("Task not found".into()));
-    }
+    super::tasks::authorized_task(&state, &auth, task_id, true).await?;
 
     tracing::info!(task_id = %task_id, "Resetting agent runs for task");
 
@@ -185,15 +169,7 @@ async fn list_agent_runs(
     State(state): State<AppState>,
     Path(task_id): Path<i64>,
 ) -> Result<Json<Vec<TaskAgentRun>>, ServerError> {
-    let task = tasks::get_task(&state.db, task_id)
-        .await
-        .map_err(|_| ServerError::NotFound("Task not found".into()))?;
-    let has_access = crate::services::access::has_task_flow_access(&state.db, &auth, &task)
-        .await
-        .map_err(|e| ServerError::Internal(e.to_string()))?;
-    if !has_access {
-        return Err(ServerError::NotFound("Task not found".into()));
-    }
+    super::tasks::authorized_task(&state, &auth, task_id, false).await?;
 
     let runs = tasks::list_agent_runs_for_task(&state.db, task_id)
         .await

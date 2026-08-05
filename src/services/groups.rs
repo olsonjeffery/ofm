@@ -30,14 +30,34 @@ fn is_no_rows(e: &hiqlite::Error) -> bool {
     e.to_string().contains("no rows returned")
 }
 
+/// Map a single-row lookup error: an empty result set is `NotFound`, anything
+/// else is a generic database error.
+fn map_group_error(e: hiqlite::Error) -> GroupError {
+    if is_no_rows(&e) {
+        GroupError::NotFound
+    } else {
+        db_err(e)
+    }
+}
+
 fn insert_level(map: &mut HashMap<Uuid, GroupLevel>, user_id: Uuid, level: GroupLevel) {
     map.entry(user_id)
-        .and_modify(|existing| {
-            if level > *existing {
-                *existing = level;
-            }
-        })
+        .and_modify(|existing| *existing = (*existing).max(level))
         .or_insert(level);
+}
+
+fn is_owner_or_admin(group: &Group, actor: &AuthUser) -> bool {
+    actor.is_admin || group.owner_id == actor.user_id
+}
+
+/// Map an INSERT/UPDATE failure onto `BadRequest` when it is a unique-constraint
+/// violation on `groups.name`, else the generic database error.
+fn map_unique_error(e: hiqlite::Error, name: &str) -> GroupError {
+    if e.to_string().contains("UNIQUE") {
+        GroupError::BadRequest(format!("a group named '{name}' already exists"))
+    } else {
+        db_err(e)
+    }
 }
 
 // ── Group definition CRUD ────────────────────────────────────────────────────
@@ -86,12 +106,7 @@ pub async fn create_group(
         )
         .await;
     if let Err(e) = insert {
-        if e.to_string().contains("UNIQUE") {
-            return Err(GroupError::BadRequest(format!(
-                "a group named '{name}' already exists"
-            )));
-        }
-        return Err(db_err(e));
+        return Err(map_unique_error(e, name));
     }
 
     // The creating admin is always an admin-level member.
@@ -108,13 +123,7 @@ pub async fn get_group(client: &Client, group_id: Uuid) -> Result<Group, GroupEr
             hiqlite::params!(group_id.to_string()),
         )
         .await
-        .map_err(|e| {
-            if is_no_rows(&e) {
-                GroupError::NotFound
-            } else {
-                db_err(e)
-            }
-        })
+        .map_err(map_group_error)
 }
 
 pub async fn get_group_by_name(client: &Client, name: &str) -> Result<Group, GroupError> {
@@ -125,13 +134,7 @@ pub async fn get_group_by_name(client: &Client, name: &str) -> Result<Group, Gro
             hiqlite::params!(name),
         )
         .await
-        .map_err(|e| {
-            if is_no_rows(&e) {
-                GroupError::NotFound
-            } else {
-                db_err(e)
-            }
-        })
+        .map_err(map_group_error)
 }
 
 pub async fn list_groups(client: &Client) -> Result<Vec<Group>, GroupError> {
@@ -158,11 +161,15 @@ pub async fn update_group(
 ) -> Result<Group, GroupError> {
     let group = get_group(client, group_id).await?;
 
+    // Renaming/title/description edits are owner-or-admin; changing the owner
+    // is admin-only.
     let owner_change = owner_id.is_some() && owner_id != Some(group.owner_id);
-    if owner_change && !actor.is_admin {
-        return Err(GroupError::Forbidden);
-    }
-    if !owner_change && group.owner_id != actor.user_id && !actor.is_admin {
+    let authorized = if owner_change {
+        actor.is_admin
+    } else {
+        is_owner_or_admin(&group, actor)
+    };
+    if !authorized {
         return Err(GroupError::Forbidden);
     }
 
@@ -193,13 +200,7 @@ pub async fn update_group(
         )
         .await;
     if let Err(e) = update {
-        if e.to_string().contains("UNIQUE") {
-            return Err(GroupError::BadRequest(format!(
-                "a group named '{}' already exists",
-                name.unwrap_or(&group.name)
-            )));
-        }
-        return Err(db_err(e));
+        return Err(map_unique_error(e, name.unwrap_or(&group.name)));
     }
 
     get_group(client, group_id).await
@@ -212,7 +213,7 @@ pub async fn delete_group(
     group_id: Uuid,
 ) -> Result<(), GroupError> {
     let group = get_group(client, group_id).await?;
-    if group.owner_id != actor.user_id && !actor.is_admin {
+    if !is_owner_or_admin(&group, actor) {
         return Err(GroupError::Forbidden);
     }
     client
@@ -279,7 +280,7 @@ pub async fn add_member(
     level: GroupLevel,
 ) -> Result<GroupMember, GroupError> {
     let group = get_group(client, group_id).await?;
-    if group.owner_id != actor.user_id && !actor.is_admin {
+    if !is_owner_or_admin(&group, actor) {
         return Err(GroupError::Forbidden);
     }
 
@@ -335,7 +336,7 @@ pub async fn remove_member(
     member_id: Uuid,
 ) -> Result<(), GroupError> {
     let group = get_group(client, group_id).await?;
-    if group.owner_id != actor.user_id && !actor.is_admin {
+    if !is_owner_or_admin(&group, actor) {
         return Err(GroupError::Forbidden);
     }
     let rows = client
@@ -359,7 +360,7 @@ pub async fn change_level(
     level: GroupLevel,
 ) -> Result<GroupMember, GroupError> {
     let group = get_group(client, group_id).await?;
-    if group.owner_id != actor.user_id && !actor.is_admin {
+    if !is_owner_or_admin(&group, actor) {
         return Err(GroupError::Forbidden);
     }
     let rows = client
@@ -400,56 +401,48 @@ pub async fn list_members(client: &Client, group_id: Uuid) -> Result<Vec<GroupMe
 
 // ── Membership resolution ────────────────────────────────────────────────────
 
+/// Fetch the `(target, level)` pairs from `group_members` for one target kind.
+/// `target` is a compile-time constant (`"user_id"` or `"member_group_id"`) that
+/// selects both the column to read and a static SQL statement.
+async fn member_rows(
+    client: &Client,
+    group_id: &Uuid,
+    target: &'static str,
+) -> Result<Vec<(Uuid, GroupLevel)>, GroupError> {
+    let sql = if target == "user_id" {
+        "SELECT user_id, level FROM group_members WHERE group_id = $1 AND user_id IS NOT NULL"
+    } else {
+        "SELECT member_group_id, level FROM group_members WHERE group_id = $1 AND member_group_id IS NOT NULL"
+    };
+    let mut rows = client
+        .query_raw(sql, hiqlite::params!(group_id.to_string()))
+        .await
+        .map_err(db_err)?;
+    let mut out = Vec::with_capacity(rows.len());
+    for row in rows.iter_mut() {
+        let id: String = row.get(target);
+        let level: String = row.get("level");
+        let level: GroupLevel = level.parse().map_err(GroupError::BadRequest)?;
+        let id = Uuid::parse_str(&id).map_err(|e| {
+            GroupError::BadRequest(format!("invalid {target} in group_members: {e}"))
+        })?;
+        out.push((id, level));
+    }
+    Ok(out)
+}
+
 async fn direct_user_members(
     client: &Client,
     group_id: &Uuid,
 ) -> Result<Vec<(Uuid, GroupLevel)>, GroupError> {
-    let mut rows = client
-        .query_raw(
-            "SELECT user_id, level FROM group_members WHERE group_id = $1 AND user_id IS NOT NULL",
-            hiqlite::params!(group_id.to_string()),
-        )
-        .await
-        .map_err(db_err)?;
-    let mut out = Vec::new();
-    for row in rows.iter_mut() {
-        let user_id: String = row.get("user_id");
-        let level: String = row.get("level");
-        let level: GroupLevel = level
-            .parse()
-            .map_err(|e: String| GroupError::BadRequest(e))?;
-        let uid = Uuid::parse_str(&user_id).map_err(|e| {
-            GroupError::BadRequest(format!("invalid user id in group_members: {e}"))
-        })?;
-        out.push((uid, level));
-    }
-    Ok(out)
+    member_rows(client, group_id, "user_id").await
 }
 
 async fn subgroup_rows(
     client: &Client,
     group_id: &Uuid,
 ) -> Result<Vec<(Uuid, GroupLevel)>, GroupError> {
-    let mut rows = client
-        .query_raw(
-            "SELECT member_group_id, level FROM group_members WHERE group_id = $1 AND member_group_id IS NOT NULL",
-            hiqlite::params!(group_id.to_string()),
-        )
-        .await
-        .map_err(db_err)?;
-    let mut out = Vec::new();
-    for row in rows.iter_mut() {
-        let sgid: String = row.get("member_group_id");
-        let level: String = row.get("level");
-        let level: GroupLevel = level
-            .parse()
-            .map_err(|e: String| GroupError::BadRequest(e))?;
-        let sg = Uuid::parse_str(&sgid).map_err(|e| {
-            GroupError::BadRequest(format!("invalid subgroup id in group_members: {e}"))
-        })?;
-        out.push((sg, level));
-    }
-    Ok(out)
+    member_rows(client, group_id, "member_group_id").await
 }
 
 async fn users_with_scope(client: &Client, scope_name: &str) -> Result<Vec<Uuid>, GroupError> {
@@ -477,49 +470,34 @@ async fn users_with_scope(client: &Client, scope_name: &str) -> Result<Vec<Uuid>
 /// level across all paths (direct membership, subgroup roll-ups capped by the
 /// subgroup's membership level, scope-derived membership) plus the implicit
 /// admin level for the group owner. Cycle-safe.
-fn collect_levels<'a>(
-    client: &'a Client,
-    group_id: &'a Uuid,
-    visited: &'a mut HashSet<Uuid>,
-    map: &'a mut HashMap<Uuid, GroupLevel>,
-) -> std::pin::Pin<Box<dyn std::future::Future<Output = Result<(), GroupError>> + Send + 'a>> {
-    Box::pin(async move {
-        if !visited.insert(*group_id) {
-            return Ok(());
-        }
-        let group = get_group(client, *group_id).await?;
-        insert_level(map, group.owner_id, GroupLevel::Admin);
-
-        for (uid, level) in direct_user_members(client, group_id).await? {
-            insert_level(map, uid, level);
-        }
-
-        for (sgid, subgroup_level) in subgroup_rows(client, group_id).await? {
-            let mut sub_map = HashMap::new();
-            let mut sub_visited = visited.clone();
-            collect_levels(client, &sgid, &mut sub_visited, &mut sub_map).await?;
-            for (uid, level) in sub_map {
-                insert_level(map, uid, level.min(subgroup_level));
-            }
-        }
-
-        if group.is_oauth_scope {
-            for uid in users_with_scope(client, &group.name).await? {
-                insert_level(map, uid, GroupLevel::ReadOnly);
-            }
-        }
-
-        Ok(())
-    })
-}
-
+///
+/// Implemented with an explicit work stack rather than async recursion (which
+/// would need a boxed future): each frame tracks the path's `visited` set
+/// (cycle guard) and the level cap imposed by the subgroup edge that led here.
 async fn effective_levels(
     client: &Client,
     group_id: &Uuid,
 ) -> Result<HashMap<Uuid, GroupLevel>, GroupError> {
     let mut map = HashMap::new();
-    let mut visited = HashSet::new();
-    collect_levels(client, group_id, &mut visited, &mut map).await?;
+    let mut stack = vec![(*group_id, GroupLevel::Admin, HashSet::new())];
+    while let Some((gid, cap, mut visited)) = stack.pop() {
+        if !visited.insert(gid) {
+            continue;
+        }
+        let group = get_group(client, gid).await?;
+        insert_level(&mut map, group.owner_id, GroupLevel::Admin.min(cap));
+        for (uid, level) in direct_user_members(client, &gid).await? {
+            insert_level(&mut map, uid, level.min(cap));
+        }
+        if group.is_oauth_scope {
+            for uid in users_with_scope(client, &group.name).await? {
+                insert_level(&mut map, uid, GroupLevel::ReadOnly.min(cap));
+            }
+        }
+        for (sgid, subgroup_level) in subgroup_rows(client, &gid).await? {
+            stack.push((sgid, subgroup_level.min(cap), visited.clone()));
+        }
+    }
     Ok(map)
 }
 

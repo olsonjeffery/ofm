@@ -157,19 +157,9 @@ async fn verify_project_ownership(
     auth: &AuthUser,
     write: bool,
 ) -> Result<(), ServerError> {
-    let project = services::projects::get_project(&state.db, project_id)
+    super::projects::authorized_project(state, auth, project_id, write)
         .await
-        .map_err(|_| ServerError::NotFound("Project not found".into()))?;
-    let has_access = if write {
-        services::access::has_project_write_access(&state.db, auth, &project).await
-    } else {
-        services::access::has_project_access(&state.db, auth, &project).await
-    }
-    .map_err(|e| ServerError::Internal(e.to_string()))?;
-    if !has_access {
-        return Err(ServerError::NotFound("Project not found".into()));
-    }
-    Ok(())
+        .map(|_| ())
 }
 
 fn validate_config_ref(name: &str) -> Result<(), ServerError> {
