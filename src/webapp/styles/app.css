@@ -856,3 +856,58 @@ hr.timestamp-separator {
     max-width: 100%;
 }
 
+
+/* ===== Chat status bar ===== */
+.chat-status-bar {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    height: 2.5rem;
+    flex-shrink: 0;
+    padding: 0 1rem;
+    gap: 1rem;
+    border-top: 1px solid var(--bulma-border);
+    border-bottom: 1px solid var(--bulma-border);
+    background: var(--bulma-background);
+    overflow: hidden;
+    white-space: nowrap;
+}
+.chat-status-info {
+    display: flex;
+    align-items: center;
+    gap: 0.75rem;
+    min-width: 0;
+    overflow: hidden;
+}
+.chat-status-actions {
+    display: flex;
+    align-items: center;
+    gap: 0.75rem;
+    flex-shrink: 0;
+}
+.chat-status-agent {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.4rem;
+}
+.agent-type-label {
+    font-weight: 600;
+}
+.agent-model-label {
+    color: var(--bulma-grey);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+.agent-status-icon.is-pulse {
+    animation: card-pulse 2s infinite;
+    border-radius: 50%;
+}
+/* per-agent-type color theming (mirrors conversation_list.rs palette) */
+.chat-status-agent.is-agent-planification { color: var(--bulma-info); }
+.chat-status-agent.is-agent-implementation { color: var(--bulma-purple); }
+.chat-status-agent.is-agent-refinement    { color: var(--bulma-danger); }
+.chat-status-agent.is-agent-review        { color: var(--bulma-primary); }
+.chat-status-agent.is-agent-pr            { color: var(--bulma-success); }
+.chat-status-agent.is-agent-yolo          { color: var(--bulma-warning); }
+.chat-status-agent.is-agent-conversation_title { color: var(--bulma-grey-dark); }

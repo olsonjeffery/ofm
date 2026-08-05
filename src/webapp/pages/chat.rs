@@ -1,6 +1,7 @@
-use crate::db::schema::TaskAgentRun;
+use crate::db::schema::{AgentType, TaskAgentRun};
 use crate::providers::types::ProviderEvent;
 use crate::webapp::components::chat_input::ChatInput;
+use crate::webapp::components::chat_status_bar::ChatStatusBar;
 use crate::webapp::components::message_stream::MessageStream;
 use leptos::prelude::*;
 
@@ -16,11 +17,15 @@ document.addEventListener('DOMContentLoaded', function() {{
     var streamContainer = document.getElementById('message-stream-container');
     var jumpPill = document.getElementById('jump-to-newest-pill');
     var backToTopPill = document.getElementById('back-to-top-pill');
-    var agentBar = document.getElementById('agent-thinking-bar');
+    var statusBar = document.getElementById('chat-status-bar');
+    var statusLabel = document.getElementById('agent-status-label');
+    var stopBtn = document.getElementById('stop-agent-btn');
 
     function setProcessing(processing) {{
         isProcessing = processing;
-        if (agentBar) agentBar.style.display = processing ? 'flex' : 'none';
+        if (statusBar) statusBar.classList.toggle('is-processing', processing);
+        if (statusLabel) statusLabel.textContent = processing ? 'Agent is processing...' : 'Agent Idle';
+        if (stopBtn) stopBtn.disabled = !processing;
         var input = document.getElementById('chat-message-input');
         var sendBtn = document.querySelector('#chat-form button');
         if (input) input.disabled = processing;
@@ -255,6 +260,8 @@ pub fn ChatPage(
     initial_messages: Vec<ProviderEvent>,
     #[allow(unused)] conversation_name: Option<String>,
     current_run: Option<TaskAgentRun>,
+    agent_type: Option<AgentType>,
+    model_label: String,
 ) -> impl IntoView {
     let is_running = current_run.as_ref().is_some_and(|r| {
         r.status == crate::db::schema::RunStatus::Running
@@ -280,22 +287,8 @@ pub fn ChatPage(
             <div id="message-stream-container" style="flex:1;overflow-y:auto;overflow-x:hidden">
                 <MessageStream messages=initial_messages />
             </div>
-            <div id="chat-footer" style="border-top:1px solid #ddd;background:#fff;padding:0.5rem 1rem;position:relative">
-                <div id="agent-thinking-bar"
-                     style="display:none;width:33.33%;margin:0 auto 0.5rem;background:#000;color:#fff;
-                             border-radius:8px;padding:0.75rem 1rem;
-                             align-items:center;justify-content:space-between;
-                             box-shadow:0 2px 8px rgba(0,0,0,0.15)">
-                    <span style="display:flex;align-items:center;gap:0.5rem">
-                        <span class="icon"><i class="mdi mdi-loading mdi-spin has-text-white"></i></span>
-                        <span>"Agent is processing..."</span>
-                    </span>
-                    <button id="stop-agent-btn" class="button is-primary has-text-white is-small"
-                            onclick="stopAgent()">
-                        <span class="icon is-small"><i class="mdi mdi-close-thick"></i></span>
-                        <span>"Stop Agent"</span>
-                    </button>
-                </div>
+            <ChatStatusBar agent_type={agent_type} model_label={model_label} processing=is_running />
+            <div id="chat-footer" style="background:#fff;padding:0.5rem 1rem;position:relative">
                 <div class="chat-input-wrapper" style="position:relative">
                     <div id="jump-to-newest-pill"
                          style="display:none;position:absolute;bottom:65%;left:50%;transform:translateX(-50%);z-index:10;
@@ -353,6 +346,8 @@ mod tests {
                 initial_messages=Vec::new()
                 conversation_name=None
                 current_run=None
+                agent_type=None
+                model_label=String::new()
             />
         }
         .to_html();
@@ -372,7 +367,9 @@ mod tests {
         assert!(html.contains("arrow-up-thick"));
         assert!(html.contains("Stop Agent"));
         assert!(html.contains("close-thick"));
-        assert!(html.contains("agent-thinking-bar"));
+        assert!(html.contains("chat-status-bar"));
+        assert!(html.contains("Agent Idle"));
+        assert!(!html.contains("agent-thinking-bar"));
         assert!(html.contains("chat-input-wrapper"));
     }
 
@@ -410,11 +407,82 @@ mod tests {
                 initial_messages=Vec::new()
                 conversation_name=Some("Test Chat".to_string())
                 current_run=Some(run)
+                agent_type=Some(AgentType::Implementation)
+                model_label="gpt-4".to_string()
             />
         }
         .to_html();
         assert!(html.contains(&conv_id.to_string()));
         assert!(!html.contains("is-one-quarter"));
         assert!(html.contains("chat-layout"));
+        assert!(html.contains("Implementation"), "agent-type label rendered");
+        assert!(html.contains("mdi-code-tags"), "agent-type icon rendered");
+        assert!(html.contains("is-agent-implementation"));
+    }
+
+    #[test]
+    fn test_chat_page_status_bar_processing_state() {
+        let conv_id = uuid::Uuid::new_v4();
+        let run = TaskAgentRun {
+            id: uuid::Uuid::new_v4(),
+            task_id: 1,
+            agent_type: AgentType::Implementation,
+            status: RunStatus::Running,
+            conversation_id: Some(conv_id),
+            created_at: NaiveDateTime::parse_from_str("2024-06-01 12:00:00", "%Y-%m-%d %H:%M:%S")
+                .unwrap(),
+            completed_at: None,
+        };
+        let html = leptos::view! {
+            <ChatPage
+                _project_id=1
+                task_id=1
+                active_conversation_id=Some(conv_id)
+                initial_messages=Vec::new()
+                conversation_name=Some("Test Chat".to_string())
+                current_run=Some(run)
+                agent_type=Some(AgentType::Implementation)
+                model_label="gpt-4".to_string()
+            />
+        }
+        .to_html();
+        assert!(html.contains("Agent is processing..."));
+        assert!(html.contains("is-processing"));
+        assert!(html.contains("is-pulse"), "pulsing icon while processing");
+        assert!(
+            !html.contains("stop-agent-btn\" disabled"),
+            "stop button enabled while processing"
+        );
+    }
+
+    #[test]
+    fn test_chat_page_status_bar_idle_state() {
+        let conv_id = uuid::Uuid::new_v4();
+        let run = TaskAgentRun {
+            id: uuid::Uuid::new_v4(),
+            task_id: 1,
+            agent_type: AgentType::Planification,
+            status: RunStatus::Completed,
+            conversation_id: Some(conv_id),
+            created_at: NaiveDateTime::parse_from_str("2024-06-01 12:00:00", "%Y-%m-%d %H:%M:%S")
+                .unwrap(),
+            completed_at: None,
+        };
+        let html = leptos::view! {
+            <ChatPage
+                _project_id=1
+                task_id=1
+                active_conversation_id=Some(conv_id)
+                initial_messages=Vec::new()
+                conversation_name=Some("Test Chat".to_string())
+                current_run=Some(run)
+                agent_type=Some(AgentType::Planification)
+                model_label="gpt-4".to_string()
+            />
+        }
+        .to_html();
+        assert!(html.contains("Agent Idle"));
+        assert!(html.contains("disabled"), "stop button disabled when idle");
+        assert!(!html.contains("is-pulse"));
     }
 }

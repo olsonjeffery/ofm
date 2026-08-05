@@ -543,6 +543,50 @@ async fn commit_detail_handler(
     )))
 }
 
+/// "opencode <friendly-name>"; falls back to the config filename (minus
+/// `.json`) when the ref is not a user-owned `{uuid}.json` config.
+async fn opencode_config_name(
+    db: &hiqlite::Client,
+    user_id: &Uuid,
+    provider_config_ref: &str,
+) -> String {
+    if let Some(stripped) = provider_config_ref.strip_suffix(".json") {
+        if let Ok(cfg_id) = Uuid::parse_str(stripped) {
+            if let Some(name) =
+                services::settings::get_model_config_name(db, *user_id, cfg_id).await
+            {
+                return name;
+            }
+        }
+        return stripped.to_string();
+    }
+    provider_config_ref.to_string()
+}
+
+/// "model · opencode <config>" for the opencode harness, else just the model.
+async fn status_bar_model_label(
+    db: &hiqlite::Client,
+    agent_type: &crate::db::schema::AgentType,
+    user_id: &Uuid,
+    project_id: i64,
+    fallback_model: &str,
+) -> String {
+    match crate::providers::registry::resolve_harness_config(
+        db,
+        agent_type,
+        Some(user_id),
+        Some(project_id),
+    )
+    .await
+    {
+        Ok(cfg) if cfg.harness == "opencode" => {
+            let name = opencode_config_name(db, user_id, &cfg.provider_config_ref).await;
+            format!("{fallback_model} · opencode {name}")
+        }
+        _ => fallback_model.to_string(),
+    }
+}
+
 async fn chat_handler(
     auth: AuthUser,
     State(state): State<AppState>,
@@ -589,6 +633,8 @@ async fn chat_handler(
             initial_messages=Vec::new()
             conversation_name=None
             current_run=None
+            agent_type=None
+            model_label=String::new()
         />
     }
     .to_html();
@@ -646,6 +692,14 @@ async fn chat_handler_with_conv(
         .await
         .ok();
 
+    let agent_type = agent_run.as_ref().map(|r| r.agent_type.clone());
+    let model_label = match &agent_type {
+        Some(at) => {
+            status_bar_model_label(&state.db, at, &auth.user_id, project_id, &conv.model).await
+        }
+        None => conv.model.clone(),
+    };
+
     let conv_name = conv.name.clone().unwrap_or_else(|| conv.model.clone());
 
     let breadcrumbs = vec![
@@ -668,6 +722,8 @@ async fn chat_handler_with_conv(
         initial_messages=messages
         conversation_name=Some(conv_name)
         current_run
+        agent_type={agent_type}
+        model_label={model_label}
     />
     }
     .to_html();

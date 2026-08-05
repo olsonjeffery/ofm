@@ -1,0 +1,135 @@
+use crate::db::schema::AgentType;
+use leptos::prelude::*;
+
+#[component]
+pub fn ChatStatusBar(
+    agent_type: Option<AgentType>,
+    model_label: String,
+    processing: bool,
+) -> impl IntoView {
+    let status_text = if processing {
+        "Agent is processing..."
+    } else {
+        "Agent Idle"
+    };
+
+    let is_processing_class = if processing { "is-processing" } else { "" };
+
+    let agent_block = agent_type.map(|agent_type| {
+        let type_class = format!("is-agent-{}", agent_type);
+        let base_icon = format!("mdi mdi-{} agent-status-icon", agent_type.icon());
+        let icon_class = if processing {
+            format!("{base_icon} is-pulse")
+        } else {
+            base_icon
+        };
+        view! {
+            <span class=format!("chat-status-agent {}", type_class)>
+                <span class="icon">
+                    <i class=icon_class></i>
+                </span>
+                <span class="agent-type-label">{agent_type.label()}</span>
+            </span>
+        }
+    });
+
+    let model_block = (!model_label.is_empty())
+        .then(|| view! { <span class="agent-model-label">{model_label}</span> });
+
+    view! {
+        <div id="chat-status-bar"
+             class=format!("chat-status-bar {}", is_processing_class)
+             aria-live="polite">
+            <div class="chat-status-info">
+                {agent_block}
+                {model_block}
+            </div>
+            <div class="chat-status-actions">
+                <span id="agent-status-label">{status_text}</span>
+                <button id="stop-agent-btn"
+                        class="button is-primary has-text-white is-small"
+                        disabled={!processing}
+                        onclick="stopAgent()">
+                    <span class="icon is-small"><i class="mdi mdi-close-thick"></i></span>
+                    <span>"Stop Agent"</span>
+                </button>
+            </div>
+        </div>
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn render(agent_type: Option<AgentType>, model_label: &str, processing: bool) -> String {
+        leptos::view! {
+            <ChatStatusBar
+                agent_type=agent_type
+                model_label=model_label.to_string()
+                processing=processing
+            />
+        }
+        .to_html()
+    }
+
+    #[test]
+    fn test_idle_render() {
+        let html = render(Some(AgentType::Implementation), "gpt-4", false);
+        assert!(html.contains("chat-status-bar"), "bar root present");
+        assert!(html.contains("Agent Idle"));
+        assert!(html.contains("Stop Agent"));
+        assert!(html.contains("disabled"), "stop button disabled when idle");
+        assert!(
+            !html.contains("is-processing"),
+            "no processing class when idle"
+        );
+        assert!(!html.contains("is-pulse"), "no pulse when idle");
+        assert!(!html.contains("Agent is processing..."));
+    }
+
+    #[test]
+    fn test_processing_render() {
+        let html = render(Some(AgentType::Implementation), "gpt-4", true);
+        assert!(html.contains("chat-status-bar"));
+        assert!(html.contains("Agent is processing..."));
+        assert!(html.contains("Stop Agent"));
+        assert!(
+            !html.contains("disabled"),
+            "stop button enabled when processing"
+        );
+        assert!(html.contains("is-processing"), "processing class applied");
+        assert!(html.contains("is-pulse"), "pulsing icon when processing");
+        assert!(!html.contains("Agent Idle"));
+    }
+
+    #[test]
+    fn test_agent_type_render() {
+        let html = render(Some(AgentType::Implementation), "gpt-4", false);
+        assert!(html.contains("mdi-code-tags"), "implementation icon");
+        assert!(html.contains("Implementation"), "human agent label");
+        assert!(
+            html.contains("is-agent-implementation"),
+            "per-type color class"
+        );
+        assert!(html.contains("gpt-4"), "model label shown");
+        assert!(html.contains("agent-status-icon"));
+    }
+
+    #[test]
+    fn test_no_agent_type_render() {
+        let html = render(None, "gpt-4", false);
+        assert!(html.contains("chat-status-bar"));
+        assert!(html.contains("gpt-4"), "model label still shown");
+        assert!(!html.contains("chat-status-agent"), "no agent block");
+        assert!(!html.contains("agent-type-label"), "no agent label");
+        assert!(html.contains("Agent Idle"));
+    }
+
+    #[test]
+    fn test_empty_model_label_excluded() {
+        let html = render(None, "", false);
+        assert!(html.contains("chat-status-bar"));
+        assert!(!html.contains("agent-model-label"), "no model label span");
+    }
+}

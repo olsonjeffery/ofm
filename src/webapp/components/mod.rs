@@ -5,6 +5,7 @@ pub mod agent_dropdown;
 pub mod api_key_manager;
 pub mod auth_guard;
 pub mod chat_input;
+pub mod chat_status_bar;
 pub mod commit_list;
 pub mod config_body_editor;
 pub mod conversation_list;

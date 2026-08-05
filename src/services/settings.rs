@@ -144,6 +144,13 @@ pub async fn delete_model_config(
     Ok(rows > 0)
 }
 
+pub async fn get_model_config_name(client: &Client, user_id: Uuid, id: Uuid) -> Option<String> {
+    get_model_config(client, user_id, id)
+        .await
+        .ok()
+        .map(|c| c.name)
+}
+
 async fn get_model_config(
     client: &Client,
     user_id: Uuid,
