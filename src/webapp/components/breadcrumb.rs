@@ -100,6 +100,7 @@ pub mod breadcrumb_registry {
                 "/webapp/settings/import-export",
             ),
             SettingsSection::Account => ("Account", "account-cog", "/webapp/settings/account"),
+            SettingsSection::Admin => ("Admin", "shield-account", "/webapp/settings/admin"),
         };
         BreadcrumbItem::new(title, icon, path)
     }
@@ -135,6 +136,11 @@ pub mod breadcrumb_registry {
                 "/webapp/settings/account/user-config",
             ),
             SettingsSubPage::ApiKeys => ("API Keys", "key", "/webapp/settings/account/api-keys"),
+            SettingsSubPage::Groups => (
+                "Groups & Organizations",
+                "account-group",
+                "/webapp/settings/admin/groups",
+            ),
         };
         BreadcrumbItem::new(title, icon, path)
     }
@@ -256,6 +262,12 @@ mod tests {
                 "account-cog",
                 "/webapp/settings/account",
             ),
+            (
+                SettingsSection::Admin,
+                "Admin",
+                "shield-account",
+                "/webapp/settings/admin",
+            ),
         ];
         for (section, title, icon, path) in cases {
             let item = breadcrumb_registry::settings_section(section);
@@ -302,6 +314,11 @@ mod tests {
                 SettingsSubPage::ApiKeys,
                 "API Keys",
                 "/webapp/settings/account/api-keys",
+            ),
+            (
+                SettingsSubPage::Groups,
+                "Groups & Organizations",
+                "/webapp/settings/admin/groups",
             ),
         ];
         for (sub_page, title, path) in cases {

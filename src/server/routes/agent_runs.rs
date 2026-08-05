@@ -46,7 +46,10 @@ async fn post_create_agent_run(
     let task = tasks::get_task(&state.db, task_id)
         .await
         .map_err(|_| ServerError::NotFound("Task not found".into()))?;
-    if task.user_id != auth.user_id {
+    let has_access = crate::services::access::has_task_flow_write_access(&state.db, &auth, &task)
+        .await
+        .map_err(|e| ServerError::Internal(e.to_string()))?;
+    if !has_access {
         return Err(ServerError::NotFound("Task not found".into()));
     }
 
@@ -76,7 +79,10 @@ async fn reset_agent_runs(
     let task = tasks::get_task(&state.db, task_id)
         .await
         .map_err(|_| ServerError::NotFound("Task not found".into()))?;
-    if task.user_id != auth.user_id {
+    let has_access = crate::services::access::has_task_flow_write_access(&state.db, &auth, &task)
+        .await
+        .map_err(|e| ServerError::Internal(e.to_string()))?;
+    if !has_access {
         return Err(ServerError::NotFound("Task not found".into()));
     }
 
@@ -182,7 +188,10 @@ async fn list_agent_runs(
     let task = tasks::get_task(&state.db, task_id)
         .await
         .map_err(|_| ServerError::NotFound("Task not found".into()))?;
-    if task.user_id != auth.user_id {
+    let has_access = crate::services::access::has_task_flow_access(&state.db, &auth, &task)
+        .await
+        .map_err(|e| ServerError::Internal(e.to_string()))?;
+    if !has_access {
         return Err(ServerError::NotFound("Task not found".into()));
     }
 

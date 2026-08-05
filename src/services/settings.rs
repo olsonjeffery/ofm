@@ -199,6 +199,76 @@ pub async fn get_model_config_name(client: &Client, user_id: Uuid, id: Uuid) -> 
         .map(|c| c.name)
 }
 
+/// Fetch a model config by id without an ownership filter. Callers must
+/// authorize access (see `services::access::has_model_config_access`).
+pub async fn get_model_config_by_id(
+    client: &Client,
+    id: Uuid,
+) -> Result<UserModelConfig, hiqlite::Error> {
+    client
+        .query_map_one::<UserModelConfig, _>(
+            "SELECT id, user_id, name, config_body, harness, created_at, updated_at \
+             FROM user_model_configs WHERE id = $1",
+            hiqlite::params!(id.to_string()),
+        )
+        .await
+}
+
+/// Update a model config by id without an ownership filter. Callers must
+/// authorize access first.
+pub async fn update_model_config_by_id(
+    client: &Client,
+    config_root: &Path,
+    id: Uuid,
+    name: &str,
+    config_body: &str,
+    harness: &str,
+) -> Result<Option<UserModelConfig>, String> {
+    config_format::validate_for_harness(config_body, harness).map_err(|e| e.to_string())?;
+
+    let now = chrono::Utc::now().naive_utc().to_string();
+    let rows = client
+        .execute(
+            "UPDATE user_model_configs SET name = $1, config_body = $2, harness = $3, updated_at = $4 \
+             WHERE id = $5",
+            hiqlite::params!(name, config_body, harness, &now, id.to_string()),
+        )
+        .await
+        .map_err(|e| e.to_string())?;
+
+    if rows == 0 {
+        return Ok(None);
+    }
+
+    sync_provider_config_file(config_root, &id, harness, config_body);
+
+    get_model_config_by_id(client, id)
+        .await
+        .map(Some)
+        .map_err(|e| e.to_string())
+}
+
+/// Delete a model config by id without an ownership filter. Callers must
+/// authorize access first.
+pub async fn delete_model_config_by_id(
+    client: &Client,
+    config_root: &Path,
+    id: Uuid,
+) -> Result<bool, String> {
+    let rows = client
+        .execute(
+            "DELETE FROM user_model_configs WHERE id = $1",
+            hiqlite::params!(id.to_string()),
+        )
+        .await
+        .map_err(|e| e.to_string())?;
+    if rows > 0 {
+        delete_provider_config_file(config_root, &config_filename(&id, RIG_HARNESS));
+        delete_provider_config_file(config_root, &config_filename(&id, OPENCODE_HARNESS));
+    }
+    Ok(rows > 0)
+}
+
 async fn get_model_config(
     client: &Client,
     user_id: Uuid,

@@ -28,8 +28,8 @@ use crate::webapp::components::project_card::TaskCounts;
 use crate::webapp::components::settings_sidebar::{SettingsSection, SettingsSubPage};
 use crate::webapp::components::task_card::TaskCardData;
 
-async fn active_agents(db: &hiqlite::Client, user_id: &Uuid) -> Vec<ActiveAgent> {
-    services::tasks::get_running_agents(db, user_id)
+async fn active_agents(db: &hiqlite::Client, auth: &AuthUser) -> Vec<ActiveAgent> {
+    services::tasks::get_running_agents(db, auth)
         .await
         .unwrap_or_default()
 }
@@ -99,6 +99,10 @@ pub fn webapp_protected_routes() -> Router<AppState> {
             "/webapp/settings/account/api-keys",
             get(settings_api_keys_handler),
         )
+        .route(
+            "/webapp/settings/admin/groups",
+            get(settings_groups_handler),
+        )
         .route("/webapp/islands/uptime", get(uptime_handler))
         .route("/webapp/islands/infocard", get(infocard_handler))
 }
@@ -161,7 +165,7 @@ async fn callback_handler(
 
 async fn onboarding_handler(State(state): State<AppState>, auth: AuthUser) -> Html<String> {
     let user_json = serde_json::to_string(&auth).unwrap_or_default();
-    let agents = active_agents(&state.db, &auth.user_id).await;
+    let agents = active_agents(&state.db, &auth).await;
 
     let user = match crate::services::auth::current_user(&state.db, auth.user_id).await {
         Ok(u) => u,
@@ -215,7 +219,7 @@ async fn render_settings(
     body: String,
 ) -> Html<String> {
     let user_json = serde_json::to_string(auth).unwrap_or_default();
-    let agents = active_agents(&state.db, &auth.user_id).await;
+    let agents = active_agents(&state.db, auth).await;
     let breadcrumbs = vec![
         breadcrumb_registry::all_projects(),
         breadcrumb_registry::settings(),
@@ -343,13 +347,32 @@ async fn settings_api_keys_handler(auth: AuthUser, State(state): State<AppState>
     .await
 }
 
+async fn settings_groups_handler(auth: AuthUser, State(state): State<AppState>) -> Html<String> {
+    if !auth.is_admin {
+        return Html(render_shell(
+            r#"<script>window.location.href='/webapp';</script>"#,
+            Some(serde_json::to_string(&auth).unwrap_or_default()),
+            Vec::new(),
+            Vec::new(),
+        ));
+    }
+    render_settings(
+        &state,
+        &auth,
+        SettingsSection::Admin,
+        SettingsSubPage::Groups,
+        pages::settings::groups::render(SettingsSubPage::Groups),
+    )
+    .await
+}
+
 async fn dashboard_handler(
     auth: AuthUser,
     State(state): State<AppState>,
 ) -> Result<Html<String>, ServerError> {
     let user_json = serde_json::to_string(&auth).unwrap_or_default();
-    let agents = active_agents(&state.db, &auth.user_id).await;
-    let projects = services::projects::list_projects(&state.db, &auth.user_id)
+    let agents = active_agents(&state.db, &auth).await;
+    let projects = services::projects::list_projects(&state.db, &auth)
         .await
         .map_err(|e| ServerError::Internal(e.to_string()))?;
     let task_counts = compute_task_counts(&state.db, &projects).await;
@@ -370,11 +393,14 @@ async fn board_handler(
     Path(project_id): Path<i64>,
 ) -> Result<Html<String>, ServerError> {
     let user_json = serde_json::to_string(&auth).unwrap_or_default();
-    let agents = active_agents(&state.db, &auth.user_id).await;
+    let agents = active_agents(&state.db, &auth).await;
     let project = services::projects::get_project(&state.db, project_id)
         .await
         .map_err(|_| ServerError::NotFound("Project not found".into()))?;
-    if project.user_id != auth.user_id {
+    let has_access = services::access::has_project_access(&state.db, &auth, &project)
+        .await
+        .map_err(|e| ServerError::Internal(e.to_string()))?;
+    if !has_access {
         return Err(ServerError::NotFound("Project not found".into()));
     }
     let tasks = services::tasks::list_tasks(&state.db, project_id)
@@ -417,19 +443,25 @@ async fn task_detail_handler(
     Path((project_id, task_id)): Path<(i64, i64)>,
 ) -> Result<Html<String>, ServerError> {
     let user_json = serde_json::to_string(&auth).unwrap_or_default();
-    let agents = active_agents(&state.db, &auth.user_id).await;
+    let agents = active_agents(&state.db, &auth).await;
 
     let project = services::projects::get_project(&state.db, project_id)
         .await
         .map_err(|_| ServerError::NotFound("Project not found".into()))?;
-    if project.user_id != auth.user_id {
+    let has_project_access = services::access::has_project_access(&state.db, &auth, &project)
+        .await
+        .map_err(|e| ServerError::Internal(e.to_string()))?;
+    if !has_project_access {
         return Err(ServerError::NotFound("Project not found".into()));
     }
 
     let task = services::tasks::get_task(&state.db, task_id)
         .await
         .map_err(|_| ServerError::NotFound("Task not found".into()))?;
-    if task.user_id != auth.user_id || task.project_id != project_id {
+    let has_task_access = services::access::has_task_flow_access(&state.db, &auth, &task)
+        .await
+        .map_err(|e| ServerError::Internal(e.to_string()))?;
+    if !has_task_access || task.project_id != project_id {
         return Err(ServerError::NotFound("Task not found".into()));
     }
 
@@ -496,19 +528,25 @@ async fn commit_detail_handler(
     Path((project_id, task_id, oid)): Path<(i64, i64, String)>,
 ) -> Result<Html<String>, ServerError> {
     let user_json = serde_json::to_string(&auth).unwrap_or_default();
-    let agents = active_agents(&state.db, &auth.user_id).await;
+    let agents = active_agents(&state.db, &auth).await;
 
     let project = services::projects::get_project(&state.db, project_id)
         .await
         .map_err(|_| ServerError::NotFound("Project not found".into()))?;
-    if project.user_id != auth.user_id {
+    let has_project_access = services::access::has_project_access(&state.db, &auth, &project)
+        .await
+        .map_err(|e| ServerError::Internal(e.to_string()))?;
+    if !has_project_access {
         return Err(ServerError::NotFound("Project not found".into()));
     }
 
     let task = services::tasks::get_task(&state.db, task_id)
         .await
         .map_err(|_| ServerError::NotFound("Task not found".into()))?;
-    if task.user_id != auth.user_id || task.project_id != project_id {
+    let has_task_access = services::access::has_task_flow_access(&state.db, &auth, &task)
+        .await
+        .map_err(|e| ServerError::Internal(e.to_string()))?;
+    if !has_task_access || task.project_id != project_id {
         return Err(ServerError::NotFound("Task not found".into()));
     }
 
@@ -602,13 +640,22 @@ async fn chat_handler(
     let project = services::projects::get_project(&state.db, project_id)
         .await
         .map_err(|_| ServerError::NotFound("Project not found".into()))?;
-    if project.user_id != auth.user_id {
+    let has_project_access = services::access::has_project_access(&state.db, &auth, &project)
+        .await
+        .map_err(|e| ServerError::Internal(e.to_string()))?;
+    if !has_project_access {
         return Err(ServerError::NotFound("Project not found".into()));
     }
 
     let task = services::tasks::get_task(&state.db, task_id)
         .await
         .map_err(|_| ServerError::NotFound("Task not found".into()))?;
+    let has_task_access = services::access::has_task_flow_access(&state.db, &auth, &task)
+        .await
+        .map_err(|e| ServerError::Internal(e.to_string()))?;
+    if !has_task_access {
+        return Err(ServerError::NotFound("Task not found".into()));
+    }
 
     let conversations = services::tasks::list_conversations_for_task(&state.db, task_id)
         .await
@@ -625,7 +672,7 @@ async fn chat_handler(
     }
 
     let user_json = serde_json::to_string(&auth).unwrap_or_default();
-    let agents = active_agents(&state.db, &auth.user_id).await;
+    let agents = active_agents(&state.db, &auth).await;
     let breadcrumbs = vec![
         breadcrumb_registry::all_projects(),
         breadcrumb_registry::project(&project.name, project.id),
@@ -659,18 +706,27 @@ async fn chat_handler_with_conv(
     Path((project_id, task_id, conversation_id)): Path<(i64, i64, uuid::Uuid)>,
 ) -> Result<Html<String>, ServerError> {
     let user_json = serde_json::to_string(&auth).unwrap_or_default();
-    let agents = active_agents(&state.db, &auth.user_id).await;
+    let agents = active_agents(&state.db, &auth).await;
 
     let project = services::projects::get_project(&state.db, project_id)
         .await
         .map_err(|_| ServerError::NotFound("Project not found".into()))?;
-    if project.user_id != auth.user_id {
+    let has_project_access = services::access::has_project_access(&state.db, &auth, &project)
+        .await
+        .map_err(|e| ServerError::Internal(e.to_string()))?;
+    if !has_project_access {
         return Err(ServerError::NotFound("Project not found".into()));
     }
 
     let task = services::tasks::get_task(&state.db, task_id)
         .await
         .map_err(|_| ServerError::NotFound("Task not found".into()))?;
+    let has_task_access = services::access::has_task_flow_access(&state.db, &auth, &task)
+        .await
+        .map_err(|e| ServerError::Internal(e.to_string()))?;
+    if !has_task_access {
+        return Err(ServerError::NotFound("Task not found".into()));
+    }
 
     let conv = session::resume_session(&state.db, conversation_id)
         .await

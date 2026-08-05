@@ -172,6 +172,20 @@ pub async fn handle_callback(
     let (user_id, has_completed_onboarding, user_token_version) =
         find_or_create_user(db, &sub, username, &now, footprint).await?;
 
+    // Capture the granted OAuth scopes (access-token `scope` claim, token
+    // response `scope`, and/or userinfo echo) unioned with the discovery
+    // `scopes_supported`, and persist them so membership-by-scope can be
+    // evaluated offline against the DB.
+    let scopes = capture_user_scopes(oidc, &token_data, &access_token).await;
+    if !scopes.is_empty() {
+        db.execute(
+            "UPDATE users SET scopes = $1 WHERE id = $2",
+            hiqlite::params!(scopes.join(" "), user_id.to_string()),
+        )
+        .await
+        .map_err(|e| ServerError::Internal(e.to_string()))?;
+    }
+
     let session_id = Uuid::new_v4();
     db.execute(
         "INSERT INTO sessions (id, user_id, access_token, refresh_token, id_token, expires_at, created_at, token_version) VALUES ($1, $2, $3, $4, $5, $6, $7, $8)",
@@ -570,6 +584,70 @@ fn client_secret_param(client_secret: &Option<String>) -> String {
         .unwrap_or_default()
 }
 
+fn parse_scope_list(s: &str) -> Vec<String> {
+    s.split_whitespace()
+        .map(|s| s.to_string())
+        .filter(|s| !s.is_empty())
+        .collect()
+}
+
+/// Best-effort fetch of a `scope` echo from the userinfo endpoint.
+async fn fetch_userinfo_scope(oidc: &OidcEndpoints, access_token: &str) -> Option<String> {
+    if access_token.is_empty() {
+        return None;
+    }
+    let client = reqwest::Client::new();
+    let resp = client
+        .get(&oidc.userinfo_endpoint)
+        .header("Authorization", format!("Bearer {access_token}"))
+        .send()
+        .await
+        .ok()?;
+    if !resp.status().is_success() {
+        return None;
+    }
+    let body: serde_json::Value = resp.json().await.ok()?;
+    body["scope"].as_str().map(|s| s.to_string())
+}
+
+/// Collect the OAuth scopes granted to a user at login: the token response's
+/// `scope` field, the access token's `scope` claim (id_tokens generally omit
+/// it), a best-effort userinfo `scope` echo, unioned with the provider's
+/// advertised `scopes_supported`. Deduplicated and sorted.
+async fn capture_user_scopes(
+    oidc: &OidcEndpoints,
+    token_data: &serde_json::Value,
+    access_token: &str,
+) -> Vec<String> {
+    let mut scopes: Vec<String> = Vec::new();
+
+    if let Some(s) = token_data["scope"].as_str() {
+        scopes.extend(parse_scope_list(s));
+    }
+
+    if !access_token.is_empty() {
+        if let Ok(payload) = decode_jwt_payload(access_token) {
+            match &payload["scope"] {
+                serde_json::Value::String(s) => scopes.extend(parse_scope_list(s)),
+                serde_json::Value::Array(arr) => {
+                    scopes.extend(arr.iter().filter_map(|v| v.as_str().map(|s| s.to_string())))
+                }
+                _ => {}
+            }
+        }
+    }
+
+    if let Some(scope) = fetch_userinfo_scope(oidc, access_token).await {
+        scopes.extend(parse_scope_list(&scope));
+    }
+
+    scopes.extend(oidc.scopes_supported.iter().cloned());
+
+    scopes.sort();
+    scopes.dedup();
+    scopes
+}
+
 pub async fn validate_access_token(oidc: &OidcEndpoints, token: &str) -> bool {
     if token.is_empty() {
         return false;
@@ -725,6 +803,7 @@ mod tests {
             redirect_uri: "http://127.0.0.1:1/callback".into(),
             jwks_cache: None,
             jwks_issuer: None,
+            scopes_supported: Vec::new(),
         };
 
         let auth_url = initiate_login(&oidc, &store, Some("/webapp/settings".into()))
@@ -758,6 +837,7 @@ mod tests {
             redirect_uri: "http://127.0.0.1:1/callback".into(),
             jwks_cache: None,
             jwks_issuer: None,
+            scopes_supported: Vec::new(),
         };
 
         let auth_url = initiate_login(&oidc, &store, None).await.unwrap();
@@ -1166,6 +1246,7 @@ mod tests {
             redirect_uri: "http://127.0.0.1:1/callback".into(),
             jwks_cache: None,
             jwks_issuer: None,
+            scopes_supported: Vec::new(),
         };
 
         let result = refresh_access_token(&client, &oidc, session_id).await;
@@ -1213,6 +1294,7 @@ mod tests {
             redirect_uri: "http://127.0.0.1:1/callback".into(),
             jwks_cache: None,
             jwks_issuer: None,
+            scopes_supported: Vec::new(),
         };
 
         let result = refresh_access_token(&client, &oidc, session_id).await;
@@ -1244,6 +1326,7 @@ mod tests {
             redirect_uri: format!("http://{}/callback", addr),
             jwks_cache: None,
             jwks_issuer: None,
+            scopes_supported: Vec::new(),
         };
         assert!(validate_access_token(&oidc, "valid-token").await);
     }
@@ -1269,6 +1352,7 @@ mod tests {
             redirect_uri: format!("http://{}/callback", addr),
             jwks_cache: None,
             jwks_issuer: None,
+            scopes_supported: Vec::new(),
         };
         assert!(!validate_access_token(&oidc, "invalid-token").await);
     }
@@ -1286,6 +1370,7 @@ mod tests {
             redirect_uri: "http://127.0.0.1:1/callback".into(),
             jwks_cache: None,
             jwks_issuer: None,
+            scopes_supported: Vec::new(),
         };
         assert!(!validate_access_token(&oidc, "any-token").await);
     }
@@ -1303,6 +1388,7 @@ mod tests {
             redirect_uri: "http://127.0.0.1:1/callback".into(),
             jwks_cache: None,
             jwks_issuer: None,
+            scopes_supported: Vec::new(),
         };
         assert!(!validate_access_token(&oidc, "").await);
     }

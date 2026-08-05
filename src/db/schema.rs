@@ -298,6 +298,79 @@ pub struct User {
     pub token_version: i32,
     pub created_at: String,
     pub last_login: Option<String>,
+    /// Space-delimited OAuth scopes granted to the user at login (union of
+    /// discovery `scopes_supported` that were actually granted and the live
+    /// access-token/userinfo `scope` claim). Used to evaluate membership of
+    /// groups with `is_oauth_scope` set.
+    pub scopes: String,
+}
+
+/// Fixed membership-level enum for `group_members.level`. Stored as a TEXT
+/// column and validated in the service layer (SQLite has no native enums).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
+pub enum GroupLevel {
+    ReadOnly,
+    Contributor,
+    Maintainer,
+    Admin,
+}
+
+impl GroupLevel {
+    pub const LEVELS: [&'static str; 4] = ["read-only", "contributor", "maintainer", "admin"];
+}
+
+impl std::fmt::Display for GroupLevel {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::ReadOnly => write!(f, "read-only"),
+            Self::Contributor => write!(f, "contributor"),
+            Self::Maintainer => write!(f, "maintainer"),
+            Self::Admin => write!(f, "admin"),
+        }
+    }
+}
+
+impl std::str::FromStr for GroupLevel {
+    type Err = String;
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        match s {
+            "read-only" => Ok(Self::ReadOnly),
+            "contributor" => Ok(Self::Contributor),
+            "maintainer" => Ok(Self::Maintainer),
+            "admin" => Ok(Self::Admin),
+            _ => Err(format!(
+                "invalid group level '{s}': must be one of {:?}",
+                Self::LEVELS
+            )),
+        }
+    }
+}
+
+/// A User Group / Organization definition (`groups` table).
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct Group {
+    pub id: Uuid,
+    pub name: String,
+    pub is_org: bool,
+    pub is_oauth_scope: bool,
+    pub title: String,
+    pub description: String,
+    pub owner_id: Uuid,
+    /// preferred_name snapshot of the creating user.
+    pub created_by: String,
+    pub created_at: NaiveDateTime,
+}
+
+/// Polymorphic membership row: references either a `user_id` or a
+/// `member_group_id` (groups-of-groups roll-up).
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct GroupMember {
+    pub id: Uuid,
+    pub group_id: Uuid,
+    pub user_id: Option<Uuid>,
+    pub member_group_id: Option<Uuid>,
+    pub level: String,
+    pub created_at: NaiveDateTime,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -310,13 +383,6 @@ pub struct SessionDb {
     pub access_token: String,
     pub expires_at: String,
     pub created_at: String,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct ProjectMember {
-    pub id: Uuid,
-    pub project_id: i64,
-    pub user_id: Uuid,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -565,6 +631,52 @@ impl From<&mut Row<'_>> for User {
             token_version: row.get::<i64>("token_version") as i32,
             created_at: row.get("created_at"),
             last_login: row.get("last_login"),
+            scopes: row.get("scopes"),
+        }
+    }
+}
+
+impl From<&mut Row<'_>> for Group {
+    fn from(row: &mut Row<'_>) -> Self {
+        Self {
+            id: row
+                .get::<String>("id")
+                .parse()
+                .expect("invalid UUID in database"),
+            name: row.get("name"),
+            is_org: row.get::<i64>("is_org") != 0,
+            is_oauth_scope: row.get::<i64>("is_oauth_scope") != 0,
+            title: row.get("title"),
+            description: row.get("description"),
+            owner_id: row
+                .get::<String>("owner_id")
+                .parse()
+                .expect("invalid UUID in database"),
+            created_by: row.get("created_by"),
+            created_at: parse_naive_datetime(&row.get::<String>("created_at")),
+        }
+    }
+}
+
+impl From<&mut Row<'_>> for GroupMember {
+    fn from(row: &mut Row<'_>) -> Self {
+        Self {
+            id: row
+                .get::<String>("id")
+                .parse()
+                .expect("invalid UUID in database"),
+            group_id: row
+                .get::<String>("group_id")
+                .parse()
+                .expect("invalid UUID in database"),
+            user_id: row
+                .get::<Option<String>>("user_id")
+                .map(|s| Uuid::parse_str(&s).expect("invalid UUID in database")),
+            member_group_id: row
+                .get::<Option<String>>("member_group_id")
+                .map(|s| Uuid::parse_str(&s).expect("invalid UUID in database")),
+            level: row.get("level"),
+            created_at: parse_naive_datetime(&row.get::<String>("created_at")),
         }
     }
 }

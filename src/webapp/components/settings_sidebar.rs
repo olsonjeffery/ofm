@@ -5,6 +5,7 @@ pub enum SettingsSection {
     ProvidersAgents,
     ImportExport,
     Account,
+    Admin,
 }
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
@@ -16,6 +17,7 @@ pub enum SettingsSubPage {
     Import,
     UserConfig,
     ApiKeys,
+    Groups,
 }
 
 impl SettingsSection {
@@ -24,6 +26,7 @@ impl SettingsSection {
             SettingsSection::ProvidersAgents => "Providers & Agents",
             SettingsSection::ImportExport => "Import/Export",
             SettingsSection::Account => "Account",
+            SettingsSection::Admin => "Admin",
         }
     }
 
@@ -42,6 +45,7 @@ impl SettingsSection {
                 (SettingsSubPage::UserConfig, "User Config"),
                 (SettingsSubPage::ApiKeys, "API Keys"),
             ],
+            SettingsSection::Admin => &[(SettingsSubPage::Groups, "Groups & Organizations")],
         }
     }
 }
@@ -56,6 +60,7 @@ impl SettingsSubPage {
             SettingsSubPage::Import => "/webapp/settings/import-export/import",
             SettingsSubPage::UserConfig => "/webapp/settings/account/user-config",
             SettingsSubPage::ApiKeys => "/webapp/settings/account/api-keys",
+            SettingsSubPage::Groups => "/webapp/settings/admin/groups",
         }
     }
 }
@@ -144,6 +149,20 @@ mod tests {
     }
 
     #[test]
+    fn test_admin_section_is_section_local() {
+        let html = render(SettingsSection::Admin, SettingsSubPage::Groups);
+        assert!(html.contains("menu-label"));
+        assert!(html.contains("Groups &amp; Organizations"));
+        assert!(!html.contains("Model Configurations"));
+        assert!(!html.contains("Agent Settings"));
+        assert!(!html.contains("Rig-based Providers"));
+        assert!(!html.contains("Export"));
+        assert!(!html.contains("Import"));
+        assert!(!html.contains("API Keys"));
+        assert!(!html.contains("User Config"));
+    }
+
+    #[test]
     fn test_menu_label_matches_section() {
         let html = render(
             SettingsSection::ProvidersAgents,
@@ -157,6 +176,9 @@ mod tests {
 
         let html = render(SettingsSection::Account, SettingsSubPage::UserConfig);
         assert!(html.contains("Account"));
+
+        let html = render(SettingsSection::Admin, SettingsSubPage::Groups);
+        assert!(html.contains("Admin"));
     }
 
     #[test]
@@ -197,6 +219,11 @@ mod tests {
                 SettingsSubPage::ApiKeys,
                 "/webapp/settings/account/api-keys",
             ),
+            (
+                SettingsSection::Admin,
+                SettingsSubPage::Groups,
+                "/webapp/settings/admin/groups",
+            ),
         ];
         for (section, active, expected_href) in cases {
             let html = render(section, active);
@@ -227,6 +254,7 @@ mod tests {
             (SettingsSection::ImportExport, SettingsSubPage::Import),
             (SettingsSection::Account, SettingsSubPage::UserConfig),
             (SettingsSection::Account, SettingsSubPage::ApiKeys),
+            (SettingsSection::Admin, SettingsSubPage::Groups),
         ] {
             let html = render(section, active);
             assert_eq!(

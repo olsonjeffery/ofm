@@ -1,11 +1,17 @@
 use std::collections::HashMap;
 
+use crate::auth::AuthUser;
 use crate::db::schema::{
-    ActiveAgent, AgentType, Conversation, ConversationWithRun, GlobalAgentStatus, RunStatus, Task,
-    TaskAgentRun, TaskStatusSummary, Worktree,
+    ActiveAgent, AgentType, Conversation, ConversationWithRun, GlobalAgentStatus, GroupLevel,
+    RunStatus, Task, TaskAgentRun, TaskStatusSummary, Worktree,
 };
+use crate::services::access;
 use hiqlite::Client;
 use uuid::Uuid;
+
+fn db_err(e: crate::services::groups::GroupError) -> hiqlite::Error {
+    hiqlite::Error::new(e.to_string())
+}
 
 fn utc_now() -> String {
     chrono::Utc::now().format("%Y-%m-%d %H:%M:%S").to_string()
@@ -279,50 +285,101 @@ pub async fn get_running_agent_for_task(
     }
 }
 
+/// Running agents across projects the user can access (owned or shared via
+/// group membership).
 pub async fn get_running_agents(
     client: &Client,
-    user_id: &Uuid,
+    user: &AuthUser,
 ) -> Result<Vec<ActiveAgent>, hiqlite::Error> {
-    let rows = client
-        .query_raw(
-            "SELECT
-                tar.agent_type,
-                t.project_id,
-                p.name AS project_title,
-                t.id AS task_id,
-                t.title AS task_title,
-                c.id AS conversation_id,
-                c.name AS conversation_name
-            FROM task_agent_runs tar
-            JOIN tasks t ON t.id = tar.task_id
-            JOIN projects p ON p.id = t.project_id
-            LEFT JOIN conversations c ON c.id = tar.conversation_id
-            WHERE tar.status = 'running' AND t.user_id = $1
-            ORDER BY t.project_id, t.id",
-            hiqlite::params!(user_id.to_string()),
-        )
-        .await?;
-    let mut agents = Vec::with_capacity(rows.len());
-    for mut row in rows {
-        agents.push(ActiveAgent::from(&mut row));
+    // Extract all row data into owned values inside a block first (hiqlite
+    // `Row`s are not `Send`, so they cannot live across the access-check
+    // awaits below).
+    let pending = {
+        let rows = client
+            .query_raw(
+                "SELECT
+                    tar.agent_type,
+                    t.project_id,
+                    p.name AS project_title,
+                    t.id AS task_id,
+                    t.title AS task_title,
+                    t.user_id AS owner_user_id,
+                    c.id AS conversation_id,
+                    c.name AS conversation_name
+                FROM task_agent_runs tar
+                JOIN tasks t ON t.id = tar.task_id
+                JOIN projects p ON p.id = t.project_id
+                LEFT JOIN conversations c ON c.id = tar.conversation_id
+                WHERE tar.status = 'running'
+                ORDER BY t.project_id, t.id",
+                hiqlite::params!(),
+            )
+            .await?;
+        let mut pending: Vec<(ActiveAgent, Option<Uuid>)> = Vec::with_capacity(rows.len());
+        for mut row in rows {
+            let agent_type_str: String = row.get("agent_type");
+            let conversation_id: String = row.get("conversation_id");
+            let owner_id: String = row.get("owner_user_id");
+            pending.push((
+                ActiveAgent {
+                    agent_type: agent_type_str.parse().unwrap_or(AgentType::Implementation),
+                    project_id: row.get("project_id"),
+                    project_title: row.get("project_title"),
+                    task_id: row.get("task_id"),
+                    task_title: row.get("task_title"),
+                    conversation_id: Uuid::parse_str(&conversation_id).unwrap_or_default(),
+                    conversation_name: row.get("conversation_name"),
+                },
+                Uuid::parse_str(&owner_id).ok(),
+            ));
+        }
+        pending
+    };
+
+    let mut agents = Vec::with_capacity(pending.len());
+    for (agent, owner) in pending {
+        let accessible = match owner {
+            Some(uid) => access::has_resource_access(client, user, uid, GroupLevel::ReadOnly)
+                .await
+                .map_err(db_err)?,
+            None => false,
+        };
+        if accessible {
+            agents.push(agent);
+        }
     }
     Ok(agents)
 }
 
-async fn task_summary(client: &Client, user_id: &Uuid, task_id: i64) -> Option<TaskStatusSummary> {
-    let mut rows = client
-        .query_raw(
-            "SELECT t.id AS task_id, t.project_id AS project_id, t.title AS task_title,
-                    p.name AS project_title
-             FROM tasks t
-             JOIN projects p ON p.id = t.project_id
-             WHERE t.id = $1 AND t.user_id = $2",
-            hiqlite::params!(task_id, user_id.to_string()),
-        )
+async fn task_summary(client: &Client, user: &AuthUser, task_id: i64) -> Option<TaskStatusSummary> {
+    // Extract into owned values inside a block so the (non-`Send`)
+    // `hiqlite::Row`s are dropped before the access-check await below.
+    let (summary, owner_id) = {
+        let mut rows = client
+            .query_raw(
+                "SELECT t.id AS task_id, t.project_id AS project_id, t.title AS task_title,
+                        t.user_id AS owner_user_id, p.name AS project_title
+                 FROM tasks t
+                 JOIN projects p ON p.id = t.project_id
+                 WHERE t.id = $1",
+                hiqlite::params!(task_id),
+            )
+            .await
+            .ok()?;
+        let row = rows.first_mut()?;
+        let owner_id: String = row.get("owner_user_id");
+        let summary = TaskStatusSummary::from(row);
+        (summary, owner_id)
+    };
+    let owner_id = Uuid::parse_str(&owner_id).ok()?;
+    let accessible = access::has_resource_access(client, user, owner_id, GroupLevel::ReadOnly)
         .await
-        .ok()?;
-    let row = rows.first_mut()?;
-    Some(TaskStatusSummary::from(row))
+        .ok()
+        .unwrap_or(false);
+    if !accessible {
+        return None;
+    }
+    Some(summary)
 }
 
 /// Tasks awaiting user input: a conversation whose newest persisted event is a
@@ -330,17 +387,16 @@ async fn task_summary(client: &Client, user_id: &Uuid, task_id: i64) -> Option<T
 /// a "needs your input" state until the user replies.
 pub async fn get_open_question_tasks(
     client: &Client,
-    user_id: &Uuid,
+    user: &AuthUser,
 ) -> Result<Vec<TaskStatusSummary>, hiqlite::Error> {
     let conv_rows = client
         .query_raw(
             "SELECT c.task_id AS task_id, c.provider_session_id AS session_id
              FROM conversations c
              JOIN tasks t ON t.id = c.task_id
-             WHERE t.user_id = $1
-               AND c.provider_session_id IS NOT NULL
+             WHERE c.provider_session_id IS NOT NULL
                AND c.provider_session_id != ''",
-            hiqlite::params!(user_id.to_string()),
+            hiqlite::params!(),
         )
         .await?;
 
@@ -374,7 +430,7 @@ pub async fn get_open_question_tasks(
     task_ids.dedup();
     let mut summaries = Vec::with_capacity(task_ids.len());
     for id in task_ids {
-        if let Some(s) = task_summary(client, user_id, id).await {
+        if let Some(s) = task_summary(client, user, id).await {
             summaries.push(s);
         }
     }
@@ -383,27 +439,46 @@ pub async fn get_open_question_tasks(
 
 /// Tasks the workflow cannot progress on: the server-only iteration-cap marker
 /// (`tasks.workflow_blocked`) or a run stuck in `blocked` (missing provider
-/// config).
+/// config). Scoped to tasks the user can access.
 pub async fn get_blocked_tasks(
     client: &Client,
-    user_id: &Uuid,
+    user: &AuthUser,
 ) -> Result<Vec<TaskStatusSummary>, hiqlite::Error> {
-    let rows = client
-        .query_raw(
-            "SELECT DISTINCT t.id AS task_id, t.project_id AS project_id,
-                    t.title AS task_title, p.name AS project_title
-             FROM tasks t
-             JOIN projects p ON p.id = t.project_id
-             WHERE t.user_id = $1
-               AND (t.workflow_blocked = 1 OR EXISTS (
-                    SELECT 1 FROM task_agent_runs r WHERE r.task_id = t.id AND r.status = 'blocked'))
-             ORDER BY t.id",
-            hiqlite::params!(user_id.to_string()),
-        )
-        .await?;
-    let mut tasks = Vec::with_capacity(rows.len());
-    for mut row in rows {
-        tasks.push(TaskStatusSummary::from(&mut row));
+    let pending = {
+        let rows = client
+            .query_raw(
+                "SELECT DISTINCT t.id AS task_id, t.project_id AS project_id,
+                        t.title AS task_title, t.user_id AS owner_user_id, p.name AS project_title
+                 FROM tasks t
+                 JOIN projects p ON p.id = t.project_id
+                 WHERE (t.workflow_blocked = 1 OR EXISTS (
+                        SELECT 1 FROM task_agent_runs r WHERE r.task_id = t.id AND r.status = 'blocked'))
+                 ORDER BY t.id",
+                hiqlite::params!(),
+            )
+            .await?;
+        let mut pending: Vec<(TaskStatusSummary, Option<Uuid>)> = Vec::with_capacity(rows.len());
+        for mut row in rows {
+            let owner_id: String = row.get("owner_user_id");
+            pending.push((
+                TaskStatusSummary::from(&mut row),
+                Uuid::parse_str(&owner_id).ok(),
+            ));
+        }
+        pending
+    };
+
+    let mut tasks = Vec::with_capacity(pending.len());
+    for (summary, owner) in pending {
+        let accessible = match owner {
+            Some(uid) => access::has_resource_access(client, user, uid, GroupLevel::ReadOnly)
+                .await
+                .map_err(db_err)?,
+            None => false,
+        };
+        if accessible {
+            tasks.push(summary);
+        }
     }
     Ok(tasks)
 }
@@ -412,11 +487,11 @@ pub async fn get_blocked_tasks(
 /// agents plus open-question and blocked tasks for the user.
 pub async fn get_global_agent_status(
     client: &Client,
-    user_id: &Uuid,
+    user: &AuthUser,
 ) -> Result<GlobalAgentStatus, hiqlite::Error> {
-    let agents = get_running_agents(client, user_id).await?;
-    let questions = get_open_question_tasks(client, user_id).await?;
-    let blocked = get_blocked_tasks(client, user_id).await?;
+    let agents = get_running_agents(client, user).await?;
+    let questions = get_open_question_tasks(client, user).await?;
+    let blocked = get_blocked_tasks(client, user).await?;
     Ok(GlobalAgentStatus {
         agents,
         questions,
@@ -540,6 +615,16 @@ mod tests {
         (project_id, task.id)
     }
 
+    fn default_auth(user_id: Uuid) -> AuthUser {
+        AuthUser {
+            user_id,
+            username: "default".into(),
+            oidc_subject: None,
+            is_admin: true,
+            is_technical: true,
+        }
+    }
+
     #[tokio::test]
     async fn test_mark_task_blocked() {
         let (client, _tmp) = make_client().await;
@@ -609,7 +694,8 @@ mod tests {
         let (_, task_id) = seed_task(&client).await;
         seed_running_run(&client, task_id, &AgentType::Implementation).await;
 
-        let status = get_global_agent_status(&client, &user_id).await.unwrap();
+        let auth = default_auth(user_id);
+        let status = get_global_agent_status(&client, &auth).await.unwrap();
         assert_eq!(status.agents.len(), 1);
         assert_eq!(status.agents[0].task_id, task_id);
         assert_eq!(status.agents[0].agent_type, AgentType::Implementation);
@@ -644,7 +730,8 @@ mod tests {
         )
         .await;
 
-        let questions = get_open_question_tasks(&client, &user_id).await.unwrap();
+        let auth = default_auth(user_id);
+        let questions = get_open_question_tasks(&client, &auth).await.unwrap();
         assert_eq!(questions.len(), 1);
         assert_eq!(questions[0].task_id, task_id);
     }
@@ -679,7 +766,8 @@ mod tests {
         )
         .await;
 
-        let questions = get_open_question_tasks(&client, &user_id).await.unwrap();
+        let auth = default_auth(user_id);
+        let questions = get_open_question_tasks(&client, &auth).await.unwrap();
         assert!(
             questions.is_empty(),
             "an answered question must not surface as an open question"
@@ -704,7 +792,8 @@ mod tests {
             .await
             .unwrap();
 
-        let blocked = get_blocked_tasks(&client, &user_id).await.unwrap();
+        let auth = default_auth(user_id);
+        let blocked = get_blocked_tasks(&client, &auth).await.unwrap();
         let ids: Vec<i64> = blocked.iter().map(|s| s.task_id).collect();
         assert!(ids.contains(&blocked_task), "workflow_blocked task");
         assert!(ids.contains(&blocked_run_task), "task with a blocked run");
@@ -736,7 +825,21 @@ mod tests {
             .unwrap();
         let _conv_id = seed_running_run(&client, task_id, &AgentType::Review).await;
 
-        let status = get_global_agent_status(&client, &user_id).await.unwrap();
+        // A non-admin viewer with no shared group must not see the other
+        // user's running agent.
+        let viewer = AuthUser {
+            user_id: Uuid::new_v4(),
+            username: "viewer".into(),
+            oidc_subject: None,
+            is_admin: false,
+            is_technical: false,
+        };
+        let status = get_global_agent_status(&client, &viewer).await.unwrap();
         assert!(status.agents.is_empty(), "other user's agents excluded");
+
+        // The admin still sees everything.
+        let admin = default_auth(user_id);
+        let status = get_global_agent_status(&client, &admin).await.unwrap();
+        assert_eq!(status.agents.len(), 1, "admin sees all agents");
     }
 }

@@ -28,7 +28,7 @@ ofm/
 │   │   ├── rig_config.rs             # Rig provider config domain types (capture only)
 │   │   └── registry.rs               # Harness dispatch ("opencode", rig guard)
 │   ├── agents/          # Prompt builders (planning, impl, review, PR)
-│   ├── services/        # Auth, projects, tasks, settings, session, transcript, export_import, commits
+│   ├── services/        # Auth, projects, tasks, settings, session, transcript, export_import, commits, groups, access
 │   ├── archive/         # Task doc I/O, context prompt
 │   ├── worktree/        # Git worktree management
 │   └── rauthy/          # Local rauthy lifecycle (docker), PUB_URL/env build, endpoint re-hosting helpers
@@ -51,7 +51,8 @@ The workspace has a single member crate (`ofm` binary) defined inline.
 |-------|---------|
 | `users` | User accounts with OIDC auth |
 | `projects` | Project definitions (repo paths, monorepo subproject paths) |
-| `project_members` | Many-to-many user/project join table |
+| `groups` | User Group / Organization definitions (name, `is_org`, `is_oauth_scope`, owner, creator snapshot) |
+| `group_members` | Polymorphic membership (user OR subgroup) with a fixed `level` enum |
 | `tasks` | Task definitions with workflow state flags |
 | `conversations` | LLM conversation sessions (provider-agnostic via `provider_session_id`, renamed from `omp_session_id`) |
 | `task_agent_runs` | Agent execution tracking per task |
@@ -303,6 +304,36 @@ Configuration is loaded from YAML files with environment variable overlay:
 - `OFM_FOOTPRINT` (default `~/.ofm`) derives all data paths (DB, archive, config, rauthy)
 - `OFM_DB_PATH`, `OFM_ARCHIVE_ROOT`, `OFM_CONFIG` are eliminated in favor of footprint-derived paths
 
+## Groups & Access Control
+
+User Groups / Organizations are the unit of access control for user-owned
+resources. The `groups` and `group_members` tables are managed by
+`src/services/groups.rs` (create/update/delete groups, add/remove/change-level
+members, and recursive membership resolution with a cycle guard) and exposed to
+admins via `src/server/routes/groups.rs` (`/api/groups`, admin-only, plus
+`GET /api/groups/scopes-available` for the scope dropdown). A bootstrap-seeded
+`admins` group is created once per footprint by `db::ensure_admins_group`
+(`src/db/mod.rs`), owned by the current ofm admin with an `admin`-level
+membership.
+
+Authorization composes ownership + group membership in `src/services/access.rs`:
+`has_resource_access(requester, owner_id, min_level)` grants access when the
+requester is the owner, a server admin, or an effective member (at `min_level`
+or higher) of any group the owner belongs to — resource → group linkage is
+modeled as the owner's group membership, so no per-resource `group_id` columns
+are needed. It is wrapped per resource (`has_project_access`,
+`has_model_config_access`, `has_task_flow_access`, plus write variants) and
+threaded through the projects/settings/agent_configs/tasks/conversations/
+agent_runs routes, the webapp page handlers, and the agent-status feed
+(`get_running_agents` / `get_open_question_tasks` / `get_blocked_tasks`).
+
+OAuth scopes support membership-by-scope: `src/main.rs` parses the discovery
+document's optional `scopes_supported` into `OidcEndpoints.scopes_supported`,
+`handle_callback` (`src/services/auth.rs`) captures the granted `scope` claim
+from the access token/userinfo and unions it with `scopes_supported` onto the
+new `users.scopes` column, and `groups::is_member` folds in users whose scopes
+match a group flagged `is_oauth_scope`.
+
 ## Recurring Patterns
 
 - **snake_case** naming for all columns and Rust identifiers
@@ -310,6 +341,7 @@ Configuration is loaded from YAML files with environment variable overlay:
 - **`TEXT` storage** for UUIDs (users, sessions, conversations, etc.), timestamps, and JSON values; project/task IDs use `INTEGER` (SQLite convention)
 - **`AuthLayer` Tower middleware** for request authentication (JWT via JWKS, API key hash lookup)
 - **`spawn_blocking`** for blocking I/O operations (PTY reads), sending events through `mpsc::Sender::blocking_send`
+- **Drop non-`Send` rows before awaits**: hiqlite `Row`s are not `Send`, so any query that feeds an access-check `.await` must be extracted to owned values first (see the two-pass loops in `src/services/tasks.rs`).
 
 ## Design Decisions
 

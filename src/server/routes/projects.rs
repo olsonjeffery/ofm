@@ -81,7 +81,7 @@ async fn list_projects(
     auth: AuthUser,
     State(state): State<AppState>,
 ) -> Result<Json<Vec<Project>>, ServerError> {
-    let projects = services::projects::list_projects(&state.db, &auth.user_id)
+    let projects = services::projects::list_projects(&state.db, &auth)
         .await
         .map_err(|e| ServerError::Internal(e.to_string()))?;
     Ok(Json(projects))
@@ -95,7 +95,10 @@ async fn get_project(
     let project = services::projects::get_project(&state.db, id)
         .await
         .map_err(|_| ServerError::NotFound("Project not found".into()))?;
-    if project.user_id != auth.user_id {
+    let has_access = services::access::has_project_access(&state.db, &auth, &project)
+        .await
+        .map_err(|e| ServerError::Internal(e.to_string()))?;
+    if !has_access {
         return Err(ServerError::NotFound("Project not found".into()));
     }
     Ok(Json(project))
@@ -110,7 +113,10 @@ async fn update_project(
     let existing = services::projects::get_project(&state.db, id)
         .await
         .map_err(|_| ServerError::NotFound("Project not found".into()))?;
-    if existing.user_id != auth.user_id {
+    let has_access = services::access::has_project_write_access(&state.db, &auth, &existing)
+        .await
+        .map_err(|e| ServerError::Internal(e.to_string()))?;
+    if !has_access {
         return Err(ServerError::NotFound("Project not found".into()));
     }
     if body.name.as_deref().is_some_and(|n| n.trim().is_empty()) {
@@ -162,7 +168,10 @@ async fn delete_project(
     let existing = services::projects::get_project(&state.db, id)
         .await
         .map_err(|_| ServerError::NotFound("Project not found".into()))?;
-    if existing.user_id != auth.user_id {
+    let has_access = services::access::has_project_write_access(&state.db, &auth, &existing)
+        .await
+        .map_err(|e| ServerError::Internal(e.to_string()))?;
+    if !has_access {
         return Err(ServerError::NotFound("Project not found".into()));
     }
     let deleted = services::projects::delete_project(&state.db, id)

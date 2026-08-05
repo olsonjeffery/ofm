@@ -80,7 +80,7 @@ async fn list_models_handler(
     State(state): State<AppState>,
     auth: AuthUser,
 ) -> Result<Json<Vec<UserModelConfig>>, (StatusCode, Json<ErrorResponse>)> {
-    let configs = settings::list_model_configs(&state.db, auth.user_id)
+    let configs = crate::services::access::list_accessible_model_configs(&state.db, &auth)
         .await
         .map_err(|e| {
             (
@@ -118,9 +118,33 @@ async fn update_model_handler(
     Json(body): Json<ModelRequest>,
 ) -> Result<Json<UserModelConfig>, (StatusCode, Json<ErrorResponse>)> {
     let config_root = std::path::Path::new(&state.config_root);
-    match settings::update_model_config(
+
+    let existing = settings::get_model_config_by_id(&state.db, id)
+        .await
+        .map_err(|_e| {
+            (
+                StatusCode::NOT_FOUND,
+                Json(ErrorResponse::new("config not found")),
+            )
+        })?;
+    let authorized =
+        crate::services::access::has_model_config_write_access(&state.db, &auth, &existing)
+            .await
+            .map_err(|e| {
+                (
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    Json(ErrorResponse::new(e.to_string())),
+                )
+            })?;
+    if !authorized {
+        return Err((
+            StatusCode::NOT_FOUND,
+            Json(ErrorResponse::new("config not found")),
+        ));
+    }
+
+    match settings::update_model_config_by_id(
         &state.db,
-        auth.user_id,
         config_root,
         id,
         &body.name,
@@ -144,14 +168,32 @@ async fn delete_model_handler(
     Path(id): Path<Uuid>,
 ) -> Result<StatusCode, (StatusCode, Json<ErrorResponse>)> {
     let config_root = std::path::Path::new(&state.config_root);
-    settings::delete_model_config(&state.db, auth.user_id, config_root, id)
-        .await
-        .map_err(|e| {
-            (
-                StatusCode::INTERNAL_SERVER_ERROR,
-                Json(ErrorResponse::new(e)),
-            )
-        })?;
+
+    // DELETE is idempotent: a config that does not exist — or is not visible
+    // to the caller — is a no-op returning 204.
+    let existing = settings::get_model_config_by_id(&state.db, id).await.ok();
+    if let Some(existing) = existing {
+        let authorized =
+            crate::services::access::has_model_config_write_access(&state.db, &auth, &existing)
+                .await
+                .map_err(|e| {
+                    (
+                        StatusCode::INTERNAL_SERVER_ERROR,
+                        Json(ErrorResponse::new(e.to_string())),
+                    )
+                })?;
+        if !authorized {
+            return Ok(StatusCode::NO_CONTENT);
+        }
+        settings::delete_model_config_by_id(&state.db, config_root, id)
+            .await
+            .map_err(|e| {
+                (
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    Json(ErrorResponse::new(e)),
+                )
+            })?;
+    }
 
     Ok(StatusCode::NO_CONTENT)
 }

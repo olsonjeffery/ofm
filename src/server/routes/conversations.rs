@@ -60,7 +60,10 @@ async fn list_conversations(
     let task = tasks::get_task(&state.db, task_id)
         .await
         .map_err(|_| ServerError::NotFound("Task not found".into()))?;
-    if task.user_id != auth.user_id {
+    let has_access = crate::services::access::has_task_flow_access(&state.db, &auth, &task)
+        .await
+        .map_err(|e| ServerError::Internal(e.to_string()))?;
+    if !has_access {
         return Err(ServerError::NotFound("Task not found".into()));
     }
     let convs = tasks::list_conversations_for_task(&state.db, task_id)
@@ -77,7 +80,10 @@ async fn get_conversation(
     let task = tasks::get_task(&state.db, task_id)
         .await
         .map_err(|_| ServerError::NotFound("Task not found".into()))?;
-    if task.user_id != auth.user_id {
+    let has_access = crate::services::access::has_task_flow_access(&state.db, &auth, &task)
+        .await
+        .map_err(|e| ServerError::Internal(e.to_string()))?;
+    if !has_access {
         return Err(ServerError::NotFound("Task not found".into()));
     }
     let conv = session::resume_session(&state.db, conv_id)
@@ -113,7 +119,10 @@ async fn send_message(
     let task = tasks::get_task(&state.db, task_id)
         .await
         .map_err(|_| ServerError::NotFound("Task not found".into()))?;
-    if task.user_id != auth.user_id {
+    let has_access = crate::services::access::has_task_flow_write_access(&state.db, &auth, &task)
+        .await
+        .map_err(|e| ServerError::Internal(e.to_string()))?;
+    if !has_access {
         return Err(ServerError::NotFound("Task not found".into()));
     }
     let conv = session::resume_session(&state.db, conv_id)

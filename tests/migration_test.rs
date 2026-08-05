@@ -36,8 +36,8 @@ async fn test_all_migrations_apply() {
     let (client, _tmp) = setup_db().await;
     let count = db::run_migrations(&client).await.unwrap();
     assert_eq!(
-        count, 28,
-        "All 28 DDL migrations should be applied on first run"
+        count, 32,
+        "All 32 DDL migrations should be applied on first run"
     );
 }
 
@@ -169,7 +169,7 @@ async fn test_insert_and_query_task() {
 }
 
 #[tokio::test]
-async fn test_insert_and_query_project_member() {
+async fn test_insert_and_query_group() {
     let (client, _tmp) = setup_db().await;
     db::run_migrations(&client).await.unwrap();
 
@@ -177,84 +177,150 @@ async fn test_insert_and_query_project_member() {
     client
         .execute(
             "INSERT INTO users (id, username) VALUES ($1, $2)",
-            hiqlite::params!(&user_id, "pmuser"),
+            hiqlite::params!(&user_id, "groupowner"),
         )
         .await
         .unwrap();
 
-    let project_id = int64_id();
+    let group_id = uuid_text();
     client
         .execute(
-            "INSERT INTO projects (id, user_id, name, repo_folder_path) VALUES ($1, $2, $3, $4)",
-            hiqlite::params!(project_id, &user_id, "p", "/tmp/r"),
-        )
-        .await
-        .unwrap();
-
-    let pm_id = uuid_text();
-    client
-        .execute(
-            "INSERT INTO project_members (id, project_id, user_id) VALUES ($1, $2, $3)",
-            hiqlite::params!(&pm_id, project_id, &user_id),
+            "INSERT INTO groups (id, name, is_org, is_oauth_scope, title, description, owner_id, created_by, created_at) \
+             VALUES ($1, 'team-a', 0, 0, 'Team A', 'desc', $2, 'owner', '2024-01-01 00:00:00')",
+            hiqlite::params!(&group_id, &user_id),
         )
         .await
         .unwrap();
 
     let mut rows = client
         .query_raw(
-            "SELECT COUNT(*) as cnt FROM project_members WHERE project_id = $1 AND user_id = $2",
-            hiqlite::params!(project_id, &user_id),
+            "SELECT name, is_org, is_oauth_scope, title, description, owner_id FROM groups WHERE id = $1",
+            hiqlite::params!(&group_id),
+        )
+        .await
+        .unwrap();
+    let row = rows.first_mut().unwrap();
+    assert_eq!(row.get::<String>("name"), "team-a");
+    assert_eq!(row.get::<i64>("is_org"), 0);
+    assert_eq!(row.get::<i64>("is_oauth_scope"), 0);
+    assert_eq!(row.get::<String>("title"), "Team A");
+    assert_eq!(row.get::<String>("owner_id"), user_id);
+}
+
+#[tokio::test]
+async fn test_insert_and_query_group_member() {
+    let (client, _tmp) = setup_db().await;
+    db::run_migrations(&client).await.unwrap();
+
+    let owner_id = uuid_text();
+    let member_id = uuid_text();
+    client
+        .execute(
+            "INSERT INTO users (id, username) VALUES ($1, $2)",
+            hiqlite::params!(&owner_id, "gmowner"),
+        )
+        .await
+        .unwrap();
+    client
+        .execute(
+            "INSERT INTO users (id, username) VALUES ($1, $2)",
+            hiqlite::params!(&member_id, "gmmember"),
+        )
+        .await
+        .unwrap();
+
+    let group_id = uuid_text();
+    client
+        .execute(
+            "INSERT INTO groups (id, name, owner_id) VALUES ($1, 'gm-group', $2)",
+            hiqlite::params!(&group_id, &owner_id),
+        )
+        .await
+        .unwrap();
+
+    let gm_id = uuid_text();
+    client
+        .execute(
+            "INSERT INTO group_members (id, group_id, user_id, member_group_id, level) VALUES ($1, $2, $3, NULL, 'contributor')",
+            hiqlite::params!(&gm_id, &group_id, &member_id),
+        )
+        .await
+        .unwrap();
+
+    let mut rows = client
+        .query_raw(
+            "SELECT COUNT(*) as cnt FROM group_members WHERE group_id = $1 AND user_id = $2",
+            hiqlite::params!(&group_id, &member_id),
         )
         .await
         .unwrap();
     let row_count: i64 = rows.first_mut().map(|r| r.get("cnt")).unwrap_or(0);
 
     assert_eq!(row_count, 1);
+
+    // level default
+    let mut rows = client
+        .query_raw(
+            "SELECT level FROM group_members WHERE id = $1",
+            hiqlite::params!(&gm_id),
+        )
+        .await
+        .unwrap();
+    let level: String = rows.first_mut().unwrap().get("level");
+    assert_eq!(level, "contributor");
 }
 
 #[tokio::test]
-async fn test_unique_constraint_project_members() {
+async fn test_unique_constraint_group_members() {
     let (client, _tmp) = setup_db().await;
     db::run_migrations(&client).await.unwrap();
 
-    let user_id = uuid_text();
+    let owner_id = uuid_text();
+    let member_id = uuid_text();
     client
         .execute(
             "INSERT INTO users (id, username) VALUES ($1, $2)",
-            hiqlite::params!(&user_id, "uniquser"),
+            hiqlite::params!(&owner_id, "uniqowner"),
         )
         .await
         .unwrap();
-
-    let project_id = int64_id();
     client
         .execute(
-            "INSERT INTO projects (id, user_id, name, repo_folder_path) VALUES ($1, $2, $3, $4)",
-            hiqlite::params!(project_id, &user_id, "p", "/tmp/r"),
+            "INSERT INTO users (id, username) VALUES ($1, $2)",
+            hiqlite::params!(&member_id, "uniqmember"),
         )
         .await
         .unwrap();
 
-    let pm_id = uuid_text();
+    let group_id = uuid_text();
     client
         .execute(
-            "INSERT INTO project_members (id, project_id, user_id) VALUES ($1, $2, $3)",
-            hiqlite::params!(&pm_id, project_id, &user_id),
+            "INSERT INTO groups (id, name, owner_id) VALUES ($1, 'uniq-group', $2)",
+            hiqlite::params!(&group_id, &owner_id),
         )
         .await
         .unwrap();
 
-    let pm_id2 = uuid_text();
+    let gm_id = uuid_text();
+    client
+        .execute(
+            "INSERT INTO group_members (id, group_id, user_id, level) VALUES ($1, $2, $3, 'read-only')",
+            hiqlite::params!(&gm_id, &group_id, &member_id),
+        )
+        .await
+        .unwrap();
+
+    let gm_id2 = uuid_text();
     let result = client
         .execute(
-            "INSERT INTO project_members (id, project_id, user_id) VALUES ($1, $2, $3)",
-            hiqlite::params!(&pm_id2, project_id, &user_id),
+            "INSERT INTO group_members (id, group_id, user_id, level) VALUES ($1, $2, $3, 'admin')",
+            hiqlite::params!(&gm_id2, &group_id, &member_id),
         )
         .await;
 
     assert!(
         result.is_err(),
-        "UNIQUE constraint should prevent duplicate project_members"
+        "UNIQUE constraint should prevent duplicate group_members"
     );
 }
 
@@ -290,55 +356,113 @@ async fn test_default_values() {
 }
 
 #[tokio::test]
-async fn test_on_delete_cascade_project_members() {
+async fn test_on_delete_cascade_group_members() {
     let (client, _tmp) = setup_db().await;
     db::run_migrations(&client).await.unwrap();
 
-    let user_id = uuid_text();
+    let owner_id = uuid_text();
+    let member_id = uuid_text();
     client
         .execute(
             "INSERT INTO users (id, username) VALUES ($1, $2)",
-            hiqlite::params!(&user_id, "cascadeuser"),
+            hiqlite::params!(&owner_id, "cascadeowner"),
+        )
+        .await
+        .unwrap();
+    client
+        .execute(
+            "INSERT INTO users (id, username) VALUES ($1, $2)",
+            hiqlite::params!(&member_id, "cascademember"),
         )
         .await
         .unwrap();
 
-    let project_id = int64_id();
+    let group_id = uuid_text();
     client
         .execute(
-            "INSERT INTO projects (id, user_id, name, repo_folder_path) VALUES ($1, $2, $3, $4)",
-            hiqlite::params!(project_id, &user_id, "p", "/tmp/r"),
+            "INSERT INTO groups (id, name, owner_id) VALUES ($1, 'cascade-group', $2)",
+            hiqlite::params!(&group_id, &owner_id),
         )
         .await
         .unwrap();
 
-    let pm_id = uuid_text();
+    let gm_id = uuid_text();
     client
         .execute(
-            "INSERT INTO project_members (id, project_id, user_id) VALUES ($1, $2, $3)",
-            hiqlite::params!(&pm_id, project_id, &user_id),
+            "INSERT INTO group_members (id, group_id, user_id, level) VALUES ($1, $2, $3, 'read-only')",
+            hiqlite::params!(&gm_id, &group_id, &member_id),
         )
         .await
         .unwrap();
 
     client
         .execute(
-            "DELETE FROM projects WHERE id = $1",
-            hiqlite::params!(project_id),
+            "DELETE FROM groups WHERE id = $1",
+            hiqlite::params!(&group_id),
         )
         .await
         .unwrap();
 
     let mut rows = client
         .query_raw(
-            "SELECT COUNT(*) as cnt FROM project_members WHERE id = $1",
-            hiqlite::params!(&pm_id),
+            "SELECT COUNT(*) as cnt FROM group_members WHERE id = $1",
+            hiqlite::params!(&gm_id),
         )
         .await
         .unwrap();
     let row_count: i64 = rows.first_mut().map(|r| r.get("cnt")).unwrap_or(0);
 
-    assert_eq!(row_count, 0, "Project member should be cascade-deleted");
+    assert_eq!(row_count, 0, "Group member should be cascade-deleted");
+}
+
+#[tokio::test]
+async fn test_project_members_table_is_dropped() {
+    let (client, _tmp) = setup_db().await;
+    db::run_migrations(&client).await.unwrap();
+
+    let result = client
+        .execute(
+            "INSERT INTO project_members (id, project_id, user_id) VALUES ($1, 1, $2)",
+            hiqlite::params!(uuid_text(), uuid_text()),
+        )
+        .await;
+    assert!(
+        result.is_err(),
+        "project_members table should have been dropped by the migrations"
+    );
+
+    // The groups schema is intact after the drop.
+    let mut rows = client
+        .query_raw("SELECT COUNT(*) as cnt FROM groups", hiqlite::params!())
+        .await
+        .unwrap();
+    let row_count: i64 = rows.first_mut().map(|r| r.get("cnt")).unwrap_or(0);
+    assert_eq!(row_count, 0);
+}
+
+#[tokio::test]
+async fn test_users_scopes_column() {
+    let (client, _tmp) = setup_db().await;
+    db::run_migrations(&client).await.unwrap();
+
+    let user_id = uuid_text();
+    client
+        .execute(
+            "INSERT INTO users (id, username, scopes) VALUES ($1, $2, $3)",
+            hiqlite::params!(&user_id, "scopeuser", "openid profile custom:scope"),
+        )
+        .await
+        .unwrap();
+
+    let mut rows = client
+        .query_raw(
+            "SELECT scopes FROM users WHERE id = $1",
+            hiqlite::params!(&user_id),
+        )
+        .await
+        .unwrap();
+    let scopes: String = rows.first_mut().unwrap().get("scopes");
+    assert_eq!(scopes, "openid profile custom:scope");
 }
 
 #[tokio::test]

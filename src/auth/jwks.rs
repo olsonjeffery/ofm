@@ -12,12 +12,18 @@ pub struct JwksCache {
     pub keys: HashMap<String, Jwk>,
     pub issuer: String,
     pub client_id: String,
+    /// Optional `scopes_supported` advertised by the provider's discovery
+    /// document. Empty when unknown (the field is optional per the OIDC
+    /// discovery spec, and direct-JWKS fetches have no discovery document).
+    pub scopes_supported: Vec<String>,
 }
 
 #[derive(Debug, Deserialize)]
 struct OidcDiscovery {
     issuer: String,
     jwks_uri: String,
+    #[serde(default)]
+    scopes_supported: Vec<String>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -32,6 +38,10 @@ pub struct Claims {
     pub aud: serde_json::Value,
     pub exp: usize,
     pub iat: Option<usize>,
+    /// Optional space-delimited scope claim (present on access tokens and some
+    /// id_tokens). Used to capture the granted scopes for oauth-scope groups.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub scope: Option<String>,
 }
 
 #[derive(Debug)]
@@ -86,6 +96,7 @@ pub async fn fetch_jwks(issuer_url: &str, client_id: &str) -> Result<JwksCache, 
         keys,
         issuer: issuer_url.to_string(),
         client_id: client_id.to_string(),
+        scopes_supported: disc.scopes_supported,
     })
 }
 
@@ -120,6 +131,7 @@ pub async fn fetch_jwks_direct(
         keys,
         issuer: issuer.to_string(),
         client_id: client_id.to_string(),
+        scopes_supported: Vec::new(),
     })
 }
 
@@ -199,6 +211,7 @@ mod tests {
             keys,
             issuer: issuer.to_string(),
             client_id: client_id.to_string(),
+            scopes_supported: Vec::new(),
         }
     }
 
@@ -214,6 +227,7 @@ mod tests {
             aud: serde_json::json!("test-client"),
             exp: 9_999_999_999,
             iat: Some(1_000_000_000),
+            scope: None,
         };
 
         let mut header = Header::new(Algorithm::HS256);
@@ -228,6 +242,32 @@ mod tests {
     }
 
     #[test]
+    fn test_verify_token_parses_scope_claim() {
+        let key = b"test-hmac-secret-key-32-bytes-long!";
+        let kid = "test-key-1";
+        let cache = make_test_cache(key, kid, "test-issuer", "test-client");
+
+        let claims = Claims {
+            sub: "user-123".to_string(),
+            iss: "test-issuer".to_string(),
+            aud: serde_json::json!("test-client"),
+            exp: 9_999_999_999,
+            iat: Some(1_000_000_000),
+            scope: Some("openid profile billing:read".to_string()),
+        };
+
+        let mut header = Header::new(Algorithm::HS256);
+        header.kid = Some(kid.to_string());
+        let token = encode(&header, &claims, &EncodingKey::from_secret(key)).unwrap();
+
+        let verified = verify_token(&token, &cache).unwrap();
+        assert_eq!(
+            verified.scope.as_deref(),
+            Some("openid profile billing:read")
+        );
+    }
+
+    #[test]
     fn test_verify_token_expired() {
         let key = b"test-hmac-secret-key-32-bytes-long!";
         let kid = "test-key-1";
@@ -239,6 +279,7 @@ mod tests {
             aud: serde_json::json!("test-client"),
             exp: 1_000_000_000,
             iat: Some(1_000_000_000),
+            scope: None,
         };
 
         let mut header = Header::new(Algorithm::HS256);
@@ -261,6 +302,7 @@ mod tests {
             aud: serde_json::json!("test-client"),
             exp: 9_999_999_999,
             iat: Some(1_000_000_000),
+            scope: None,
         };
 
         let mut header = Header::new(Algorithm::HS256);
@@ -282,6 +324,7 @@ mod tests {
             aud: serde_json::json!("test-client"),
             exp: 9_999_999_999,
             iat: Some(1_000_000_000),
+            scope: None,
         };
 
         let mut header = Header::new(Algorithm::HS256);
@@ -318,6 +361,44 @@ mod tests {
 
         let result = fetch_jwks(&format!("http://{}", addr), "client-id").await;
         assert!(result.is_err(), "should fail due to issuer mismatch");
+    }
+
+    #[tokio::test]
+    async fn test_fetch_jwks_parses_scopes_supported() {
+        use axum::{routing::get, Json, Router};
+        use serde_json::json;
+
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let addr = listener.local_addr().unwrap();
+        let base = format!("http://{addr}");
+
+        let router_base = base.clone();
+        let app = Router::new()
+            .route(
+                "/.well-known/openid-configuration",
+                get(move || {
+                    let issuer = router_base.clone();
+                    let jwks_uri = format!("{router_base}/jwks");
+                    async move {
+                        Json(json!({
+                            "issuer": issuer,
+                            "jwks_uri": jwks_uri,
+                            "scopes_supported": ["openid", "profile", "email", "custom:scope"]
+                        }))
+                    }
+                }),
+            )
+            .route("/jwks", get(|| async { Json(json!({ "keys": [] })) }));
+
+        tokio::spawn(async move {
+            axum::serve(listener, app).await.unwrap();
+        });
+
+        let cache = fetch_jwks(&base, "client-id").await.unwrap();
+        assert_eq!(
+            cache.scopes_supported,
+            vec!["openid", "profile", "email", "custom:scope"]
+        );
     }
 
     #[tokio::test]
@@ -388,6 +469,7 @@ mod tests {
             aud: serde_json::json!("ofm"),
             exp: 9_999_999_999,
             iat: Some(1_000_000_000),
+            scope: None,
         };
         let mut header = Header::new(Algorithm::HS256);
         header.kid = Some("kid-direct".to_string());

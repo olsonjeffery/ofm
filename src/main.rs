@@ -42,11 +42,26 @@ fn ensure_secret_file(
     Ok(())
 }
 
-type OidcDiscoveryResult = (String, String, Option<String>, Option<String>, String);
+type OidcDiscoveryResult = (
+    String,
+    String,
+    Option<String>,
+    Option<String>,
+    String,
+    Vec<String>,
+);
 
 fn parse_oidc_discovery(
     disc: &serde_json::Value,
 ) -> Result<OidcDiscoveryResult, Box<dyn std::error::Error>> {
+    let scopes_supported = disc["scopes_supported"]
+        .as_array()
+        .map(|arr| {
+            arr.iter()
+                .filter_map(|v| v.as_str().map(|s| s.to_string()))
+                .collect()
+        })
+        .unwrap_or_default();
     Ok((
         disc["authorization_endpoint"]
             .as_str()
@@ -62,6 +77,7 @@ fn parse_oidc_discovery(
             .as_str()
             .ok_or("missing userinfo_endpoint")?
             .to_string(),
+        scopes_supported,
     ))
 }
 
@@ -129,6 +145,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     let default_user_id = db::ensure_default_user(&client).await?;
     tracing::info!("Default user id: {}", default_user_id);
+
+    db::ensure_admins_group(&client).await?;
+    tracing::info!("Ensured built-in 'admins' group");
 
     let orphans = orchestration::recovery::recover_orphaned_runs(&client).await?;
     tracing::info!("Orphan recovery: {} agent runs swept to failed", orphans);
@@ -220,6 +239,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             revocation_endpoint,
             end_session_endpoint,
             userinfo_endpoint,
+            scopes_supported,
         ) = parse_oidc_discovery(&disc)?;
         let public_base = cfg.pub_url.trim_end_matches('/').to_string();
         let redirect_uri = format!("{public_base}/api/auth/callback");
@@ -256,6 +276,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             keys,
             issuer: issuer.clone(),
             client_id: client_id.clone(),
+            scopes_supported: scopes_supported.clone(),
         };
         // Refresh signing keys directly at loopback (never through the public
         // origin / external reverse proxy); token verification still uses the
@@ -287,6 +308,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             redirect_uri,
             jwks_cache: Some(auth_layer_rauthy.jwks_cache.clone()),
             jwks_issuer: auth_layer_rauthy.issuer_url.clone(),
+            scopes_supported,
         };
         (auth_layer_rauthy, Some(oidc_endpoints), Some(rp))
     } else {
@@ -320,6 +342,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             revocation_endpoint,
             end_session_endpoint,
             userinfo_endpoint,
+            scopes_supported,
         ) = parse_oidc_discovery(&disc)?;
         let redirect_uri = cfg.oidc_redirect_uri.clone().unwrap_or_else(|| {
             format!(
@@ -341,6 +364,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             redirect_uri,
             jwks_cache: Some(auth_layer.jwks_cache.clone()),
             jwks_issuer: auth_layer.issuer_url.clone(),
+            scopes_supported,
         });
 
         (auth_layer, oidc_provider, None)

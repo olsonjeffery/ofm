@@ -67,7 +67,7 @@ async fn active_agents_handler(
     auth: AuthUser,
     State(state): State<AppState>,
 ) -> Result<Json<Vec<ActiveAgent>>, ServerError> {
-    let agents = services::tasks::get_running_agents(&state.db, &auth.user_id)
+    let agents = services::tasks::get_running_agents(&state.db, &auth)
         .await
         .map_err(|e| ServerError::Internal(e.to_string()))?;
     Ok(Json(agents))
@@ -77,7 +77,7 @@ async fn agent_status_handler(
     auth: AuthUser,
     State(state): State<AppState>,
 ) -> Result<Json<GlobalAgentStatus>, ServerError> {
-    let status = services::tasks::get_global_agent_status(&state.db, &auth.user_id)
+    let status = services::tasks::get_global_agent_status(&state.db, &auth)
         .await
         .map_err(|e| ServerError::Internal(e.to_string()))?;
     Ok(Json(status))
@@ -112,6 +112,12 @@ pub async fn create_task(
     let project = services::projects::get_project(&state.db, body.project_id)
         .await
         .map_err(|_| ServerError::NotFound("Project not found".into()))?;
+    let has_access = services::access::has_project_write_access(&state.db, &auth, &project)
+        .await
+        .map_err(|e| ServerError::Internal(e.to_string()))?;
+    if !has_access {
+        return Err(ServerError::NotFound("Project not found".into()));
+    }
     let task = services::tasks::create_task(
         &state.db,
         body.project_id,
@@ -177,7 +183,10 @@ async fn list_tasks(
     let project = services::projects::get_project(&state.db, query.project_id)
         .await
         .map_err(|_| ServerError::NotFound("Project not found".into()))?;
-    if project.user_id != auth.user_id {
+    let has_access = services::access::has_project_access(&state.db, &auth, &project)
+        .await
+        .map_err(|e| ServerError::Internal(e.to_string()))?;
+    if !has_access {
         return Err(ServerError::NotFound("Project not found".into()));
     }
     let tasks = services::tasks::list_tasks(&state.db, query.project_id)
@@ -194,7 +203,10 @@ async fn get_task(
     let task = services::tasks::get_task(&state.db, id)
         .await
         .map_err(|_| ServerError::NotFound("Task not found".into()))?;
-    if task.user_id != auth.user_id {
+    let has_access = services::access::has_task_flow_access(&state.db, &auth, &task)
+        .await
+        .map_err(|e| ServerError::Internal(e.to_string()))?;
+    if !has_access {
         return Err(ServerError::NotFound("Task not found".into()));
     }
 
@@ -244,7 +256,10 @@ async fn update_task(
     let existing = services::tasks::get_task(&state.db, id)
         .await
         .map_err(|_| ServerError::NotFound("Task not found".into()))?;
-    if existing.user_id != auth.user_id {
+    let has_access = services::access::has_task_flow_write_access(&state.db, &auth, &existing)
+        .await
+        .map_err(|e| ServerError::Internal(e.to_string()))?;
+    if !has_access {
         return Err(ServerError::NotFound("Task not found".into()));
     }
     if body.title.is_none() && body.status.is_none() && body.doc_content.is_none() {
@@ -323,7 +338,10 @@ async fn delete_task(
     let task = services::tasks::get_task(&state.db, id)
         .await
         .map_err(|_| ServerError::NotFound("Task not found".into()))?;
-    if task.user_id != auth.user_id {
+    let has_access = services::access::has_task_flow_write_access(&state.db, &auth, &task)
+        .await
+        .map_err(|e| ServerError::Internal(e.to_string()))?;
+    if !has_access {
         return Err(ServerError::NotFound("Task not found".into()));
     }
     let worktree = services::tasks::get_worktree_by_task(&state.db, id)
@@ -365,7 +383,10 @@ pub async fn recreate_worktree_handler(
     let task = services::tasks::get_task(&state.db, id)
         .await
         .map_err(|_| ServerError::NotFound("Task not found".into()))?;
-    if task.user_id != auth.user_id {
+    let has_access = services::access::has_task_flow_write_access(&state.db, &auth, &task)
+        .await
+        .map_err(|e| ServerError::Internal(e.to_string()))?;
+    if !has_access {
         return Err(ServerError::NotFound("Task not found".into()));
     }
     let worktree = services::tasks::get_worktree_by_task(&state.db, id)
