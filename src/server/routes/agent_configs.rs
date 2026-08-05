@@ -142,7 +142,11 @@ async fn list_provider_config_files(
     let files: Vec<ProviderConfigFile> = names
         .into_iter()
         .map(|name| ProviderConfigFile {
-            harness: "opencode".to_string(),
+            harness: if name.ends_with(".rig.json") {
+                "rig".to_string()
+            } else {
+                "opencode".to_string()
+            },
             name,
         })
         .collect();

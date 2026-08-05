@@ -25,7 +25,8 @@ ofm/
 │   ├── orchestration/   # State machine, guards, recovery, completion
 │   ├── providers/       # LlmProvider trait, opencode_sdk providers
 │   │   ├── opencode_sdk_provider.rs  # Pooled opencode server provider
-│   │   └── registry.rs               # Harness dispatch ("opencode")
+│   │   ├── rig_config.rs             # Rig provider config domain types (capture only)
+│   │   └── registry.rs               # Harness dispatch ("opencode", rig guard)
 │   ├── agents/          # Prompt builders (planning, impl, review, PR)
 │   ├── services/        # Auth, projects, tasks, settings, session, transcript, export_import, commits
 │   ├── archive/         # Task doc I/O, context prompt
@@ -265,7 +266,7 @@ All webapp UI follows the Islands Architecture pattern:
 - **DiffView** (`src/webapp/components/diff_view.rs`): two-column side-by-side diff renderer for the commit detail page (see *Git Commit List & Diff View*).
 - **SettingsDropdown** (`src/webapp/components/settings_dropdown.rs`): navbar split-button with both the label and arrow buttons toggling a one-level menu listing Providers & Agents, Import/Export, Account (the label no longer navigates directly). Replaced the former separate User Config and Settings navbar buttons.
 - **SettingsSidebar** (`src/webapp/components/settings_sidebar.rs`): section-local Bulma `.menu` sidebar. Defines the `SettingsSection`/`SettingsSubPage` enums and renders exactly one `is-active` link matching the active sub-page.
-- **Settings pages** (`src/webapp/pages/settings/`): freestanding pages under `/webapp/settings/*`, each a sidebar + content pane. `providers_agents.rs` (Model Configurations landing + Agent Settings), `import_export.rs` (Export landing + Import), `account.rs` (User Config landing, reuses `OnboardingForm`, + API Keys). `/webapp/settings` is kept as an alias for the Providers & Agents landing. The old tab-switching JS in `pages/settings.rs` was split into per-sub-page scripts (each self-contained, rendered only with its pane).
+- **Settings pages** (`src/webapp/pages/settings/`): freestanding pages under `/webapp/settings/*`, each a sidebar + content pane. `providers_agents.rs` (Model Configurations landing + Agent Settings), `rig_providers.rs` (Rig-based Providers — a **capture-only** surface for per-vendor Rig provider configs under "Providers & Agents"; no execution), `import_export.rs` (Export landing + Import), `account.rs` (User Config landing, reuses `OnboardingForm`, + API Keys). `/webapp/settings` is kept as an alias for the Providers & Agents landing. The old tab-switching JS in `pages/settings.rs` was split into per-sub-page scripts (each self-contained, rendered only with its pane).
 
 ## Agent Prompt Pipeline
 
@@ -300,5 +301,5 @@ Configuration is loaded from YAML files with environment variable overlay:
 - **Raw SQL DDL over migration framework**: DDL is wrapped in a simple `_migrations` tracking table, keeping the migration system self-contained.
 - **WebSocket for live UI**: Real-time updates via WebSocket subscriptions instead of polling, enabling live agent-streaming and board state updates.
 - **Leptos Islands over SPA**: Server-side rendered islands reduce client JS bundle and simplify auth (SSR handlers share server-side auth context without a separate token refresh for the SPA shell).
-- **Single harness**: `opencode` is the built-in provider behind the `LlmProvider` trait abstraction, backed by the `opencode_sdk` submodule.
+- **Single harness**: `opencode` is the built-in provider behind the `LlmProvider` trait abstraction, backed by the `opencode_sdk` submodule. A second harness value, `"rig"` (`harness = "rig"` on `user_model_configs` and `agent_harness_configs`), marks configs captured by the **Rig-based Providers** settings surface (`/webapp/settings/providers-agents/rig-providers`, sidebar entry `SettingsSubPage::RigProviders`). Rig configs live as typed `RigProviderConfig` JSON files (`src/providers/rig_config.rs`) under `{config_root}/provider-configs/{uuid}.rig.json`; they are **capture-only** — `registry::resolve_provider` / `resolve_provider_for_user` refuse to resolve `"rig"` with a clear "not yet executable" guard until a future story (RIG 1) adds the Rig execution client.
 - **Footprint-derived paths**: `OFM_FOOTPRINT` is the single root for all data directories, eliminating the env-var explosion of `OFM_DB_PATH`, `OFM_ARCHIVE_ROOT`, `OFM_CONFIG`.

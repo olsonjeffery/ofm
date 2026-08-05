@@ -10,6 +10,7 @@ pub enum SettingsSection {
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum SettingsSubPage {
     ModelConfig,
+    RigProviders,
     AgentSettings,
     Export,
     Import,
@@ -30,6 +31,7 @@ impl SettingsSection {
         match self {
             SettingsSection::ProvidersAgents => &[
                 (SettingsSubPage::ModelConfig, "Model Configurations"),
+                (SettingsSubPage::RigProviders, "Rig-based Providers"),
                 (SettingsSubPage::AgentSettings, "Agent Settings"),
             ],
             SettingsSection::ImportExport => &[
@@ -48,6 +50,7 @@ impl SettingsSubPage {
     pub fn href(self) -> &'static str {
         match self {
             SettingsSubPage::ModelConfig => "/webapp/settings/providers-agents/model-config",
+            SettingsSubPage::RigProviders => "/webapp/settings/providers-agents/rig-providers",
             SettingsSubPage::AgentSettings => "/webapp/settings/providers-agents/agent-settings",
             SettingsSubPage::Export => "/webapp/settings/import-export/export",
             SettingsSubPage::Import => "/webapp/settings/import-export/import",
@@ -94,10 +97,15 @@ mod tests {
 
     #[test]
     fn test_providers_agents_section_is_section_local() {
-        for active in [SettingsSubPage::ModelConfig, SettingsSubPage::AgentSettings] {
+        for active in [
+            SettingsSubPage::ModelConfig,
+            SettingsSubPage::RigProviders,
+            SettingsSubPage::AgentSettings,
+        ] {
             let html = render(SettingsSection::ProvidersAgents, active);
             assert!(html.contains("menu-label"));
             assert!(html.contains("Model Configurations"));
+            assert!(html.contains("Rig-based Providers"));
             assert!(html.contains("Agent Settings"));
             assert!(!html.contains("Export"));
             assert!(!html.contains("Import"));
@@ -115,6 +123,7 @@ mod tests {
             assert!(html.contains("Import"));
             assert!(!html.contains("Model Configurations"));
             assert!(!html.contains("Agent Settings"));
+            assert!(!html.contains("Rig-based Providers"));
             assert!(!html.contains("API Keys"));
         }
     }
@@ -128,6 +137,7 @@ mod tests {
             assert!(html.contains("API Keys"));
             assert!(!html.contains("Model Configurations"));
             assert!(!html.contains("Agent Settings"));
+            assert!(!html.contains("Rig-based Providers"));
             assert!(!html.contains("Export"));
             assert!(!html.contains("Import"));
         }
@@ -161,6 +171,11 @@ mod tests {
                 SettingsSection::ProvidersAgents,
                 SettingsSubPage::AgentSettings,
                 "/webapp/settings/providers-agents/agent-settings",
+            ),
+            (
+                SettingsSection::ProvidersAgents,
+                SettingsSubPage::RigProviders,
+                "/webapp/settings/providers-agents/rig-providers",
             ),
             (
                 SettingsSection::ImportExport,
@@ -203,6 +218,10 @@ mod tests {
             (
                 SettingsSection::ProvidersAgents,
                 SettingsSubPage::AgentSettings,
+            ),
+            (
+                SettingsSection::ProvidersAgents,
+                SettingsSubPage::RigProviders,
             ),
             (SettingsSection::ImportExport, SettingsSubPage::Export),
             (SettingsSection::ImportExport, SettingsSubPage::Import),

@@ -8,8 +8,11 @@ use uuid::Uuid;
 use crate::db::schema::{AgentHarnessConfig, AgentType, ScopeType, UserModelConfig};
 use crate::providers;
 use crate::providers::config::ProviderConfigDir;
+use crate::providers::rig_config::RigProviderConfig;
 use crate::services::agent_configs;
 use crate::services::config_format;
+
+const RIG_HARNESS: &str = "rig";
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct AgentModelSetting {
@@ -18,14 +21,29 @@ pub struct AgentModelSetting {
     pub effort: Option<String>,
 }
 
+/// A persisted Rig provider config (a `user_model_configs` row with
+/// `harness = "rig"`) with its typed config parsed out of `config_body`.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct RigProviderWithConfig {
+    pub id: Uuid,
+    pub user_id: Uuid,
+    pub name: String,
+    pub config: RigProviderConfig,
+    pub created_at: chrono::NaiveDateTime,
+    pub updated_at: chrono::NaiveDateTime,
+}
+
 pub async fn list_model_configs(
     client: &Client,
     user_id: Uuid,
 ) -> Result<Vec<UserModelConfig>, hiqlite::Error> {
+    // Only opencode (JSON body) configs belong on the Model Configurations
+    // surface. Rig configs live on their own surface (`/rig-providers`),
+    // even though both are rows in `user_model_configs`.
     client
         .query_map::<UserModelConfig, _>(
             "SELECT id, user_id, name, config_body, harness, created_at, updated_at \
-             FROM user_model_configs WHERE user_id = $1 ORDER BY created_at",
+             FROM user_model_configs WHERE user_id = $1 AND harness = 'opencode' ORDER BY created_at",
             hiqlite::params!(user_id.to_string()),
         )
         .await
@@ -34,6 +52,7 @@ pub async fn list_model_configs(
 pub async fn create_model_config(
     client: &Client,
     user_id: Uuid,
+    config_root: &Path,
     name: &str,
     config_body: &str,
     harness: &str,
@@ -58,6 +77,19 @@ pub async fn create_model_config(
         )
         .await
         .map_err(|e| e.to_string())?;
+
+    // Write the provider config file immediately so the config is selectable
+    // and its model listing is enumerable (Agent Settings dropdown) even
+    // before the user first saves agent settings.
+    if harness == RIG_HARNESS {
+        write_rig_provider_config_file(config_root, &id, config_body);
+    } else {
+        let filename = format!("{}.json", id);
+        let cfg_dir = ProviderConfigDir::new(config_root);
+        if let Err(e) = cfg_dir.write_provider_config(&filename, config_body) {
+            tracing::warn!("Failed to write provider config '{}': {e:?}", filename);
+        }
+    }
 
     get_model_config(client, user_id, id)
         .await
@@ -89,7 +121,7 @@ pub async fn update_model_config(
         return Ok(None);
     }
 
-    sync_provider_config_file(config_root, &id, config_body);
+    sync_provider_config_file(config_root, &id, harness, config_body);
 
     get_model_config(client, user_id, id)
         .await
@@ -101,20 +133,43 @@ fn with_existing_config<F>(config_root: &Path, id: &Uuid, f: F)
 where
     F: Fn(&str) -> Result<(), providers::ProviderError>,
 {
-    let id_str = id.to_string();
     let cfg_dir = ProviderConfigDir::new(config_root);
-    let filename = format!("{}.json", id_str);
-    if cfg_dir.config_path(&filename).exists() {
-        if let Err(e) = f(&filename) {
-            tracing::warn!("Failed to update config file '{}': {e:?}", filename);
+    for filename in [format!("{}.rig.json", id), format!("{}.json", id)] {
+        if cfg_dir.config_path(&filename).exists() {
+            if let Err(e) = f(&filename) {
+                tracing::warn!("Failed to update config file '{}': {e:?}", filename);
+            }
         }
     }
 }
 
-fn sync_provider_config_file(config_root: &Path, id: &Uuid, config_body: &str) {
-    with_existing_config(config_root, id, |filename| {
-        ProviderConfigDir::new(config_root).write_provider_config(filename, config_body)
-    });
+fn provider_config_filename(model_cfg: &UserModelConfig) -> String {
+    if model_cfg.harness == RIG_HARNESS {
+        format!("{}.rig.json", model_cfg.id)
+    } else {
+        format!("{}.json", model_cfg.id)
+    }
+}
+
+fn sync_provider_config_file(config_root: &Path, id: &Uuid, harness: &str, config_body: &str) {
+    let cfg_dir = ProviderConfigDir::new(config_root);
+    let target = if harness == RIG_HARNESS {
+        format!("{}.rig.json", id)
+    } else {
+        format!("{}.json", id)
+    };
+    for stale in [format!("{}.json", id), format!("{}.rig.json", id)] {
+        if stale != target && cfg_dir.config_path(&stale).exists() {
+            if let Err(e) = cfg_dir.delete_provider_config(&stale) {
+                tracing::warn!("Failed to delete stale config file '{}': {e:?}", stale);
+            }
+        }
+    }
+    if cfg_dir.config_path(&target).exists() {
+        if let Err(e) = cfg_dir.write_provider_config(&target, config_body) {
+            tracing::warn!("Failed to write config file '{}': {e:?}", target);
+        }
+    }
 }
 
 fn remove_provider_config_file(config_root: &Path, id: &Uuid) {
@@ -194,9 +249,12 @@ pub async fn get_agent_models(
 }
 
 fn parse_model_config_id(provider_config_ref: &str) -> Option<String> {
-    // provider_config_ref is stored as "{uuid}.json" for file-based configs.
-    // Strip the extension to get the UUID back
-    let stripped = provider_config_ref.strip_suffix(".json")?;
+    // provider_config_ref is stored as "{uuid}.json" for opencode file-based
+    // configs and "{uuid}.rig.json" for rig configs. Strip the extension to
+    // get the UUID back.
+    let stripped = provider_config_ref
+        .strip_suffix(".rig.json")
+        .or_else(|| provider_config_ref.strip_suffix(".json"))?;
     // Validate it's a UUID
     Uuid::parse_str(stripped).ok()?;
     Some(stripped.to_string())
@@ -217,7 +275,13 @@ pub async fn upsert_agent_models(
             match Uuid::parse_str(cfg_id) {
                 Ok(uuid) => match get_model_config(client, user_id, uuid).await {
                     Ok(model_cfg) => {
-                        let filename = format!("{}.json", model_cfg.id);
+                        // "Model Configs implement Model Listing": for rig
+                        // configs the picked model must be one of the models
+                        // saved on the provider config.
+                        if model_cfg.harness == RIG_HARNESS {
+                            validate_rig_model_selection(&model_cfg, setting)?;
+                        }
+                        let filename = provider_config_filename(&model_cfg);
                         let cfg_dir = ProviderConfigDir::new(config_root);
                         if let Err(e) =
                             cfg_dir.write_provider_config(&filename, &model_cfg.config_body)
@@ -262,4 +326,443 @@ pub async fn upsert_agent_models(
     get_agent_models(client, user_id)
         .await
         .map_err(|e| e.to_string())
+}
+
+fn validate_rig_model_selection(
+    model_cfg: &UserModelConfig,
+    setting: &AgentModelSetting,
+) -> Result<(), String> {
+    let Ok(rig) = serde_json::from_str::<RigProviderConfig>(&model_cfg.config_body) else {
+        return Err(format!(
+            "rig provider config '{}' has an invalid stored config body",
+            model_cfg.name
+        ));
+    };
+    let available = rig.available_models();
+    if let Some(model) = setting.model.as_deref() {
+        if !model.trim().is_empty()
+            && !available.is_empty()
+            && !available.iter().any(|m| m == model)
+        {
+            return Err(format!(
+                "model '{model}' is not in provider '{}' model list (available: {})",
+                rig.name,
+                available.join(", ")
+            ));
+        }
+    }
+    Ok(())
+}
+
+// ── Rig provider config CRUD ─────────────────────────────────────────────────
+
+fn rig_config_filename(id: &Uuid) -> String {
+    format!("{}.rig.json", id)
+}
+
+fn rig_provider_from_row(row: UserModelConfig) -> Result<RigProviderWithConfig, String> {
+    let config: RigProviderConfig = serde_json::from_str(&row.config_body)
+        .map_err(|e| format!("stored rig config '{}' is invalid: {e}", row.name))?;
+    Ok(RigProviderWithConfig {
+        id: row.id,
+        user_id: row.user_id,
+        name: row.name,
+        config,
+        created_at: row.created_at,
+        updated_at: row.updated_at,
+    })
+}
+
+fn write_rig_provider_config_file(config_root: &Path, id: &Uuid, config_body: &str) {
+    let filename = rig_config_filename(id);
+    let cfg_dir = ProviderConfigDir::new(config_root);
+    if let Err(e) = cfg_dir.write_provider_config(&filename, config_body) {
+        tracing::warn!("Failed to write rig provider config '{}': {e:?}", filename);
+    }
+}
+
+fn remove_rig_provider_config_file(config_root: &Path, id: &Uuid) {
+    let filename = rig_config_filename(id);
+    let cfg_dir = ProviderConfigDir::new(config_root);
+    if let Err(e) = cfg_dir.delete_provider_config(&filename) {
+        tracing::warn!("Failed to delete rig provider config '{}': {e:?}", filename);
+    }
+}
+
+/// List the current user's saved Rig provider configs.
+pub async fn list_rig_providers(
+    client: &Client,
+    user_id: Uuid,
+) -> Result<Vec<RigProviderWithConfig>, String> {
+    let rows = client
+        .query_map::<UserModelConfig, _>(
+            "SELECT id, user_id, name, config_body, harness, created_at, updated_at \
+             FROM user_model_configs WHERE user_id = $1 AND harness = 'rig' ORDER BY created_at",
+            hiqlite::params!(user_id.to_string()),
+        )
+        .await
+        .map_err(|e| e.to_string())?;
+    rows.into_iter()
+        .map(|row| rig_provider_from_row(row).map_err(|e| e.to_string()))
+        .collect()
+}
+
+async fn get_rig_provider_row(
+    client: &Client,
+    user_id: Uuid,
+    id: Uuid,
+) -> Result<Option<UserModelConfig>, String> {
+    let result = client
+        .query_map_one::<UserModelConfig, _>(
+            "SELECT id, user_id, name, config_body, harness, created_at, updated_at \
+             FROM user_model_configs WHERE id = $1 AND user_id = $2 AND harness = 'rig'",
+            hiqlite::params!(id.to_string(), user_id.to_string()),
+        )
+        .await;
+    Ok(result.ok())
+}
+
+/// Fetch a single Rig provider config for the user.
+pub async fn get_rig_provider(
+    client: &Client,
+    user_id: Uuid,
+    id: Uuid,
+) -> Result<Option<RigProviderWithConfig>, String> {
+    get_rig_provider_row(client, user_id, id)
+        .await?
+        .map(rig_provider_from_row)
+        .transpose()
+        .map_err(|e| e.to_string())
+}
+
+/// Create a Rig provider config: validate, persist the row with
+/// `harness = "rig"`, and write the `{uuid}.rig.json` config file.
+pub async fn create_rig_provider(
+    client: &Client,
+    user_id: Uuid,
+    config_root: &Path,
+    cfg: RigProviderConfig,
+) -> Result<RigProviderWithConfig, String> {
+    cfg.validate()?;
+    let config_body = serde_json::to_string(&cfg).map_err(|e| e.to_string())?;
+    let id = Uuid::new_v4();
+    let now = chrono::Utc::now().naive_utc().to_string();
+    client
+        .execute(
+            "INSERT INTO user_model_configs (id, user_id, name, config_body, harness, created_at, updated_at) \
+             VALUES ($1, $2, $3, $4, $5, $6, $7)",
+            hiqlite::params!(
+                id.to_string(),
+                user_id.to_string(),
+                cfg.name.clone(),
+                &config_body,
+                RIG_HARNESS,
+                &now,
+                &now
+            ),
+        )
+        .await
+        .map_err(|e| e.to_string())?;
+
+    write_rig_provider_config_file(config_root, &id, &config_body);
+
+    get_rig_provider(client, user_id, id)
+        .await
+        .map_err(|e| e.to_string())?
+        .ok_or_else(|| "created rig provider not found".to_string())
+}
+
+/// Update a Rig provider config and resync its config file.
+pub async fn update_rig_provider(
+    client: &Client,
+    user_id: Uuid,
+    config_root: &Path,
+    id: Uuid,
+    cfg: RigProviderConfig,
+) -> Result<Option<RigProviderWithConfig>, String> {
+    cfg.validate()?;
+    let config_body = serde_json::to_string(&cfg).map_err(|e| e.to_string())?;
+    let now = chrono::Utc::now().naive_utc().to_string();
+    let rows = client
+        .execute(
+            "UPDATE user_model_configs SET name = $1, config_body = $2, updated_at = $3 \
+             WHERE id = $4 AND user_id = $5 AND harness = 'rig'",
+            hiqlite::params!(
+                cfg.name.clone(),
+                &config_body,
+                &now,
+                id.to_string(),
+                user_id.to_string()
+            ),
+        )
+        .await
+        .map_err(|e| e.to_string())?;
+    if rows == 0 {
+        return Ok(None);
+    }
+
+    write_rig_provider_config_file(config_root, &id, &config_body);
+
+    get_rig_provider(client, user_id, id)
+        .await
+        .map_err(|e| e.to_string())
+}
+
+/// Delete a Rig provider config and its config file.
+pub async fn delete_rig_provider(
+    client: &Client,
+    user_id: Uuid,
+    config_root: &Path,
+    id: Uuid,
+) -> Result<bool, String> {
+    let rows = client
+        .execute(
+            "DELETE FROM user_model_configs WHERE id = $1 AND user_id = $2 AND harness = 'rig'",
+            hiqlite::params!(id.to_string(), user_id.to_string()),
+        )
+        .await
+        .map_err(|e| e.to_string())?;
+    if rows > 0 {
+        remove_rig_provider_config_file(config_root, &id);
+    }
+    Ok(rows > 0)
+}
+
+/// The model ids saved on a Rig provider config — the source for the Agent
+/// Settings model dropdown. (Live fetching from a provider's OpenAPI
+/// model-listing endpoint is a RIG 1 concern.)
+pub async fn get_rig_provider_models(
+    client: &Client,
+    user_id: Uuid,
+    id: Uuid,
+) -> Result<Vec<String>, String> {
+    let provider = get_rig_provider(client, user_id, id)
+        .await?
+        .ok_or_else(|| "rig provider not found".to_string())?;
+    Ok(provider.config.available_models())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::collections::HashMap;
+    use tempfile::TempDir;
+
+    struct TestCtx {
+        client: hiqlite::Client,
+        user_id: Uuid,
+        config_root: std::path::PathBuf,
+        _tmp: TempDir,
+    }
+
+    async fn setup() -> TestCtx {
+        let tmp = TempDir::new().unwrap();
+        let config = hiqlite::NodeConfig {
+            node_id: 1,
+            nodes: vec![hiqlite::Node {
+                id: 1,
+                addr_raft: "127.0.0.1:0".into(),
+                addr_api: "127.0.0.1:0".into(),
+            }],
+            data_dir: tmp.path().to_str().unwrap().to_string().into(),
+            secret_raft: "test-raft-secret-123".into(),
+            secret_api: "test-api-secret-123".into(),
+            ..Default::default()
+        };
+        let client = hiqlite::start_node(config).await.unwrap();
+        client.wait_until_healthy_db().await;
+        crate::db::run_migrations(&client).await.unwrap();
+        let user_id = crate::db::ensure_default_user(&client).await.unwrap();
+        let config_root = tmp.path().join("config");
+        std::fs::create_dir_all(&config_root).unwrap();
+        TestCtx {
+            client,
+            user_id,
+            config_root,
+            _tmp: tmp,
+        }
+    }
+
+    fn sample_rig(vendor: crate::providers::rig_config::RigVendor) -> RigProviderConfig {
+        RigProviderConfig {
+            name: "test-provider".into(),
+            vendor,
+            base_url: Some("https://example.com/v1".into()),
+            api_key: Some("sk-123".into()),
+            model_list_mode: crate::providers::rig_config::ModelListMode::Manual(vec![
+                "gpt-4".into(),
+                "gpt-4o".into(),
+            ]),
+            models: vec!["gpt-4".into()],
+        }
+    }
+
+    #[tokio::test]
+    async fn test_rig_provider_crud_round_trip() {
+        let ctx = setup().await;
+        let created = create_rig_provider(
+            &ctx.client,
+            ctx.user_id,
+            &ctx.config_root,
+            sample_rig(crate::providers::rig_config::RigVendor::OpenAi),
+        )
+        .await
+        .unwrap();
+        assert_eq!(created.config.name, "test-provider");
+        assert_eq!(
+            created.config.vendor,
+            crate::providers::rig_config::RigVendor::OpenAi
+        );
+
+        // The config file is written as {uuid}.rig.json
+        let cfg_dir = ProviderConfigDir::new(&ctx.config_root);
+        let filename = format!("{}.rig.json", created.id);
+        assert!(cfg_dir.config_path(&filename).exists());
+        let loaded = cfg_dir.load_provider_config(&filename).unwrap();
+        assert_eq!(loaded.harness, "rig");
+
+        // Listing sees the provider
+        let listed = list_rig_providers(&ctx.client, ctx.user_id).await.unwrap();
+        assert_eq!(listed.len(), 1);
+        assert_eq!(listed[0].id, created.id);
+
+        // Models endpoint returns the manual list
+        let models = get_rig_provider_models(&ctx.client, ctx.user_id, created.id)
+            .await
+            .unwrap();
+        assert_eq!(models, vec!["gpt-4", "gpt-4o"]);
+
+        // Update the provider
+        let mut updated_cfg = created.config.clone();
+        updated_cfg.name = "renamed".into();
+        let updated = update_rig_provider(
+            &ctx.client,
+            ctx.user_id,
+            &ctx.config_root,
+            created.id,
+            updated_cfg,
+        )
+        .await
+        .unwrap()
+        .unwrap();
+        assert_eq!(updated.name, "renamed");
+
+        // Delete removes the row and the file
+        let deleted = delete_rig_provider(&ctx.client, ctx.user_id, &ctx.config_root, created.id)
+            .await
+            .unwrap();
+        assert!(deleted);
+        assert!(!cfg_dir.config_path(&filename).exists());
+        assert!(list_rig_providers(&ctx.client, ctx.user_id)
+            .await
+            .unwrap()
+            .is_empty());
+    }
+
+    #[tokio::test]
+    async fn test_create_rig_provider_rejects_invalid() {
+        let ctx = setup().await;
+        let mut cfg = sample_rig(crate::providers::rig_config::RigVendor::OpenAi);
+        cfg.model_list_mode = crate::providers::rig_config::ModelListMode::Manual(vec![]);
+        let result = create_rig_provider(&ctx.client, ctx.user_id, &ctx.config_root, cfg).await;
+        assert!(result.is_err());
+        assert!(list_rig_providers(&ctx.client, ctx.user_id)
+            .await
+            .unwrap()
+            .is_empty());
+    }
+
+    #[tokio::test]
+    async fn test_get_rig_provider_models_not_found() {
+        let ctx = setup().await;
+        let result = get_rig_provider_models(&ctx.client, ctx.user_id, Uuid::new_v4()).await;
+        assert!(result.is_err());
+        assert!(result.unwrap_err().contains("not found"));
+    }
+
+    #[test]
+    fn test_parse_model_config_id_rig() {
+        let id = Uuid::new_v4();
+        assert_eq!(
+            parse_model_config_id(&format!("{}.rig.json", id)).as_deref(),
+            Some(id.to_string().as_str())
+        );
+        assert_eq!(
+            parse_model_config_id(&format!("{}.json", id)).as_deref(),
+            Some(id.to_string().as_str())
+        );
+        assert_eq!(parse_model_config_id("global.json"), None);
+    }
+
+    #[tokio::test]
+    async fn test_upsert_agent_models_with_rig_harness() {
+        let ctx = setup().await;
+        let created = create_rig_provider(
+            &ctx.client,
+            ctx.user_id,
+            &ctx.config_root,
+            sample_rig(crate::providers::rig_config::RigVendor::Anthropic),
+        )
+        .await
+        .unwrap();
+
+        let mut models = HashMap::new();
+        models.insert(
+            "implementation".to_string(),
+            AgentModelSetting {
+                model_config_id: Some(created.id.to_string()),
+                model: Some("gpt-4".into()),
+                effort: Some("high".into()),
+            },
+        );
+        let saved = upsert_agent_models(&ctx.client, ctx.user_id, &ctx.config_root, models)
+            .await
+            .unwrap();
+        let setting = saved.get("implementation").unwrap();
+        assert_eq!(
+            setting.model_config_id.as_deref(),
+            Some(created.id.to_string().as_str())
+        );
+
+        // The agent_harness_configs row references the .rig.json file
+        let cfg_dir = ProviderConfigDir::new(&ctx.config_root);
+        assert!(cfg_dir
+            .config_path(&format!("{}.rig.json", created.id))
+            .exists());
+
+        // A model not in the saved list is rejected
+        let mut models = HashMap::new();
+        models.insert(
+            "review".to_string(),
+            AgentModelSetting {
+                model_config_id: Some(created.id.to_string()),
+                model: Some("not-a-model".into()),
+                effort: None,
+            },
+        );
+        let result = upsert_agent_models(&ctx.client, ctx.user_id, &ctx.config_root, models).await;
+        assert!(result.is_err());
+        assert!(result.unwrap_err().contains("not in provider"));
+    }
+
+    #[tokio::test]
+    async fn test_upsert_agent_models_rejects_unknown_config() {
+        let ctx = setup().await;
+        let mut models = HashMap::new();
+        models.insert(
+            "implementation".to_string(),
+            AgentModelSetting {
+                model_config_id: Some(Uuid::new_v4().to_string()),
+                model: Some("gpt-4".into()),
+                effort: None,
+            },
+        );
+        let saved = upsert_agent_models(&ctx.client, ctx.user_id, &ctx.config_root, models)
+            .await
+            .unwrap();
+        let setting = saved.get("implementation").unwrap();
+        // An unknown config id resolves to an empty ref (no file is written),
+        // which is the pre-existing opencode flow's behavior.
+        assert!(setting.model_config_id.is_none());
+    }
 }

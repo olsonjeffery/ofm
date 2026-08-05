@@ -75,6 +75,10 @@ pub fn webapp_protected_routes() -> Router<AppState> {
             get(settings_agent_settings_handler),
         )
         .route(
+            "/webapp/settings/providers-agents/rig-providers",
+            get(settings_rig_providers_handler),
+        )
+        .route(
             "/webapp/settings/import-export",
             get(settings_import_export_handler),
         )
@@ -253,6 +257,20 @@ async fn settings_agent_settings_handler(
         SettingsSection::ProvidersAgents,
         SettingsSubPage::AgentSettings,
         pages::settings::providers_agents::render(SettingsSubPage::AgentSettings),
+    )
+    .await
+}
+
+async fn settings_rig_providers_handler(
+    auth: AuthUser,
+    State(state): State<AppState>,
+) -> Html<String> {
+    render_settings(
+        &state,
+        &auth,
+        SettingsSection::ProvidersAgents,
+        SettingsSubPage::RigProviders,
+        pages::settings::rig_providers::render(SettingsSubPage::RigProviders),
     )
     .await
 }

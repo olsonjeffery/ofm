@@ -59,11 +59,13 @@ impl ProviderConfigDir {
         } else {
             raw_snippet
         };
-        let harness = if name.ends_with(".json") {
+        let harness = if name.ends_with(".rig.json") {
+            "rig"
+        } else if name.ends_with(".json") {
             "opencode"
         } else {
             return Err(ProviderError::Config(format!(
-                "unknown config type for '{name}': expected .json extension"
+                "unknown config type for '{name}': expected .json or .rig.json extension"
             )));
         };
         Ok(ProviderConfig {
@@ -92,6 +94,13 @@ impl ProviderConfigDir {
 pub fn merge_configs(base: &str, snippet: &ProviderConfig) -> Result<String, ProviderError> {
     match snippet.harness.as_str() {
         "opencode" => merge_json_configs(base, &snippet.raw_snippet),
+        // Rig configs are fully typed `RigProviderConfig` values rather than
+        // opaque opencode snippets; merging one into an opencode base is not
+        // meaningful and must never happen (a rig config is never selected as
+        // an opencode harness). Keep the arm explicit and conservative.
+        "rig" => Err(ProviderError::Config(
+            "rig harness configs are typed and cannot be merged into an opencode base".into(),
+        )),
         other => Err(ProviderError::Config(format!(
             "unsupported harness for config merge: {other}"
         ))),
@@ -201,6 +210,48 @@ mod tests {
             .unwrap();
         let result = cfg_dir.load_provider_config("test.txt");
         assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_load_provider_config_rig_harness() {
+        let tmp = TempDir::new().unwrap();
+        let cfg_dir = ProviderConfigDir::new(tmp.path());
+        cfg_dir.ensure_exists().unwrap();
+        cfg_dir
+            .write_provider_config("abc.rig.json", r#"{"name": "rig-provider"}"#)
+            .unwrap();
+        let loaded = cfg_dir.load_provider_config("abc.rig.json").unwrap();
+        assert_eq!(loaded.harness, "rig");
+        assert!(loaded.raw_snippet.contains("rig-provider"));
+    }
+
+    #[test]
+    fn test_load_provider_config_opencode_harness() {
+        let tmp = TempDir::new().unwrap();
+        let cfg_dir = ProviderConfigDir::new(tmp.path());
+        cfg_dir.ensure_exists().unwrap();
+        cfg_dir
+            .write_provider_config("abc.json", r#"{"model": "claude-3"}"#)
+            .unwrap();
+        let loaded = cfg_dir.load_provider_config("abc.json").unwrap();
+        assert_eq!(loaded.harness, "opencode");
+    }
+
+    #[test]
+    fn test_merge_configs_rig_arm_conservative() {
+        let snippet = ProviderConfig {
+            harness: "rig".into(),
+            config_ref: "abc.rig.json".into(),
+            raw_snippet: r#"{"name": "rig-provider"}"#.into(),
+        };
+        let result = merge_configs(r#"{"model": "claude-3"}"#, &snippet);
+        assert!(result.is_err());
+        let err = result.unwrap_err().to_string();
+        assert!(err.contains("rig"), "error should mention rig: {err}");
+        assert!(
+            err.contains("cannot be merged"),
+            "error should explain the rig arm: {err}"
+        );
     }
 
     #[test]
