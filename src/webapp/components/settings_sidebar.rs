@@ -5,16 +5,19 @@ pub enum SettingsSection {
     ProvidersAgents,
     ImportExport,
     Account,
+    Admin,
 }
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum SettingsSubPage {
     ModelConfig,
+    RigProviders,
     AgentSettings,
     Export,
     Import,
     UserConfig,
     ApiKeys,
+    Groups,
 }
 
 impl SettingsSection {
@@ -23,6 +26,7 @@ impl SettingsSection {
             SettingsSection::ProvidersAgents => "Providers & Agents",
             SettingsSection::ImportExport => "Import/Export",
             SettingsSection::Account => "Account",
+            SettingsSection::Admin => "Admin",
         }
     }
 
@@ -30,6 +34,7 @@ impl SettingsSection {
         match self {
             SettingsSection::ProvidersAgents => &[
                 (SettingsSubPage::ModelConfig, "Model Configurations"),
+                (SettingsSubPage::RigProviders, "Rig-based Providers"),
                 (SettingsSubPage::AgentSettings, "Agent Settings"),
             ],
             SettingsSection::ImportExport => &[
@@ -40,6 +45,7 @@ impl SettingsSection {
                 (SettingsSubPage::UserConfig, "User Config"),
                 (SettingsSubPage::ApiKeys, "API Keys"),
             ],
+            SettingsSection::Admin => &[(SettingsSubPage::Groups, "Groups & Organizations")],
         }
     }
 }
@@ -48,11 +54,13 @@ impl SettingsSubPage {
     pub fn href(self) -> &'static str {
         match self {
             SettingsSubPage::ModelConfig => "/webapp/settings/providers-agents/model-config",
+            SettingsSubPage::RigProviders => "/webapp/settings/providers-agents/rig-providers",
             SettingsSubPage::AgentSettings => "/webapp/settings/providers-agents/agent-settings",
             SettingsSubPage::Export => "/webapp/settings/import-export/export",
             SettingsSubPage::Import => "/webapp/settings/import-export/import",
             SettingsSubPage::UserConfig => "/webapp/settings/account/user-config",
             SettingsSubPage::ApiKeys => "/webapp/settings/account/api-keys",
+            SettingsSubPage::Groups => "/webapp/settings/admin/groups",
         }
     }
 }
@@ -94,10 +102,15 @@ mod tests {
 
     #[test]
     fn test_providers_agents_section_is_section_local() {
-        for active in [SettingsSubPage::ModelConfig, SettingsSubPage::AgentSettings] {
+        for active in [
+            SettingsSubPage::ModelConfig,
+            SettingsSubPage::RigProviders,
+            SettingsSubPage::AgentSettings,
+        ] {
             let html = render(SettingsSection::ProvidersAgents, active);
             assert!(html.contains("menu-label"));
             assert!(html.contains("Model Configurations"));
+            assert!(html.contains("Rig-based Providers"));
             assert!(html.contains("Agent Settings"));
             assert!(!html.contains("Export"));
             assert!(!html.contains("Import"));
@@ -115,6 +128,7 @@ mod tests {
             assert!(html.contains("Import"));
             assert!(!html.contains("Model Configurations"));
             assert!(!html.contains("Agent Settings"));
+            assert!(!html.contains("Rig-based Providers"));
             assert!(!html.contains("API Keys"));
         }
     }
@@ -128,9 +142,24 @@ mod tests {
             assert!(html.contains("API Keys"));
             assert!(!html.contains("Model Configurations"));
             assert!(!html.contains("Agent Settings"));
+            assert!(!html.contains("Rig-based Providers"));
             assert!(!html.contains("Export"));
             assert!(!html.contains("Import"));
         }
+    }
+
+    #[test]
+    fn test_admin_section_is_section_local() {
+        let html = render(SettingsSection::Admin, SettingsSubPage::Groups);
+        assert!(html.contains("menu-label"));
+        assert!(html.contains("Groups &amp; Organizations"));
+        assert!(!html.contains("Model Configurations"));
+        assert!(!html.contains("Agent Settings"));
+        assert!(!html.contains("Rig-based Providers"));
+        assert!(!html.contains("Export"));
+        assert!(!html.contains("Import"));
+        assert!(!html.contains("API Keys"));
+        assert!(!html.contains("User Config"));
     }
 
     #[test]
@@ -147,6 +176,9 @@ mod tests {
 
         let html = render(SettingsSection::Account, SettingsSubPage::UserConfig);
         assert!(html.contains("Account"));
+
+        let html = render(SettingsSection::Admin, SettingsSubPage::Groups);
+        assert!(html.contains("Admin"));
     }
 
     #[test]
@@ -161,6 +193,11 @@ mod tests {
                 SettingsSection::ProvidersAgents,
                 SettingsSubPage::AgentSettings,
                 "/webapp/settings/providers-agents/agent-settings",
+            ),
+            (
+                SettingsSection::ProvidersAgents,
+                SettingsSubPage::RigProviders,
+                "/webapp/settings/providers-agents/rig-providers",
             ),
             (
                 SettingsSection::ImportExport,
@@ -181,6 +218,11 @@ mod tests {
                 SettingsSection::Account,
                 SettingsSubPage::ApiKeys,
                 "/webapp/settings/account/api-keys",
+            ),
+            (
+                SettingsSection::Admin,
+                SettingsSubPage::Groups,
+                "/webapp/settings/admin/groups",
             ),
         ];
         for (section, active, expected_href) in cases {
@@ -204,10 +246,15 @@ mod tests {
                 SettingsSection::ProvidersAgents,
                 SettingsSubPage::AgentSettings,
             ),
+            (
+                SettingsSection::ProvidersAgents,
+                SettingsSubPage::RigProviders,
+            ),
             (SettingsSection::ImportExport, SettingsSubPage::Export),
             (SettingsSection::ImportExport, SettingsSubPage::Import),
             (SettingsSection::Account, SettingsSubPage::UserConfig),
             (SettingsSection::Account, SettingsSubPage::ApiKeys),
+            (SettingsSection::Admin, SettingsSubPage::Groups),
         ] {
             let html = render(section, active);
             assert_eq!(

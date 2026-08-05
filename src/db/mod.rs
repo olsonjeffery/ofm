@@ -217,6 +217,42 @@ const MIGRATIONS: &[(&str, &str)] = &[
         "sessions_add_access_token",
         "ALTER TABLE sessions ADD COLUMN access_token TEXT NOT NULL DEFAULT ''",
     ),
+    (
+        "create_groups",
+        "CREATE TABLE IF NOT EXISTS groups (
+            id TEXT PRIMARY KEY,
+            name TEXT NOT NULL UNIQUE,
+            is_org INTEGER NOT NULL DEFAULT 0,
+            is_oauth_scope INTEGER NOT NULL DEFAULT 0,
+            title TEXT NOT NULL DEFAULT '',
+            description TEXT NOT NULL DEFAULT '',
+            owner_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+            created_by TEXT NOT NULL DEFAULT '',
+            created_at TEXT NOT NULL DEFAULT ''
+        )",
+    ),
+    (
+        "create_group_members",
+        "CREATE TABLE IF NOT EXISTS group_members (
+            id TEXT PRIMARY KEY,
+            group_id TEXT NOT NULL REFERENCES groups(id) ON DELETE CASCADE,
+            user_id TEXT REFERENCES users(id) ON DELETE CASCADE,
+            member_group_id TEXT REFERENCES groups(id) ON DELETE CASCADE,
+            level TEXT NOT NULL DEFAULT 'read-only',
+            created_at TEXT NOT NULL DEFAULT '',
+            CHECK ( (user_id IS NOT NULL) OR (member_group_id IS NOT NULL) ),
+            UNIQUE(group_id, user_id),
+            UNIQUE(group_id, member_group_id)
+        )",
+    ),
+    (
+        "users_add_scopes",
+        "ALTER TABLE users ADD COLUMN scopes TEXT NOT NULL DEFAULT ''",
+    ),
+    (
+        "drop_project_members",
+        "DROP TABLE IF EXISTS project_members",
+    ),
 ];
 
 pub async fn run_migrations(client: &Client) -> Result<usize, Box<dyn std::error::Error>> {
@@ -278,6 +314,76 @@ pub async fn ensure_default_user(client: &Client) -> Result<Uuid, Box<dyn std::e
         )
         .await?;
     Ok(id)
+}
+
+/// Idempotent bootstrap seed for the built-in `admins` group (created once per
+/// footprint). Runs at startup alongside `ensure_default_user`:
+///
+/// - Creates the `groups` row named `"admins"` if absent.
+/// - Backfills the initial `admin`-level membership from whichever user is
+///   currently `is_admin=1` if the membership row is absent.
+///
+/// The group owner is the same ofm admin user; because the admin row may be
+/// created *after* the first seed (first login), this function must be safe to
+/// re-run on every startup.
+pub async fn ensure_admins_group(client: &Client) -> Result<(), Box<dyn std::error::Error>> {
+    let now = chrono::Utc::now().format("%Y-%m-%d %H:%M:%S").to_string();
+
+    // There is always at least one admin: `ensure_default_user` (which `main`
+    // calls first) seeds a `default` row with `is_admin=1`. Prefer the first
+    // admin row so the membership points at a real, current admin.
+    let mut admin_rows = client
+        .query_raw(
+            "SELECT id, username FROM users WHERE is_admin = 1 ORDER BY created_at, id LIMIT 1",
+            hiqlite::params!(),
+        )
+        .await?;
+    let (admin_id, admin_username) = if let Some(row) = admin_rows.first_mut() {
+        (row.get::<String>("id"), row.get::<String>("username"))
+    } else {
+        tracing::warn!("ensure_admins_group: no admin user found; skipping seed");
+        return Ok(());
+    };
+
+    let group_id = {
+        let mut rows = client
+            .query_raw(
+                "SELECT id FROM groups WHERE name = 'admins'",
+                hiqlite::params!(),
+            )
+            .await?;
+        if let Some(row) = rows.first_mut() {
+            row.get::<String>("id")
+        } else {
+            let id = Uuid::new_v4().to_string();
+            client
+                .execute(
+                    "INSERT INTO groups (id, name, is_org, is_oauth_scope, title, description, owner_id, created_by, created_at) \
+                     VALUES ($1, 'admins', 0, 0, 'Admins', '', $2, $3, $4)",
+                    hiqlite::params!(id.clone(), admin_id.clone(), admin_username.clone(), now.clone()),
+                )
+                .await?;
+            id
+        }
+    };
+
+    let mut member_rows = client
+        .query_raw(
+            "SELECT id FROM group_members WHERE group_id = $1 AND user_id = $2 AND level = 'admin'",
+            hiqlite::params!(group_id.clone(), admin_id.clone()),
+        )
+        .await?;
+    if member_rows.first_mut().is_none() {
+        client
+            .execute(
+                "INSERT INTO group_members (id, group_id, user_id, member_group_id, level, created_at) \
+                 VALUES ($1, $2, $3, NULL, 'admin', $4)",
+                hiqlite::params!(Uuid::new_v4().to_string(), group_id, admin_id, now),
+            )
+            .await?;
+    }
+
+    Ok(())
 }
 
 /// All OIDC subjects currently bound to user rows. `main` calls this right
