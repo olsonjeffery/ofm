@@ -38,7 +38,8 @@ completion handler, state machine transitions, and agent prompt builders for
 planning, implementation, review, and PR are implemented. A designated
 library prompt (project-scoped or global per `agent_type`) replaces the stock
 template in `start_next_agent` (`src/orchestration/mod.rs`), with the template
-builders retained as the fallback path. The full
+builders retained as the fallback path. Global designations are admin-only
+while project designations require write access to the target project. The full
 implementation/review agent loop wiring (chaining through the completion
 handler) is partially wired; the reference is retained for the remaining
 end-to-end lifecycle details.

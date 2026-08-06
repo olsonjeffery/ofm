@@ -355,17 +355,33 @@ where
 
     fn call(&mut self, request: Request<axum::body::Body>) -> Self::Future {
         if !self.layer.enabled {
-            let auth_user = AuthUser {
-                user_id: self.layer.default_user_id,
-                username: String::new(),
-                oidc_subject: None,
-                is_admin: false,
-                is_technical: false,
-            };
-            let (mut parts, body) = request.into_parts();
-            parts.extensions.insert(auth_user);
-            let request = Request::from_parts(parts, body);
-            return Box::pin(self.inner.call(request));
+            // Act as the default user with its real DB attributes (notably
+            // `is_admin`), so admin-gated endpoints behave correctly in tests.
+            let layer = self.layer.clone();
+            let mut inner = self.inner.clone();
+            return Box::pin(async move {
+                let auth_user = match layer
+                    .db
+                    .query_map_one::<User, _>(
+                        "SELECT * FROM users WHERE id = $1",
+                        hiqlite::params!(layer.default_user_id.to_string()),
+                    )
+                    .await
+                {
+                    Ok(user) => AuthUser::from(user),
+                    Err(_) => AuthUser {
+                        user_id: layer.default_user_id,
+                        username: String::new(),
+                        oidc_subject: None,
+                        is_admin: false,
+                        is_technical: false,
+                    },
+                };
+                let (mut parts, body) = request.into_parts();
+                parts.extensions.insert(auth_user);
+                let request = Request::from_parts(parts, body);
+                inner.call(request).await
+            });
         }
 
         let layer = self.layer.clone();

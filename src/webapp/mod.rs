@@ -473,9 +473,7 @@ async fn prompt_detail_handler(
     let prompt = services::prompts::get_prompt(&state.db, &id)
         .await
         .map_err(|e| ServerError::NotFound(e.to_string()))?;
-    let visible =
-        prompt.is_static || prompt.is_shared || prompt.owner_user_id == Some(auth.user_id);
-    if !visible {
+    if !services::prompts::prompt_visible(&prompt, &auth.user_id) {
         return Err(ServerError::NotFound("Prompt not found".into()));
     }
     let children = services::prompts::get_children(&state.db, &id)

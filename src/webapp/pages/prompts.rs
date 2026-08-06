@@ -3,15 +3,7 @@ use std::collections::HashMap;
 use leptos::prelude::*;
 use uuid::Uuid;
 
-use crate::db::schema::{Prompt, PromptKind};
-
-fn kind_label(kind: &PromptKind) -> &'static str {
-    match kind {
-        PromptKind::Snippet => "snippet",
-        PromptKind::Composite => "composite",
-        PromptKind::Static => "static",
-    }
-}
+use crate::db::schema::Prompt;
 
 fn truncate(content: &str, max: usize) -> String {
     let trimmed = content.trim();
@@ -70,7 +62,7 @@ pub fn PromptsPage(
                 view! {
                     <div class="columns is-multiline">
                         {prompts.into_iter().map(|prompt| {
-                            let kind = kind_label(&prompt.kind);
+                            let kind = prompt.kind.label();
                             let filter = if prompt.is_shared || prompt.is_static {
                                 format!("{} shared", kind)
                             } else {
@@ -205,6 +197,7 @@ pub fn PromptsPage(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::db::schema::PromptKind;
 
     fn make_prompt(id: &str, kind: PromptKind, title: &str) -> Prompt {
         Prompt {

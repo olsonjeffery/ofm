@@ -326,7 +326,12 @@ against the token allowlist and dash-based-name tag grammar at create/update
 time (non-destructive); static templates are exempt because they use extra,
 non-standard tokens. The 6 `templates/*.md` files are seeded as immutable
 `kind='static'` rows by `db::ensure_static_prompts` at startup (visible to all,
-duplicable into a user's own snippet).
+duplicable into a user's own snippet). Designations are access-controlled at
+`POST/DELETE /api/prompts/.../assignments`: **global** designations (which
+resolve for every user's runs) are admin-only, while **project** designations
+require write access to the target project; the designated prompt must itself
+be visible to the caller. The `/preview` endpoint only substitutes a task's
+context when that task belongs to the authorized project.
 
 ## YAML Config Overlay
 

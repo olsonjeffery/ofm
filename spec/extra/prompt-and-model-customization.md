@@ -25,7 +25,9 @@ makes both **configurable** — the *what an agent says* and the *what runs it*.
 > prompt-override layer is **implemented as a database-backed Prompt Library**
 > (`prompts`/`prompt_children`/`prompt_assignments` tables, `src/prompts/`
 > render engine, `src/services/prompts.rs`, `/webapp/prompts` + per-prompt
-> Builder, and designation via `/api/prompts/*/assignments`). The original
+> Builder, and designation via `/api/prompts/*/assignments`). Global
+> designations are admin-only; project designations require write access to the
+> target project. The original
 > two-tier file loader (`~/.ofm/prompts/` overrides + `GET/PUT/DELETE
 > /api/settings/prompts`) described below is **superseded** by the library and
 > is retained here only as historical reference.

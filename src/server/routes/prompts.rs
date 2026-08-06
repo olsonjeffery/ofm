@@ -141,12 +141,6 @@ async fn create_prompt(
     Ok((StatusCode::CREATED, Json(prompt)))
 }
 
-/// Prompt is visible when it is the caller's own, shared, or static. Anything
-/// else is treated as not found so its existence is never leaked.
-fn prompt_visible(prompt: &Prompt, auth: &AuthUser) -> bool {
-    prompt.is_static || prompt.is_shared || prompt.owner_user_id == Some(auth.user_id)
-}
-
 async fn get_prompt(
     auth: AuthUser,
     State(state): State<AppState>,
@@ -155,7 +149,7 @@ async fn get_prompt(
     let prompt = prompts::get_prompt(&state.db, &id)
         .await
         .map_err(map_prompt_error)?;
-    if !prompt_visible(&prompt, &auth) {
+    if !prompts::prompt_visible(&prompt, &auth.user_id) {
         return Err(ServerError::NotFound("Prompt not found".into()));
     }
     let children = prompts::get_children(&state.db, &id)
@@ -219,7 +213,7 @@ async fn duplicate_prompt(
     let existing = prompts::get_prompt(&state.db, &id)
         .await
         .map_err(map_prompt_error)?;
-    if !prompt_visible(&existing, &auth) {
+    if !prompts::prompt_visible(&existing, &auth.user_id) {
         return Err(ServerError::NotFound("Prompt not found".into()));
     }
     let prompt = prompts::duplicate_prompt(&state.db, &auth.user_id, &id)
@@ -229,18 +223,10 @@ async fn duplicate_prompt(
 }
 
 async fn validate_prompt_content(
-    auth: AuthUser,
-    State(state): State<AppState>,
     Json(body): Json<ValidatePromptRequest>,
 ) -> Result<Json<ValidatePromptResponse>, ServerError> {
-    let _ = (auth, state);
-    let unknown_tokens = crate::prompts::validate(&body.content);
     let tags = body.tags.unwrap_or_default();
-    let invalid_tags: Vec<String> = tags
-        .iter()
-        .filter(|t| !crate::prompts::validate_tag(t))
-        .cloned()
-        .collect();
+    let (unknown_tokens, invalid_tags) = prompts::validation_report(&body.content, &tags);
     Ok(Json(ValidatePromptResponse {
         valid: unknown_tokens.is_empty() && invalid_tags.is_empty(),
         unknown_tokens,
@@ -270,11 +256,23 @@ async fn create_assignment(
 ) -> Result<(StatusCode, Json<PromptAssignment>), ServerError> {
     let agent_type = AgentType::from_str(&body.agent_type).map_err(ServerError::BadRequest)?;
     let scope_type = ScopeType::from_str(&body.scope_type).map_err(ServerError::BadRequest)?;
+    if scope_type == ScopeType::Global && !auth.is_admin {
+        return Err(ServerError::Forbidden(
+            "Only admins can designate prompts globally".into(),
+        ));
+    }
     if scope_type == ScopeType::Project {
         let project_id = body.project_id.ok_or_else(|| {
             ServerError::BadRequest("project_id is required for project scope".into())
         })?;
         super::projects::authorized_project(&state, &auth, project_id, true).await?;
+    }
+    // A prompt the caller cannot even see must not be designable.
+    let prompt = prompts::get_prompt(&state.db, &id)
+        .await
+        .map_err(map_prompt_error)?;
+    if !prompts::prompt_visible(&prompt, &auth.user_id) {
+        return Err(ServerError::NotFound("Prompt not found".into()));
     }
     prompts::validate_assignment_target(&state.db, &id)
         .await
@@ -300,13 +298,21 @@ async fn delete_assignment(
     State(state): State<AppState>,
     Path(assignment_id): Path<Uuid>,
 ) -> Result<StatusCode, ServerError> {
-    // Re-fetch the assignment via the service's own list to gate project-scoped
-    // deletions on write access.
-    let all = prompts::list_assignments(&state.db, None)
+    let assignment = prompts::get_assignment(&state.db, &assignment_id)
         .await
-        .map_err(|e| ServerError::Internal(e.to_string()))?;
-    if let Some(assignment) = all.iter().find(|a| a.id == assignment_id) {
-        if assignment.scope_type == ScopeType::Project {
+        .map_err(map_prompt_error)?;
+    match assignment.scope_type {
+        ScopeType::Global | ScopeType::User | ScopeType::UserProject => {
+            // Only Global scopes are creatable today; the per-user scopes are
+            // future-proofing, and all of them resolve across users' runs, so
+            // removal is admin-only like a global designation.
+            if !auth.is_admin {
+                return Err(ServerError::Forbidden(
+                    "Only admins can remove global designations".into(),
+                ));
+            }
+        }
+        ScopeType::Project => {
             if let Some(project_id) = assignment.project_id {
                 super::projects::authorized_project(&state, &auth, project_id, true).await?;
             }
@@ -327,7 +333,7 @@ async fn preview_prompt(
     let prompt = prompts::get_prompt(&state.db, &id)
         .await
         .map_err(map_prompt_error)?;
-    if !prompt_visible(&prompt, &auth) {
+    if !prompts::prompt_visible(&prompt, &auth.user_id) {
         return Err(ServerError::NotFound("Prompt not found".into()));
     }
     let flattened = prompts::flattened_content(&state.db, &prompt)
@@ -346,8 +352,10 @@ async fn preview_prompt(
                 vars.tags = project.tags.join(", ");
                 if let Some(task_id) = query.task_id {
                     if let Ok(task) = services::tasks::get_task(&state.db, task_id).await {
-                        vars.task_id = task.id.to_string();
-                        vars.task_name = task.title.clone();
+                        if task.project_id == project_id {
+                            vars.task_id = task.id.to_string();
+                            vars.task_name = task.title.clone();
+                        }
                     }
                 }
             }

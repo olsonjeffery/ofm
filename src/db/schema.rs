@@ -467,6 +467,16 @@ impl std::str::FromStr for PromptKind {
     }
 }
 
+impl PromptKind {
+    pub fn label(&self) -> &'static str {
+        match self {
+            Self::Snippet => "snippet",
+            Self::Composite => "composite",
+            Self::Static => "static",
+        }
+    }
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Prompt {
     pub id: Uuid,

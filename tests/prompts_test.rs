@@ -13,6 +13,12 @@ use tokio::sync::Mutex;
 use uuid::Uuid;
 
 async fn setup_app() -> (String, tokio::task::JoinHandle<()>, hiqlite::Client, Uuid) {
+    setup_app_with_user(None).await
+}
+
+async fn setup_app_with_user(
+    acting_user: Option<Uuid>,
+) -> (String, tokio::task::JoinHandle<()>, hiqlite::Client, Uuid) {
     let tmp = TempDir::new().unwrap();
     let config = hiqlite::NodeConfig {
         node_id: 1,
@@ -31,12 +37,26 @@ async fn setup_app() -> (String, tokio::task::JoinHandle<()>, hiqlite::Client, U
     db::run_migrations(&client).await.unwrap();
     db::ensure_static_prompts(&client).await.unwrap();
     let user_id = db::ensure_default_user(&client).await.unwrap();
+    let acting_user = match acting_user {
+        Some(id) if id != user_id => {
+            client
+                .execute(
+                    "INSERT INTO users (id, username, is_admin, is_active, created_at) VALUES ($1, $2, 0, 1, '2024-01-01 00:00:00')",
+                    hiqlite::params!(id.to_string(), "regular-user"),
+                )
+                .await
+                .unwrap();
+            id
+        }
+        Some(id) => id,
+        None => user_id,
+    };
 
     let auth_layer = AuthLayer::disabled(
         client.clone(),
         b"test".to_vec(),
         cookie::Key::generate(),
-        user_id,
+        acting_user,
     );
     let state = AppState {
         cfg_port: 0,
@@ -358,6 +378,84 @@ async fn test_assignments_upsert_list_delete() {
 }
 
 #[tokio::test]
+async fn test_non_admin_cannot_create_or_delete_global_assignments() {
+    let (addr, _handle, client_db, _uid) = setup_app_with_user(Some(Uuid::new_v4())).await;
+    let created = create_snippet(&addr, "My prompt", "review content").await;
+    let id = created["id"].as_str().unwrap().to_string();
+
+    // Global designations affect every user, so they are admin-only.
+    let assign = client()
+        .post(format!("{addr}/api/prompts/{id}/assignments"))
+        .json(&serde_json::json!({
+            "agent_type": "review",
+            "scope_type": "global",
+            "project_id": null,
+        }))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(assign.status(), 403);
+
+    // Project-scoped designations remain available for the caller's own projects.
+    let project = client()
+        .post(format!("{addr}/api/projects"))
+        .json(&serde_json::json!({
+            "name": "my-project",
+            "repo_folder_path": "/tmp/my-repo",
+            "tags": [],
+        }))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(project.status(), 201);
+    let project_id = project.json::<serde_json::Value>().await.unwrap()["id"]
+        .as_i64()
+        .unwrap();
+    let assign = client()
+        .post(format!("{addr}/api/prompts/{id}/assignments"))
+        .json(&serde_json::json!({
+            "agent_type": "review",
+            "scope_type": "project",
+            "project_id": project_id,
+        }))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(assign.status(), 201);
+    let assignment_id = assign.json::<serde_json::Value>().await.unwrap()["id"]
+        .as_str()
+        .unwrap()
+        .to_string();
+
+    // The caller may remove their own project-scoped designation.
+    let del = client()
+        .delete(format!("{addr}/api/prompts/assignments/{assignment_id}"))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(del.status(), 204);
+
+    // Deleting a global designation is also admin-only. Seed one directly
+    // (acting as the system) and attempt removal as the non-admin.
+    let prompt_id = Uuid::parse_str(&id).unwrap();
+    let global = ofm::services::prompts::upsert_assignment(
+        &client_db,
+        &prompt_id,
+        &AgentType::Review,
+        &ofm::db::schema::ScopeType::Global,
+        None,
+    )
+    .await
+    .unwrap();
+    let del = client()
+        .delete(format!("{addr}/api/prompts/assignments/{}", global.id))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(del.status(), 403);
+}
+
+#[tokio::test]
 async fn test_plan_template_not_assignable() {
     let (addr, _handle, _client, _uid) = setup_app().await;
     let list = client()
@@ -523,6 +621,86 @@ async fn test_project_scoped_assignment_and_resolution() {
         .await
         .unwrap();
     assert_eq!(preview.status(), 200);
+}
+
+#[tokio::test]
+async fn test_preview_does_not_leak_task_from_other_project() {
+    let (addr, _handle, client_db, user_id) = setup_app().await;
+
+    let create_project = |name: &str| {
+        let addr = addr.clone();
+        let name = name.to_string();
+        async move {
+            let resp = client()
+                .post(format!("{addr}/api/projects"))
+                .json(&serde_json::json!({
+                    "name": name,
+                    "repo_folder_path": format!("/tmp/{name}-repo"),
+                    "tags": [],
+                }))
+                .send()
+                .await
+                .unwrap();
+            assert_eq!(resp.status(), 201);
+            resp.json::<serde_json::Value>().await.unwrap()["id"]
+                .as_i64()
+                .unwrap()
+        }
+    };
+    let project_a = create_project("project-a").await;
+    let project_b = create_project("project-b").await;
+
+    let snippet = create_snippet(&addr, "Task preview", "task={{taskName}} id={{taskId}}").await;
+    let snippet_id = snippet["id"].as_str().unwrap().to_string();
+
+    let task_a = ofm::services::tasks::create_task(
+        &client_db,
+        project_a,
+        &user_id,
+        "secret-task-a",
+        "pending",
+    )
+    .await
+    .unwrap();
+    let task_b = ofm::services::tasks::create_task(
+        &client_db,
+        project_b,
+        &user_id,
+        "secret-task-b",
+        "pending",
+    )
+    .await
+    .unwrap();
+
+    // A task from the authorized project renders.
+    let ok = client()
+        .get(format!(
+            "{addr}/api/prompts/{snippet_id}/preview?project_id={project_a}&task_id={}",
+            task_a.id
+        ))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(ok.status(), 200);
+    let body: serde_json::Value = ok.json().await.unwrap();
+    assert!(body["content"].as_str().unwrap().contains("secret-task-a"));
+
+    // A task from another project is not rendered (no cross-project leak).
+    let leak = client()
+        .get(format!(
+            "{addr}/api/prompts/{snippet_id}/preview?project_id={project_a}&task_id={}",
+            task_b.id
+        ))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(leak.status(), 200);
+    let body: serde_json::Value = leak.json().await.unwrap();
+    let rendered = body["content"].as_str().unwrap();
+    assert!(
+        !rendered.contains("secret-task-b"),
+        "preview must not render a task from another project"
+    );
 }
 
 #[tokio::test]

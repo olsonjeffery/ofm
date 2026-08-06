@@ -3,12 +3,15 @@ use uuid::Uuid;
 
 use crate::db::schema::{Prompt, PromptAssignment, PromptKind};
 
-fn kind_label(kind: &PromptKind) -> &'static str {
-    match kind {
-        PromptKind::Snippet => "snippet",
-        PromptKind::Composite => "composite",
-        PromptKind::Static => "static",
-    }
+/// Embed `json` inside a `<script>` element safely. Leptos does not escape text
+/// inside `<script>` tags, so `<`, `>` and `&` in user-controlled values would
+/// otherwise let a prompt title/content break out of the tag. Escaping them as
+/// JSON unicode escapes keeps the payload valid JSON (`JSON.parse` decodes them)
+/// while neutralising `</script>`.
+fn json_for_script(json: &str) -> String {
+    json.replace('<', "\\u003c")
+        .replace('>', "\\u003e")
+        .replace('&', "\\u0026")
 }
 
 #[component]
@@ -23,7 +26,7 @@ pub fn PromptDetailPage(
     let is_static = prompt.is_static;
     let owned = prompt.owner_user_id == Some(user_id);
     let is_composite = prompt.kind == PromptKind::Composite;
-    let kind = kind_label(&prompt.kind);
+    let kind = prompt.kind.label();
 
     let children_json = serde_json::to_string(
         &children
@@ -31,6 +34,7 @@ pub fn PromptDetailPage(
             .map(|c| serde_json::json!({ "id": c.id.to_string(), "title": c.title, "content": c.content }))
             .collect::<Vec<_>>(),
     )
+    .map(|s| json_for_script(&s))
     .unwrap_or_else(|_| "[]".into());
     let library_json = serde_json::to_string(
         &library
@@ -39,6 +43,7 @@ pub fn PromptDetailPage(
             .map(|l| serde_json::json!({ "id": l.id.to_string(), "title": l.title, "content": l.content }))
             .collect::<Vec<_>>(),
     )
+    .map(|s| json_for_script(&s))
     .unwrap_or_else(|_| "[]".into());
     let tags_value = prompt.tags.join(", ");
 
@@ -330,16 +335,46 @@ pub fn PromptDetailPage(
                     if(!sel.value)return;
                     var entry=window.__promptLibrary.filter(function(l){return l.id===sel.value;})[0];
                     if(!entry)return;
+                    // Build the row with DOM nodes + textContent so a malicious
+                    // prompt title can never execute or inject markup.
                     var row=document.createElement('div');
                     row.className='level is-mobile';
                     row.setAttribute('data-child-id',entry.id);
                     row.setAttribute('data-child-entry',JSON.stringify(entry));
-                    row.innerHTML='<div class="level-left"><span class="icon has-text-grey"><i class="mdi mdi-grip-vertical"></i></span><span>'+entry.title+'</span></div>'+
-                        '<div class="level-right"><div class="buttons are-small">'+
-                        '<button class="button is-light" data-child-up title="Move up"><span class="icon is-small"><i class="mdi mdi-arrow-up"></i></span></button>'+
-                        '<button class="button is-light" data-child-down title="Move down"><span class="icon is-small"><i class="mdi mdi-arrow-down"></i></span></button>'+
-                        '<button class="button is-danger is-light" data-child-remove title="Remove"><span class="icon is-small"><i class="mdi mdi-close"></i></span></button>'+
-                        '</div></div>';
+                    var left=document.createElement('div');
+                    left.className='level-left';
+                    var grip=document.createElement('span');
+                    grip.className='icon has-text-grey';
+                    var gripIcon=document.createElement('i');
+                    gripIcon.className='mdi mdi-grip-vertical';
+                    grip.appendChild(gripIcon);
+                    left.appendChild(grip);
+                    var title=document.createElement('span');
+                    title.textContent=entry.title;
+                    left.appendChild(title);
+                    var right=document.createElement('div');
+                    right.className='level-right';
+                    var buttons=document.createElement('div');
+                    buttons.className='buttons are-small';
+                    var mkButton=function(classes,attr,btnTitle){
+                        var b=document.createElement('button');
+                        b.className='button '+classes;
+                        b.setAttribute('data-'+attr,'');
+                        b.title=btnTitle;
+                        var span=document.createElement('span');
+                        span.className='icon is-small';
+                        var icon=document.createElement('i');
+                        icon.className='mdi mdi-'+attr;
+                        span.appendChild(icon);
+                        b.appendChild(span);
+                        return b;
+                    };
+                    buttons.appendChild(mkButton('is-light','child-up','Move up'));
+                    buttons.appendChild(mkButton('is-light','child-down','Move down'));
+                    buttons.appendChild(mkButton('is-danger is-light','child-remove','Remove'));
+                    right.appendChild(buttons);
+                    row.appendChild(left);
+                    row.appendChild(right);
                     document.getElementById('child-list').appendChild(row);
                     populateSelect();
                     renderPreview();
@@ -554,5 +589,37 @@ mod tests {
         assert!(html.contains("Child"));
         assert!(html.contains("composite-preview"));
         assert!(html.contains("add-child-select"));
+    }
+
+    #[test]
+    fn test_prompt_detail_escapes_user_content_in_script_json() {
+        let owner = Uuid::new_v4();
+        let composite = make_prompt(
+            "00000000-0000-0000-0000-000000000005",
+            PromptKind::Composite,
+            "Composite",
+        );
+        let mut evil = make_prompt(
+            "00000000-0000-0000-0000-000000000006",
+            PromptKind::Snippet,
+            "</script><script>alert(1)</script>",
+        );
+        evil.content = "content </script><script>alert(2)</script>".into();
+        let html = leptos::view! {
+            <PromptDetailPage
+                prompt=composite
+                children=vec![evil.clone()]
+                library=vec![evil]
+                assignments=Vec::new()
+                project_options=Vec::new()
+                user_id=owner
+            />
+        }
+        .to_html();
+        assert!(
+            !html.contains("</script><script>"),
+            "script-tag JSON must escape < so user content cannot break out"
+        );
+        assert!(html.contains(r"\u003c/script\u003e"));
     }
 }

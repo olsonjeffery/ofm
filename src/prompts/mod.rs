@@ -54,37 +54,46 @@ impl PromptVars {
     }
 }
 
+/// Parse a `{{token}}` placeholder starting at `i` (where `bytes[i..i+2]` is
+/// `{{`), returning the token text when well formed and the index the caller
+/// should resume scanning from. A token is a run of `[a-zA-Z0-9_]` inside
+/// double curly braces with optional surrounding whitespace.
+fn scan_token(bytes: &[u8], i: usize) -> (Option<String>, usize) {
+    let mut j = i + 2;
+    // skip leading whitespace inside the braces
+    while j < bytes.len() && (bytes[j] == b' ' || bytes[j] == b'\t') {
+        j += 1;
+    }
+    let start = j;
+    while j < bytes.len() && (bytes[j].is_ascii_alphanumeric() || bytes[j] == b'_') {
+        j += 1;
+    }
+    let end = j;
+    // skip trailing whitespace, then require the closing `}}`
+    let mut k = j;
+    while k < bytes.len() && (bytes[k] == b' ' || bytes[k] == b'\t') {
+        k += 1;
+    }
+    let valid = end > start && k + 1 < bytes.len() && bytes[k] == b'}' && bytes[k + 1] == b'}';
+    let token = valid.then(|| String::from_utf8_lossy(&bytes[start..end]).into_owned());
+    (token, k + 2)
+}
+
 /// Extract the unique `{{token}}` placeholders from `content`, preserving
-/// first-occurrence order. A token is a run of `[a-zA-Z0-9_]` inside double
-/// curly braces with optional surrounding whitespace.
+/// first-occurrence order.
 pub fn extract_tokens(content: &str) -> Vec<String> {
     let bytes = content.as_bytes();
     let mut tokens = Vec::new();
     let mut i = 0;
     while i + 1 < bytes.len() {
         if bytes[i] == b'{' && bytes[i + 1] == b'{' {
-            let mut j = i + 2;
-            // skip leading whitespace inside the braces
-            while j < bytes.len() && (bytes[j] == b' ' || bytes[j] == b'\t') {
-                j += 1;
-            }
-            let start = j;
-            while j < bytes.len() && (bytes[j].is_ascii_alphanumeric() || bytes[j] == b'_') {
-                j += 1;
-            }
-            let end = j;
-            // skip trailing whitespace, then require the closing `}}`
-            let mut k = j;
-            while k < bytes.len() && (bytes[k] == b' ' || bytes[k] == b'\t') {
-                k += 1;
-            }
-            if end > start && k + 1 < bytes.len() && bytes[k] == b'}' && bytes[k + 1] == b'}' {
-                let token = String::from_utf8_lossy(&bytes[start..end]).into_owned();
+            let (token, next) = scan_token(bytes, i);
+            if let Some(token) = token {
                 if !tokens.contains(&token) {
                     tokens.push(token);
                 }
             }
-            i = k + 2;
+            i = next;
         } else {
             i += 1;
         }
@@ -103,20 +112,13 @@ pub fn validate(content: &str) -> Vec<String> {
 
 /// Dash-based-name tag grammar: `^[a-z0-9]+(-[a-z0-9]+)*$`.
 pub fn validate_tag(tag: &str) -> bool {
-    if tag.is_empty() {
-        return false;
-    }
-    let mut parts = tag.split('-');
-    match parts.next() {
-        Some(first) if !first.is_empty() => {}
-        _ => return false,
-    }
-    tag.split('-').all(|part| {
-        !part.is_empty()
-            && part
-                .chars()
-                .all(|c| c.is_ascii_lowercase() || c.is_ascii_digit())
-    })
+    !tag.is_empty()
+        && tag.split('-').all(|part| {
+            !part.is_empty()
+                && part
+                    .chars()
+                    .all(|c| c.is_ascii_lowercase() || c.is_ascii_digit())
+        })
 }
 
 /// Render `content`, substituting every standard token with its variable value
@@ -127,21 +129,8 @@ pub fn render(content: &str, vars: &PromptVars) -> String {
     let mut i = 0;
     while i < bytes.len() {
         if i + 1 < bytes.len() && bytes[i] == b'{' && bytes[i + 1] == b'{' {
-            let mut j = i + 2;
-            while j < bytes.len() && (bytes[j] == b' ' || bytes[j] == b'\t') {
-                j += 1;
-            }
-            let start = j;
-            while j < bytes.len() && (bytes[j].is_ascii_alphanumeric() || bytes[j] == b'_') {
-                j += 1;
-            }
-            let end = j;
-            let mut k = j;
-            while k < bytes.len() && (bytes[k] == b' ' || bytes[k] == b'\t') {
-                k += 1;
-            }
-            if end > start && k + 1 < bytes.len() && bytes[k] == b'}' && bytes[k + 1] == b'}' {
-                let token = String::from_utf8_lossy(&bytes[start..end]).into_owned();
+            let (token, next) = scan_token(bytes, i);
+            if let Some(token) = token {
                 match vars.lookup(&token) {
                     Some(value) => out.push_str(value),
                     None => {
@@ -150,7 +139,7 @@ pub fn render(content: &str, vars: &PromptVars) -> String {
                         out.push_str("}}");
                     }
                 }
-                i = k + 2;
+                i = next;
             } else {
                 out.push(bytes[i] as char);
                 i += 1;

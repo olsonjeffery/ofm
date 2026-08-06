@@ -41,15 +41,22 @@ fn map_get_err(e: hiqlite::Error) -> PromptError {
     }
 }
 
-/// Validate user-authored content against the standard token allowlist and the
-/// dash-based-name tag grammar. Non-destructive — never mutates.
-pub fn validate_prompt_content(content: &str, tags: &[String]) -> Result<(), PromptError> {
+/// Unknown-token / invalid-tag report for `content`. Non-destructive — never
+/// mutates. Shared by the CRUD validators and the `/validate` endpoint.
+pub fn validation_report(content: &str, tags: &[String]) -> (Vec<String>, Vec<String>) {
     let unknown_tokens = prompts::validate(content);
     let invalid_tags: Vec<String> = tags
         .iter()
         .filter(|t| !prompts::validate_tag(t))
         .cloned()
         .collect();
+    (unknown_tokens, invalid_tags)
+}
+
+/// Validate user-authored content against the standard token allowlist and the
+/// dash-based-name tag grammar.
+pub fn validate_prompt_content(content: &str, tags: &[String]) -> Result<(), PromptError> {
+    let (unknown_tokens, invalid_tags) = validation_report(content, tags);
     if unknown_tokens.is_empty() && invalid_tags.is_empty() {
         Ok(())
     } else {
@@ -82,6 +89,13 @@ pub async fn get_prompt(client: &Client, id: &Uuid) -> Result<Prompt, PromptErro
         )
         .await
         .map_err(map_get_err)
+}
+
+/// Whether `prompt` is visible to `user_id`: it is the caller's own, shared
+/// with everyone, or a static template. Anything else is hidden (treated as
+/// not found by handlers so its existence is never leaked).
+pub fn prompt_visible(prompt: &Prompt, user_id: &Uuid) -> bool {
+    prompt.is_static || prompt.is_shared || prompt.owner_user_id == Some(*user_id)
 }
 
 /// The ordered child prompts of a composite (`parent_id`), by `position`.
@@ -347,7 +361,10 @@ pub async fn upsert_assignment(
     }
 }
 
-async fn get_assignment(client: &Client, id: &Uuid) -> Result<PromptAssignment, PromptError> {
+pub(crate) async fn get_assignment(
+    client: &Client,
+    id: &Uuid,
+) -> Result<PromptAssignment, PromptError> {
     client
         .query_map_one::<PromptAssignment, _>(
             "SELECT id, prompt_id, agent_type, scope_type, project_id, created_at FROM prompt_assignments WHERE id = $1",
@@ -425,10 +442,9 @@ pub async fn validate_assignment_target(
 pub async fn resolve_prompt_for_agent(
     client: &Client,
     agent_type: &AgentType,
-    user_id: &Uuid,
+    _user_id: &Uuid,
     project_id: i64,
 ) -> Result<Option<Prompt>, PromptError> {
-    let _ = user_id;
     let scopes: [(ScopeType, Option<i64>); 2] = [
         (ScopeType::Project, Some(project_id)),
         (ScopeType::Global, None),
