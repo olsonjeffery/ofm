@@ -298,6 +298,15 @@ const MIGRATIONS: &[(&str, &str)] = &[
         "CREATE UNIQUE INDEX IF NOT EXISTS idx_prompt_assignments_unique \
          ON prompt_assignments(agent_type, scope_type, COALESCE(project_id, -1))",
     ),
+    (
+        "idx_prompts_static_key_unique",
+        // Dedupe statics left behind by an earlier non-idempotent seed (one row
+        // per stable `static_key`), then enforce uniqueness so
+        // `ensure_static_prompts` can never double-seed on restart.
+        "DELETE FROM prompts WHERE is_static = 1 AND id NOT IN \
+            (SELECT MIN(id) FROM prompts WHERE is_static = 1 GROUP BY static_key); \
+         CREATE UNIQUE INDEX IF NOT EXISTS idx_prompts_static_key_unique ON prompts(static_key)",
+    ),
 ];
 
 pub async fn run_migrations(client: &Client) -> Result<usize, Box<dyn std::error::Error>> {
@@ -327,7 +336,10 @@ pub async fn run_migrations(client: &Client) -> Result<usize, Box<dyn std::error
         if applied.iter().any(|a| a == name) {
             continue;
         }
-        client.batch(*sql).await?;
+        let results = client.batch(*sql).await?;
+        if let Some(err) = results.into_iter().find_map(Result::err) {
+            return Err(format!("migration '{name}' failed: {err}").into());
+        }
         client
             .execute(
                 "INSERT INTO _migrations (name) VALUES ($1)",
@@ -434,9 +446,11 @@ pub async fn ensure_admins_group(client: &Client) -> Result<(), Box<dyn std::err
 /// Idempotent seed of the 6 built-in `templates/*.md` prompts as
 /// `kind='static'` rows owned by no user (`is_static=1`). Static prompts are
 /// immutable and visible to every user in the library; users may duplicate them
-/// into their own editable snippets. Seeding is keyed on a stable `static_key`
-/// so re-runs never insert duplicates. Called at startup after
-/// `ensure_admins_group` and from test helpers.
+/// into their own editable snippets. Seeding is keyed on a stable `static_key`;
+/// keys already present are skipped, so re-runs never insert duplicates
+/// (mirrors the check-then-insert shape of `ensure_default_user` /
+/// `ensure_admins_group`). Called at startup after `ensure_admins_group` and
+/// from test helpers.
 pub async fn ensure_static_prompts(client: &Client) -> Result<usize, Box<dyn std::error::Error>> {
     const STATIC_PROMPTS: &[(&str, &str, &str)] = &[
         (
@@ -467,12 +481,26 @@ pub async fn ensure_static_prompts(client: &Client) -> Result<usize, Box<dyn std
         ("pr", "Pull Request", include_str!("../../templates/pr.md")),
     ];
 
+    let mut rows = client
+        .query_raw(
+            "SELECT static_key FROM prompts WHERE static_key IS NOT NULL",
+            hiqlite::params!(),
+        )
+        .await?;
+    let mut existing: std::collections::HashSet<String> = rows
+        .iter_mut()
+        .filter_map(|row| row.get::<Option<String>>("static_key"))
+        .collect();
+
     let mut inserted = 0;
     let now = chrono::Utc::now().format("%Y-%m-%d %H:%M:%S").to_string();
     for (static_key, title, content) in STATIC_PROMPTS {
-        let rows = client
+        if !existing.insert((*static_key).to_string()) {
+            continue;
+        }
+        client
             .execute(
-                "INSERT OR IGNORE INTO prompts \
+                "INSERT INTO prompts \
                  (id, kind, title, content, owner_user_id, is_static, is_shared, static_key, created_at, updated_at) \
                  VALUES ($1, 'static', $2, $3, NULL, 1, 1, $4, $5, $5)",
                 hiqlite::params!(
@@ -484,7 +512,7 @@ pub async fn ensure_static_prompts(client: &Client) -> Result<usize, Box<dyn std
                 ),
             )
             .await?;
-        inserted += rows;
+        inserted += 1;
     }
     Ok(inserted)
 }
@@ -507,4 +535,141 @@ pub async fn oidc_subjects(client: &Client) -> Result<Vec<String>, Box<dyn std::
         }
     }
     Ok(subjects)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use tempfile::TempDir;
+
+    async fn make_client() -> (Client, TempDir) {
+        let db_dir = TempDir::new().unwrap();
+        let config = hiqlite::NodeConfig {
+            node_id: 1,
+            nodes: vec![hiqlite::Node {
+                id: 1,
+                addr_raft: "127.0.0.1:0".into(),
+                addr_api: "127.0.0.1:0".into(),
+            }],
+            data_dir: db_dir.path().to_str().unwrap().to_string().into(),
+            secret_raft: "test-raft-secret-123".into(),
+            secret_api: "test-api-secret-123".into(),
+            ..Default::default()
+        };
+        let client = hiqlite::start_node(config).await.unwrap();
+        client.wait_until_healthy_db().await;
+        (client, db_dir)
+    }
+
+    /// `ensure_static_prompts` must be idempotent: exactly 6 static rows after
+    /// the first seed, still 6 after any number of re-runs. Seeding check-then-
+    /// inserts keyed on `static_key` (and the unique index on `prompts(static_key)`
+    /// backstops it). The returned count is the number of rows actually inserted,
+    /// so re-runs report 0.
+    #[tokio::test]
+    async fn test_ensure_static_prompts_is_idempotent() {
+        let (client, _tmp) = make_client().await;
+        run_migrations(&client).await.unwrap();
+
+        let first = ensure_static_prompts(&client).await.unwrap();
+        assert_eq!(first, 6, "first seed inserts all 6 templates");
+
+        for _ in 0..3 {
+            let count = ensure_static_prompts(&client).await.unwrap();
+            assert_eq!(count, 0, "re-runs must not insert duplicate statics");
+        }
+
+        let mut rows = client
+            .query_raw(
+                "SELECT COUNT(*) AS cnt FROM prompts WHERE is_static = 1",
+                hiqlite::params!(),
+            )
+            .await
+            .unwrap();
+        let static_count: i64 = rows.first_mut().unwrap().get("cnt");
+        assert_eq!(static_count, 6);
+
+        // Each stable static_key maps to exactly one row.
+        let mut rows = client
+            .query_raw(
+                "SELECT static_key, COUNT(*) AS cnt FROM prompts WHERE is_static = 1 GROUP BY static_key",
+                hiqlite::params!(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(rows.len(), 6);
+        for row in rows.iter_mut() {
+            let cnt: i64 = row.get("cnt");
+            assert_eq!(cnt, 1);
+            assert!(!row.get::<String>("static_key").is_empty());
+        }
+    }
+
+    /// A footprint that already holds duplicate statics (from the pre-index
+    /// seed) must be repaired by the dedupe migration, not block startup.
+    #[tokio::test]
+    async fn test_static_key_migration_dedupes_existing_duplicates() {
+        let (client, _tmp) = make_client().await;
+        // Apply everything except the final index migration, then plant
+        // duplicate statics as the old buggy seed did, then finish migrating.
+        client
+            .execute(
+                "CREATE TABLE IF NOT EXISTS _migrations (
+                name TEXT PRIMARY KEY,
+                applied_at TEXT NOT NULL DEFAULT ''
+            )",
+                hiqlite::params!(),
+            )
+            .await
+            .unwrap();
+        for (name, sql) in MIGRATIONS {
+            if *name == "idx_prompts_static_key_unique" {
+                continue;
+            }
+            let results = client.batch(*sql).await.unwrap();
+            assert!(results.into_iter().all(|r| r.is_ok()));
+            client
+                .execute(
+                    "INSERT INTO _migrations (name) VALUES ($1)",
+                    hiqlite::params!(*name),
+                )
+                .await
+                .unwrap();
+        }
+        let now = chrono::Utc::now().format("%Y-%m-%d %H:%M:%S").to_string();
+        for key in ["planification", "implementation"] {
+            for _ in 0..3 {
+                client
+                    .execute(
+                        "INSERT INTO prompts (id, kind, title, content, owner_user_id, is_static, is_shared, static_key, created_at, updated_at) \
+                         VALUES ($1, 'static', 't', 'c', NULL, 1, 1, $2, $3, $3)",
+                        hiqlite::params!(Uuid::new_v4().to_string(), key, &now),
+                    )
+                    .await
+                    .unwrap();
+            }
+        }
+
+        // The final migration dedupes to one row per static_key and creates the
+        // unique index; a further seed then inserts the remaining 4 templates.
+        client.batch(MIGRATIONS.last().unwrap().1).await.unwrap();
+        let inserted = ensure_static_prompts(&client).await.unwrap();
+        assert_eq!(
+            inserted, 4,
+            "duplicated keys already exist; seed fills the rest"
+        );
+
+        let mut rows = client
+            .query_raw(
+                "SELECT static_key, COUNT(*) AS cnt FROM prompts WHERE is_static = 1 GROUP BY static_key",
+                hiqlite::params!(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(rows.len(), 6);
+        for row in rows.iter_mut() {
+            let cnt: i64 = row.get("cnt");
+            assert_eq!(cnt, 1, "each static_key must have exactly one row");
+        }
+    }
 }

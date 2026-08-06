@@ -284,8 +284,8 @@ pub fn PromptDetailPage(
                                 setTimeout(function(){ok.remove();},2000);
                             }else{
                                 var msgs=[];
-                                if(d.unknown_tokens&&d.unknown_tokens.length)msgs.push('Unknown tokens: '+d.unknown_tokens.join(', '));
-                                if(d.invalid_tags&&d.invalid_tags.length)msgs.push('Invalid tags: '+d.invalid_tags.join(', '));
+                                if(d.unknownTokens&&d.unknownTokens.length)msgs.push('Unknown tokens: '+d.unknownTokens.join(', '));
+                                if(d.invalidTags&&d.invalidTags.length)msgs.push('Invalid tags: '+d.invalidTags.join(', '));
                                 validationResult.textContent=msgs.join(' | ');
                                 validationResult.classList.remove('is-hidden');
                             }
@@ -395,10 +395,16 @@ pub fn PromptDetailPage(
                 var designateBtn=document.getElementById('designate-btn');
                 if(designateBtn)designateBtn.addEventListener('click',function(){
                     var scope=document.querySelector('input[name=designate-scope]:checked').value;
-                    var projectId=scope==='project'?document.getElementById('designate-project').value:null;
+                    var projectId=scope==='project'?parseInt(document.getElementById('designate-project').value,10):null;
                     apiCall('/api/prompts/'+promptId+'/assignments',{method:'POST',headers:{'Content-Type':'application/json'},
                         body:JSON.stringify({agent_type:document.getElementById('designate-agent-type').value,scope_type:scope,project_id:projectId})})
-                        .then(function(r){if(r.ok)window.location.reload();});
+                        .then(function(r){
+                            if(r.ok){window.location.reload();return;}
+                            r.json().then(function(d){
+                                alert('Designation failed: '+(d.error||('HTTP '+r.status)));
+                            }).catch(function(){alert('Designation failed (HTTP '+r.status+')');});
+                        })
+                        .catch(function(err){alert('Designation failed: '+err);});
                 });
                 document.addEventListener('click',function(e){
                     var del=e.target.closest('[data-assignment-delete]');
