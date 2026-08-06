@@ -130,7 +130,15 @@ pub fn ConversationList(
                             headers:{'Content-Type':'application/json'},
                             body:JSON.stringify({agent_type:agentType})
                         }).then(function(r){
-                            if(r.status===409){showMessage('Agent already running for this task');}
+                            if(r.status===409){
+                                r.text().then(function(body){
+                                    if(body.indexOf('max iterations')!==-1){
+                                        showMessage('This task hit the max agent-run cap. Reset the cap from the task page.');
+                                    }else{
+                                        showMessage('Agent already running for this task');
+                                    }
+                                }).catch(function(){showMessage('Agent already running for this task');});
+                            }
                             else if(r.status===403){showMessage('Provider credentials missing');}
                             else if(r.ok){window.location.reload();}
                             else{showMessage('Error starting agent');}

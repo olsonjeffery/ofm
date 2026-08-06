@@ -540,6 +540,32 @@ pub async fn mark_agent_run_failed(client: &Client, run_id: &Uuid) -> Result<(),
     set_agent_run_status(client, run_id, &RunStatus::Failed).await
 }
 
+/// Pre-mark a still-running agent run linked to `conversation_id` as failed the
+/// instant a mid-stream `ProviderEvent::Error` is seen, so the completion
+/// handler observes `status != running` and stops chaining instead of burning
+/// the iteration cap on a broken environment. Ports the reference
+/// implementation's `failLinkedAgentRunIfRunning` (see
+/// `spec/reference/server/services/conversation/startOpenCodeConversation.ts`).
+///
+/// The `status = 'running'` guard keeps it idempotent and prevents clobbering a
+/// `completed`/`failed` run. Returns whether a run was updated.
+pub async fn fail_linked_agent_run(
+    client: &Client,
+    conversation_id: &Uuid,
+) -> Result<bool, hiqlite::Error> {
+    let rows = client
+        .execute(
+            "UPDATE task_agent_runs SET status = $1 WHERE conversation_id = $2 AND status = $3",
+            hiqlite::params!(
+                RunStatus::Failed.to_string(),
+                conversation_id.to_string(),
+                RunStatus::Running.to_string()
+            ),
+        )
+        .await?;
+    Ok(rows > 0)
+}
+
 pub async fn sweep_running_agent_runs_to_failed(client: &Client) -> Result<usize, hiqlite::Error> {
     let now = utc_now();
     let rows = client
@@ -572,6 +598,62 @@ pub async fn mark_task_blocked(client: &Client, task_id: i64) -> Result<(), hiql
     client
         .execute(
             "UPDATE tasks SET workflow_blocked = 1 WHERE id = $1",
+            hiqlite::params!(task_id),
+        )
+        .await?;
+    Ok(())
+}
+
+/// Combined reset: zero the iteration counter and clear the server-only block
+/// marker in one action. Keeps history, worktree, and task id — "I want to keep
+/// this conversation and try again."
+pub async fn reset_task_cap(client: &Client, task_id: i64) -> Result<(), hiqlite::Error> {
+    client
+        .execute(
+            "UPDATE tasks SET workflow_run_count = 0, workflow_blocked = 0 WHERE id = $1",
+            hiqlite::params!(task_id),
+        )
+        .await?;
+    Ok(())
+}
+
+/// Reset with fresh history: delete the task's agent runs, conversations, and
+/// message transcripts, and reset every workflow flag and the run counter back
+/// to a pristine `pending`. Keeps task id, title, doc, and worktree — "this
+/// conversation is poisoned, start over on the same issue."
+///
+/// `messages` (`project_key = task id`) and `session_summaries` have no FK to
+/// `conversations`, so they must be deleted explicitly. `task_agent_runs`
+/// reference conversations with `ON DELETE SET NULL`, so runs are deleted
+/// before conversations.
+pub async fn reset_task_history(client: &Client, task_id: i64) -> Result<(), hiqlite::Error> {
+    client
+        .execute(
+            "DELETE FROM task_agent_runs WHERE task_id = $1",
+            hiqlite::params!(task_id),
+        )
+        .await?;
+    client
+        .execute(
+            "DELETE FROM messages WHERE project_key = $1",
+            hiqlite::params!(task_id),
+        )
+        .await?;
+    client
+        .execute(
+            "DELETE FROM session_summaries WHERE project_key = $1",
+            hiqlite::params!(task_id),
+        )
+        .await?;
+    client
+        .execute(
+            "DELETE FROM conversations WHERE task_id = $1",
+            hiqlite::params!(task_id),
+        )
+        .await?;
+    client
+        .execute(
+            "UPDATE tasks SET workflow_run_count = 0, workflow_blocked = 0, status = 'pending' WHERE id = $1",
             hiqlite::params!(task_id),
         )
         .await?;
@@ -637,6 +719,187 @@ mod tests {
 
         let task = get_task(&client, task_id).await.unwrap();
         assert!(task.workflow_blocked, "workflow_blocked");
+    }
+
+    #[tokio::test]
+    async fn test_reset_task_cap_zeroes_counter_and_clears_blocked() {
+        let (client, _tmp) = make_client().await;
+        let (_, task_id) = seed_task(&client).await;
+        client
+            .execute(
+                "UPDATE tasks SET workflow_run_count = 25, workflow_blocked = 1 WHERE id = $1",
+                hiqlite::params!(task_id),
+            )
+            .await
+            .unwrap();
+
+        reset_task_cap(&client, task_id).await.unwrap();
+
+        let task = get_task(&client, task_id).await.unwrap();
+        assert_eq!(task.workflow_run_count, 0);
+        assert!(!task.workflow_blocked);
+        assert_eq!(task.status, "pending", "reset-cap must not touch status");
+    }
+
+    async fn count_rows(client: &Client, table: &str, task_id: i64) -> i64 {
+        let sql = format!("SELECT COUNT(*) AS c FROM {table} WHERE task_id = $1");
+        let mut rows = client
+            .query_raw(sql, hiqlite::params!(task_id))
+            .await
+            .unwrap();
+        rows.first_mut().map(|r| r.get::<i64>("c")).unwrap_or(0)
+    }
+
+    async fn count_messages_for_task(client: &Client, task_id: i64) -> i64 {
+        let mut rows = client
+            .query_raw(
+                "SELECT COUNT(*) AS c FROM messages WHERE project_key = $1",
+                hiqlite::params!(task_id),
+            )
+            .await
+            .unwrap();
+        rows.first_mut().map(|r| r.get::<i64>("c")).unwrap_or(0)
+    }
+
+    #[tokio::test]
+    async fn test_reset_task_history_deletes_artifacts_and_resets_flags() {
+        let (client, _tmp) = make_client().await;
+        let (_, task_id) = seed_task(&client).await;
+
+        let conv_id = seed_running_run(&client, task_id, &AgentType::Implementation).await;
+        let session_id = format!("sess-{conv_id}");
+        seed_message(
+            &client,
+            task_id,
+            &session_id,
+            serde_json::json!({"type": "text", "text": "hello"}),
+        )
+        .await;
+        client
+            .execute(
+                "INSERT INTO session_summaries (project_key, session_id, mtime, summary_json) VALUES ($1, $2, $3, $4)",
+                hiqlite::params!(task_id, session_id, "2024-06-01 12:00:00", "{}"),
+            )
+            .await
+            .unwrap();
+        client
+            .execute(
+                "UPDATE tasks SET workflow_run_count = 10, workflow_blocked = 1, status = 'in_progress' WHERE id = $1",
+                hiqlite::params!(task_id),
+            )
+            .await
+            .unwrap();
+
+        reset_task_history(&client, task_id).await.unwrap();
+
+        assert_eq!(
+            count_rows(&client, "task_agent_runs", task_id).await,
+            0,
+            "agent runs deleted"
+        );
+        assert_eq!(
+            count_rows(&client, "conversations", task_id).await,
+            0,
+            "conversations deleted"
+        );
+        assert_eq!(
+            count_messages_for_task(&client, task_id).await,
+            0,
+            "messages deleted"
+        );
+        let mut summaries = client
+            .query_raw(
+                "SELECT COUNT(*) AS c FROM session_summaries WHERE project_key = $1",
+                hiqlite::params!(task_id),
+            )
+            .await
+            .unwrap();
+        let summary_count: i64 = summaries.first_mut().map(|r| r.get("c")).unwrap_or(0);
+        assert_eq!(summary_count, 0, "session summaries deleted");
+
+        let task = get_task(&client, task_id).await.unwrap();
+        assert_eq!(task.workflow_run_count, 0);
+        assert!(!task.workflow_blocked);
+        assert_eq!(task.status, "pending");
+        assert_eq!(task.title, "test task", "title preserved");
+    }
+
+    #[tokio::test]
+    async fn test_reset_task_history_no_conversations_resets_cleanly() {
+        let (client, _tmp) = make_client().await;
+        let (_, task_id) = seed_task(&client).await;
+        client
+            .execute(
+                "UPDATE tasks SET workflow_run_count = 5, workflow_blocked = 1, status = 'in_review' WHERE id = $1",
+                hiqlite::params!(task_id),
+            )
+            .await
+            .unwrap();
+
+        reset_task_history(&client, task_id).await.unwrap();
+
+        let task = get_task(&client, task_id).await.unwrap();
+        assert_eq!(task.workflow_run_count, 0);
+        assert!(!task.workflow_blocked);
+        assert_eq!(task.status, "pending");
+    }
+
+    #[tokio::test]
+    async fn test_fail_linked_agent_run_marks_running_failed() {
+        let (client, _tmp) = make_client().await;
+        let (_, task_id) = seed_task(&client).await;
+        let conv_id = seed_running_run(&client, task_id, &AgentType::Implementation).await;
+
+        let updated = fail_linked_agent_run(&client, &conv_id).await.unwrap();
+        assert!(updated, "a running run should be marked failed");
+
+        let run = get_agent_run_by_conversation(&client, &conv_id)
+            .await
+            .unwrap();
+        assert_eq!(run.status, RunStatus::Failed);
+    }
+
+    #[tokio::test]
+    async fn test_fail_linked_agent_run_noop_on_completed() {
+        let (client, _tmp) = make_client().await;
+        let (_, task_id) = seed_task(&client).await;
+        let conv_id = seed_running_run(&client, task_id, &AgentType::Implementation).await;
+        let run = get_agent_run_by_conversation(&client, &conv_id)
+            .await
+            .unwrap();
+        mark_agent_run_completed(&client, &run.id).await.unwrap();
+
+        let updated = fail_linked_agent_run(&client, &conv_id).await.unwrap();
+        assert!(!updated, "completed run must not be clobbered");
+
+        let run = get_agent_run_by_conversation(&client, &conv_id)
+            .await
+            .unwrap();
+        assert_eq!(run.status, RunStatus::Completed);
+    }
+
+    #[tokio::test]
+    async fn test_fail_linked_agent_run_noop_without_running_run() {
+        let (client, _tmp) = make_client().await;
+        let (_, task_id) = seed_task(&client).await;
+        let conv_id = Uuid::new_v4();
+
+        let updated = fail_linked_agent_run(&client, &conv_id).await.unwrap();
+        assert!(!updated);
+
+        // A completed run linked to the conversation is untouched too.
+        let completed_conv = seed_running_run(&client, task_id, &AgentType::Review).await;
+        let run = get_agent_run_by_conversation(&client, &completed_conv)
+            .await
+            .unwrap();
+        mark_agent_run_failed(&client, &run.id).await.unwrap();
+        let updated = fail_linked_agent_run(&client, &completed_conv)
+            .await
+            .unwrap();
+        assert!(
+            !updated,
+            "already-failed run must not be reported as updated"
+        );
     }
 
     #[tokio::test]

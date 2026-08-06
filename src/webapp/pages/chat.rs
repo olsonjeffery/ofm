@@ -1,8 +1,9 @@
-use crate::db::schema::{AgentType, TaskAgentRun};
+use crate::db::schema::{AgentType, Task, TaskAgentRun};
 use crate::providers::types::ProviderEvent;
 use crate::webapp::components::chat_input::ChatInput;
 use crate::webapp::components::chat_status_bar::ChatStatusBar;
 use crate::webapp::components::message_stream::MessageStream;
+use crate::webapp::components::task_recovery::TaskRecoveryBanner;
 use leptos::prelude::*;
 
 fn build_chat_js(active_id_str: &str, is_running: bool) -> String {
@@ -231,6 +232,46 @@ document.addEventListener('DOMContentLoaded', function() {{
         document.body.appendChild(div);
         setTimeout(function() {{ div.remove(); }}, 5000);
     }}
+
+    // Recovery banner buttons
+    var projectId = document.getElementById('chat-layout')?.getAttribute('data-project-id');
+    var resetCapBtn = document.getElementById('reset-cap-btn');
+    if (resetCapBtn) {{
+        resetCapBtn.addEventListener('click', function() {{
+            apiCall('/api/tasks/' + taskId + '/reset-cap', {{ method: 'POST' }}).then(function(r) {{
+                if (r.ok) {{ window.location.reload(); }}
+                else {{ showMessage('Failed to reset cap'); }}
+            }});
+        }});
+    }}
+    var resetHistoryBtn = document.getElementById('reset-history-btn');
+    if (resetHistoryBtn) {{
+        resetHistoryBtn.addEventListener('click', function() {{
+            if (!confirm('This deletes all conversations for this task and resets its workflow state. Continue?')) return;
+            apiCall('/api/tasks/' + taskId + '/reset-history', {{ method: 'POST' }}).then(function(r) {{
+                if (r.ok) {{ window.location.reload(); }}
+                else {{ showMessage('Failed to reset history'); }}
+            }});
+        }});
+    }}
+    var duplicateBtn = document.getElementById('duplicate-task-btn');
+    if (duplicateBtn) {{
+        duplicateBtn.addEventListener('click', function() {{
+            apiCall('/api/tasks/' + taskId + '/duplicate', {{ method: 'POST' }}).then(function(r) {{
+                if (r.ok) {{
+                    r.json().then(function(body) {{
+                        if (body && body.id) {{
+                            window.location.href = '/webapp/projects/' + projectId + '/tasks/' + body.id;
+                        }} else {{
+                            showMessage('Failed to duplicate task');
+                        }}
+                    }}).catch(function() {{ showMessage('Failed to duplicate task'); }});
+                }} else {{
+                    showMessage('Failed to duplicate task');
+                }}
+            }});
+        }});
+    }}
 }});
 "###
     )
@@ -238,8 +279,9 @@ document.addEventListener('DOMContentLoaded', function() {{
 
 #[component]
 pub fn ChatPage(
-    _project_id: i64,
+    project_id: i64,
     task_id: i64,
+    task: Task,
     active_conversation_id: Option<uuid::Uuid>,
     initial_messages: Vec<ProviderEvent>,
     #[allow(unused)] conversation_name: Option<String>,
@@ -267,7 +309,8 @@ pub fn ChatPage(
             <span>"Back to top"</span>
             <span class="icon is-small"><i class="mdi mdi-arrow-up-thick"></i></span>
         </div>
-        <div id="chat-layout" style="display:flex;flex-direction:column;height:calc(100vh - 3.75rem);overflow:hidden">
+        <TaskRecoveryBanner task=task.clone() />
+        <div id="chat-layout" data-project-id={project_id.to_string()} style="display:flex;flex-direction:column;height:calc(100vh - 3.75rem);overflow:hidden">
             <div id="message-stream-container" style="flex:1;overflow-y:auto;overflow-x:hidden">
                 <MessageStream messages=initial_messages />
             </div>
@@ -322,10 +365,12 @@ mod tests {
 
     #[test]
     fn test_chat_page_renders_shell_no_sidebar() {
+        let task = make_task();
         let html = leptos::view! {
             <ChatPage
-                _project_id=1
+                project_id=1
                 task_id=1
+                task
                 active_conversation_id=None
                 initial_messages=Vec::new()
                 conversation_name=None
@@ -385,8 +430,9 @@ mod tests {
         };
         let html = leptos::view! {
             <ChatPage
-                _project_id=1
+                project_id=1
                 task_id=1
+                task=make_task()
                 active_conversation_id=Some(conv_id)
                 initial_messages=Vec::new()
                 conversation_name=Some("Test Chat".to_string())
@@ -419,8 +465,9 @@ mod tests {
         };
         let html = leptos::view! {
             <ChatPage
-                _project_id=1
+                project_id=1
                 task_id=1
+                task=make_task()
                 active_conversation_id=Some(conv_id)
                 initial_messages=Vec::new()
                 conversation_name=Some("Test Chat".to_string())
@@ -454,8 +501,9 @@ mod tests {
         };
         let html = leptos::view! {
             <ChatPage
-                _project_id=1
+                project_id=1
                 task_id=1
+                task=make_task()
                 active_conversation_id=Some(conv_id)
                 initial_messages=Vec::new()
                 conversation_name=Some("Test Chat".to_string())
@@ -468,5 +516,63 @@ mod tests {
         assert!(html.contains("Agent Idle"));
         assert!(html.contains("disabled"), "stop button disabled when idle");
         assert!(!html.contains("is-pulse"));
+    }
+
+    #[test]
+    fn test_chat_page_renders_recovery_banner_for_blocked_task() {
+        let mut task = make_task();
+        task.workflow_blocked = true;
+        let html = leptos::view! {
+            <ChatPage
+                project_id=1
+                task_id=1
+                task
+                active_conversation_id=None
+                initial_messages=Vec::new()
+                conversation_name=None
+                current_run=None
+                agent_type=None
+                model_label=String::new()
+            />
+        }
+        .to_html();
+        assert!(html.contains("task-recovery-banner"));
+        assert!(html.contains("Task is blocked"));
+        assert!(html.contains("id=\"reset-cap-btn\""));
+        assert!(html.contains("id=\"reset-history-btn\""));
+        assert!(html.contains("id=\"duplicate-task-btn\""));
+        assert!(
+            html.contains("data-project-id=\"1\""),
+            "chat layout should carry data-project-id for the duplicate handler"
+        );
+        assert!(html.contains("reset-cap"));
+        assert!(html.contains("reset-history"));
+        assert!(html.contains("duplicate"));
+    }
+
+    #[test]
+    fn test_chat_page_omits_recovery_banner_for_healthy_task() {
+        let html = leptos::view! {
+            <ChatPage
+                project_id=1
+                task_id=1
+                task=make_task()
+                active_conversation_id=None
+                initial_messages=Vec::new()
+                conversation_name=None
+                current_run=None
+                agent_type=None
+                model_label=String::new()
+            />
+        }
+        .to_html();
+        assert!(
+            !html.contains("task-recovery-banner"),
+            "banner element must be absent for a healthy task"
+        );
+        assert!(
+            !html.contains("Task is blocked"),
+            "banner body must be absent for a healthy task"
+        );
     }
 }

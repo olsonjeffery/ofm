@@ -117,6 +117,28 @@ pub async fn completion_handler(
         tasks::mark_task_blocked(client, run.task_id)
             .await
             .map_err(internal_err)?;
+
+        // Surface the block live so open pages (task detail, chat) reload and
+        // show the recovery banner without a manual refresh.
+        if let Ok(task) = tasks::get_task(client, run.task_id).await {
+            let topic = WsTopic {
+                kind: WsTopicKind::Task,
+                id: TopicId(task.id),
+            };
+            ws_bus
+                .broadcast(
+                    &topic,
+                    ServerMessage::Event {
+                        topic: topic.clone(),
+                        event_type: "task_updated".to_string(),
+                        timestamp: chrono::Utc::now(),
+                        payload: serde_json::to_value(&task).unwrap_or_default(),
+                        html: None,
+                    },
+                )
+                .await;
+        }
+
         return Ok(NextAction::Stop);
     }
 
@@ -536,6 +558,24 @@ pub fn start_next_agent<'a>(
                                         serde_json::json!({"conversation_id": conversation_id.to_string()})
                                     };
                                     let is_done = matches!(event, ProviderEvent::Done { .. });
+
+                                    // Pre-mark the linked agent run as failed the instant a
+                                    // provider/model error is seen. The completion handler is
+                                    // database-driven (status != running → no chain), so marking
+                                    // `failed` here halts the runaway loop on the first genuinely
+                                    // failed turn instead of burning the whole iteration cap.
+                                    // Do NOT break on error — let the stream run to `Done`; the
+                                    // error event is still broadcast below and the transcript is
+                                    // preserved. Mirrors `failLinkedAgentRunIfRunning` in the
+                                    // reference implementation.
+                                    let is_error = matches!(event, ProviderEvent::Error { .. });
+                                    if is_error {
+                                        let _ = crate::services::tasks::fail_linked_agent_run(
+                                            &db, &conversation_id,
+                                        )
+                                        .await;
+                                    }
+
                                     let rendered = crate::webapp::components::message_stream::render_event(&event);
                                     ws_bus.broadcast(&topic, ServerMessage::Event { topic: topic.clone(), event_type, timestamp: chrono::Utc::now(), payload, html: if rendered.is_empty() { None } else { Some(rendered) } }).await;
 
@@ -900,6 +940,41 @@ mod tests {
             .unwrap();
 
         assert!(matches!(action, NextAction::Terminal));
+    }
+
+    #[tokio::test]
+    async fn test_fail_linked_agent_run_halts_chaining() {
+        let (client, task_id, _tmp) = make_client().await;
+
+        // Seed a review config so a healthy run would chain to refinement/PR —
+        // the failure pre-mark must make the handler Terminal instead.
+        seed_agent_config(&client, "refinement").await;
+
+        let result = session::start_session(
+            &client,
+            task_id,
+            "model",
+            "balanced",
+            AgentType::Implementation,
+        )
+        .await
+        .unwrap();
+
+        let updated = tasks::fail_linked_agent_run(&client, &result.conversation_id)
+            .await
+            .unwrap();
+        assert!(updated);
+
+        let sessions = empty_sessions();
+        let ws_bus = BroadcastBus::new();
+        let action = completion_handler(&client, result.conversation_id, &sessions, &ws_bus)
+            .await
+            .unwrap();
+
+        assert!(
+            matches!(action, NextAction::Terminal),
+            "a pre-marked failed run must not chain"
+        );
     }
 
     #[tokio::test]

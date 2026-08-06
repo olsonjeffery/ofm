@@ -574,6 +574,16 @@ async fn spawn_broadcast_task(
                         let is_done = matches!(event, ProviderEvent::Done { .. });
                         let is_question = matches!(event, ProviderEvent::QuestionAsked { .. });
 
+                        // Pre-mark the linked agent run as failed the instant a provider/model
+                        // error is seen so the database-driven completion handler stops chaining
+                        // (status != running → no-op) instead of burning the iteration cap on a
+                        // broken environment. Mirrors `failLinkedAgentRunIfRunning` in the
+                        // reference implementation; the error event is still broadcast below.
+                        let is_error = matches!(event, ProviderEvent::Error { .. });
+                        if is_error {
+                            let _ = crate::services::tasks::fail_linked_agent_run(&db, &c_id).await;
+                        }
+
                         let payload = if let Some(obj) = payload.as_object() {
                             let mut map = obj.clone();
                             map.insert("conversation_id".to_string(), serde_json::json!(c_id.to_string()));

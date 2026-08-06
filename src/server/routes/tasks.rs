@@ -1,6 +1,6 @@
 use crate::archive;
 use crate::auth::AuthUser;
-use crate::db::schema::{ActiveAgent, GlobalAgentStatus, Task};
+use crate::db::schema::{ActiveAgent, GlobalAgentStatus, Project, Task};
 use crate::server::error::ServerError;
 use crate::server::state::AppState;
 use crate::server::ws::message::{ServerMessage, TopicId, WsTopic, WsTopicKind};
@@ -61,6 +61,9 @@ pub fn tasks_router() -> Router<AppState> {
             super::conversations::conversations_router(),
         )
         .route("/{id}/worktree/recreate", post(recreate_worktree_handler))
+        .route("/{id}/reset-cap", post(reset_task_cap_handler))
+        .route("/{id}/reset-history", post(reset_task_history_handler))
+        .route("/{id}/duplicate", post(duplicate_task_handler))
 }
 
 /// Fetch a task and verify `auth` may access it (`write=false` → read-only,
@@ -134,22 +137,40 @@ pub async fn create_task(
         .to_string();
 
     let project = super::projects::authorized_project(&state, &auth, body.project_id, true).await?;
-    let task = services::tasks::create_task(
-        &state.db,
-        body.project_id,
-        &auth.user_id,
-        body.title.trim(),
+    let title = body.title.trim().to_string();
+    let task = create_task_and_worktree(
+        &state,
+        &auth,
+        &project,
+        &title,
         &status,
+        &body.original_request,
     )
-    .await
-    .map_err(|e| ServerError::Internal(e.to_string()))?;
+    .await?;
+
+    Ok((StatusCode::CREATED, Json(task)))
+}
+
+/// Shared create-task sequence used by `create_task` and `duplicate_task`:
+/// insert the task row, create + register its worktree, seed the archive doc.
+async fn create_task_and_worktree(
+    state: &AppState,
+    auth: &AuthUser,
+    project: &Project,
+    title: &str,
+    status: &str,
+    doc: &str,
+) -> Result<Task, ServerError> {
+    let task = services::tasks::create_task(&state.db, project.id, &auth.user_id, title, status)
+        .await
+        .map_err(|e| ServerError::Internal(e.to_string()))?;
 
     let worktree_result = match worktree::create_worktree(
         &project.repo_folder_path,
         &state.footprint,
         project.id,
         task.id,
-        &body.title,
+        title,
         None,
     )
     .await
@@ -164,10 +185,9 @@ pub async fn create_task(
         }
     };
 
-    let worktree_uuid = Uuid::new_v4();
     services::tasks::insert_worktree(
         &state.db,
-        &worktree_uuid,
+        &Uuid::new_v4(),
         project.id,
         task.id,
         &worktree_result.worktree_path.to_string_lossy(),
@@ -185,10 +205,10 @@ pub async fn create_task(
         .map_err(|e| ServerError::Internal(e.to_string()))?;
     let doc_path = archive.task_doc_path(&proj_str, &task_str);
     archive
-        .write_task_doc(&doc_path, &body.original_request)
+        .write_task_doc(&doc_path, doc)
         .map_err(|e| ServerError::Internal(format!("failed to seed doc: {e}")))?;
 
-    Ok((StatusCode::CREATED, Json(task)))
+    Ok(task)
 }
 
 async fn list_tasks(
@@ -306,18 +326,7 @@ async fn update_task(
         }
     }
 
-    let topic = WsTopic {
-        kind: WsTopicKind::Task,
-        id: TopicId(id),
-    };
-    let msg = ServerMessage::Event {
-        topic: topic.clone(),
-        event_type: "task_updated".to_string(),
-        timestamp: chrono::Utc::now(),
-        payload: serde_json::to_value(&task).unwrap_or_default(),
-        html: None,
-    };
-    state.ws_bus.broadcast(&topic, msg).await;
+    broadcast_task_updated(&state, &task).await;
 
     Ok(Json(task))
 }
@@ -389,18 +398,119 @@ pub async fn recreate_worktree_handler(
     .await
     .map_err(|e| ServerError::Internal(e.to_string()))?;
 
+    broadcast_task_updated(&state, &task).await;
+
+    Ok((StatusCode::OK, Json(result)))
+}
+
+/// Broadcast a `task_updated` event on the task topic so open pages reload.
+async fn broadcast_task_updated(state: &AppState, task: &Task) {
     let topic = WsTopic {
         kind: WsTopicKind::Task,
-        id: TopicId(id),
+        id: TopicId(task.id),
     };
     let msg = ServerMessage::Event {
         topic: topic.clone(),
         event_type: "task_updated".to_string(),
         timestamp: chrono::Utc::now(),
-        payload: serde_json::to_value(&task).unwrap_or_default(),
+        payload: serde_json::to_value(task).unwrap_or_default(),
         html: None,
     };
     state.ws_bus.broadcast(&topic, msg).await;
+}
 
-    Ok((StatusCode::OK, Json(result)))
+/// `POST /api/tasks/{id}/reset-cap` — zero `workflow_run_count` and clear
+/// `workflow_blocked`. Keeps history, worktree, and task id.
+async fn reset_task_cap_handler(
+    auth: AuthUser,
+    State(state): State<AppState>,
+    Path(id): Path<i64>,
+) -> Result<StatusCode, ServerError> {
+    authorized_task(&state, &auth, id, true).await?;
+    services::tasks::reset_task_cap(&state.db, id)
+        .await
+        .map_err(|e| ServerError::Internal(e.to_string()))?;
+
+    let task = services::tasks::get_task(&state.db, id)
+        .await
+        .map_err(|e| ServerError::Internal(e.to_string()))?;
+    broadcast_task_updated(&state, &task).await;
+
+    Ok(StatusCode::OK)
+}
+
+/// `POST /api/tasks/{id}/reset-history` — abort in-flight turns, delete the
+/// task's agent runs, conversations, and messages, and reset all workflow
+/// flags / run count / status to a fresh `pending`. Keeps task id, title, doc,
+/// and worktree.
+async fn reset_task_history_handler(
+    auth: AuthUser,
+    State(state): State<AppState>,
+    Path(id): Path<i64>,
+) -> Result<StatusCode, ServerError> {
+    authorized_task(&state, &auth, id, true).await?;
+
+    // Abort any in-flight provider turn before deleting the runs/conversations
+    // that the broadcast task would otherwise keep streaming events for.
+    let conv_ids: Vec<String> = state
+        .db
+        .query_raw(
+            "SELECT id FROM conversations WHERE task_id = $1",
+            hiqlite::params!(id),
+        )
+        .await
+        .map_err(|e| ServerError::Internal(e.to_string()))?
+        .into_iter()
+        .filter_map(|mut row| row.get("id"))
+        .collect();
+    {
+        let sessions = state.active_sessions.lock().await;
+        for conv_id in &conv_ids {
+            if let Some(provider) = sessions.get(conv_id) {
+                let _ = provider.abort_turn().await;
+            }
+        }
+    }
+
+    services::tasks::reset_task_history(&state.db, id)
+        .await
+        .map_err(|e| ServerError::Internal(e.to_string()))?;
+
+    let task = services::tasks::get_task(&state.db, id)
+        .await
+        .map_err(|e| ServerError::Internal(e.to_string()))?;
+    broadcast_task_updated(&state, &task).await;
+
+    crate::orchestration::broadcast_agent_status(&state.ws_bus, "stopped").await;
+
+    Ok(StatusCode::OK)
+}
+
+/// `POST /api/tasks/{id}/duplicate` — create a *new* task whose archive doc is
+/// a copy of the source doc, with a fresh worktree and zero counters/flags/
+/// conversations. Original task untouched.
+async fn duplicate_task_handler(
+    auth: AuthUser,
+    State(state): State<AppState>,
+    Path(id): Path<i64>,
+) -> Result<(StatusCode, Json<Task>), ServerError> {
+    let task = authorized_task(&state, &auth, id, true).await?;
+    let project = super::projects::authorized_project(&state, &auth, task.project_id, true).await?;
+
+    let source_doc = services::tasks::get_worktree_by_task(&state.db, id)
+        .await
+        .ok()
+        .map(|w| {
+            let archive = archive::ArchiveRoot::new(std::path::PathBuf::from(&state.archive_root));
+            let doc_path = archive.task_doc_path(&w.project_id.to_string(), &w.task_id.to_string());
+            archive.read_task_doc(&doc_path).unwrap_or_default()
+        })
+        .unwrap_or_default();
+
+    let new_title = format!("{} (copy)", task.title.trim());
+    let new_task =
+        create_task_and_worktree(&state, &auth, &project, &new_title, "pending", &source_doc)
+            .await?;
+
+    Ok((StatusCode::CREATED, Json(new_task)))
 }

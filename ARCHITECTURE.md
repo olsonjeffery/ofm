@@ -25,6 +25,7 @@ ofm/
 │   │       ├── message_stream.rs     # Streaming event display (Phase 5)
 │   │       ├── chat_input.rs         # Manual message input (Phase 5)
 │   │       ├── library_dropdown.rs   # Navbar "Library" dropdown → Prompts
+│   │       ├── task_recovery.rs      # Blocked/cap recovery banner + actions
 │   ├── orchestration/   # State machine, guards, recovery, completion
 │   ├── providers/       # LlmProvider trait, opencode_sdk providers
 │   │   ├── opencode_sdk_provider.rs  # Pooled opencode server provider
@@ -296,6 +297,7 @@ All webapp UI follows the Islands Architecture pattern:
 - **SettingsDropdown** (`src/webapp/components/settings_dropdown.rs`): navbar split-button with both the label and arrow buttons toggling a one-level menu listing Providers & Agents, Import/Export, Account (the label no longer navigates directly). Replaced the former separate User Config and Settings navbar buttons.
 - **AgentDropdown** (`src/webapp/components/agent_dropdown.rs`): navbar dropdown showing the running-agent count, the live WebSocket connection status, and per-agent entries that link into their chat. Driven exclusively by server activity — it subscribes to the WebSocket **System** topic and re-fetches `GET /api/tasks/agent-status` on every `agent_status` broadcast (see *System topic & global agent status*). The menu also lists open-question tasks ("Needs your input", from `question_asked` events) and blocked tasks. Styling: a 15s pulse on the message-outline icon while ≥ 1 agent runs; cyan when ≥ 1 question task; `is-primary` when ≥ 1 blocked task (trumping all other rules).
 - **SettingsSidebar** (`src/webapp/components/settings_sidebar.rs`): section-local Bulma `.menu` sidebar. Defines the `SettingsSection`/`SettingsSubPage` enums and renders exactly one `is-active` link matching the active sub-page.
+- **TaskRecoveryBanner** (`src/webapp/components/task_recovery.rs`): `notification is-danger` banner rendered on the task detail and chat pages when a task is blocked (`workflow_blocked`) or has hit the iteration cap (`workflow_run_count >= MAX_WORKFLOW_RUNS`). Explains the cause, shows an `Agent runs: n/25` tag, and offers three actions wired by the embedding page's JS: `POST /api/tasks/:id/reset-cap`, `POST /api/tasks/:id/reset-history` (confirm dialog), and `POST /api/tasks/:id/duplicate` (navigates to the copy).
 - **Settings pages** (`src/webapp/pages/settings/`): freestanding pages under `/webapp/settings/*`, each a sidebar + content pane. `providers_agents.rs` (Model Configurations landing + Agent Settings), `rig_providers.rs` (Rig-based Providers — a **capture-only** surface for per-vendor Rig provider configs under "Providers & Agents"; no execution), `import_export.rs` (Export landing + Import), `account.rs` (User Config landing, reuses `OnboardingForm`, + API Keys). `/webapp/settings` is kept as an alias for the Providers & Agents landing. The old tab-switching JS in `pages/settings.rs` was split into per-sub-page scripts (each self-contained, rendered only with its pane).
 
 ## Agent Prompt Pipeline

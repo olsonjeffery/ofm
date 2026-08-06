@@ -19,3 +19,4 @@ pub mod project_card;
 pub mod settings_dropdown;
 pub mod settings_sidebar;
 pub mod task_card;
+pub mod task_recovery;

@@ -54,6 +54,14 @@ pub fn TaskCard(data: TaskCardData) -> impl IntoView {
                                 </span>
                             }
                         }).collect::<Vec<_>>()}
+                        {data.task.workflow_blocked.then(|| {
+                            view! {
+                                <span class="tag is-danger is-light is-size-7 ml-1" title="Task is blocked by the review agent or the iteration cap">
+                                    <span class="icon is-small"><i class="mdi mdi-alert"></i></span>
+                                    <span>"Blocked"</span>
+                                </span>
+                            }
+                        })}
                     </div>
                 </div>
             </div>
@@ -187,5 +195,23 @@ mod tests {
         assert!(html.contains("card-number-pill"));
         assert!(html.contains("#1"));
         assert!(html.contains("card-header-title"));
+    }
+
+    #[test]
+    fn test_task_card_blocked_indicator() {
+        let mut data = make_data("in_progress", vec![], None);
+        data.task.workflow_blocked = true;
+        let html = leptos::view! { <TaskCard data /> }.to_html();
+        assert!(html.contains("Blocked"));
+        assert!(html.contains("is-danger is-light is-size-7"));
+        assert!(html.contains("mdi-alert"));
+    }
+
+    #[test]
+    fn test_task_card_no_blocked_indicator_when_healthy() {
+        let data = make_data("pending", vec![], None);
+        let html = leptos::view! { <TaskCard data /> }.to_html();
+        assert!(!html.contains("Blocked"));
+        assert!(!html.contains("mdi-alert"));
     }
 }

@@ -5,6 +5,7 @@ use crate::services::commits::CommitSummary;
 use crate::webapp::components::commit_list::{CommitList, CommitListData};
 use crate::webapp::components::conversation_list::ConversationList;
 use crate::webapp::components::markdown_viewer::MarkdownViewer;
+use crate::webapp::components::task_recovery::TaskRecoveryBanner;
 
 fn status_label(status: &str) -> &'static str {
     match status {
@@ -66,6 +67,8 @@ pub fn TaskDetailPage(
                     </button>
                 </div>
             </div>
+
+            <TaskRecoveryBanner task=task.clone() />
 
             {worktree_missing.then(|| {
                 view! {
@@ -248,6 +251,49 @@ pub fn TaskDetailPage(
                         }).then(function(r){
                             if(r.ok){window.location.href='/webapp/projects/'+projectId;}
                             else{showMessage('Error deleting task');}
+                        });
+                    });
+                }
+
+                // Recovery: reset cap & unblock
+                var resetCapBtn=document.getElementById('reset-cap-btn');
+                if(resetCapBtn){
+                    resetCapBtn.addEventListener('click',function(){
+                        apiCall('/api/tasks/'+taskId+'/reset-cap',{method:'POST'}).then(function(r){
+                            if(r.ok){window.location.reload();}
+                            else{showMessage('Failed to reset cap');}
+                        });
+                    });
+                }
+
+                // Recovery: recreate with fresh history
+                var resetHistoryBtn=document.getElementById('reset-history-btn');
+                if(resetHistoryBtn){
+                    resetHistoryBtn.addEventListener('click',function(){
+                        if(!confirm('This deletes all conversations for this task and resets its workflow state. Continue?'))return;
+                        apiCall('/api/tasks/'+taskId+'/reset-history',{method:'POST'}).then(function(r){
+                            if(r.ok){window.location.reload();}
+                            else{showMessage('Failed to reset history');}
+                        });
+                    });
+                }
+
+                // Recovery: duplicate task
+                var duplicateBtn=document.getElementById('duplicate-task-btn');
+                if(duplicateBtn){
+                    duplicateBtn.addEventListener('click',function(){
+                        apiCall('/api/tasks/'+taskId+'/duplicate',{method:'POST'}).then(function(r){
+                            if(r.ok){
+                                r.json().then(function(body){
+                                    if(body&&body.id){
+                                        window.location.href='/webapp/projects/'+projectId+'/tasks/'+body.id;
+                                    }else{
+                                        showMessage('Failed to duplicate task');
+                                    }
+                                }).catch(function(){showMessage('Failed to duplicate task');});
+                            }else{
+                                showMessage('Failed to duplicate task');
+                            }
                         });
                     });
                 }
@@ -512,6 +558,64 @@ mod tests {
             .to_html();
         assert!(!html.contains("id=\"recreate-worktree-btn\""));
         assert!(!html.contains("worktree-missing-banner"));
+    }
+
+    #[test]
+    fn test_task_detail_renders_recovery_banner_when_blocked() {
+        let mut task = make_task();
+        task.workflow_blocked = true;
+        let html = leptos::view! { <TaskDetailPage task doc_content=None conversations=vec![] commits=vec![] worktree_missing=false /> }
+            .to_html();
+        assert!(html.contains("id=\"task-recovery-banner\""));
+        assert!(html.contains("Task is blocked"));
+        assert!(html.contains("Agent runs: 1/25"));
+        assert!(html.contains("id=\"reset-cap-btn\""));
+        assert!(html.contains("id=\"reset-history-btn\""));
+        assert!(html.contains("id=\"duplicate-task-btn\""));
+        assert!(html.contains("Reset cap &amp; unblock"));
+        assert!(html.contains("Recreate with fresh history"));
+        assert!(html.contains("Duplicate task"));
+    }
+
+    #[test]
+    fn test_task_detail_renders_recovery_banner_at_cap() {
+        let mut task = make_task();
+        task.workflow_run_count = 25;
+        let html = leptos::view! { <TaskDetailPage task doc_content=None conversations=vec![] commits=vec![] worktree_missing=false /> }
+            .to_html();
+        assert!(html.contains("id=\"task-recovery-banner\""));
+        assert!(html.contains("hit the max agent-run cap"));
+    }
+
+    #[test]
+    fn test_task_detail_omits_recovery_banner_when_healthy() {
+        let html = leptos::view! { <TaskDetailPage task=make_task() doc_content=None conversations=vec![] commits=vec![] worktree_missing=false /> }
+            .to_html();
+        assert!(
+            !html.contains("task-recovery-banner"),
+            "banner element must be absent for a healthy task"
+        );
+        assert!(
+            !html.contains("Task is blocked"),
+            "banner body must be absent for a healthy task"
+        );
+    }
+
+    #[test]
+    fn test_task_detail_recovery_js_targets_endpoints() {
+        let mut task = make_task();
+        task.workflow_blocked = true;
+        let html = leptos::view! { <TaskDetailPage task doc_content=None conversations=vec![] commits=vec![] worktree_missing=false /> }
+            .to_html();
+        assert!(html.contains("/api/tasks/'+taskId+'/reset-cap"));
+        assert!(html.contains("/api/tasks/'+taskId+'/reset-history"));
+        assert!(html.contains("/api/tasks/'+taskId+'/duplicate"));
+        assert!(html.contains(
+            "This deletes all conversations for this task and resets its workflow state. Continue?"
+        ));
+        assert!(
+            html.contains("window.location.href='/webapp/projects/'+projectId+'/tasks/'+body.id")
+        );
     }
 
     #[test]

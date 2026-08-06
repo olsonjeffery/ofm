@@ -781,8 +781,9 @@ async fn chat_handler(
     ];
     let page_html = leptos::view! {
         <pages::chat::ChatPage
-            _project_id=project_id
+            project_id=project_id
             task_id
+            task
             active_conversation_id=None
             initial_messages=Vec::new()
             conversation_name=None
@@ -863,8 +864,9 @@ async fn chat_handler_with_conv(
     ];
     let page_html = leptos::view! {
     <pages::chat::ChatPage
-        _project_id=project_id
+        project_id=project_id
         task_id
+        task
         active_conversation_id=Some(conversation_id)
         initial_messages=messages
         conversation_name=Some(conv_name)
