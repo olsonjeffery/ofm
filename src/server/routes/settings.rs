@@ -1,5 +1,4 @@
 use std::collections::HashMap;
-use std::path::PathBuf;
 
 use axum::extract::{Path, Query, State};
 use axum::http::StatusCode;
@@ -319,8 +318,8 @@ async fn get_rig_provider_models_handler(
     auth: AuthUser,
     Path(id): Path<Uuid>,
 ) -> Result<Json<Vec<String>>, (StatusCode, Json<ErrorResponse>)> {
-    let config_root = PathBuf::from(&state.config_root);
-    settings::get_rig_provider_models(&state.db, auth.user_id, id, &config_root)
+    let config_root = std::path::Path::new(&state.config_root);
+    settings::get_rig_provider_models(&state.db, auth.user_id, id, config_root)
         .await
         .map(Json)
         .map_err(|e| match e.as_str() {

@@ -80,12 +80,13 @@ fn auth_headers(cfg: &RigProviderConfig) -> Result<HeaderMap, String> {
 /// `Manual` mode exposes its list without any HTTP.
 pub async fn list_models(cfg: &RigProviderConfig) -> Result<Vec<String>, String> {
     let base = listing_base_url(cfg)?;
-    if std::env::var_os(LOOPBACK_BYPASS_ENV).is_none() {
-        if let Some(bu) = cfg.base_url.as_deref() {
-            if !is_safe_base_url(bu) {
-                return Err("base_url is not a public http(s) endpoint".into());
-            }
-        }
+    if std::env::var_os(LOOPBACK_BYPASS_ENV).is_none()
+        && cfg
+            .base_url
+            .as_deref()
+            .is_some_and(|bu| !is_safe_base_url(bu))
+    {
+        return Err("base_url is not a public http(s) endpoint".into());
     }
     list_models_from_base(cfg, &base).await
 }
@@ -97,6 +98,7 @@ async fn list_models_from_base(cfg: &RigProviderConfig, base: &str) -> Result<Ve
     let url = format!("{base}/models");
     let client = reqwest::Client::builder()
         .timeout(LISTING_TIMEOUT)
+        .redirect(reqwest::redirect::Policy::none())
         .build()
         .map_err(|e| e.to_string())?;
     let resp = client
@@ -339,6 +341,43 @@ mod tests {
             .await
             .unwrap_err();
         assert!(err.contains("model listing request failed"), "got: {err}");
+    }
+
+    #[tokio::test]
+    async fn test_redirect_not_followed() {
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let addr = listener.local_addr().unwrap();
+        let base = format!("http://{addr}");
+        let requests = Arc::new(Mutex::new(0u32));
+        let counter = requests.clone();
+        let location = format!("{base}/models");
+        tokio::spawn(async move {
+            loop {
+                let (mut socket, _) = match listener.accept().await {
+                    Ok(pair) => pair,
+                    Err(_) => break,
+                };
+                let mut buf = vec![0u8; 16_384];
+                let n = socket.read(&mut buf).await.unwrap_or(0);
+                if n == 0 {
+                    continue;
+                }
+                *counter.lock().await += 1;
+                let resp = format!(
+                    "HTTP/1.1 302 Found\r\nLocation: {location}\r\nContent-Length: 0\r\nConnection: close\r\n\r\n"
+                );
+                let _ = socket.write_all(resp.as_bytes()).await;
+            }
+        });
+        let cfg = openai_compatible_cfg(&base);
+        let err = allow_loopback(async { list_models(&cfg).await })
+            .await
+            .unwrap_err();
+        assert!(
+            err.contains("HTTP 302"),
+            "redirect must surface as an error status, got: {err}"
+        );
+        assert_eq!(*requests.lock().await, 1, "redirect must not be followed");
     }
 
     #[tokio::test]

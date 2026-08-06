@@ -7,6 +7,7 @@ use uuid::Uuid;
 use crate::db::schema::{AgentHarnessConfig, AgentType, ScopeType};
 use crate::providers::config::ProviderConfigDir;
 use crate::providers::opencode_sdk_provider::OpenCodeSdkProvider;
+use crate::providers::rig_config::{ModelListMode, RigProviderConfig};
 use crate::providers::{HarnessConfig, LlmProvider, ProviderError};
 
 #[derive(Debug, Clone, serde::Serialize)]
@@ -175,18 +176,16 @@ pub async fn get_models_for_config(
         // for manual mode — the saved/cached list on the config is returned.
         // No DB access here, so no cache persistence on this path (the Agent
         // Settings dropdown path persists).
-        let rig: crate::providers::rig_config::RigProviderConfig =
-            serde_json::from_str(&provider_cfg.raw_snippet)
-                .map_err(|e| ProviderError::Config(format!("invalid rig config: {e}")))?;
-        if matches!(
-            rig.model_list_mode,
-            crate::providers::rig_config::ModelListMode::Manual(_)
-        ) {
-            return Ok(rig.available_models());
-        }
-        return match crate::providers::rig_models::list_models(&rig).await {
-            Ok(models) if !models.is_empty() => Ok(models),
-            _ => Ok(rig.available_models()),
+        let rig: RigProviderConfig = serde_json::from_str(&provider_cfg.raw_snippet)
+            .map_err(|e| ProviderError::Config(format!("invalid rig config: {e}")))?;
+        return match &rig.model_list_mode {
+            ModelListMode::Manual(_) => Ok(rig.available_models()),
+            ModelListMode::OpenApiList => {
+                match crate::providers::rig_models::list_models(&rig).await {
+                    Ok(models) if !models.is_empty() => Ok(models),
+                    _ => Ok(rig.available_models()),
+                }
+            }
         };
     }
     let config = HarnessConfig {

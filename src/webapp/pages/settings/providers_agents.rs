@@ -213,6 +213,15 @@ function configById(opencodeConfigs, rigConfigs, id) {
     return null;
 }
 
+function parseModelsResponse(r) {
+    return r.json().catch(function() { return null; }).then(function(data) {
+        if (r.ok) {
+            return { models: Array.isArray(data) ? data : [], error: null };
+        }
+        return { models: [], error: (data && data.error) || ('HTTP ' + r.status) };
+    });
+}
+
 function fetchModels(config, cb) {
     if (window.__MODEL_CACHE__[config.id]) {
         cb(window.__MODEL_CACHE__[config.id], null);
@@ -222,14 +231,7 @@ function fetchModels(config, cb) {
         ? '/api/settings/rig-providers/' + config.id + '/models'
         : '/api/provider-configs/models?config_ref=' + encodeURIComponent(config.id + '.json');
     apiCall(url)
-        .then(function(r) {
-            return r.json().catch(function() { return {}; }).then(function(data) {
-                if (!r.ok) {
-                    return { models: [], error: (data && data.error) || ('HTTP ' + r.status) };
-                }
-                return { models: Array.isArray(data) ? data : [], error: null };
-            });
-        })
+        .then(parseModelsResponse)
         .then(function(res) {
             window.__MODEL_CACHE__[config.id] = res.models;
             cb(res.models, res.error);

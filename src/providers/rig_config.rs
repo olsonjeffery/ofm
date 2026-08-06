@@ -178,10 +178,8 @@ pub(crate) fn is_safe_base_url(base_url: &str) -> bool {
         return false;
     }
     match parsed.host() {
-        Some(url::Host::Ipv4(ip)) => !(ip.is_loopback() || ip.is_private() || ip.is_link_local()),
-        Some(url::Host::Ipv6(ip)) => {
-            !(ip.is_loopback() || ip.is_unicast_link_local() || ip.is_unique_local())
-        }
+        Some(url::Host::Ipv4(ip)) => !is_internal_ip(ip.into()),
+        Some(url::Host::Ipv6(ip)) => !is_internal_ip(ip.into()),
         Some(url::Host::Domain(host)) => {
             let host = host.to_ascii_lowercase();
             host != "localhost"
@@ -191,6 +189,20 @@ pub(crate) fn is_safe_base_url(base_url: &str) -> bool {
                 && host != "metadata.google.internal"
         }
         None => false,
+    }
+}
+
+/// Whether an IP is loopback, private (RFC 1918), or link-local — i.e. an
+/// internal target that must never be reached from the server. IPv4-mapped IPv6
+/// addresses (`::ffff:a.b.c.d`) are treated as their embedded IPv4 address so
+/// they cannot bypass the guard.
+fn is_internal_ip(ip: std::net::IpAddr) -> bool {
+    match ip {
+        std::net::IpAddr::V4(ip) => ip.is_loopback() || ip.is_private() || ip.is_link_local(),
+        std::net::IpAddr::V6(ip) => match ip.to_ipv4_mapped() {
+            Some(v4) => v4.is_loopback() || v4.is_private() || v4.is_link_local(),
+            None => ip.is_loopback() || ip.is_unicast_link_local() || ip.is_unique_local(),
+        },
     }
 }
 
@@ -312,6 +324,9 @@ mod tests {
         for bad in [
             "http://127.0.0.1:11434/v1",
             "http://[::1]:8080/v1",
+            "http://[::ffff:127.0.0.1]:8080/v1",
+            "http://[::ffff:192.168.1.10]/v1",
+            "http://[::ffff:169.254.169.254]/v1",
             "http://localhost:8080/v1",
             "http://192.168.1.10/v1",
             "http://10.0.0.5/v1",
@@ -336,6 +351,7 @@ mod tests {
             "https://opencode.ai/zen/go/v1",
             "http://example.com/v1",
             "https://api.anthropic.com",
+            "http://[::ffff:8.8.8.8]/v1",
         ] {
             let mut cfg = sample_cfg(RigVendor::OpenAiCompatible);
             cfg.base_url = Some(good.into());

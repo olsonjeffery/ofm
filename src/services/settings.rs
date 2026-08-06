@@ -8,6 +8,7 @@ use uuid::Uuid;
 use crate::db::schema::{AgentHarnessConfig, AgentType, ScopeType, UserModelConfig};
 use crate::providers::config::ProviderConfigDir;
 use crate::providers::rig_config::{ModelListMode, RigProviderConfig};
+use crate::providers::rig_models;
 use crate::services::agent_configs;
 use crate::services::config_format;
 
@@ -553,7 +554,7 @@ pub async fn get_rig_provider_models(
         serde_json::from_str(&row.config_body).map_err(|e| e.to_string())?;
 
     if let ModelListMode::OpenApiList = &config.model_list_mode {
-        match crate::providers::rig_models::list_models(&config).await {
+        match rig_models::list_models(&config).await {
             Ok(models) => {
                 config.models = models.clone();
                 persist_rig_models_cache(client, &row, config_root, &config).await;
