@@ -532,7 +532,7 @@ mod tests {
     }
 
     #[test]
-    fn diff_lines_two_column_alignment() {
+    fn diff_lines_alignment() {
         let old = "line1\nline2\nline3\n";
         let new = "line1\nline2-changed\nline3\nline4\n";
         let (lines, additions, deletions) = diff_lines(old, new);

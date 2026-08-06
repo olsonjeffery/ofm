@@ -1,15 +1,21 @@
 use leptos::prelude::*;
 use similar::ChangeTag;
 
-use crate::services::commits::{FileDiff, FileStatus};
+use crate::services::commits::{DiffLine, FileDiff, FileStatus};
 
 /// Render one diff row: a full-width cell with a line-number gutter and the
-/// line text, tinted by change type.
-fn diff_cell(class: &'static str, lineno: Option<u32>, text: String) -> AnyView {
+/// line text. The gutter shows the change's relevant line number and the cell
+/// is tinted by change type.
+fn diff_cell(line: DiffLine) -> AnyView {
+    let (class, lineno) = match line.line_type {
+        ChangeTag::Delete => ("diff-cell diff-del", line.old_lineno),
+        ChangeTag::Insert => ("diff-cell diff-add", line.new_lineno),
+        ChangeTag::Equal => ("diff-cell diff-ctx", line.old_lineno),
+    };
     view! {
         <td class=class>
             <span class="diff-gutter">{lineno.map(|n| n.to_string()).unwrap_or_default()}</span>
-            <pre class="diff-line-content">{text}</pre>
+            <pre class="diff-line-content">{line.text}</pre>
         </td>
     }
     .into_any()
@@ -51,14 +57,9 @@ pub fn DiffView(files: Vec<FileDiff>) -> impl IntoView {
                     <table class="diff-grid">
                         <tbody>
                             {file.lines.into_iter().map(|line| {
-                                let (class, lineno) = match line.line_type {
-                                    ChangeTag::Delete => ("diff-cell diff-del", line.old_lineno),
-                                    ChangeTag::Insert => ("diff-cell diff-add", line.new_lineno),
-                                    ChangeTag::Equal => ("diff-cell diff-ctx", line.old_lineno),
-                                };
                                 view! {
                                     <tr>
-                                        {diff_cell(class, lineno, line.text)}
+                                        {diff_cell(line)}
                                     </tr>
                                 }
                             }).collect::<Vec<_>>()}
@@ -74,7 +75,6 @@ pub fn DiffView(files: Vec<FileDiff>) -> impl IntoView {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::services::commits::DiffLine;
     use crate::services::commits::FileStatus;
 
     fn make_file_diff() -> FileDiff {
