@@ -187,13 +187,15 @@ emitted on the wire as naive UTC — space-separated in WebSocket payloads
 timezone/locale is done entirely on the frontend.** SSR components keep the
 server-rendered UTC text as a no-JS fallback and additionally emit a
 machine-readable `data-utc="<RFC3339 UTC>"` attribute plus a
-`data-utc-format` (`"pill"` | `"datetime"` | `"date"`) hint; the client-side
+`data-utc-format` (`"pill"` | `"datetime"` | `"date"` | `"datetime_ymd"`) hint; the client-side
 `OfmTime` helper (`global_runtime_script` in `src/webapp/shim/runtime.rs`,
 `utc_attr()` in `src/webapp/components/datetime.rs`) parses the value as UTC
 and rewrites the element's text in the browser's zone on `DOMContentLoaded`
 and after island fetches. Live WebSocket-update paths (`src/webapp/pages/chat.rs`,
 `src/webapp/pages/task_detail.rs`) reuse the same `OfmTime` formatting so
-live values always agree with page-load rendering.
+live values always agree with page-load rendering. Git commit timestamps
+(`src/webapp/components/commit_list.rs`, `src/webapp/pages/commit_detail.rs`)
+follow the same contract with `data-utc-format="datetime_ymd"`.
 
 ## How to build from this spec
 
