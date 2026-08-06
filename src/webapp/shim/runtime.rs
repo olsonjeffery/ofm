@@ -45,6 +45,9 @@ pub fn global_runtime_script() -> String {
             },
             date: function(d) {
                 return d.getFullYear() + '-' + this._pad(d.getMonth()+1) + '-' + this._pad(d.getDate());
+            },
+            datetime_ymd: function(d) {
+                return d.getFullYear() + '-' + this._pad(d.getMonth()+1) + '-' + this._pad(d.getDate()) + ' ' + this._pad(d.getHours()) + ':' + this._pad(d.getMinutes());
             }
         },
         format: function(tsStr, name) {
