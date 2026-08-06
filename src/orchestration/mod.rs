@@ -266,26 +266,79 @@ pub fn start_next_agent<'a>(
             .unwrap_or_default();
 
         let prompt_text = {
-            let phase_prompt = match agent_type {
-                AgentType::Planification => {
-                    agents::planning::build_planning_prompt(&doc_path.to_string_lossy(), &task_str)
+            // Prompt Library resolution runs first: a designation for this
+            // agent_type at (project/global) scope replaces the stock template.
+            // On any resolution/rendering failure we fall back to the existing
+            // template builders, so the default flow is untouched unless a
+            // user deliberately designates a prompt.
+            let library_prompt = crate::services::prompts::resolve_prompt_for_agent(
+                db,
+                &agent_type,
+                &task.user_id,
+                task.project_id,
+            )
+            .await
+            .ok()
+            .flatten();
+
+            let phase_prompt = match library_prompt {
+                Some(prompt) => {
+                    let project = crate::services::projects::get_project(db, task.project_id)
+                        .await
+                        .ok();
+                    let default_branch = if let Some(ref p) = project {
+                        crate::worktree::detect_default_branch(&p.repo_folder_path)
+                            .await
+                            .unwrap_or_else(|_| "main".into())
+                    } else {
+                        "main".to_string()
+                    };
+                    let vars = crate::prompts::PromptVars {
+                        task_id: task.id.to_string(),
+                        project_id: task.project_id.to_string(),
+                        task_doc_path: doc_path.to_string_lossy().into_owned(),
+                        task_worktree_path: cwd.clone(),
+                        task_worktree_branch: worktree
+                            .as_ref()
+                            .map(|w| w.branch.clone())
+                            .unwrap_or_default(),
+                        project_default_branch: default_branch,
+                        project_name: project.as_ref().map(|p| p.name.clone()).unwrap_or_default(),
+                        task_name: task.title.clone(),
+                        tags: project
+                            .as_ref()
+                            .map(|p| p.tags.join(", "))
+                            .unwrap_or_default(),
+                    };
+                    let flattened = crate::services::prompts::flattened_content(db, &prompt)
+                        .await
+                        .unwrap_or_else(|_| prompt.content.clone());
+                    crate::prompts::render(&flattened, &vars)
                 }
-                AgentType::Implementation => {
-                    agents::implementation::build_implementation_prompt(&doc_path.to_string_lossy())
-                }
-                AgentType::Review => {
-                    agents::review::build_review_prompt(task.id, &doc_path.to_string_lossy())
-                }
-                AgentType::Refinement => agents::refinement::build_refinement_prompt(
-                    task.id,
-                    &doc_path.to_string_lossy(),
-                ),
-                AgentType::Pr => agents::pull_request::build_pull_request_prompt(
-                    task.id,
-                    &doc_path.to_string_lossy(),
-                    &PullRequestStatus::NoPr,
-                ),
-                _ => String::new(),
+                None => match agent_type {
+                    AgentType::Planification => agents::planning::build_planning_prompt(
+                        &doc_path.to_string_lossy(),
+                        &task_str,
+                    ),
+                    AgentType::Implementation => {
+                        agents::implementation::build_implementation_prompt(
+                            &doc_path.to_string_lossy(),
+                        )
+                    }
+                    AgentType::Review => {
+                        agents::review::build_review_prompt(task.id, &doc_path.to_string_lossy())
+                    }
+                    AgentType::Refinement => agents::refinement::build_refinement_prompt(
+                        task.id,
+                        &doc_path.to_string_lossy(),
+                    ),
+                    AgentType::Pr => agents::pull_request::build_pull_request_prompt(
+                        task.id,
+                        &doc_path.to_string_lossy(),
+                        &PullRequestStatus::NoPr,
+                    ),
+                    _ => String::new(),
+                },
             };
             [phase_prompt, context_prompt]
                 .into_iter()

@@ -58,6 +58,7 @@ pub fn Navbar(
                             } else {
                                 ().into_any()
                             }}
+                            <crate::webapp::components::library_dropdown::LibraryDropdown />
                             <crate::webapp::components::settings_dropdown::SettingsDropdown />
                             <div class="navbar-item">
                                 <form action="/api/auth/logout" method="post" id="logout-form">
@@ -131,6 +132,8 @@ mod tests {
         assert!(html.contains("/webapp/settings/import-export"));
         assert!(html.contains("/webapp/settings/account"));
         assert!(html.contains("settings-dropdown-trigger"));
+        assert!(html.contains("/webapp/prompts"));
+        assert!(html.contains("library-dropdown-trigger"));
         assert!(!html.contains("User Config"));
     }
 

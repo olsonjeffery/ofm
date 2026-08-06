@@ -608,7 +608,7 @@ mod tests {
     async fn seed_task(client: &Client) -> (i64, i64) {
         let user_id = db::ensure_default_user(client).await.unwrap();
         let repo_path = format!("/tmp/test-{}", Uuid::new_v4());
-        let project = projects::create_project(client, &user_id, "test", &repo_path, None)
+        let project = projects::create_project(client, &user_id, "test", &repo_path, None, &[])
             .await
             .unwrap();
         let project_id = project.id;

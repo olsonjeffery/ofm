@@ -18,6 +18,7 @@ pub struct CreateProjectRequest {
     pub name: String,
     pub repo_folder_path: String,
     pub subproject_path: Option<String>,
+    pub tags: Option<Vec<String>>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -25,6 +26,7 @@ pub struct UpdateProjectRequest {
     pub name: Option<String>,
     pub repo_folder_path: Option<String>,
     pub subproject_path: Option<String>,
+    pub tags: Option<Vec<String>>,
 }
 
 pub fn projects_router() -> Router<AppState> {
@@ -56,6 +58,8 @@ pub async fn create_project(
             validate_subproject_path(trimmed)?;
         }
     }
+    let tags = body.tags.unwrap_or_default();
+    validate_tags(&tags)?;
     let project = services::projects::create_project(
         &state.db,
         &auth.user_id,
@@ -65,6 +69,7 @@ pub async fn create_project(
             .as_deref()
             .map(|s| s.trim())
             .filter(|s| !s.is_empty()),
+        &tags,
     )
     .await
     .map_err(|e| {
@@ -148,12 +153,16 @@ async fn update_project(
             validate_subproject_path(trimmed)?;
         }
     }
+    if let Some(ref tags) = body.tags {
+        validate_tags(tags)?;
+    }
     let project = services::projects::update_project(
         &state.db,
         id,
         body.name.as_deref().map(|s| s.trim()),
         body.repo_folder_path.as_deref().map(|s| s.trim()),
         body.subproject_path.as_deref(),
+        body.tags.clone(),
     )
     .await
     .map_err(|e| {
@@ -207,4 +216,15 @@ fn validate_repo_path(path: &str) -> Result<(), ServerError> {
 
 fn validate_subproject_path(path: &str) -> Result<(), ServerError> {
     validate_no_path_traversal(path, "subproject_path")
+}
+
+fn validate_tags(tags: &[String]) -> Result<(), ServerError> {
+    for tag in tags {
+        if !crate::prompts::validate_tag(tag) {
+            return Err(ServerError::BadRequest(format!(
+                "invalid tag '{tag}': must be a dash-based name (e.g. 'desktop-3d')"
+            )));
+        }
+    }
+    Ok(())
 }

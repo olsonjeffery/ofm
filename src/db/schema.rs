@@ -133,6 +133,9 @@ pub struct Project {
     pub name: String,
     pub repo_folder_path: String,
     pub subproject_path: Option<String>,
+    /// Dash-based-name tags (JSON array column). Rendered as pills in the UI and
+    /// substituted into the `{{tags}}` prompt token.
+    pub tags: Vec<String>,
     pub created_at: NaiveDateTime,
 }
 
@@ -426,9 +429,77 @@ impl From<&mut Row<'_>> for Project {
             name: row.get("name"),
             repo_folder_path: row.get("repo_folder_path"),
             subproject_path: row.get("subproject_path"),
+            tags: serde_json::from_str(&row.get::<String>("tags")).unwrap_or_default(),
             created_at: parse_naive_datetime(&row.get::<String>("created_at")),
         }
     }
+}
+
+/// Prompt kind: a bare snippet, a composite (an ordered collection of other
+/// prompts), or a static built-in template (immutable, no owner).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum PromptKind {
+    Snippet,
+    Composite,
+    Static,
+}
+
+impl std::fmt::Display for PromptKind {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::Snippet => write!(f, "snippet"),
+            Self::Composite => write!(f, "composite"),
+            Self::Static => write!(f, "static"),
+        }
+    }
+}
+
+impl std::str::FromStr for PromptKind {
+    type Err = String;
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        match s {
+            "snippet" => Ok(Self::Snippet),
+            "composite" => Ok(Self::Composite),
+            "static" => Ok(Self::Static),
+            _ => Err(format!("invalid prompt kind: '{s}'")),
+        }
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct Prompt {
+    pub id: Uuid,
+    pub kind: PromptKind,
+    pub title: String,
+    pub content: String,
+    /// Dash-based-name tags (JSON array column).
+    pub tags: Vec<String>,
+    /// NULL for static prompts.
+    pub owner_user_id: Option<Uuid>,
+    pub is_static: bool,
+    pub is_shared: bool,
+    /// Stable seed key for static prompts (e.g. `"planification"`).
+    pub static_key: Option<String>,
+    pub created_at: NaiveDateTime,
+    pub updated_at: NaiveDateTime,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct PromptChild {
+    pub parent_id: Uuid,
+    pub child_id: Uuid,
+    pub position: i64,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct PromptAssignment {
+    pub id: Uuid,
+    pub prompt_id: Uuid,
+    pub agent_type: AgentType,
+    pub scope_type: ScopeType,
+    pub project_id: Option<i64>,
+    pub created_at: NaiveDateTime,
 }
 
 impl From<&mut Row<'_>> for Task {
@@ -610,6 +681,70 @@ impl From<&mut Row<'_>> for UserModelConfig {
     }
 }
 
+impl From<&mut Row<'_>> for Prompt {
+    fn from(row: &mut Row<'_>) -> Self {
+        let kind_str: String = row.get("kind");
+        let kind = kind_str.parse().unwrap_or(PromptKind::Snippet);
+        Self {
+            id: row
+                .get::<String>("id")
+                .parse()
+                .expect("invalid UUID in database"),
+            kind,
+            title: row.get("title"),
+            content: row.get("content"),
+            tags: serde_json::from_str(&row.get::<String>("tags")).unwrap_or_default(),
+            owner_user_id: row
+                .get::<Option<String>>("owner_user_id")
+                .map(|s| Uuid::parse_str(&s).expect("invalid UUID in database")),
+            is_static: row.get::<i64>("is_static") != 0,
+            is_shared: row.get::<i64>("is_shared") != 0,
+            static_key: row.get("static_key"),
+            created_at: parse_naive_datetime(&row.get::<String>("created_at")),
+            updated_at: parse_naive_datetime(&row.get::<String>("updated_at")),
+        }
+    }
+}
+
+impl From<&mut Row<'_>> for PromptChild {
+    fn from(row: &mut Row<'_>) -> Self {
+        Self {
+            parent_id: row
+                .get::<String>("parent_id")
+                .parse()
+                .expect("invalid UUID in database"),
+            child_id: row
+                .get::<String>("child_id")
+                .parse()
+                .expect("invalid UUID in database"),
+            position: row.get::<i64>("position"),
+        }
+    }
+}
+
+impl From<&mut Row<'_>> for PromptAssignment {
+    fn from(row: &mut Row<'_>) -> Self {
+        let agent_type_str: String = row.get("agent_type");
+        let agent_type = agent_type_str.parse().unwrap_or(AgentType::Implementation);
+        let scope_type_str: String = row.get("scope_type");
+        let scope_type = scope_type_str.parse().unwrap_or(ScopeType::Global);
+        Self {
+            id: row
+                .get::<String>("id")
+                .parse()
+                .expect("invalid UUID in database"),
+            prompt_id: row
+                .get::<String>("prompt_id")
+                .parse()
+                .expect("invalid UUID in database"),
+            agent_type,
+            scope_type,
+            project_id: row.get::<Option<i64>>("project_id"),
+            created_at: parse_naive_datetime(&row.get::<String>("created_at")),
+        }
+    }
+}
+
 impl From<&mut Row<'_>> for User {
     fn from(row: &mut Row<'_>) -> Self {
         Self {
@@ -755,12 +890,14 @@ mod tests {
             name: "test-project".into(),
             repo_folder_path: "/tmp/repo".into(),
             subproject_path: None,
+            tags: vec!["desktop-3d".into()],
             created_at: chrono::Utc::now().naive_utc(),
         };
         let json = serde_json::to_string(&project).unwrap();
         let deserialized: Project = serde_json::from_str(&json).unwrap();
         assert_eq!(project.id, deserialized.id);
         assert_eq!(project.name, deserialized.name);
+        assert_eq!(project.tags, deserialized.tags);
     }
 
     #[test]

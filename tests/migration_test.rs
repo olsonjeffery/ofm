@@ -36,8 +36,8 @@ async fn test_all_migrations_apply() {
     let (client, _tmp) = setup_db().await;
     let count = db::run_migrations(&client).await.unwrap();
     assert_eq!(
-        count, 32,
-        "All 32 DDL migrations should be applied on first run"
+        count, 37,
+        "All 37 DDL migrations should be applied on first run"
     );
 }
 
@@ -115,6 +115,78 @@ async fn test_insert_and_query_project() {
 
     assert_eq!(db_id, project_id);
     assert_eq!(db_name, "my-project");
+}
+
+#[tokio::test]
+async fn test_prompt_tables_and_project_tags_exist() {
+    let (client, _tmp) = setup_db().await;
+    db::run_migrations(&client).await.unwrap();
+
+    // prompts table is usable end-to-end (insert + select).
+    let user_id = uuid_text();
+    client
+        .execute(
+            "INSERT INTO users (id, username) VALUES ($1, $2)",
+            hiqlite::params!(&user_id, "promptuser"),
+        )
+        .await
+        .unwrap();
+
+    let prompt_id = uuid_text();
+    client
+        .execute(
+            "INSERT INTO prompts (id, kind, title, content, owner_user_id, is_static, is_shared, created_at, updated_at) \
+             VALUES ($1, 'snippet', 'My Snippet', 'content', $2, 0, 0, '2024-01-01 00:00:00', '2024-01-01 00:00:00')",
+            hiqlite::params!(&prompt_id, &user_id),
+        )
+        .await
+        .unwrap();
+
+    let child_id = uuid_text();
+    client
+        .execute(
+            "INSERT INTO prompts (id, kind, title, owner_user_id, created_at, updated_at) \
+             VALUES ($1, 'composite', 'My Composite', $2, '2024-01-01 00:00:00', '2024-01-01 00:00:00')",
+            hiqlite::params!(&child_id, &user_id),
+        )
+        .await
+        .unwrap();
+
+    client
+        .execute(
+            "INSERT INTO prompt_children (parent_id, child_id, position) VALUES ($1, $2, 0)",
+            hiqlite::params!(&child_id, &prompt_id),
+        )
+        .await
+        .unwrap();
+
+    client
+        .execute(
+            "INSERT INTO prompt_assignments (id, prompt_id, agent_type, scope_type, project_id, created_at) \
+             VALUES ($1, $2, 'review', 'global', NULL, '2024-01-01 00:00:00')",
+            hiqlite::params!(uuid_text(), &prompt_id),
+        )
+        .await
+        .unwrap();
+
+    // projects.tags column exists and round-trips.
+    let project_id = int64_id();
+    client
+        .execute(
+            "INSERT INTO projects (id, user_id, name, repo_folder_path, tags) VALUES ($1, $2, 'p', '/tmp/r', '[\"desktop-3d\"]')",
+            hiqlite::params!(project_id, &user_id),
+        )
+        .await
+        .unwrap();
+    let mut rows = client
+        .query_raw(
+            "SELECT tags FROM projects WHERE id = $1",
+            hiqlite::params!(project_id),
+        )
+        .await
+        .unwrap();
+    let tags: String = rows.first_mut().unwrap().get("tags");
+    assert_eq!(tags, "[\"desktop-3d\"]");
 }
 
 #[tokio::test]

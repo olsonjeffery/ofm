@@ -28,6 +28,13 @@ pub fn ProjectCard(project: Project, task_counts: TaskCounts) -> impl IntoView {
             </div>
             <div class="card-content" style="padding:0.5rem">
                 <p class="subtitle is-7">{project.repo_folder_path.clone()}</p>
+                {if !project.tags.is_empty() {
+                    view! {
+                        <div class="tags" style="margin-bottom:0.5rem">
+                            {project.tags.iter().map(|t| view! { <span class="tag is-info is-light">{t.clone()}</span> }).collect::<Vec<_>>()}
+                        </div>
+                    }.into_any()
+                } else { "".into_any() }}
                 <div class="level is-mobile" style="margin-bottom:0">
                     <div class="level-left" style="flex-wrap:wrap;gap:0.25rem">
                         <span class="tag">{format!("{} tasks", total)}</span>
@@ -77,6 +84,7 @@ mod tests {
             name: "Test Project".into(),
             repo_folder_path: "/tmp/test-repo".into(),
             subproject_path: None,
+            tags: vec!["desktop-3d".into()],
             created_at: NaiveDateTime::parse_from_str("2024-01-15 10:00:00", "%Y-%m-%d %H:%M:%S")
                 .unwrap(),
         }
@@ -99,6 +107,7 @@ mod tests {
         assert!(html.contains("1 in progress"));
         assert!(html.contains("2 in review"));
         assert!(html.contains("5 completed"));
+        assert!(html.contains("desktop-3d"));
         assert!(html.contains("/webapp/projects/1"));
     }
 

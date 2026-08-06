@@ -83,6 +83,18 @@ pub mod breadcrumb_registry {
         )
     }
 
+    pub fn prompts() -> BreadcrumbItem {
+        BreadcrumbItem::new("Prompt Library", "text-box-outline", "/webapp/prompts")
+    }
+
+    pub fn prompt(title: &str, id: uuid::Uuid) -> BreadcrumbItem {
+        BreadcrumbItem::new(
+            title_truncate(title),
+            "text-box-outline",
+            format!("/webapp/prompts/{}", id),
+        )
+    }
+
     pub fn settings() -> BreadcrumbItem {
         BreadcrumbItem::new("Settings", "cog", "/webapp/settings")
     }

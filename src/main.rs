@@ -12,6 +12,7 @@ mod logging;
 
 mod opencode_sdk;
 mod orchestration;
+mod prompts;
 mod providers;
 mod rauthy;
 
@@ -148,6 +149,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     db::ensure_admins_group(&client).await?;
     tracing::info!("Ensured built-in 'admins' group");
+
+    let static_prompts = db::ensure_static_prompts(&client).await?;
+    tracing::info!("Static prompts ensured: {} seeded", static_prompts);
 
     let orphans = orchestration::recovery::recover_orphaned_runs(&client).await?;
     tracing::info!("Orphan recovery: {} agent runs swept to failed", orphans);

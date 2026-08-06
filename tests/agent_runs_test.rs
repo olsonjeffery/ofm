@@ -80,6 +80,7 @@ async fn setup_app() -> TestApp {
         "test-project",
         "/tmp/test-repo",
         None,
+        &[],
     )
     .await
     .unwrap()

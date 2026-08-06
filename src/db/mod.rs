@@ -253,6 +253,51 @@ const MIGRATIONS: &[(&str, &str)] = &[
         "drop_project_members",
         "DROP TABLE IF EXISTS project_members",
     ),
+    (
+        "projects_add_tags",
+        "ALTER TABLE projects ADD COLUMN tags TEXT NOT NULL DEFAULT '[]'",
+    ),
+    (
+        "create_prompts",
+        "CREATE TABLE IF NOT EXISTS prompts (
+            id TEXT PRIMARY KEY,
+            kind TEXT NOT NULL,                 -- 'snippet' | 'composite' | 'static'
+            title TEXT NOT NULL,
+            content TEXT NOT NULL DEFAULT '',
+            tags TEXT NOT NULL DEFAULT '[]',    -- JSON array of dash-based-name strings
+            owner_user_id TEXT,                 -- NULL for static prompts
+            is_static INTEGER NOT NULL DEFAULT 0,
+            is_shared INTEGER NOT NULL DEFAULT 0,
+            static_key TEXT,                    -- stable seed key for static prompts
+            created_at TEXT NOT NULL DEFAULT '',
+            updated_at TEXT NOT NULL DEFAULT ''
+        )",
+    ),
+    (
+        "create_prompt_children",
+        "CREATE TABLE IF NOT EXISTS prompt_children (
+            parent_id TEXT NOT NULL REFERENCES prompts(id) ON DELETE CASCADE,
+            child_id TEXT NOT NULL REFERENCES prompts(id) ON DELETE CASCADE,
+            position INTEGER NOT NULL,
+            PRIMARY KEY (parent_id, position)
+        )",
+    ),
+    (
+        "create_prompt_assignments",
+        "CREATE TABLE IF NOT EXISTS prompt_assignments (
+            id TEXT PRIMARY KEY,
+            prompt_id TEXT NOT NULL REFERENCES prompts(id) ON DELETE CASCADE,
+            agent_type TEXT NOT NULL,
+            scope_type TEXT NOT NULL,           -- 'global' | 'project'
+            project_id INTEGER,
+            created_at TEXT NOT NULL DEFAULT ''
+        )",
+    ),
+    (
+        "idx_prompt_assignments_unique",
+        "CREATE UNIQUE INDEX IF NOT EXISTS idx_prompt_assignments_unique \
+         ON prompt_assignments(agent_type, scope_type, COALESCE(project_id, -1))",
+    ),
 ];
 
 pub async fn run_migrations(client: &Client) -> Result<usize, Box<dyn std::error::Error>> {
@@ -384,6 +429,64 @@ pub async fn ensure_admins_group(client: &Client) -> Result<(), Box<dyn std::err
     }
 
     Ok(())
+}
+
+/// Idempotent seed of the 6 built-in `templates/*.md` prompts as
+/// `kind='static'` rows owned by no user (`is_static=1`). Static prompts are
+/// immutable and visible to every user in the library; users may duplicate them
+/// into their own editable snippets. Seeding is keyed on a stable `static_key`
+/// so re-runs never insert duplicates. Called at startup after
+/// `ensure_admins_group` and from test helpers.
+pub async fn ensure_static_prompts(client: &Client) -> Result<usize, Box<dyn std::error::Error>> {
+    const STATIC_PROMPTS: &[(&str, &str, &str)] = &[
+        (
+            "planification",
+            "Planification",
+            include_str!("../../templates/planification.md"),
+        ),
+        (
+            "plan-template",
+            "Plan Template",
+            include_str!("../../templates/plan-template.md"),
+        ),
+        (
+            "implementation",
+            "Implementation",
+            include_str!("../../templates/implementation.md"),
+        ),
+        (
+            "review",
+            "Review",
+            include_str!("../../templates/review.md"),
+        ),
+        (
+            "refinement",
+            "Refinement",
+            include_str!("../../templates/refinement.md"),
+        ),
+        ("pr", "Pull Request", include_str!("../../templates/pr.md")),
+    ];
+
+    let mut inserted = 0;
+    let now = chrono::Utc::now().format("%Y-%m-%d %H:%M:%S").to_string();
+    for (static_key, title, content) in STATIC_PROMPTS {
+        let rows = client
+            .execute(
+                "INSERT OR IGNORE INTO prompts \
+                 (id, kind, title, content, owner_user_id, is_static, is_shared, static_key, created_at, updated_at) \
+                 VALUES ($1, 'static', $2, $3, NULL, 1, 1, $4, $5, $5)",
+                hiqlite::params!(
+                    Uuid::new_v4().to_string(),
+                    *title,
+                    *content,
+                    *static_key,
+                    &now
+                ),
+            )
+            .await?;
+        inserted += rows;
+    }
+    Ok(inserted)
 }
 
 /// All OIDC subjects currently bound to user rows. `main` calls this right

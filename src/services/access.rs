@@ -61,7 +61,7 @@ pub async fn list_accessible_projects(
 ) -> Result<Vec<Project>, GroupError> {
     let all = client
         .query_map::<Project, _>(
-            "SELECT id, user_id, name, repo_folder_path, subproject_path, created_at \
+            "SELECT id, user_id, name, repo_folder_path, subproject_path, tags, created_at \
              FROM projects ORDER BY created_at DESC",
             hiqlite::params!(),
         )
@@ -189,6 +189,7 @@ mod tests {
             name: "p".into(),
             repo_folder_path: "/tmp/repo".into(),
             subproject_path: None,
+            tags: vec![],
             created_at: chrono::Utc::now().naive_utc(),
         }
     }

@@ -61,6 +61,22 @@ or needed user intervention to get a coding agent back on-track
 
 - All prompts can be changed on a global, per-project and/or per-user
 basis
+- **Prompt Library**: the navbar **Library → Prompts** dropdown
+  (`/webapp/prompts`) opens a database-backed Prompt Library. Author **Prompt
+  Snippets** (a title + markdown content with `{{variable}}` tokens) and
+  **Composite Prompts** (ordered sequences of snippets/other composites, joined
+  with a `---` separator). Any snippet/composite can be **designated** to
+  replace the stock template for an agent phase (planification/implementation/
+  review/refinement/pr) at a **project** or **global** scope, and can be shared
+  with all users or kept private. The built-in `templates/*.md` prompts ship as
+  immutable **static** entries (view/duplicate, never edit). Nine standard
+  tokens are substituted at render time: `{{taskId}}`, `{{projectId}}`,
+  `{{taskDocPath}}`, `{{taskWorktreePath}}`, `{{taskWorktreeBranch}}`,
+  `{{projectDefaultBranch}}`, `{{projectName}}`, `{{taskName}}`, and
+  `{{tags}}` — the last resolving to the **project's tags** (editable on the
+  project board header and set at project creation). User-authored content is
+  validated non-destructively (unknown tokens / tag grammar flagged, never
+  saved).
 - The [`opencode`][17] open-source, multi-provider capable coding agent harness
 is the built-in provider
 - **Rig-based Providers**: Settings → *Providers & Agents* → **Rig-based

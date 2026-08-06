@@ -778,6 +778,7 @@ mod tests {
             "test-project",
             &repo_path,
             None,
+            &[],
         )
         .await
         .unwrap();

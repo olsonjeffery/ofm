@@ -98,6 +98,8 @@ pub fn webapp_protected_routes() -> Router<AppState> {
             "/webapp/projects/{project_id}/tasks/{task_id}/commits/{oid}",
             get(commit_detail_handler),
         )
+        .route("/webapp/prompts", get(prompts_handler))
+        .route("/webapp/prompts/{id}", get(prompt_detail_handler))
         .route("/webapp/onboarding", get(onboarding_handler))
         .route("/webapp/settings", get(settings_providers_handler))
         .route(
@@ -402,6 +404,118 @@ async fn settings_groups_handler(auth: AuthUser, State(state): State<AppState>) 
         pages::settings::groups::render(SettingsSubPage::Groups),
     )
     .await
+}
+
+async fn prompts_handler(
+    auth: AuthUser,
+    State(state): State<AppState>,
+) -> Result<Html<String>, ServerError> {
+    let user_json = serde_json::to_string(&auth).unwrap_or_default();
+    let agents = active_agents(&state.db, &auth).await;
+    let prompts = services::prompts::list_prompts(&state.db, &auth.user_id)
+        .await
+        .map_err(|e| ServerError::Internal(e.to_string()))?;
+
+    let mut composition_summaries = std::collections::HashMap::new();
+    for prompt in &prompts {
+        if prompt.kind == crate::db::schema::PromptKind::Composite {
+            if let Ok(children) = services::prompts::get_children(&state.db, &prompt.id).await {
+                let snippets = children
+                    .iter()
+                    .filter(|c| c.kind == crate::db::schema::PromptKind::Snippet)
+                    .count();
+                let composites = children.len().saturating_sub(snippets);
+                let mut parts = Vec::new();
+                if snippets > 0 {
+                    parts.push(format!(
+                        "{snippets} snippet{}",
+                        if snippets == 1 { "" } else { "s" }
+                    ));
+                }
+                if composites > 0 {
+                    parts.push(format!(
+                        "{composites} composite{}",
+                        if composites == 1 { "" } else { "s" }
+                    ));
+                }
+                composition_summaries.insert(prompt.id, parts.join(" + "));
+            }
+        }
+    }
+
+    let page_html = leptos::view! {
+        <pages::prompts::PromptsPage
+            prompts
+            user_id=auth.user_id
+            composition_summaries
+        />
+    }
+    .to_html();
+    let breadcrumbs = vec![
+        breadcrumb_registry::all_projects(),
+        breadcrumb_registry::prompts(),
+    ];
+    Ok(Html(render_shell(
+        &page_html,
+        Some(user_json),
+        breadcrumbs,
+        agents,
+    )))
+}
+
+async fn prompt_detail_handler(
+    auth: AuthUser,
+    State(state): State<AppState>,
+    Path(id): Path<Uuid>,
+) -> Result<Html<String>, ServerError> {
+    let user_json = serde_json::to_string(&auth).unwrap_or_default();
+    let agents = active_agents(&state.db, &auth).await;
+    let prompt = services::prompts::get_prompt(&state.db, &id)
+        .await
+        .map_err(|e| ServerError::NotFound(e.to_string()))?;
+    let visible =
+        prompt.is_static || prompt.is_shared || prompt.owner_user_id == Some(auth.user_id);
+    if !visible {
+        return Err(ServerError::NotFound("Prompt not found".into()));
+    }
+    let children = services::prompts::get_children(&state.db, &id)
+        .await
+        .unwrap_or_default();
+    let library = services::prompts::list_prompts(&state.db, &auth.user_id)
+        .await
+        .unwrap_or_default();
+    let assignments = services::prompts::list_assignments_for_prompt(&state.db, &id)
+        .await
+        .unwrap_or_default();
+    let project_options: Vec<(i64, String)> = services::projects::list_projects(&state.db, &auth)
+        .await
+        .unwrap_or_default()
+        .into_iter()
+        .map(|p| (p.id, p.name))
+        .collect();
+
+    let breadcrumbs = vec![
+        breadcrumb_registry::all_projects(),
+        breadcrumb_registry::prompts(),
+        breadcrumb_registry::prompt(&prompt.title, prompt.id),
+    ];
+    let page_html = leptos::view! {
+        <pages::prompt_detail::PromptDetailPage
+            prompt
+            children
+            library
+            assignments
+            project_options
+            user_id=auth.user_id
+        />
+    }
+    .to_html();
+    Ok(Html(render_shell(
+        &page_html,
+        Some(user_json),
+        breadcrumbs,
+        agents,
+    )))
 }
 
 async fn dashboard_handler(

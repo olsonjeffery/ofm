@@ -18,17 +18,21 @@ ofm/
 │   │       └── conversations.rs  # Chat API endpoints (Phase 2)
 │   ├── webapp/          # Leptos SSR pages, islands, components
 │   │   ├── pages/chat.rs       # Real-time chat view (Phase 4)
+│   │   ├── pages/prompts.rs    # Prompt Library listing
+│   │   ├── pages/prompt_detail.rs  # Prompt Builder (editor/composer)
 │   │   └── components/
 │   │       ├── conversation_list.rs  # Conversation sidebar (Phase 5)
 │   │       ├── message_stream.rs     # Streaming event display (Phase 5)
 │   │       ├── chat_input.rs         # Manual message input (Phase 5)
+│   │       ├── library_dropdown.rs   # Navbar "Library" dropdown → Prompts
 │   ├── orchestration/   # State machine, guards, recovery, completion
 │   ├── providers/       # LlmProvider trait, opencode_sdk providers
 │   │   ├── opencode_sdk_provider.rs  # Pooled opencode server provider
 │   │   ├── rig_config.rs             # Rig provider config domain types (capture only)
 │   │   └── registry.rs               # Harness dispatch ("opencode", rig guard)
 │   ├── agents/          # Prompt builders (planning, impl, review, PR)
-│   ├── services/        # Auth, projects, tasks, settings, session, transcript, export_import, commits, groups, access
+│   ├── prompts/         # Prompt render engine (token allowlist, validate, render)
+│   ├── services/        # Auth, projects, tasks, settings, session, transcript, export_import, commits, groups, access, prompts
 │   ├── archive/         # Task doc I/O, context prompt
 │   ├── worktree/        # Git worktree management
 │   └── rauthy/          # Local rauthy lifecycle (docker), PUB_URL/env build, endpoint re-hosting helpers
@@ -51,7 +55,10 @@ The workspace has a single member crate (`ofm` binary) defined inline.
 | Table | Purpose |
 |-------|---------|
 | `users` | User accounts with OIDC auth |
-| `projects` | Project definitions (repo paths, monorepo subproject paths) |
+| `projects` | Project definitions (repo paths, monorepo subproject paths, `tags` JSON array for `{{tags}}` substitution) |
+| `prompts` | Prompt Library entries (`snippet`/`composite`/`static`, owner, share/static flags, tags, `static_key`) |
+| `prompt_children` | Ordered composite composition (`parent_id`, `child_id`, `position`) |
+| `prompt_assignments` | Agent-phase designations (`agent_type`, `scope_type`, `project_id`; unique via index on `(agent_type, scope_type, COALESCE(project_id, -1))`) |
 | `groups` | User Group / Organization definitions (name, `is_org`, `is_oauth_scope`, owner, creator snapshot) |
 | `group_members` | Polymorphic membership (user OR subgroup) with a fixed `level` enum |
 | `tasks` | Task definitions with workflow state flags |
@@ -299,6 +306,27 @@ Agent prompts are assembled from templates in `templates/`:
 - More prompt templates in `src/agents/` for implementation, review, and PR agents.
 
 Prompt assembly functions in `src/agents/planning.rs` and related modules build the turn input from task context, model settings, and template rendering.
+
+### Prompt Library resolution precedes template fallback
+
+`start_next_agent` (`src/orchestration/mod.rs`) first resolves a designated
+prompt for the current agent phase via
+`services::prompts::resolve_prompt_for_agent` (project-scoped designation wins,
+then global). When a designation exists, the prompt's content is recursively
+flattened (`services::prompts::flattened_content`, joining composite children
+with a `---` separator) and rendered through the `src/prompts/` engine, which
+substitutes the 9 standard tokens (`{{taskId}}`, `{{projectId}}`,
+`{{taskDocPath}}`, `{{taskWorktreePath}}`, `{{taskWorktreeBranch}}`,
+`{{projectDefaultBranch}}`, `{{projectName}}`, `{{taskName}}`, `{{tags}}` —
+where `{{tags}}` is the project's `tags` list). On any resolution or render
+failure the pipeline falls back to the stock `agents::*::build_*_prompt()`
+builders unchanged, so the default flow is untouched unless a user deliberately
+designates a prompt. User-authored snippet/composite content is validated
+against the token allowlist and dash-based-name tag grammar at create/update
+time (non-destructive); static templates are exempt because they use extra,
+non-standard tokens. The 6 `templates/*.md` files are seeded as immutable
+`kind='static'` rows by `db::ensure_static_prompts` at startup (visible to all,
+duplicable into a user's own snippet).
 
 ## YAML Config Overlay
 

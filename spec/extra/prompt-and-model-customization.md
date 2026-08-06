@@ -22,8 +22,13 @@ makes both **configurable** — the *what an agent says* and the *what runs it*.
 > files are written `0600` (owner-readable only — they may hold API keys), and
 > served configs mask the stored `api_key` (the real secret is never re-served;
 > a masked key submitted unchanged on edit preserves the stored key). The
-> prompt-override layer (two-tier file loader, template engine, per-agent
-> message composition) is **not yet implemented**.
+> prompt-override layer is **implemented as a database-backed Prompt Library**
+> (`prompts`/`prompt_children`/`prompt_assignments` tables, `src/prompts/`
+> render engine, `src/services/prompts.rs`, `/webapp/prompts` + per-prompt
+> Builder, and designation via `/api/prompts/*/assignments`). The original
+> two-tier file loader (`~/.ofm/prompts/` overrides + `GET/PUT/DELETE
+> /api/settings/prompts`) described below is **superseded** by the library and
+> is retained here only as historical reference.
 
 ## What it adds
 
