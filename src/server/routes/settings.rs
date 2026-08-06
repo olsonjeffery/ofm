@@ -1,4 +1,5 @@
 use std::collections::HashMap;
+use std::path::PathBuf;
 
 use axum::extract::{Path, Query, State};
 use axum::http::StatusCode;
@@ -318,7 +319,8 @@ async fn get_rig_provider_models_handler(
     auth: AuthUser,
     Path(id): Path<Uuid>,
 ) -> Result<Json<Vec<String>>, (StatusCode, Json<ErrorResponse>)> {
-    settings::get_rig_provider_models(&state.db, auth.user_id, id)
+    let config_root = PathBuf::from(&state.config_root);
+    settings::get_rig_provider_models(&state.db, auth.user_id, id, &config_root)
         .await
         .map(Json)
         .map_err(|e| match e.as_str() {
@@ -549,6 +551,77 @@ mod tests {
             .await
             .expect("list should succeed");
         assert!(listed.0.is_empty());
+    }
+
+    #[tokio::test]
+    async fn test_rig_provider_models_live_fetch_route() {
+        use axum::routing::get;
+
+        let ctx = setup().await;
+
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let addr = listener.local_addr().unwrap();
+        tokio::spawn(async move {
+            axum::serve(
+                listener,
+                Router::new().route(
+                    "/models",
+                    get(|| async {
+                        Json(serde_json::json!({ "data": [{ "id": "m-a" }, { "id": "m-b" }] }))
+                    }),
+                ),
+            )
+            .await
+            .unwrap();
+        });
+
+        // Insert the rig row directly: the capture API rejects loopback
+        // base_urls, so a direct insert is required to point at the mock.
+        let cfg = RigProviderConfig {
+            name: "live-route".into(),
+            vendor: RigVendor::OpenAiCompatible,
+            base_url: Some(format!("http://{addr}")),
+            api_key: Some("sk-test".into()),
+            model_list_mode: ModelListMode::OpenApiList,
+            models: vec![],
+        };
+        let id = Uuid::new_v4();
+        let now = chrono::Utc::now().naive_utc().to_string();
+        ctx.state
+            .db
+            .execute(
+                "INSERT INTO user_model_configs (id, user_id, name, config_body, harness, created_at, updated_at) \
+                 VALUES ($1, $2, $3, $4, $5, $6, $7)",
+                hiqlite::params!(
+                    id.to_string(),
+                    ctx.auth.user_id.to_string(),
+                    "live-route",
+                    serde_json::to_string(&cfg).unwrap(),
+                    "rig",
+                    &now,
+                    &now
+                ),
+            )
+            .await
+            .unwrap();
+
+        let models = crate::providers::rig_models::test_env::allow_loopback(async {
+            get_rig_provider_models_handler(State(ctx.state.clone()), ctx.auth.clone(), Path(id))
+                .await
+        })
+        .await
+        .expect("live models fetch should succeed");
+        assert_eq!(models.0, vec!["m-a", "m-b"]);
+
+        // Unknown id still 404s (existing assertion preserved).
+        let result = get_rig_provider_models_handler(
+            State(ctx.state.clone()),
+            ctx.auth.clone(),
+            Path(Uuid::new_v4()),
+        )
+        .await;
+        assert!(result.is_err());
+        assert_eq!(result.unwrap_err().0, StatusCode::NOT_FOUND);
     }
 
     #[tokio::test]

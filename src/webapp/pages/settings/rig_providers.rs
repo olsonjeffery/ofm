@@ -99,8 +99,9 @@ const CONTENT: &str = r#"
                 </select>
             </div>
             <p class="help" id="rig-model-mode-help">
-                OpenAPI mode fetches the model list from the provider's model-listing API at run time;
-                manual mode uses the list you enter below.
+                OpenAPI mode fetches the model list live from the provider's model-listing API
+                when this provider is selected in Agent Settings; manual mode uses the list you
+                enter below.
             </p>
         </div>
     </div>

@@ -7,7 +7,7 @@ use uuid::Uuid;
 
 use crate::db::schema::{AgentHarnessConfig, AgentType, ScopeType, UserModelConfig};
 use crate::providers::config::ProviderConfigDir;
-use crate::providers::rig_config::RigProviderConfig;
+use crate::providers::rig_config::{ModelListMode, RigProviderConfig};
 use crate::services::agent_configs;
 use crate::services::config_format;
 
@@ -532,18 +532,95 @@ pub async fn delete_rig_provider(
     Ok(rows > 0)
 }
 
-/// The model ids saved on a Rig provider config — the source for the Agent
-/// Settings model dropdown. (Live fetching from a provider's OpenAPI
-/// model-listing endpoint is a RIG 1 concern.)
+/// The model ids available on a Rig provider config — the source for the Agent
+/// Settings model dropdown. In `OpenApiList` mode the list is live-fetched
+/// from the provider's model-listing API (see `providers::rig_models`) and, on
+/// success, cached back onto the row and the `{uuid}.rig.json` file so
+/// downstream checks (`available_models`, selection validation) stay coherent
+/// with what the dropdown showed. On failure the callers degrade to the cached
+/// list; if there is nothing cached to degrade to, the error is surfaced so the
+/// UI can show it instead of a silent empty dropdown.
 pub async fn get_rig_provider_models(
     client: &Client,
     user_id: Uuid,
     id: Uuid,
+    config_root: &Path,
 ) -> Result<Vec<String>, String> {
-    let provider = get_rig_provider(client, user_id, id)
+    let row = get_rig_provider_row(client, user_id, id)
         .await?
         .ok_or_else(|| "rig provider not found".to_string())?;
-    Ok(provider.config.available_models())
+    let mut config: RigProviderConfig =
+        serde_json::from_str(&row.config_body).map_err(|e| e.to_string())?;
+
+    if let ModelListMode::OpenApiList = &config.model_list_mode {
+        match crate::providers::rig_models::list_models(&config).await {
+            Ok(models) => {
+                config.models = models.clone();
+                persist_rig_models_cache(client, &row, config_root, &config).await;
+                return Ok(models);
+            }
+            Err(e) => {
+                tracing::warn!(
+                    "rig provider '{}' model listing failed; using cached list: {e}",
+                    row.name
+                );
+                let cached = config.available_models();
+                if cached.is_empty() {
+                    return Err(format!(
+                        "could not load models for rig provider '{}': {e}",
+                        row.name
+                    ));
+                }
+                return Ok(cached);
+            }
+        }
+    }
+    Ok(config.available_models())
+}
+
+/// Best-effort persistence of a freshly fetched model list back into the
+/// `user_model_configs` row and the provider config file. Failures are logged,
+/// never propagated — a cache-write hiccup must not break the dropdown.
+async fn persist_rig_models_cache(
+    client: &Client,
+    row: &UserModelConfig,
+    config_root: &Path,
+    config: &RigProviderConfig,
+) {
+    let config_body = match serde_json::to_string(config) {
+        Ok(body) => body,
+        Err(e) => {
+            tracing::warn!(
+                "failed to serialize updated rig config '{}' for cache persist: {e}",
+                row.name
+            );
+            return;
+        }
+    };
+    let now = chrono::Utc::now().naive_utc().to_string();
+    if let Err(e) = client
+        .execute(
+            "UPDATE user_model_configs SET config_body = $1, updated_at = $2 WHERE id = $3 AND user_id = $4 AND harness = 'rig'",
+            hiqlite::params!(
+                &config_body,
+                &now,
+                row.id.to_string(),
+                row.user_id.to_string()
+            ),
+        )
+        .await
+    {
+        tracing::warn!(
+            "failed to persist rig model list cache for '{}': {e}",
+            row.name
+        );
+        return;
+    }
+    write_provider_config_file(
+        config_root,
+        &config_filename(&row.id, RIG_HARNESS),
+        &config_body,
+    );
 }
 
 #[cfg(test)]
@@ -631,9 +708,10 @@ mod tests {
         assert_eq!(listed[0].id, created.id);
 
         // Models endpoint returns the manual list
-        let models = get_rig_provider_models(&ctx.client, ctx.user_id, created.id)
-            .await
-            .unwrap();
+        let models =
+            get_rig_provider_models(&ctx.client, ctx.user_id, created.id, &ctx.config_root)
+                .await
+                .unwrap();
         assert_eq!(models, vec!["gpt-4", "gpt-4o"]);
 
         // Update the provider
@@ -679,9 +757,151 @@ mod tests {
     #[tokio::test]
     async fn test_get_rig_provider_models_not_found() {
         let ctx = setup().await;
-        let result = get_rig_provider_models(&ctx.client, ctx.user_id, Uuid::new_v4()).await;
+        let result =
+            get_rig_provider_models(&ctx.client, ctx.user_id, Uuid::new_v4(), &ctx.config_root)
+                .await;
         assert!(result.is_err());
         assert!(result.unwrap_err().contains("not found"));
+    }
+
+    /// Insert a rig row directly, bypassing `validate` so a loopback base_url
+    /// pointing at an in-test mock upstream is allowed.
+    async fn insert_rig_row_direct(ctx: &TestCtx, cfg: &RigProviderConfig) -> Uuid {
+        let id = Uuid::new_v4();
+        let now = chrono::Utc::now().naive_utc().to_string();
+        ctx.client
+            .execute(
+                "INSERT INTO user_model_configs (id, user_id, name, config_body, harness, created_at, updated_at) \
+                 VALUES ($1, $2, $3, $4, $5, $6, $7)",
+                hiqlite::params!(
+                    id.to_string(),
+                    ctx.user_id.to_string(),
+                    cfg.name.clone(),
+                    serde_json::to_string(cfg).unwrap(),
+                    "rig",
+                    &now,
+                    &now
+                ),
+            )
+            .await
+            .unwrap();
+        id
+    }
+
+    #[tokio::test]
+    async fn test_get_rig_provider_models_live_fetch_persists_cache() {
+        use axum::{routing::get, Json as AxumJson, Router};
+        use serde_json::json;
+
+        let ctx = setup().await;
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let addr = listener.local_addr().unwrap();
+        tokio::spawn(async move {
+            axum::serve(
+                listener,
+                Router::new().route(
+                    "/models",
+                    get(|| async {
+                        AxumJson(json!({ "data": [{ "id": "m-a" }, { "id": "m-b" }] }))
+                    }),
+                ),
+            )
+            .await
+            .unwrap();
+        });
+
+        let cfg = RigProviderConfig {
+            name: "live-provider".into(),
+            vendor: crate::providers::rig_config::RigVendor::OpenAiCompatible,
+            base_url: Some(format!("http://{addr}")),
+            api_key: Some("sk-test".into()),
+            model_list_mode: ModelListMode::OpenApiList,
+            models: vec![],
+        };
+        let id = insert_rig_row_direct(&ctx, &cfg).await;
+
+        let models = crate::providers::rig_models::test_env::allow_loopback(async {
+            get_rig_provider_models(&ctx.client, ctx.user_id, id, &ctx.config_root).await
+        })
+        .await;
+        let models = models.expect("live fetch should succeed");
+        assert_eq!(models, vec!["m-a", "m-b"]);
+
+        // The fetched list is persisted back to the row...
+        let row = get_rig_provider_row(&ctx.client, ctx.user_id, id)
+            .await
+            .unwrap()
+            .unwrap();
+        let stored: RigProviderConfig = serde_json::from_str(&row.config_body).unwrap();
+        assert_eq!(stored.models, vec!["m-a", "m-b"]);
+
+        // ...and to the {uuid}.rig.json config file.
+        let cfg_dir = ProviderConfigDir::new(&ctx.config_root);
+        let file = cfg_dir
+            .load_provider_config(&format!("{id}.rig.json"))
+            .unwrap();
+        let file_cfg: RigProviderConfig = serde_json::from_str(&file.raw_snippet).unwrap();
+        assert_eq!(file_cfg.models, vec!["m-a", "m-b"]);
+    }
+
+    #[tokio::test]
+    async fn test_get_rig_provider_models_live_fetch_failure_degrades_to_cached() {
+        let ctx = setup().await;
+        let cfg = RigProviderConfig {
+            name: "dead-provider".into(),
+            vendor: crate::providers::rig_config::RigVendor::OpenAiCompatible,
+            base_url: Some("http://127.0.0.1:1".into()),
+            api_key: Some("sk-test".into()),
+            model_list_mode: ModelListMode::OpenApiList,
+            models: vec!["cached-1".into(), "cached-2".into()],
+        };
+        let id = insert_rig_row_direct(&ctx, &cfg).await;
+
+        let models = crate::providers::rig_models::test_env::allow_loopback(async {
+            get_rig_provider_models(&ctx.client, ctx.user_id, id, &ctx.config_root).await
+        })
+        .await;
+        let models = models.expect("should degrade to cached list");
+        assert_eq!(models, vec!["cached-1", "cached-2"]);
+    }
+
+    #[tokio::test]
+    async fn test_get_rig_provider_models_live_fetch_failure_empty_cache_errors() {
+        let ctx = setup().await;
+        let cfg = RigProviderConfig {
+            name: "dead-empty-provider".into(),
+            vendor: crate::providers::rig_config::RigVendor::OpenAiCompatible,
+            base_url: Some("http://127.0.0.1:1".into()),
+            api_key: Some("sk-test".into()),
+            model_list_mode: ModelListMode::OpenApiList,
+            models: vec![],
+        };
+        let id = insert_rig_row_direct(&ctx, &cfg).await;
+
+        let result = crate::providers::rig_models::test_env::allow_loopback(async {
+            get_rig_provider_models(&ctx.client, ctx.user_id, id, &ctx.config_root).await
+        })
+        .await;
+        let err = result.expect_err("empty-cache listing failure must surface an error");
+        assert!(err.contains("could not load models"), "got: {err}");
+    }
+
+    #[tokio::test]
+    async fn test_get_rig_provider_models_manual_mode_no_http() {
+        let ctx = setup().await;
+        let created = create_rig_provider(
+            &ctx.client,
+            ctx.user_id,
+            &ctx.config_root,
+            sample_rig(crate::providers::rig_config::RigVendor::OpenAi),
+        )
+        .await
+        .unwrap();
+        let models =
+            get_rig_provider_models(&ctx.client, ctx.user_id, created.id, &ctx.config_root)
+                .await
+                .unwrap();
+        assert_eq!(models, vec!["gpt-4", "gpt-4o"]);
     }
 
     #[test]

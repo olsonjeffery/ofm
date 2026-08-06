@@ -82,7 +82,9 @@ impl RigVendor {
 #[serde(rename_all = "snake_case")]
 pub enum ModelListMode {
     /// Provider exposes an OpenAPI-compatible model-listing API
-    /// (`GET {base_url}/v1/models`); consumed at execution time (RIG 1).
+    /// (`GET {base}/models`). The list is live-fetched from the provider by
+    /// `rig_models::list_models` whenever the Agent Settings dropdown asks for
+    /// it, and the result is cached back onto the config (`models`).
     #[default]
     OpenApiList,
     /// User supplies model ids manually (single model or explicit list).
@@ -91,8 +93,7 @@ pub enum ModelListMode {
 
 impl ModelListMode {
     /// The model ids exposed by this mode: the manual list if Manual, else the
-    /// models cached on the config (which may be empty until a listing fetch
-    /// lands in RIG 1).
+    /// models cached on the config (populated by a live listing fetch).
     pub fn models(&self, cached: &[String]) -> Vec<String> {
         match self {
             ModelListMode::OpenApiList => cached.to_vec(),
@@ -113,7 +114,7 @@ pub struct RigProviderConfig {
     /// None => no-auth (only valid for the no-auth variant).
     pub api_key: Option<String>,
     pub model_list_mode: ModelListMode,
-    /// Cached/last-fetched or manual model id list.
+    /// Cached/last-fetched (OpenApiList) or manual model id list.
     #[serde(default)]
     pub models: Vec<String>,
 }
@@ -166,9 +167,10 @@ fn is_blank(value: Option<&str>) -> bool {
 
 /// Whether `base_url` is an acceptable provider endpoint: an `http(s)` URL
 /// pointing at a non-internal host. Capture-time hardening against a latent
-/// SSRF primitive — RIG 1 must re-validate at execution time before making
-/// any request to the captured URL.
-fn is_safe_base_url(base_url: &str) -> bool {
+/// SSRF primitive; `rig_models::list_models` re-validates the captured URL
+/// with this same guard before fetching, so a captured base_url is never
+/// requested from without re-checking.
+pub(crate) fn is_safe_base_url(base_url: &str) -> bool {
     let Ok(parsed) = url::Url::parse(base_url) else {
         return false;
     };

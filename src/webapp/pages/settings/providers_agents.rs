@@ -215,19 +215,42 @@ function configById(opencodeConfigs, rigConfigs, id) {
 
 function fetchModels(config, cb) {
     if (window.__MODEL_CACHE__[config.id]) {
-        cb(window.__MODEL_CACHE__[config.id]);
+        cb(window.__MODEL_CACHE__[config.id], null);
         return;
     }
     var url = config.harness === 'rig'
         ? '/api/settings/rig-providers/' + config.id + '/models'
         : '/api/provider-configs/models?config_ref=' + encodeURIComponent(config.id + '.json');
     apiCall(url)
-        .then(function(r) { return r.ok ? r.json() : []; })
-        .then(function(models) {
-            window.__MODEL_CACHE__[config.id] = models;
-            cb(models);
+        .then(function(r) {
+            return r.json().catch(function() { return {}; }).then(function(data) {
+                if (!r.ok) {
+                    return { models: [], error: (data && data.error) || ('HTTP ' + r.status) };
+                }
+                return { models: Array.isArray(data) ? data : [], error: null };
+            });
         })
-        .catch(function() { cb([]); });
+        .then(function(res) {
+            window.__MODEL_CACHE__[config.id] = res.models;
+            cb(res.models, res.error);
+        })
+        .catch(function(err) {
+            cb([], (err && err.message) || String(err));
+        });
+}
+
+function showModelsError(pickerEl, msg) {
+    var existing = pickerEl.querySelector('.model-list-error');
+    if (!msg) {
+        if (existing) existing.remove();
+        return;
+    }
+    if (!existing) {
+        existing = document.createElement('p');
+        existing.className = 'help is-danger model-list-error';
+        pickerEl.appendChild(existing);
+    }
+    existing.textContent = 'Could not load models for this provider: ' + msg;
 }
 
 function modelOptionsHtml(models) {
@@ -303,8 +326,9 @@ function loadAgentModels() {
             if (!tr) return;
             var modelSelect = tr.querySelector('select[data-model-name="true"]');
             var customInput = tr.querySelector('input[data-model-custom="true"]');
-            fetchModels(config, function(models) {
+            fetchModels(config, function(models, error) {
                 modelSelect.innerHTML = modelOptionsHtml(models);
+                showModelsError(modelSelect.parentElement, error);
                 if (setting.model) {
                     if (models.indexOf(setting.model) !== -1) {
                         modelSelect.value = setting.model;
@@ -331,6 +355,7 @@ document.addEventListener('DOMContentLoaded', function() {
                 var modelSelect = t.parentElement.querySelector('select[data-model-name="true"]');
                 var customInput = t.parentElement.querySelector('input[data-model-custom="true"]');
                 modelSelect.innerHTML = modelOptionsHtml([]);
+                showModelsError(modelSelect.parentElement, null);
                 customInput.value = '';
                 customInput.style.display = 'none';
                 if (!t.value) return;
@@ -340,8 +365,9 @@ document.addEventListener('DOMContentLoaded', function() {
                     t.value
                 );
                 if (!config) return;
-                fetchModels(config, function(models) {
+                fetchModels(config, function(models, error) {
                     modelSelect.innerHTML = modelOptionsHtml(models);
+                    showModelsError(modelSelect.parentElement, error);
                 });
             } else if (t.matches('select[data-model-name="true"]')) {
                 var customInput = t.parentElement.querySelector('input[data-model-custom="true"]');

@@ -169,13 +169,25 @@ pub async fn get_models_for_config(
     let provider_cfg = cfg_dir.load_provider_config(config_ref)?;
     let harness = provider_cfg.harness.as_str();
     if harness == "rig" {
-        // Rig configs keep their model list on the typed config itself (via the
-        // model-listing toggle or the manual list during capture). No provider
-        // execution is required to enumerate them.
+        // Rig configs keep their model list on the typed config itself. In
+        // OpenApiList mode the list is live-fetched from the provider's
+        // model-listing API (no provider execution required); on failure — or
+        // for manual mode — the saved/cached list on the config is returned.
+        // No DB access here, so no cache persistence on this path (the Agent
+        // Settings dropdown path persists).
         let rig: crate::providers::rig_config::RigProviderConfig =
             serde_json::from_str(&provider_cfg.raw_snippet)
                 .map_err(|e| ProviderError::Config(format!("invalid rig config: {e}")))?;
-        return Ok(rig.available_models());
+        if matches!(
+            rig.model_list_mode,
+            crate::providers::rig_config::ModelListMode::Manual(_)
+        ) {
+            return Ok(rig.available_models());
+        }
+        return match crate::providers::rig_models::list_models(&rig).await {
+            Ok(models) if !models.is_empty() => Ok(models),
+            _ => Ok(rig.available_models()),
+        };
     }
     let config = HarnessConfig {
         agent_type: "planification".to_string(),
@@ -243,6 +255,75 @@ mod tests {
             .block_on(async { get_models_for_config(tmp.path(), "abc.rig.json", false).await });
         let models = models.unwrap();
         assert_eq!(models, vec!["gpt-4", "gpt-4o"]);
+    }
+
+    #[tokio::test]
+    async fn test_get_models_for_config_rig_live_fetch() {
+        use axum::{routing::get, Json as AxumJson, Router};
+        use serde_json::json;
+
+        let tmp = tempfile::TempDir::new().unwrap();
+        let cfg_dir = ProviderConfigDir::new(tmp.path());
+        cfg_dir.ensure_exists().unwrap();
+
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let addr = listener.local_addr().unwrap();
+        tokio::spawn(async move {
+            axum::serve(
+                listener,
+                Router::new().route(
+                    "/models",
+                    get(|| async {
+                        AxumJson(json!({ "data": [{ "id": "m-a" }, { "id": "m-b" }] }))
+                    }),
+                ),
+            )
+            .await
+            .unwrap();
+        });
+
+        let rig = crate::providers::rig_config::RigProviderConfig {
+            name: "live-provider".into(),
+            vendor: crate::providers::rig_config::RigVendor::OpenAiCompatible,
+            base_url: Some(format!("http://{addr}")),
+            api_key: Some("sk-test".into()),
+            model_list_mode: crate::providers::rig_config::ModelListMode::OpenApiList,
+            models: vec![],
+        };
+        cfg_dir
+            .write_provider_config("abc.rig.json", &serde_json::to_string(&rig).unwrap())
+            .unwrap();
+
+        let models = crate::providers::rig_models::test_env::allow_loopback(async {
+            get_models_for_config(tmp.path(), "abc.rig.json", false).await
+        })
+        .await;
+        assert_eq!(models.unwrap(), vec!["m-a", "m-b"]);
+    }
+
+    #[tokio::test]
+    async fn test_get_models_for_config_rig_live_fetch_falls_back_to_cached() {
+        let tmp = tempfile::TempDir::new().unwrap();
+        let cfg_dir = ProviderConfigDir::new(tmp.path());
+        cfg_dir.ensure_exists().unwrap();
+
+        let rig = crate::providers::rig_config::RigProviderConfig {
+            name: "dead-provider".into(),
+            vendor: crate::providers::rig_config::RigVendor::OpenAiCompatible,
+            base_url: Some("http://127.0.0.1:1".into()),
+            api_key: Some("sk-test".into()),
+            model_list_mode: crate::providers::rig_config::ModelListMode::OpenApiList,
+            models: vec!["cached-1".into()],
+        };
+        cfg_dir
+            .write_provider_config("abc.rig.json", &serde_json::to_string(&rig).unwrap())
+            .unwrap();
+
+        let models = crate::providers::rig_models::test_env::allow_loopback(async {
+            get_models_for_config(tmp.path(), "abc.rig.json", false).await
+        })
+        .await;
+        assert_eq!(models.unwrap(), vec!["cached-1"]);
     }
 
     #[tokio::test]

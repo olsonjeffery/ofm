@@ -364,8 +364,10 @@ inherits the same event loop infrastructure. Notable characteristics:
   and the Agent Settings model dropdown (`AGENT_MODELS_JS` in
   `src/webapp/pages/settings/providers_agents.rs`) consumes it via
   `GET /api/provider-configs/models?config_ref={name}`. Rig configs feed the
-  **same** dropdown from `GET /api/settings/rig-providers/{id}/models`
-  (their `models` field), so both provider families surface identically.
+  **same** dropdown from `GET /api/settings/rig-providers/{id}/models`; that
+  endpoint is backed by a **live fetch** of the provider's model-listing API
+  (`src/providers/rig_models.rs`, cached back into `config.models` on
+  success), so both provider families surface identically.
 - **Turn resume** — fully supported by extracting the last user message from
   the transcript and re-prompting the same session
 

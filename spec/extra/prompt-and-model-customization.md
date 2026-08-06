@@ -15,7 +15,18 @@ makes both **configurable** — the *what an agent says* and the *what runs it*.
 > provider configs (Anthropic / OpenAI / OpenCode Go / OpenRouter /
 > OpenAI-compatible ± auth) into structured JSON files tracked by
 > `user_model_configs` with `harness = "rig"`; those configs are **not yet
-> executable** — execution is deferred to a future story (RIG 1). Capture-time
+> executable** — execution is deferred to a future story (RIG 1). Model
+> listing is **implemented live**: the OpenAPI model-listing mode
+> (`ModelListMode::OpenApiList`) live-fetches `{base}/models` from the
+> provider's model-listing API when the Agent Settings model dropdown loads
+> (`src/providers/rig_models.rs`, wired through `get_rig_provider_models` in
+> `src/services/settings.rs` and the rig branch of `get_models_for_config` in
+> `src/providers/registry.rs`), persisting the result back into
+> `config.models` (the row and `{uuid}.rig.json`) on success, degrading to the
+> cached list on failure (and surfacing the failure to the UI when there is no
+> cached list), and re-validating the captured `base_url` for SSRF at fetch
+> time. The "RIG 1" deferral now applies only to *execution*, not model
+> listing. Capture-time
 > hardening (`src/providers/rig_config.rs`, `src/services/settings.rs`):
 > `base_url` must be an `http(s)` URL to a public host (loopback, link-local,
 > private, and cloud-metadata endpoints are rejected at save), provider config
