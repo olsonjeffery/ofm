@@ -133,6 +133,9 @@ pub struct Project {
     pub name: String,
     pub repo_folder_path: String,
     pub subproject_path: Option<String>,
+    /// Dash-based-name tags (JSON array column). Rendered as pills in the UI and
+    /// substituted into the `{{tags}}` prompt token.
+    pub tags: Vec<String>,
     pub created_at: NaiveDateTime,
 }
 
@@ -176,6 +179,24 @@ pub struct ActiveAgent {
     pub task_title: String,
     pub conversation_id: Uuid,
     pub conversation_name: Option<String>,
+}
+
+/// A task reference for the global agent-status feed (open questions, blocked
+/// tasks) with just enough context to build a deep link in the UI.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct TaskStatusSummary {
+    pub project_id: i64,
+    pub project_title: String,
+    pub task_id: i64,
+    pub task_title: String,
+}
+
+/// Aggregate, user-scoped view of agent activity for the navbar dropdown.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct GlobalAgentStatus {
+    pub agents: Vec<ActiveAgent>,
+    pub questions: Vec<TaskStatusSummary>,
+    pub blocked: Vec<TaskStatusSummary>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
@@ -280,6 +301,78 @@ pub struct User {
     pub token_version: i32,
     pub created_at: String,
     pub last_login: Option<String>,
+    /// Space-delimited OAuth scopes granted to the user at login (from the
+    /// token response, access-token `scope` claim, and/or userinfo echo).
+    /// Used to evaluate membership of groups with `is_oauth_scope` set.
+    pub scopes: String,
+}
+
+/// Fixed membership-level enum for `group_members.level`. Stored as a TEXT
+/// column and validated in the service layer (SQLite has no native enums).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
+pub enum GroupLevel {
+    ReadOnly,
+    Contributor,
+    Maintainer,
+    Admin,
+}
+
+impl GroupLevel {
+    pub const LEVELS: [&'static str; 4] = ["read-only", "contributor", "maintainer", "admin"];
+}
+
+impl std::fmt::Display for GroupLevel {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::ReadOnly => write!(f, "read-only"),
+            Self::Contributor => write!(f, "contributor"),
+            Self::Maintainer => write!(f, "maintainer"),
+            Self::Admin => write!(f, "admin"),
+        }
+    }
+}
+
+impl std::str::FromStr for GroupLevel {
+    type Err = String;
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        match s {
+            "read-only" => Ok(Self::ReadOnly),
+            "contributor" => Ok(Self::Contributor),
+            "maintainer" => Ok(Self::Maintainer),
+            "admin" => Ok(Self::Admin),
+            _ => Err(format!(
+                "invalid group level '{s}': must be one of {:?}",
+                Self::LEVELS
+            )),
+        }
+    }
+}
+
+/// A User Group / Organization definition (`groups` table).
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct Group {
+    pub id: Uuid,
+    pub name: String,
+    pub is_org: bool,
+    pub is_oauth_scope: bool,
+    pub title: String,
+    pub description: String,
+    pub owner_id: Uuid,
+    /// preferred_name snapshot of the creating user.
+    pub created_by: String,
+    pub created_at: NaiveDateTime,
+}
+
+/// Polymorphic membership row: references either a `user_id` or a
+/// `member_group_id` (groups-of-groups roll-up).
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct GroupMember {
+    pub id: Uuid,
+    pub group_id: Uuid,
+    pub user_id: Option<Uuid>,
+    pub member_group_id: Option<Uuid>,
+    pub level: String,
+    pub created_at: NaiveDateTime,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -292,13 +385,6 @@ pub struct SessionDb {
     pub access_token: String,
     pub expires_at: String,
     pub created_at: String,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct ProjectMember {
-    pub id: Uuid,
-    pub project_id: i64,
-    pub user_id: Uuid,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -343,9 +429,87 @@ impl From<&mut Row<'_>> for Project {
             name: row.get("name"),
             repo_folder_path: row.get("repo_folder_path"),
             subproject_path: row.get("subproject_path"),
+            tags: serde_json::from_str(&row.get::<String>("tags")).unwrap_or_default(),
             created_at: parse_naive_datetime(&row.get::<String>("created_at")),
         }
     }
+}
+
+/// Prompt kind: a bare snippet, a composite (an ordered collection of other
+/// prompts), or a static built-in template (immutable, no owner).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum PromptKind {
+    Snippet,
+    Composite,
+    Static,
+}
+
+impl std::fmt::Display for PromptKind {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::Snippet => write!(f, "snippet"),
+            Self::Composite => write!(f, "composite"),
+            Self::Static => write!(f, "static"),
+        }
+    }
+}
+
+impl std::str::FromStr for PromptKind {
+    type Err = String;
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        match s {
+            "snippet" => Ok(Self::Snippet),
+            "composite" => Ok(Self::Composite),
+            "static" => Ok(Self::Static),
+            _ => Err(format!("invalid prompt kind: '{s}'")),
+        }
+    }
+}
+
+impl PromptKind {
+    pub fn label(&self) -> &'static str {
+        match self {
+            Self::Snippet => "snippet",
+            Self::Composite => "composite",
+            Self::Static => "static",
+        }
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct Prompt {
+    pub id: Uuid,
+    pub kind: PromptKind,
+    pub title: String,
+    pub content: String,
+    /// Dash-based-name tags (JSON array column).
+    pub tags: Vec<String>,
+    /// NULL for static prompts.
+    pub owner_user_id: Option<Uuid>,
+    pub is_static: bool,
+    pub is_shared: bool,
+    /// Stable seed key for static prompts (e.g. `"planification"`).
+    pub static_key: Option<String>,
+    pub created_at: NaiveDateTime,
+    pub updated_at: NaiveDateTime,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct PromptChild {
+    pub parent_id: Uuid,
+    pub child_id: Uuid,
+    pub position: i64,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct PromptAssignment {
+    pub id: Uuid,
+    pub prompt_id: Uuid,
+    pub agent_type: AgentType,
+    pub scope_type: ScopeType,
+    pub project_id: Option<i64>,
+    pub created_at: NaiveDateTime,
 }
 
 impl From<&mut Row<'_>> for Task {
@@ -496,6 +660,17 @@ impl From<&mut Row<'_>> for ActiveAgent {
     }
 }
 
+impl From<&mut Row<'_>> for TaskStatusSummary {
+    fn from(row: &mut Row<'_>) -> Self {
+        Self {
+            project_id: row.get::<i64>("project_id"),
+            project_title: row.get("project_title"),
+            task_id: row.get::<i64>("task_id"),
+            task_title: row.get("task_title"),
+        }
+    }
+}
+
 impl From<&mut Row<'_>> for UserModelConfig {
     fn from(row: &mut Row<'_>) -> Self {
         Self {
@@ -512,6 +687,70 @@ impl From<&mut Row<'_>> for UserModelConfig {
             harness: row.get("harness"),
             created_at: parse_naive_datetime(&row.get::<String>("created_at")),
             updated_at: parse_naive_datetime(&row.get::<String>("updated_at")),
+        }
+    }
+}
+
+impl From<&mut Row<'_>> for Prompt {
+    fn from(row: &mut Row<'_>) -> Self {
+        let kind_str: String = row.get("kind");
+        let kind = kind_str.parse().unwrap_or(PromptKind::Snippet);
+        Self {
+            id: row
+                .get::<String>("id")
+                .parse()
+                .expect("invalid UUID in database"),
+            kind,
+            title: row.get("title"),
+            content: row.get("content"),
+            tags: serde_json::from_str(&row.get::<String>("tags")).unwrap_or_default(),
+            owner_user_id: row
+                .get::<Option<String>>("owner_user_id")
+                .map(|s| Uuid::parse_str(&s).expect("invalid UUID in database")),
+            is_static: row.get::<i64>("is_static") != 0,
+            is_shared: row.get::<i64>("is_shared") != 0,
+            static_key: row.get("static_key"),
+            created_at: parse_naive_datetime(&row.get::<String>("created_at")),
+            updated_at: parse_naive_datetime(&row.get::<String>("updated_at")),
+        }
+    }
+}
+
+impl From<&mut Row<'_>> for PromptChild {
+    fn from(row: &mut Row<'_>) -> Self {
+        Self {
+            parent_id: row
+                .get::<String>("parent_id")
+                .parse()
+                .expect("invalid UUID in database"),
+            child_id: row
+                .get::<String>("child_id")
+                .parse()
+                .expect("invalid UUID in database"),
+            position: row.get::<i64>("position"),
+        }
+    }
+}
+
+impl From<&mut Row<'_>> for PromptAssignment {
+    fn from(row: &mut Row<'_>) -> Self {
+        let agent_type_str: String = row.get("agent_type");
+        let agent_type = agent_type_str.parse().unwrap_or(AgentType::Implementation);
+        let scope_type_str: String = row.get("scope_type");
+        let scope_type = scope_type_str.parse().unwrap_or(ScopeType::Global);
+        Self {
+            id: row
+                .get::<String>("id")
+                .parse()
+                .expect("invalid UUID in database"),
+            prompt_id: row
+                .get::<String>("prompt_id")
+                .parse()
+                .expect("invalid UUID in database"),
+            agent_type,
+            scope_type,
+            project_id: row.get::<Option<i64>>("project_id"),
+            created_at: parse_naive_datetime(&row.get::<String>("created_at")),
         }
     }
 }
@@ -536,6 +775,52 @@ impl From<&mut Row<'_>> for User {
             token_version: row.get::<i64>("token_version") as i32,
             created_at: row.get("created_at"),
             last_login: row.get("last_login"),
+            scopes: row.get("scopes"),
+        }
+    }
+}
+
+impl From<&mut Row<'_>> for Group {
+    fn from(row: &mut Row<'_>) -> Self {
+        Self {
+            id: row
+                .get::<String>("id")
+                .parse()
+                .expect("invalid UUID in database"),
+            name: row.get("name"),
+            is_org: row.get::<i64>("is_org") != 0,
+            is_oauth_scope: row.get::<i64>("is_oauth_scope") != 0,
+            title: row.get("title"),
+            description: row.get("description"),
+            owner_id: row
+                .get::<String>("owner_id")
+                .parse()
+                .expect("invalid UUID in database"),
+            created_by: row.get("created_by"),
+            created_at: parse_naive_datetime(&row.get::<String>("created_at")),
+        }
+    }
+}
+
+impl From<&mut Row<'_>> for GroupMember {
+    fn from(row: &mut Row<'_>) -> Self {
+        Self {
+            id: row
+                .get::<String>("id")
+                .parse()
+                .expect("invalid UUID in database"),
+            group_id: row
+                .get::<String>("group_id")
+                .parse()
+                .expect("invalid UUID in database"),
+            user_id: row
+                .get::<Option<String>>("user_id")
+                .map(|s| Uuid::parse_str(&s).expect("invalid UUID in database")),
+            member_group_id: row
+                .get::<Option<String>>("member_group_id")
+                .map(|s| Uuid::parse_str(&s).expect("invalid UUID in database")),
+            level: row.get("level"),
+            created_at: parse_naive_datetime(&row.get::<String>("created_at")),
         }
     }
 }
@@ -615,12 +900,14 @@ mod tests {
             name: "test-project".into(),
             repo_folder_path: "/tmp/repo".into(),
             subproject_path: None,
+            tags: vec!["desktop-3d".into()],
             created_at: chrono::Utc::now().naive_utc(),
         };
         let json = serde_json::to_string(&project).unwrap();
         let deserialized: Project = serde_json::from_str(&json).unwrap();
         assert_eq!(project.id, deserialized.id);
         assert_eq!(project.name, deserialized.name);
+        assert_eq!(project.tags, deserialized.tags);
     }
 
     #[test]

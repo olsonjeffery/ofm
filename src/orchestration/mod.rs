@@ -31,6 +31,26 @@ fn system_topic() -> WsTopic {
     }
 }
 
+/// Broadcast a "global agent status changed" signal on the System topic. The
+/// navbar agent-dropdown subscribes to this topic on every page, so any agent
+/// lifecycle transition (start, complete, fail, stop, blocked, question) must
+/// publish through here for the dropdown to stay current.
+pub async fn broadcast_agent_status(ws_bus: &Arc<BroadcastBus>, action: &str) {
+    let topic = system_topic();
+    ws_bus
+        .broadcast(
+            &topic,
+            ServerMessage::Event {
+                topic: topic.clone(),
+                event_type: "agent_status".to_string(),
+                timestamp: chrono::Utc::now(),
+                payload: serde_json::json!({"action": action}),
+                html: None,
+            },
+        )
+        .await;
+}
+
 pub const MAX_WORKFLOW_RUNS: i32 = 25;
 
 type DynMap = Arc<Mutex<HashMap<String, Box<dyn LlmProvider>>>>;
@@ -162,9 +182,19 @@ pub fn start_next_agent<'a>(
                 let run = tasks::create_agent_run_blocked(db, task.id, &agent_type)
                     .await
                     .map_err(|e| ServerError::Internal(e.to_string()))?;
+                broadcast_agent_status(ws_bus, "blocked").await;
                 return Ok(run);
             }
         };
+
+        // Rig configs are capture-only until RIG 1 lands. Reject the run
+        // *before* `start_session` inserts a run row so the agent is cleanly
+        // blocked from execution with an actionable message.
+        if harness_config.harness == "rig" {
+            return Err(ServerError::Conflict(
+                registry::rig_not_yet_executable_message(&harness_config.provider_config_ref),
+            ));
+        }
 
         guards::one_running_per_task(db, task.id).await?;
         guards::iteration_cap(task)?;
@@ -194,19 +224,7 @@ pub fn start_next_agent<'a>(
         .await
         .map_err(|e| ServerError::Internal(e.to_string()))?;
 
-        let topic = system_topic();
-        ws_bus
-            .broadcast(
-                &topic,
-                ServerMessage::Event {
-                    topic: topic.clone(),
-                    event_type: "agent_status".to_string(),
-                    timestamp: chrono::Utc::now(),
-                    payload: serde_json::json!({"action": "refresh"}),
-                    html: None,
-                },
-            )
-            .await;
+        broadcast_agent_status(ws_bus, "refresh").await;
 
         let mut provider = registry::resolve_provider_for_user(
             &harness_config,
@@ -248,26 +266,79 @@ pub fn start_next_agent<'a>(
             .unwrap_or_default();
 
         let prompt_text = {
-            let phase_prompt = match agent_type {
-                AgentType::Planification => {
-                    agents::planning::build_planning_prompt(&doc_path.to_string_lossy(), &task_str)
+            // Prompt Library resolution runs first: a designation for this
+            // agent_type at (project/global) scope replaces the stock template.
+            // On any resolution/rendering failure we fall back to the existing
+            // template builders, so the default flow is untouched unless a
+            // user deliberately designates a prompt.
+            let library_prompt = crate::services::prompts::resolve_prompt_for_agent(
+                db,
+                &agent_type,
+                &task.user_id,
+                task.project_id,
+            )
+            .await
+            .ok()
+            .flatten();
+
+            let phase_prompt = match library_prompt {
+                Some(prompt) => {
+                    let project = crate::services::projects::get_project(db, task.project_id)
+                        .await
+                        .ok();
+                    let default_branch = if let Some(ref p) = project {
+                        crate::worktree::detect_default_branch(&p.repo_folder_path)
+                            .await
+                            .unwrap_or_else(|_| "main".into())
+                    } else {
+                        "main".to_string()
+                    };
+                    let vars = crate::prompts::PromptVars {
+                        task_id: task.id.to_string(),
+                        project_id: task.project_id.to_string(),
+                        task_doc_path: doc_path.to_string_lossy().into_owned(),
+                        task_worktree_path: cwd.clone(),
+                        task_worktree_branch: worktree
+                            .as_ref()
+                            .map(|w| w.branch.clone())
+                            .unwrap_or_default(),
+                        project_default_branch: default_branch,
+                        project_name: project.as_ref().map(|p| p.name.clone()).unwrap_or_default(),
+                        task_name: task.title.clone(),
+                        tags: project
+                            .as_ref()
+                            .map(|p| p.tags.join(", "))
+                            .unwrap_or_default(),
+                    };
+                    let flattened = crate::services::prompts::flattened_content(db, &prompt)
+                        .await
+                        .unwrap_or_else(|_| prompt.content.clone());
+                    crate::prompts::render(&flattened, &vars)
                 }
-                AgentType::Implementation => {
-                    agents::implementation::build_implementation_prompt(&doc_path.to_string_lossy())
-                }
-                AgentType::Review => {
-                    agents::review::build_review_prompt(task.id, &doc_path.to_string_lossy())
-                }
-                AgentType::Refinement => agents::refinement::build_refinement_prompt(
-                    task.id,
-                    &doc_path.to_string_lossy(),
-                ),
-                AgentType::Pr => agents::pull_request::build_pull_request_prompt(
-                    task.id,
-                    &doc_path.to_string_lossy(),
-                    &PullRequestStatus::NoPr,
-                ),
-                _ => String::new(),
+                None => match agent_type {
+                    AgentType::Planification => agents::planning::build_planning_prompt(
+                        &doc_path.to_string_lossy(),
+                        &task_str,
+                    ),
+                    AgentType::Implementation => {
+                        agents::implementation::build_implementation_prompt(
+                            &doc_path.to_string_lossy(),
+                        )
+                    }
+                    AgentType::Review => {
+                        agents::review::build_review_prompt(task.id, &doc_path.to_string_lossy())
+                    }
+                    AgentType::Refinement => agents::refinement::build_refinement_prompt(
+                        task.id,
+                        &doc_path.to_string_lossy(),
+                    ),
+                    AgentType::Pr => agents::pull_request::build_pull_request_prompt(
+                        task.id,
+                        &doc_path.to_string_lossy(),
+                        &PullRequestStatus::NoPr,
+                    ),
+                    _ => String::new(),
+                },
             };
             [phase_prompt, context_prompt]
                 .into_iter()
@@ -468,6 +539,12 @@ pub fn start_next_agent<'a>(
                                     let rendered = crate::webapp::components::message_stream::render_event(&event);
                                     ws_bus.broadcast(&topic, ServerMessage::Event { topic: topic.clone(), event_type, timestamp: chrono::Utc::now(), payload, html: if rendered.is_empty() { None } else { Some(rendered) } }).await;
 
+                                    // A question pauses the agent waiting on user input — signal the
+                                    // global status feed so the dropdown surfaces the open question.
+                                    if matches!(event, ProviderEvent::QuestionAsked { .. }) {
+                                        broadcast_agent_status(&ws_bus, "question").await;
+                                    }
+
                                     if is_done {
                                         completed_normally.store(true, Ordering::SeqCst);
                                         let done_now = chrono::Utc::now().naive_utc().to_string();
@@ -524,25 +601,21 @@ pub fn start_next_agent<'a>(
                             timestamp: chrono::Utc::now().naive_utc(),
                         };
                         ws_bus.broadcast(&topic, ServerMessage::Event { topic: topic.clone(), event_type: "error".to_string(), timestamp: chrono::Utc::now(), payload: serde_json::json!({"error": "Agent session ended unexpectedly. Send a message to resume.", "conversation_id": conversation_id.to_string()}), html: Some(crate::webapp::components::message_stream::render_event(&error_event)) }).await;
-                        let sys_topic = system_topic();
-                        ws_bus
-                            .broadcast(
-                                &sys_topic,
-                                ServerMessage::Event {
-                                    topic: sys_topic.clone(),
-                                    event_type: "agent_status".to_string(),
-                                    timestamp: chrono::Utc::now(),
-                                    payload: serde_json::json!({"action": "refresh"}),
-                                    html: None,
-                                },
-                            )
-                            .await;
+                        broadcast_agent_status(&ws_bus, "failed").await;
                     }
                 });
             }
             Err(e) => {
                 tracing::warn!("Failed to start turn: {e}");
                 active_sessions.lock().await.insert(conv_id_str, provider);
+                // The run was created as `running` by start_session but no turn
+                // ever began — mark it failed so it leaves the active-agent set.
+                let _ = db.execute(
+                    "UPDATE task_agent_runs SET status = 'failed', completed_at = $2 WHERE conversation_id = $1 AND status = 'running'",
+                    hiqlite::params!(session_result.conversation_id.to_string(), chrono::Utc::now().naive_utc().to_string()),
+                )
+                .await;
+                broadcast_agent_status(ws_bus, "failed").await;
             }
         }
 

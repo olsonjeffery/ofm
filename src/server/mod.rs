@@ -53,7 +53,9 @@ pub fn router(state: AppState, auth_layer: AuthLayer) -> Router {
     let protected = Router::new()
         .nest("/api/auth", routes::auth::auth_protected_router())
         .nest("/api/admin", routes::admin::admin_router())
+        .nest("/api/groups", routes::groups::groups_router())
         .nest("/api/projects", routes::projects::projects_router())
+        .nest("/api/prompts", routes::prompts::prompts_router())
         .nest("/api/tasks", routes::tasks::tasks_router())
         .nest(
             "/api/projects/{project_id}/agent-configs",

@@ -166,7 +166,7 @@ HEAD) is preserved.
 
 The task detail page surfaces the task worktree's git history beneath the
 task's markdown document, and each commit opens a dedicated page with the
-file-change list and a two-column diff.
+file-change list and a stacked (unified) diff.
 
 - **Commit list** (`src/webapp/components/commit_list.rs`, rendered by
   `TaskDetailPage` in `src/webapp/pages/task_detail.rs` immediately below the
@@ -194,15 +194,17 @@ file-change list and a two-column diff.
 - **Per-commit page** (`src/webapp/pages/commit_detail.rs`, route registered in
   `src/webapp/mod.rs`): header box with short OID, summary, author, email, and
   timestamp, followed by `DiffView` (`src/webapp/components/diff_view.rs`) — a
-  two-column side-by-side diff per changed file. Old lines (and context) render
-  in the left column with red-tinted `diff-del` styling and old line numbers;
-  new lines render in the right column with green-tinted `diff-add` styling and
-  new line numbers; blank cells mark the opposite side of a delete/insert.
+  stacked single-column (unified) diff per changed file. Each line renders once,
+  full-width, in `git diff` order: context (`Equal`) lines with a light
+  `diff-ctx` background, removed lines red-tinted `diff-del` immediately above
+  the green-tinted `diff-add` added lines that replace them. The line-number
+  gutter shows the side-appropriate number per row — old number on context and
+  removed lines, new number on added lines.
   Unknown or unresolvable OIDs render "Commit not found." with a link back to
   the task.
 - **Git data reading**: `src/services/commits.rs` uses **gix** (pure Rust) for
   tree reading (open repo, merge-base, ancestor walk, tree-to-tree diff,
-  blob contents) and **similar** to classify old/new lines for the two-column
+  blob contents) and **similar** to classify old/new lines for the stacked
   rendering. Diffs are first-parent (empty tree for root commits), with rename
   tracking disabled so statuses stay unambiguous add/modify/delete.
 
@@ -251,7 +253,7 @@ path in the prompt is authoritative — agents are told not to look elsewhere.
 - [x] `buildContextPrompt` → `build_context_prompt` in `src/archive/mod.rs`
 - [x] Dev-server port assignment via `get_dev_server_port` → `src/archive/mod.rs`
 - [x] Effective-cwd resolution → `src/server/routes/agent_runs.rs` (post_create_agent_run resolves worktree path as cwd)
-- [x] Commit list + per-commit two-column diff → `src/services/commits.rs`, `src/webapp/components/commit_list.rs`, `src/webapp/components/diff_view.rs`, `src/webapp/pages/commit_detail.rs`
+- [x] Commit list + per-commit stacked diff → `src/services/commits.rs`, `src/webapp/components/commit_list.rs`, `src/webapp/components/diff_view.rs`, `src/webapp/pages/commit_detail.rs`
 
 ## Reference map
 

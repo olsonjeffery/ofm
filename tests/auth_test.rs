@@ -2,7 +2,7 @@ use std::collections::HashMap;
 use std::sync::Arc;
 
 use axum::http::StatusCode;
-use axum::routing::post;
+use axum::routing::{get, post};
 use axum::{Json, Router};
 use hiqlite::params;
 use jsonwebtoken::{encode, EncodingKey, Header};
@@ -39,6 +39,7 @@ fn make_jwt_cache() -> (Vec<u8>, String, JwksCache) {
         keys,
         issuer: "test-issuer".to_string(),
         client_id: "test-client".to_string(),
+        scopes_supported: Vec::new(),
     };
     (key.to_vec(), kid.to_string(), cache)
 }
@@ -50,6 +51,7 @@ fn make_jwt(key: &[u8], kid: &str, sub: &str) -> String {
         aud: json!("test-client"),
         exp: 9_999_999_999,
         iat: Some(1_000_000_000),
+        scope: None,
     };
     let mut header = Header::new(jsonwebtoken::Algorithm::HS256);
     header.kid = Some(kid.to_string());
@@ -164,6 +166,7 @@ async fn test_login_returns_authorization_url() {
         redirect_uri: "http://localhost:3183/api/auth/callback".into(),
         jwks_cache: None,
         jwks_issuer: None,
+        scopes_supported: Vec::new(),
     };
     let state = make_app_state(client, user_id, Some(oidc));
     let auth_layer = AuthLayer::disabled(
@@ -229,6 +232,7 @@ async fn test_callback_rejects_invalid_state() {
         redirect_uri: "http://localhost:3183/api/auth/callback".into(),
         jwks_cache: None,
         jwks_issuer: None,
+        scopes_supported: Vec::new(),
     };
     let state = make_app_state(client, user_id, Some(oidc));
     let auth_layer = AuthLayer::disabled(
@@ -722,6 +726,7 @@ async fn test_logout_without_cookie_returns_success() {
         redirect_uri: "http://localhost:3183/api/auth/callback".into(),
         jwks_cache: None,
         jwks_issuer: None,
+        scopes_supported: Vec::new(),
     };
     let state = make_app_state(client, user_id, Some(oidc));
     let auth_layer = AuthLayer::disabled(
@@ -837,6 +842,7 @@ async fn test_callback_exchanges_code() {
         redirect_uri: "http://localhost:3183/api/auth/callback".into(),
         jwks_cache: Some(Arc::new(tokio::sync::RwLock::new(Some(cache)))),
         jwks_issuer: Some("test-issuer".into()),
+        scopes_supported: Vec::new(),
     };
     let state = make_app_state(client.clone(), user_id, Some(oidc));
     let auth_layer = AuthLayer::disabled(
@@ -966,6 +972,7 @@ async fn test_refresh_with_session_cookie() {
         redirect_uri: format!("http://{}/callback", mock_addr),
         jwks_cache: None,
         jwks_issuer: None,
+        scopes_supported: Vec::new(),
     };
 
     let key = cookie::Key::generate();
@@ -1024,6 +1031,7 @@ async fn test_refresh_without_cookie() {
         redirect_uri: "http://localhost:3183/api/auth/callback".into(),
         jwks_cache: None,
         jwks_issuer: None,
+        scopes_supported: Vec::new(),
     };
     let state = make_app_state(client, user_id, Some(oidc));
     let auth_layer = AuthLayer::disabled(
@@ -1282,6 +1290,7 @@ async fn test_refresh_failure_clears_session_cookie() {
         redirect_uri: format!("http://{}/callback", mock_addr),
         jwks_cache: None,
         jwks_issuer: None,
+        scopes_supported: Vec::new(),
     };
 
     let key = cookie::Key::generate();
@@ -1347,4 +1356,194 @@ async fn test_refresh_failure_clears_session_cookie() {
         .unwrap();
     let count: i64 = rows[0].get("cnt");
     assert_eq!(count, 0, "session should be deleted from DB");
+}
+
+#[tokio::test]
+async fn test_ensure_admins_group_seeds_admin_membership() {
+    let (client, _tmp) = make_client().await;
+    let admin_id = db::ensure_default_user(&client).await.unwrap();
+    db::ensure_admins_group(&client).await.unwrap();
+
+    let mut rows = client
+        .query_raw(
+            "SELECT id, owner_id FROM groups WHERE name = 'admins'",
+            params!(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(rows.len(), 1, "admins group should be seeded");
+    let group_id: String = rows[0].get("id");
+    let owner_id: String = rows[0].get("owner_id");
+    assert_eq!(owner_id, admin_id.to_string());
+
+    let mut rows = client
+        .query_raw(
+            "SELECT COUNT(*) AS cnt FROM group_members WHERE group_id = $1 AND user_id = $2 AND level = 'admin'",
+            params!(group_id.clone(), admin_id.to_string()),
+        )
+        .await
+        .unwrap();
+    assert_eq!(
+        rows[0].get::<i64>("cnt"),
+        1,
+        "admin should be an admin-level member of the admins group"
+    );
+
+    // Idempotent: a second run must not duplicate the group or membership.
+    db::ensure_admins_group(&client).await.unwrap();
+    let mut rows = client
+        .query_raw(
+            "SELECT COUNT(*) AS cnt FROM groups WHERE name = 'admins'",
+            params!(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(rows[0].get::<i64>("cnt"), 1);
+    let mut rows = client
+        .query_raw(
+            "SELECT COUNT(*) AS cnt FROM group_members WHERE group_id = $1",
+            params!(group_id),
+        )
+        .await
+        .unwrap();
+    assert_eq!(rows[0].get::<i64>("cnt"), 1, "no duplicate memberships");
+}
+
+#[tokio::test]
+async fn test_callback_captures_scopes() {
+    let (client, _tmp) = make_client().await;
+    let default_user_id = db::ensure_default_user(&client).await.unwrap();
+
+    let (key, kid, cache) = make_jwt_cache();
+    let mut header = Header::new(jsonwebtoken::Algorithm::HS256);
+    header.kid = Some(kid.clone());
+
+    // Access token carries the granted `scope` claim (id_tokens usually omit it).
+    let access_token = encode(
+        &header,
+        &json!({
+            "sub": "scope-sub",
+            "iss": "test-issuer",
+            "aud": "test-client",
+            "exp": 9_999_999_999_i64,
+            "scope": "openid profile billing:read"
+        }),
+        &EncodingKey::from_secret(&key),
+    )
+    .unwrap();
+    let id_token = encode(
+        &header,
+        &json!({
+            "sub": "scope-sub",
+            "preferred_username": "scopeuser",
+            "iss": "test-issuer",
+            "aud": "test-client",
+            "exp": 9_999_999_999_i64,
+            "iat": 1_000_000_000,
+        }),
+        &EncodingKey::from_secret(&key),
+    )
+    .unwrap();
+
+    let mock_app = Router::new()
+        .route(
+            "/token",
+            post(move || {
+                let access_token = access_token.clone();
+                let id_token = id_token.clone();
+                async move {
+                    Json(json!({
+                        "access_token": access_token,
+                        "refresh_token": "mock-refresh-token",
+                        "id_token": id_token,
+                        "expires_in": 3600
+                    }))
+                }
+            }),
+        )
+        .route(
+            "/userinfo",
+            get(|| async { Json(json!({ "scope": "billing:read extra:scope" })) }),
+        );
+    let mock_listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let mock_addr = mock_listener.local_addr().unwrap();
+    tokio::spawn(async move { axum::serve(mock_listener, mock_app).await.unwrap() });
+
+    let oidc = OidcEndpoints {
+        end_session_endpoint: None,
+        authorization_endpoint: "https://provider.test/auth".into(),
+        token_endpoint: format!("http://{}/token", mock_addr),
+        revocation_endpoint: None,
+        userinfo_endpoint: format!("http://{}/userinfo", mock_addr),
+        client_id: "test-client".into(),
+        client_secret: None,
+        redirect_uri: "http://localhost:3183/api/auth/callback".into(),
+        jwks_cache: Some(Arc::new(tokio::sync::RwLock::new(Some(cache)))),
+        jwks_issuer: Some("test-issuer".into()),
+        scopes_supported: vec!["openid".to_string(), "custom:scope".to_string()],
+    };
+    let state = make_app_state(client.clone(), default_user_id, Some(oidc));
+    let auth_layer = AuthLayer::disabled(
+        state.db.clone(),
+        b"test".to_vec(),
+        state.cookie_key.clone(),
+        state.default_user_id,
+    );
+    let app = server::router(state, auth_layer);
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let addr = listener.local_addr().unwrap();
+    tokio::spawn(async move { axum::serve(listener, app).await.unwrap() });
+
+    // Login to populate PKCE store, then call back with the code.
+    let login_resp = reqwest::Client::new()
+        .get(format!("http://{}/api/auth/login", addr))
+        .send()
+        .await
+        .unwrap();
+    let login_body: Value = login_resp.json().await.unwrap();
+    let auth_url = login_body["authorization_url"].as_str().unwrap();
+    let state_param = auth_url
+        .split("state=")
+        .nth(1)
+        .unwrap()
+        .split('&')
+        .next()
+        .unwrap();
+
+    let http_client = reqwest::Client::builder()
+        .redirect(reqwest::redirect::Policy::none())
+        .build()
+        .unwrap();
+    let resp = http_client
+        .get(format!(
+            "http://{}/api/auth/callback?code=test_code&state={}",
+            addr, state_param
+        ))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(resp.status(), 302);
+
+    let mut rows = client
+        .query_raw(
+            "SELECT scopes FROM users WHERE oidc_subject = $1",
+            params!("scope-sub"),
+        )
+        .await
+        .unwrap();
+    assert_eq!(rows.len(), 1, "callback should create the user");
+    let stored: String = rows[0].get("scopes");
+    let scopes: Vec<&str> = stored.split_whitespace().collect();
+    // access-token claim + userinfo echo only; discovery scopes_supported is
+    // NOT folded in (advertising a scope is not the same as granting it).
+    assert!(
+        scopes.contains(&"billing:read"),
+        "access-token scope captured"
+    );
+    assert!(scopes.contains(&"extra:scope"), "userinfo scope captured");
+    assert!(scopes.contains(&"openid"), "access-token scope captured");
+    assert!(
+        !scopes.contains(&"custom:scope"),
+        "discovery scopes_supported must not grant unrequested scopes"
+    );
 }

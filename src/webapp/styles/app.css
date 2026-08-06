@@ -794,7 +794,6 @@ hr.timestamp-separator {
 }
 
 .diff-grid td.diff-cell {
-    width: 50%;
     vertical-align: top;
     padding: 0;
     border: none;
@@ -817,10 +816,6 @@ hr.timestamp-separator {
 
 .diff-cell.diff-del {
     background: hsl(var(--bulma-danger-h), var(--bulma-danger-s), 93%);
-}
-
-.diff-cell.diff-gap {
-    background: var(--bulma-light);
 }
 
 .diff-cell .diff-gutter {

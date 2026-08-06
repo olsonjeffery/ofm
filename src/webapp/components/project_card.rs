@@ -1,4 +1,5 @@
 use crate::db::schema::Project;
+use crate::webapp::components::datetime::utc_attr;
 use leptos::prelude::*;
 
 #[derive(Debug, Clone, Default)]
@@ -16,6 +17,7 @@ pub fn ProjectCard(project: Project, task_counts: TaskCounts) -> impl IntoView {
         + task_counts.in_review
         + task_counts.completed;
     let created = project.created_at.format("%Y-%m-%d").to_string();
+    let created_utc = utc_attr(&project.created_at);
     view! {
         <a href={format!("/webapp/projects/{}", project.id)} class="card" style="display:block">
             <div class="card-header">
@@ -26,6 +28,13 @@ pub fn ProjectCard(project: Project, task_counts: TaskCounts) -> impl IntoView {
             </div>
             <div class="card-content" style="padding:0.5rem">
                 <p class="subtitle is-7">{project.repo_folder_path.clone()}</p>
+                {if !project.tags.is_empty() {
+                    view! {
+                        <div class="tags" style="margin-bottom:0.5rem">
+                            {project.tags.iter().map(|t| view! { <span class="tag is-info is-light">{t.clone()}</span> }).collect::<Vec<_>>()}
+                        </div>
+                    }.into_any()
+                } else { "".into_any() }}
                 <div class="level is-mobile" style="margin-bottom:0">
                     <div class="level-left" style="flex-wrap:wrap;gap:0.25rem">
                         <span class="tag">{format!("{} tasks", total)}</span>
@@ -46,7 +55,7 @@ pub fn ProjectCard(project: Project, task_counts: TaskCounts) -> impl IntoView {
             </div>
             <div class="card-footer">
                 <div class="card-footer-item" style="justify-content:flex-start;border-right:none">
-                    <small class="has-text-grey">{created}</small>
+                    <small class="has-text-grey" data-utc={created_utc} data-utc-format="date">{created}</small>
                 </div>
                 <div class="card-footer-item" style="justify-content:flex-end">
                     <button
@@ -75,6 +84,7 @@ mod tests {
             name: "Test Project".into(),
             repo_folder_path: "/tmp/test-repo".into(),
             subproject_path: None,
+            tags: vec!["desktop-3d".into()],
             created_at: NaiveDateTime::parse_from_str("2024-01-15 10:00:00", "%Y-%m-%d %H:%M:%S")
                 .unwrap(),
         }
@@ -97,7 +107,17 @@ mod tests {
         assert!(html.contains("1 in progress"));
         assert!(html.contains("2 in review"));
         assert!(html.contains("5 completed"));
+        assert!(html.contains("desktop-3d"));
         assert!(html.contains("/webapp/projects/1"));
+    }
+
+    #[test]
+    fn test_project_card_date_has_data_utc() {
+        let project = make_project();
+        let counts = TaskCounts::default();
+        let html = leptos::view! { <ProjectCard project task_counts=counts /> }.to_html();
+        assert!(html.contains(r#"data-utc="2024-01-15T10:00:00Z""#));
+        assert!(html.contains(r#"data-utc-format="date""#));
     }
 
     #[test]

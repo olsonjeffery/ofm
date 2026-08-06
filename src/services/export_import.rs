@@ -145,7 +145,7 @@ pub async fn build_export(
     for &project_id in project_ids {
         let project = client
             .query_map_one::<crate::db::schema::Project, _>(
-                "SELECT id, user_id, name, repo_folder_path, subproject_path, created_at \
+                "SELECT id, user_id, name, repo_folder_path, subproject_path, tags, created_at \
                  FROM projects WHERE id = $1 AND user_id = $2",
                 hiqlite::params!(project_id, user_id.to_string()),
             )
@@ -310,6 +310,7 @@ pub async fn execute_import(
                     name,
                     repo_folder_path,
                     subproject_path: None,
+                    tags: None,
                 };
                 let p = create_project(auth.clone(), State(state.clone()), Json(json))
                     .await
@@ -325,7 +326,7 @@ pub async fn execute_import(
                 state
                     .db
                     .query_map_one::<crate::db::schema::Project, _>(
-                        "SELECT id, user_id, name, repo_folder_path, subproject_path, created_at \
+                        "SELECT id, user_id, name, repo_folder_path, subproject_path, tags, created_at \
                          FROM projects WHERE id = $1 AND user_id = $2",
                         hiqlite::params!(project_id, auth.user_id.to_string()),
                     )

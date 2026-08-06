@@ -44,11 +44,17 @@ async fn setup_app() -> TestApp {
     db::run_migrations(&client).await.unwrap();
     let user_id = db::ensure_default_user(&client).await.unwrap();
 
-    let project_id =
-        ofm::services::projects::create_project(&client, &user_id, "test-project", &git_path, None)
-            .await
-            .unwrap()
-            .id;
+    let project_id = ofm::services::projects::create_project(
+        &client,
+        &user_id,
+        "test-project",
+        &git_path,
+        None,
+        &[],
+    )
+    .await
+    .unwrap()
+    .id;
 
     let auth_layer = AuthLayer::disabled(
         client.clone(),
@@ -149,11 +155,17 @@ async fn setup_app_with_git() -> TestApp {
     db::run_migrations(&client).await.unwrap();
     let user_id = db::ensure_default_user(&client).await.unwrap();
 
-    let project_id =
-        ofm::services::projects::create_project(&client, &user_id, "test-project", &git_path, None)
-            .await
-            .unwrap()
-            .id;
+    let project_id = ofm::services::projects::create_project(
+        &client,
+        &user_id,
+        "test-project",
+        &git_path,
+        None,
+        &[],
+    )
+    .await
+    .unwrap()
+    .id;
 
     let app_archive_root = archive_root.clone();
     let auth_layer = AuthLayer::disabled(

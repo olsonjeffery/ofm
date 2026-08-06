@@ -57,12 +57,7 @@ async fn list_conversations(
     State(state): State<AppState>,
     Path(task_id): Path<i64>,
 ) -> Result<Json<Vec<ConversationWithRun>>, ServerError> {
-    let task = tasks::get_task(&state.db, task_id)
-        .await
-        .map_err(|_| ServerError::NotFound("Task not found".into()))?;
-    if task.user_id != auth.user_id {
-        return Err(ServerError::NotFound("Task not found".into()));
-    }
+    super::tasks::authorized_task(&state, &auth, task_id, false).await?;
     let convs = tasks::list_conversations_for_task(&state.db, task_id)
         .await
         .map_err(|e| ServerError::Internal(e.to_string()))?;
@@ -74,12 +69,7 @@ async fn get_conversation(
     State(state): State<AppState>,
     Path((task_id, conv_id)): Path<(i64, Uuid)>,
 ) -> Result<Json<ConversationDetail>, ServerError> {
-    let task = tasks::get_task(&state.db, task_id)
-        .await
-        .map_err(|_| ServerError::NotFound("Task not found".into()))?;
-    if task.user_id != auth.user_id {
-        return Err(ServerError::NotFound("Task not found".into()));
-    }
+    super::tasks::authorized_task(&state, &auth, task_id, false).await?;
     let conv = session::resume_session(&state.db, conv_id)
         .await
         .map_err(|_| ServerError::NotFound("Conversation not found".into()))?;
@@ -110,12 +100,7 @@ async fn send_message(
     Path((task_id, conv_id)): Path<(i64, Uuid)>,
     Json(body): Json<SendMessageRequest>,
 ) -> Result<StatusCode, ServerError> {
-    let task = tasks::get_task(&state.db, task_id)
-        .await
-        .map_err(|_| ServerError::NotFound("Task not found".into()))?;
-    if task.user_id != auth.user_id {
-        return Err(ServerError::NotFound("Task not found".into()));
-    }
+    let task = super::tasks::authorized_task(&state, &auth, task_id, true).await?;
     let conv = session::resume_session(&state.db, conv_id)
         .await
         .map_err(|_| ServerError::NotFound("Conversation not found".into()))?;
@@ -136,6 +121,10 @@ async fn send_message(
         "UPDATE task_agent_runs SET status = 'running', completed_at = NULL WHERE conversation_id = $1 AND status IN ('completed', 'failed')",
         hiqlite::params!(conv_id.to_string()),
     ).await;
+
+    // Sending a message re-activates a completed/failed run — the run shows as
+    // "running" again, so the global agent status feed must refresh.
+    crate::orchestration::broadcast_agent_status(&state.ws_bus, "refresh").await;
 
     if body.text.trim().is_empty() {
         return Err(ServerError::BadRequest("message text is required".into()));
@@ -583,6 +572,7 @@ async fn spawn_broadcast_task(
 
                         let (event_type, payload) = event.to_ws_event();
                         let is_done = matches!(event, ProviderEvent::Done { .. });
+                        let is_question = matches!(event, ProviderEvent::QuestionAsked { .. });
 
                         let payload = if let Some(obj) = payload.as_object() {
                             let mut map = obj.clone();
@@ -602,6 +592,10 @@ async fn spawn_broadcast_task(
                         };
 
                         ws_bus.broadcast(&topic, msg).await;
+
+                        if is_question {
+                            crate::orchestration::broadcast_agent_status(&ws_bus, "question").await;
+                        }
 
                         if is_done {
                             completed_normally.store(true, Ordering::SeqCst);
@@ -685,22 +679,7 @@ async fn spawn_broadcast_task(
             };
             ws_bus.broadcast(&topic, msg).await;
 
-            let sys_topic = WsTopic {
-                kind: WsTopicKind::System,
-                id: TopicId(0),
-            };
-            ws_bus
-                .broadcast(
-                    &sys_topic,
-                    ServerMessage::Event {
-                        topic: sys_topic.clone(),
-                        event_type: "agent_status".to_string(),
-                        timestamp: chrono::Utc::now(),
-                        payload: serde_json::json!({"action": "refresh"}),
-                        html: None,
-                    },
-                )
-                .await;
+            crate::orchestration::broadcast_agent_status(&ws_bus, "failed").await;
         }
     });
 }
@@ -799,6 +778,7 @@ mod tests {
             "test-project",
             &repo_path,
             None,
+            &[],
         )
         .await
         .unwrap();

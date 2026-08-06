@@ -1,13 +1,17 @@
+use crate::auth::AuthUser;
 use crate::db::schema::Project;
+use crate::services::access;
 use hiqlite::Client;
 use uuid::Uuid;
 
+#[allow(clippy::too_many_arguments)]
 pub async fn create_project(
     client: &Client,
     user_id: &Uuid,
     name: &str,
     repo_folder_path: &str,
     subproject_path: Option<&str>,
+    tags: &[String],
 ) -> Result<Project, hiqlite::Error> {
     let id: i64 = {
         let mut rows = client
@@ -20,31 +24,32 @@ pub async fn create_project(
             .map(|r| r.get::<i64>("next_id"))
             .unwrap_or(1)
     };
+    let tags_json = serde_json::to_string(tags).unwrap_or_else(|_| "[]".into());
     client
         .execute(
-            "INSERT INTO projects (id, user_id, name, repo_folder_path, subproject_path) VALUES ($1, $2, $3, $4, $5)",
-            hiqlite::params!(id, user_id.to_string(), name, repo_folder_path, subproject_path),
+            "INSERT INTO projects (id, user_id, name, repo_folder_path, subproject_path, tags) VALUES ($1, $2, $3, $4, $5, $6)",
+            hiqlite::params!(id, user_id.to_string(), name, repo_folder_path, subproject_path, &tags_json),
         )
         .await?;
     get_project(client, id).await
 }
 
+/// Projects the user can access: those they own plus projects shared through
+/// the groups they belong to (a project's access set is its owner's groups'
+/// members; see spec/extra/auth-and-multi-user.md).
 pub async fn list_projects(
     client: &Client,
-    user_id: &Uuid,
+    user: &AuthUser,
 ) -> Result<Vec<Project>, hiqlite::Error> {
-    client
-        .query_map::<Project, _>(
-            "SELECT id, user_id, name, repo_folder_path, subproject_path, created_at FROM projects WHERE user_id = $1 ORDER BY created_at DESC",
-            hiqlite::params!(user_id.to_string()),
-        )
+    access::list_accessible_projects(client, user)
         .await
+        .map_err(|e| hiqlite::Error::new(e.to_string()))
 }
 
 pub async fn get_project(client: &Client, project_id: i64) -> Result<Project, hiqlite::Error> {
     client
         .query_map_one::<Project, _>(
-            "SELECT id, user_id, name, repo_folder_path, subproject_path, created_at FROM projects WHERE id = $1",
+            "SELECT id, user_id, name, repo_folder_path, subproject_path, tags, created_at FROM projects WHERE id = $1",
             hiqlite::params!(project_id),
         )
         .await
@@ -56,14 +61,18 @@ pub async fn update_project(
     name: Option<&str>,
     repo_folder_path: Option<&str>,
     subproject_path: Option<&str>,
+    tags: Option<Vec<String>>,
 ) -> Result<Project, hiqlite::Error> {
-    if name.is_none() && repo_folder_path.is_none() && subproject_path.is_none() {
+    if name.is_none() && repo_folder_path.is_none() && subproject_path.is_none() && tags.is_none() {
         return get_project(client, project_id).await;
     }
+    let tags_json = tags
+        .as_ref()
+        .map(|t| serde_json::to_string(t).unwrap_or_else(|_| "[]".into()));
     client
         .execute(
-            "UPDATE projects SET name = COALESCE($1, name), repo_folder_path = COALESCE($2, repo_folder_path), subproject_path = COALESCE($3, subproject_path) WHERE id = $4",
-            hiqlite::params!(name, repo_folder_path, subproject_path, project_id),
+            "UPDATE projects SET name = COALESCE($1, name), repo_folder_path = COALESCE($2, repo_folder_path), subproject_path = COALESCE($3, subproject_path), tags = COALESCE($4, tags) WHERE id = $5",
+            hiqlite::params!(name, repo_folder_path, subproject_path, tags_json, project_id),
         )
         .await?;
     get_project(client, project_id).await
