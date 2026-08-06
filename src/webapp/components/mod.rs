@@ -9,6 +9,7 @@ pub mod chat_status_bar;
 pub mod commit_list;
 pub mod config_body_editor;
 pub mod conversation_list;
+pub mod datetime;
 pub mod diff_view;
 pub mod markdown_viewer;
 pub mod message_stream;

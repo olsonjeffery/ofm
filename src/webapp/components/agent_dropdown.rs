@@ -41,7 +41,7 @@ pub fn AgentDropdown(active_agents: Vec<ActiveAgent>) -> impl IntoView {
                                 aria-controls="agent-dropdown-menu"
                                 id="agent-dropdown-trigger"
                             >
-                                <span class="icon"><i class="mdi mdi-message-outline"></i></span>
+                                <span class="icon"><i class="mdi mdi-message-outline" id="agent-message-icon"></i></span>
                                 <span id="agent-count">{format!("{} Agents", count)}</span>
                         </button>
                         <button
@@ -71,6 +71,8 @@ pub fn AgentDropdown(active_agents: Vec<ActiveAgent>) -> impl IntoView {
                                 ().into_any()
                             }}
                         </div>
+                        <div id="agent-question-entries"></div>
+                        <div id="agent-blocked-entries"></div>
                     </div>
                 </div>
             </div>
@@ -156,7 +158,9 @@ pub fn AgentDropdown(active_agents: Vec<ActiveAgent>) -> impl IntoView {
                     }
                 }, 10000);
 
-                // Real-time agent list updates via WebSocket System topic
+                // Global agent status — driven exclusively by server activity.
+                // The System-topic `agent_status` broadcasts are the source of
+                // truth; a lightweight periodic re-sync covers any missed frame.
                 var AGENT_ICONS = {
                     'planification': 'file-document-outline',
                     'implementation': 'code-tags',
@@ -175,6 +179,18 @@ pub fn AgentDropdown(active_agents: Vec<ActiveAgent>) -> impl IntoView {
                     var d = document.createElement('div');
                     d.appendChild(document.createTextNode(s));
                     return d.innerHTML;
+                }
+
+                function entryLink(projectId, taskId) {
+                    return '/webapp/projects/' + projectId + '/tasks/' + taskId;
+                }
+
+                function taskEntryHtml(summary, icon) {
+                    var label = truncate(summary.project_title, 24) + '/' + truncate(summary.task_title, 24);
+                    return '<a class="dropdown-item" href="' + entryLink(summary.project_id, summary.task_id) + '">' +
+                        '<span class="icon is-small"><i class="mdi mdi-' + icon + '"></i></span>' +
+                        '<span>' + escapeHtml(label) + '</span>' +
+                        '</a>';
                 }
 
                 function renderAgentEntries(agents) {
@@ -197,29 +213,76 @@ pub fn AgentDropdown(active_agents: Vec<ActiveAgent>) -> impl IntoView {
                     container.innerHTML = html;
                 }
 
+                function renderTaskSection(containerId, tasks, heading, headingClass, icon) {
+                    var container = document.getElementById(containerId);
+                    if (!container) return;
+                    var html = '';
+                    if (tasks.length > 0) {
+                        html += '<hr class="dropdown-divider">';
+                        html += '<div class="dropdown-item has-text-weight-semibold is-size-7 ' + headingClass + '">' +
+                            '<span class="icon is-small"><i class="mdi mdi-' + icon + '"></i></span>' +
+                            '<span>' + heading + '</span></div>';
+                        for (var i = 0; i < tasks.length; i++) {
+                            html += taskEntryHtml(tasks[i], icon);
+                        }
+                    }
+                    container.innerHTML = html;
+                }
+
+                function renderTaskSections() {
+                    var status = window.__agentStatus || null;
+                    renderTaskSection('agent-question-entries', (status && status.questions) || [], 'Needs your input', 'has-text-cyan', 'help-circle-outline');
+                    renderTaskSection('agent-blocked-entries', (status && status.blocked) || [], 'Blocked', 'has-text-danger', 'alert-circle-outline');
+                }
+
                 function updateAgentCount(count) {
                     var el = document.getElementById('agent-count');
                     if (el) el.textContent = count + ' Agents';
                 }
 
-                function fetchActiveAgents() {
-                    window.apiCall('/api/tasks/active-agents')
-                        .then(function(r) { return r.json(); })
-                        .then(function(agents) {
-                            renderAgentEntries(agents);
-                            updateAgentCount(agents.length);
-                        })
+                function updateStyling(status) {
+                    if (!dd) return;
+                    var agents = (status && status.agents) || [];
+                    var questions = (status && status.questions) || [];
+                    var blocked = (status && status.blocked) || [];
+                    var hasRunning = agents.length > 0;
+                    var hasQuestions = questions.length > 0;
+                    var hasBlocked = blocked.length > 0;
+                    // Blocked trumps question; both coexist with a running count.
+                    dd.classList.toggle('has-blocked-tasks', hasBlocked);
+                    dd.classList.toggle('has-question-tasks', hasQuestions && !hasBlocked);
+                    dd.classList.toggle('has-running-agents', hasRunning);
+                    var msgIcon = document.getElementById('agent-message-icon');
+                    if (msgIcon) msgIcon.classList.toggle('agent-pulse', hasRunning);
+                }
+
+                function applyStatus(status) {
+                    window.__agentStatus = status;
+                    renderAgentEntries(status.agents || []);
+                    updateAgentCount((status.agents || []).length);
+                    renderTaskSections();
+                    updateStyling(status);
+                }
+
+                function fetchGlobalStatus() {
+                    window.apiCall('/api/tasks/agent-status')
+                        .then(function(r) { return r.ok ? r.json() : Promise.reject(r.status); })
+                        .then(applyStatus)
                         .catch(function() {});
                 }
 
                 function handleAgentStatusEvent(msg) {
                     if (msg.event_type === 'agent_status') {
-                        fetchActiveAgents();
+                        fetchGlobalStatus();
                     }
                 }
 
+                var agentStatusSubscribed = false;
+
                 function subscribeToAgentStatus() {
+                    if (agentStatusSubscribed) return;
                     if (window.OfmWS) {
+                        agentStatusSubscribed = true;
                         window.OfmWS.subscribe(
                             { kind: 'system', id: 0 },
                             handleAgentStatusEvent
@@ -229,12 +292,22 @@ pub fn AgentDropdown(active_agents: Vec<ActiveAgent>) -> impl IntoView {
 
                 if (window.OfmWS && window.OfmWS.status === 'connected') {
                     subscribeToAgentStatus();
+                    fetchGlobalStatus();
                 }
                 document.addEventListener('ws-status-changed', function(ev) {
                     if (ev.detail.status === 'connected') {
                         subscribeToAgentStatus();
+                        fetchGlobalStatus();
                     }
                 });
+
+                // Safety net: re-sync so a dropped event can never leave the
+                // button stale. Server activity is still the driver.
+                setInterval(function() {
+                    if (window.OfmWS && window.OfmWS.status === 'connected') {
+                        fetchGlobalStatus();
+                    }
+                }, 30000);
             })();"#}
         </script>
         <style>
@@ -262,6 +335,27 @@ pub fn AgentDropdown(active_agents: Vec<ActiveAgent>) -> impl IntoView {
                 color: var(--bulma-grey-darker);
                 border: 1px solid var(--bulma-grey);
                 border-radius: 3px;
+            }
+            /* >= 1 open question tasks: tint the whole trigger cyan */
+            #agent-dropdown.has-question-tasks #agent-dropdown-trigger.button,
+            #agent-dropdown.has-question-tasks #agent-dropdown-trigger-2.button {
+                background-color: var(--bulma-cyan) !important;
+                border-color: var(--bulma-cyan) !important;
+            }
+            /* >= 1 blocked tasks: primary color, trumping every other rule */
+            #agent-dropdown.has-blocked-tasks #agent-dropdown-trigger.button,
+            #agent-dropdown.has-blocked-tasks #agent-dropdown-trigger-2.button {
+                background-color: var(--bulma-primary) !important;
+                border-color: var(--bulma-primary) !important;
+            }
+            /* Pulse the message icon once every 15s while >= 1 agent runs */
+            #agent-dropdown #agent-message-icon.agent-pulse {
+                animation: agent-pulse 15s ease-in-out infinite;
+            }
+            @keyframes agent-pulse {
+                0%, 100% { opacity: 1; transform: scale(1); }
+                2% { opacity: 0.25; transform: scale(0.8); }
+                7% { opacity: 1; transform: scale(1); }
             }"#}
         </style>
     }
@@ -410,6 +504,66 @@ mod tests {
         assert!(
             html.contains("dropdown-divider"),
             "should have dropdown divider"
+        );
+    }
+
+    #[test]
+    fn test_dropdown_fetches_global_status_endpoint() {
+        let html = leptos::view! { <AgentDropdown active_agents=Vec::new() /> }.to_html();
+        assert!(
+            html.contains("/api/tasks/agent-status"),
+            "should fetch the aggregate agent-status endpoint"
+        );
+        assert!(
+            html.contains("agent_status"),
+            "should react to agent_status events"
+        );
+        assert!(
+            html.contains("{ kind: 'system', id: 0 }"),
+            "should subscribe to the System topic"
+        );
+    }
+
+    #[test]
+    fn test_dropdown_has_question_and_blocked_sections() {
+        let html = leptos::view! { <AgentDropdown active_agents=Vec::new() /> }.to_html();
+        assert!(
+            html.contains("agent-question-entries"),
+            "should have a question tasks section"
+        );
+        assert!(
+            html.contains("agent-blocked-entries"),
+            "should have a blocked tasks section"
+        );
+        assert!(
+            html.contains("Needs your input"),
+            "should label open-question tasks"
+        );
+        assert!(html.contains("Blocked"), "should label blocked tasks");
+    }
+
+    #[test]
+    fn test_dropdown_pulse_icon_styling() {
+        let html = leptos::view! { <AgentDropdown active_agents=Vec::new() /> }.to_html();
+        assert!(
+            html.contains("agent-message-icon"),
+            "message-outline icon should carry an id for the pulse"
+        );
+        assert!(
+            html.contains("agent-pulse"),
+            "should define the pulse animation"
+        );
+        assert!(
+            html.contains("has-question-tasks"),
+            "should style question state"
+        );
+        assert!(
+            html.contains("has-blocked-tasks"),
+            "should style blocked state"
+        );
+        assert!(
+            html.contains("--bulma-cyan"),
+            "question state should use the cyan palette"
         );
     }
 }

@@ -9,6 +9,8 @@ pub fn global_runtime_script() -> String {
             .then(function(html) {
                 var wrapper = el.previousElementSibling;
                 wrapper.insertAdjacentHTML('beforebegin', html);
+                var inserted = wrapper.previousElementSibling;
+                if (inserted && window.OfmTime) window.OfmTime.apply(inserted);
                 wrapper.remove();
                 el.remove();
             })
@@ -18,6 +20,53 @@ pub fn global_runtime_script() -> String {
                 wrapper.classList.add('island-error');
             });
     }
+
+    window.OfmTime = {
+        parseUtc: function(s) {
+            if (!s) return null;
+            var v = String(s).trim().replace(' ', 'T');
+            if (!/(Z|[+-]\d{2}:\d{2})$/.test(v)) v += 'Z';
+            var d = new Date(v);
+            return isNaN(d.getTime()) ? null : d;
+        },
+        _pad: function(n) { return (n < 10 ? '0' : '') + n; },
+        _months: ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'],
+        _isToday: function(d) {
+            var now = new Date();
+            return d.getFullYear()===now.getFullYear() && d.getMonth()===now.getMonth() && d.getDate()===now.getDate();
+        },
+        formats: {
+            pill: function(d) {
+                if (this._isToday(d)) return this._pad(d.getHours()) + ':' + this._pad(d.getMinutes());
+                return this._months[d.getMonth()] + ' ' + this._pad(d.getDate()) + ', ' + this._pad(d.getHours()) + ':' + this._pad(d.getMinutes());
+            },
+            datetime: function(d) {
+                return this._months[d.getMonth()] + ' ' + this._pad(d.getDate()) + ', ' + this._pad(d.getHours()) + ':' + this._pad(d.getMinutes());
+            },
+            date: function(d) {
+                return d.getFullYear() + '-' + this._pad(d.getMonth()+1) + '-' + this._pad(d.getDate());
+            }
+        },
+        format: function(tsStr, name) {
+            var d = this.parseUtc(tsStr);
+            if (!d) return tsStr ? String(tsStr) : '';
+            var fmt = this.formats[name] || this.formats.datetime;
+            return fmt.call(this, d);
+        },
+        formatTimestamp: function(tsStr) { return this.format(tsStr, 'pill'); },
+        apply: function(scope) {
+            scope = scope || document;
+            var els = scope.querySelectorAll('[data-utc]');
+            for (var i = 0; i < els.length; i++) {
+                var el = els[i];
+                var name = el.getAttribute('data-utc-format') || 'datetime';
+                var txt = this.format(el.getAttribute('data-utc'), name);
+                if (txt && el.textContent !== txt) el.textContent = txt;
+            }
+        }
+    };
+
+    document.addEventListener('DOMContentLoaded', function() { window.OfmTime.apply(); });
 
     document.addEventListener('DOMContentLoaded', function() {
         document.querySelectorAll('script[data-island-url]').forEach(loadIsland);

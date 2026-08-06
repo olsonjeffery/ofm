@@ -77,13 +77,13 @@ impl FileStatus {
     }
 }
 
-/// One side of one line in a two-column diff, pre-aligned for rendering.
+/// One line of a diff, pre-aligned for rendering.
 #[derive(Debug, Clone)]
 pub struct DiffLine {
     pub line_type: ChangeTag,
-    /// 1-based line number in the old (left) side, `None` for inserted lines.
+    /// 1-based line number in the old version, `None` for inserted lines.
     pub old_lineno: Option<u32>,
-    /// 1-based line number in the new (right) side, `None` for deleted lines.
+    /// 1-based line number in the new version, `None` for deleted lines.
     pub new_lineno: Option<u32>,
     pub text: String,
 }
@@ -475,7 +475,9 @@ fn blob_text(repo: &gix::Repository, id: Option<gix::ObjectId>) -> Result<Option
 ///
 /// Each change from `similar::TextDiff::iter_all_changes()` maps to exactly one
 /// [`DiffLine`]: `Equal` carries both line numbers, `Delete` only the old one,
-/// and `Insert` only the new one. Renderers derive the two columns from this.
+/// and `Insert` only the new one. The sequence is already in `git diff` order
+/// (deletes before inserts within each replacement, context in place); renderers
+/// stack each line once, full-width, tinting it by change type.
 fn diff_lines(old: &str, new: &str) -> (Vec<DiffLine>, usize, usize) {
     let text_diff = TextDiff::from_lines(old, new);
     let mut lines = Vec::new();
@@ -530,7 +532,7 @@ mod tests {
     }
 
     #[test]
-    fn diff_lines_two_column_alignment() {
+    fn diff_lines_alignment() {
         let old = "line1\nline2\nline3\n";
         let new = "line1\nline2-changed\nline3\nline4\n";
         let (lines, additions, deletions) = diff_lines(old, new);

@@ -597,6 +597,7 @@ mod tests {
             keys,
             issuer: "test-issuer".to_string(),
             client_id: "test-client".to_string(),
+            scopes_supported: Vec::new(),
         })));
 
         let auth_layer = AuthLayer {
@@ -634,6 +635,7 @@ mod tests {
             aud: serde_json::json!("test-client"),
             exp: 9_999_999_999,
             iat: Some(1_000_000_000),
+            scope: None,
         };
         let mut header = Header::new(jsonwebtoken::Algorithm::HS256);
         header.kid = Some(kid.to_string());
@@ -679,6 +681,7 @@ mod tests {
             keys,
             issuer: "test-issuer".to_string(),
             client_id: "test-client".to_string(),
+            scopes_supported: Vec::new(),
         })));
 
         let auth_layer = AuthLayer {
@@ -699,6 +702,7 @@ mod tests {
             aud: serde_json::json!("test-client"),
             exp: 9_999_999_999,
             iat: Some(1_000_000_000),
+            scope: None,
         };
         let mut header = Header::new(jsonwebtoken::Algorithm::HS256);
         header.kid = Some(kid.to_string());

@@ -27,7 +27,7 @@ pub async fn resolve_provider(
         "opencode" => OpenCodeSdkProvider::new(config, config_root, log_data, footprint)
             .await
             .map(|p| Box::new(p) as Box<dyn LlmProvider>),
-        other => Err(ProviderError::Protocol(format!("unknown harness: {other}"))),
+        other => Err(unsupported_harness_error(config, other)),
     }
 }
 
@@ -47,8 +47,27 @@ pub async fn resolve_provider_for_user(
             p.set_user_id(user_id);
             Ok(Box::new(p) as Box<dyn LlmProvider>)
         }
-        other => Err(ProviderError::Protocol(format!("unknown harness: {other}"))),
+        other => Err(unsupported_harness_error(config, other)),
     }
+}
+
+/// A Rig-selected agent config must not run until RIG 1 lands. Surface a clear
+/// "not yet executable" state instead of a confusing unknown-harness error.
+fn unsupported_harness_error(config: &HarnessConfig, other: &str) -> ProviderError {
+    if other == "rig" {
+        ProviderError::Protocol(rig_not_yet_executable_message(&config.provider_config_ref))
+    } else {
+        ProviderError::Protocol(format!("unknown harness: {other}"))
+    }
+}
+
+/// The user-facing message for a rig-selected agent config that cannot be
+/// executed yet. Shared by the registry guard and the orchestrator's early
+/// run guard so the wording stays consistent.
+pub fn rig_not_yet_executable_message(provider_config_ref: &str) -> String {
+    format!(
+        "agent config '{provider_config_ref}' uses the 'rig' harness, which is captured in config but not yet executable (RIG 1 pending)"
+    )
 }
 
 pub async fn resolve_harness_config(
@@ -108,20 +127,16 @@ pub async fn resolve_agent_config_statuses(
         };
         let result =
             resolve_harness_config(db, &agent_type, Some(&user_id), Some(project_id)).await;
-        match result {
-            Ok(cfg) => results.push(AgentConfigStatus {
-                agent_type: at_str.to_string(),
-                configured: true,
-                scope: Some(cfg.scope.to_string()),
-                label: cfg.model,
-            }),
-            Err(_) => results.push(AgentConfigStatus {
-                agent_type: at_str.to_string(),
-                configured: false,
-                scope: None,
-                label: None,
-            }),
-        }
+        let (configured, scope, label) = match result {
+            Ok(cfg) => (true, Some(cfg.scope.to_string()), cfg.model),
+            Err(_) => (false, None, None),
+        };
+        results.push(AgentConfigStatus {
+            agent_type: at_str.to_string(),
+            configured,
+            scope,
+            label,
+        });
     }
     results
 }
@@ -153,6 +168,15 @@ pub async fn get_models_for_config(
     let cfg_dir = ProviderConfigDir::new(config_root);
     let provider_cfg = cfg_dir.load_provider_config(config_ref)?;
     let harness = provider_cfg.harness.as_str();
+    if harness == "rig" {
+        // Rig configs keep their model list on the typed config itself (via the
+        // model-listing toggle or the manual list during capture). No provider
+        // execution is required to enumerate them.
+        let rig: crate::providers::rig_config::RigProviderConfig =
+            serde_json::from_str(&provider_cfg.raw_snippet)
+                .map_err(|e| ProviderError::Config(format!("invalid rig config: {e}")))?;
+        return Ok(rig.available_models());
+    }
     let config = HarnessConfig {
         agent_type: "planification".to_string(),
         harness: harness.to_string(),
@@ -169,6 +193,57 @@ pub async fn get_models_for_config(
 mod tests {
     use super::*;
     use crate::db;
+
+    #[test]
+    fn test_resolve_provider_rig_not_executable() {
+        let config = HarnessConfig {
+            agent_type: "planification".to_string(),
+            harness: "rig".to_string(),
+            provider_config_ref: "abc.rig.json".to_string(),
+            model: Some("gpt-4".into()),
+            effort: None,
+            scope: ScopeType::User,
+        };
+        let tmp = tempfile::TempDir::new().unwrap();
+        let runtime = tokio::runtime::Runtime::new().unwrap();
+        let result = runtime
+            .block_on(async { resolve_provider(&config, tmp.path(), false, Path::new("")).await });
+        let err = match result {
+            Ok(_) => panic!("expected rig guard error"),
+            Err(e) => e.to_string(),
+        };
+        assert!(
+            err.contains("not yet executable"),
+            "expected clear guard message, got: {err}"
+        );
+    }
+
+    #[test]
+    fn test_get_models_for_config_rig_returns_saved_models() {
+        let tmp = tempfile::TempDir::new().unwrap();
+        let cfg_dir = ProviderConfigDir::new(tmp.path());
+        cfg_dir.ensure_exists().unwrap();
+        let rig = crate::providers::rig_config::RigProviderConfig {
+            name: "rig-provider".into(),
+            vendor: crate::providers::rig_config::RigVendor::OpenAi,
+            base_url: None,
+            api_key: Some("sk-123".into()),
+            model_list_mode: crate::providers::rig_config::ModelListMode::Manual(vec![
+                "gpt-4".into(),
+                "gpt-4o".into(),
+            ]),
+            models: vec!["gpt-4".into()],
+        };
+        cfg_dir
+            .write_provider_config("abc.rig.json", &serde_json::to_string(&rig).unwrap())
+            .unwrap();
+
+        let runtime = tokio::runtime::Runtime::new().unwrap();
+        let models = runtime
+            .block_on(async { get_models_for_config(tmp.path(), "abc.rig.json", false).await });
+        let models = models.unwrap();
+        assert_eq!(models, vec!["gpt-4", "gpt-4o"]);
+    }
 
     #[tokio::test]
     async fn test_resolve_no_config_found() {

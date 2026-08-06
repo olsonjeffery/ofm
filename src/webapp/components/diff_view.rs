@@ -1,22 +1,24 @@
 use leptos::prelude::*;
 use similar::ChangeTag;
 
-use crate::services::commits::{FileDiff, FileStatus};
+use crate::services::commits::{DiffLine, FileDiff, FileStatus};
 
-/// Render one side of a two-column diff row: the content cell when `visible`,
-/// otherwise a blank gap cell.
-fn diff_cell(visible: bool, class: &'static str, lineno: Option<u32>, text: String) -> AnyView {
-    if visible {
-        view! {
-            <td class=class>
-                <span class="diff-gutter">{lineno.map(|n| n.to_string()).unwrap_or_default()}</span>
-                <pre class="diff-line-content">{text}</pre>
-            </td>
-        }
-        .into_any()
-    } else {
-        view! { <td class="diff-cell diff-gap"></td> }.into_any()
+/// Render one diff row: a full-width cell with a line-number gutter and the
+/// line text. The gutter shows the change's relevant line number and the cell
+/// is tinted by change type.
+fn diff_cell(line: DiffLine) -> AnyView {
+    let (class, lineno) = match line.line_type {
+        ChangeTag::Delete => ("diff-cell diff-del", line.old_lineno),
+        ChangeTag::Insert => ("diff-cell diff-add", line.new_lineno),
+        ChangeTag::Equal => ("diff-cell diff-ctx", line.old_lineno),
+    };
+    view! {
+        <td class=class>
+            <span class="diff-gutter">{lineno.map(|n| n.to_string()).unwrap_or_default()}</span>
+            <pre class="diff-line-content">{line.text}</pre>
+        </td>
     }
+    .into_any()
 }
 
 #[component]
@@ -55,22 +57,9 @@ pub fn DiffView(files: Vec<FileDiff>) -> impl IntoView {
                     <table class="diff-grid">
                         <tbody>
                             {file.lines.into_iter().map(|line| {
-                                let show_old = line.line_type != ChangeTag::Insert;
-                                let show_new = line.line_type != ChangeTag::Delete;
-                                let old_cell_class = if line.line_type == ChangeTag::Delete {
-                                    "diff-cell diff-del"
-                                } else {
-                                    "diff-cell diff-ctx"
-                                };
-                                let new_cell_class = if line.line_type == ChangeTag::Insert {
-                                    "diff-cell diff-add"
-                                } else {
-                                    "diff-cell diff-ctx"
-                                };
                                 view! {
                                     <tr>
-                                        {diff_cell(show_old, old_cell_class, line.old_lineno, line.text.clone())}
-                                        {diff_cell(show_new, new_cell_class, line.new_lineno, line.text.clone())}
+                                        {diff_cell(line)}
                                     </tr>
                                 }
                             }).collect::<Vec<_>>()}
@@ -86,7 +75,6 @@ pub fn DiffView(files: Vec<FileDiff>) -> impl IntoView {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::services::commits::DiffLine;
     use crate::services::commits::FileStatus;
 
     fn make_file_diff() -> FileDiff {
@@ -134,7 +122,7 @@ mod tests {
     }
 
     #[test]
-    fn diff_view_two_column_classes() {
+    fn diff_view_change_classes() {
         let html = leptos::view! { <DiffView files=vec![make_file_diff()] /> }.to_html();
         assert!(
             html.contains("diff-add"),
@@ -153,14 +141,59 @@ mod tests {
     #[test]
     fn diff_view_gutters_and_cells() {
         let html = leptos::view! { <DiffView files=vec![make_file_diff()] /> }.to_html();
-        // Context line: both gutters present.
-        assert!(html.contains("diff-gutter\">1<"));
-        // Delete line: old gutter 2 present, new side blank.
-        assert!(html.contains("diff-gutter\">2<"));
-        // Insert line: new gutter 2 present.
-        assert!(html.contains("diff-gutter\">2<"));
+        // Context line: old gutter 1 appears exactly once (single stacked row).
+        assert_eq!(
+            html.matches("diff-gutter\">1<").count(),
+            1,
+            "context gutter should appear exactly once"
+        );
+        // Delete line carries old lineno 2 and Insert line carries new lineno 2,
+        // so gutter 2 appears exactly twice (once per stacked row).
+        assert_eq!(
+            html.matches("diff-gutter\">2<").count(),
+            2,
+            "delete and insert gutters should each render once"
+        );
         assert!(html.contains("let a = 1;"));
         assert!(html.contains("let b = 2;"));
+    }
+
+    #[test]
+    fn diff_view_context_line_appears_once() {
+        let file = FileDiff {
+            path: "a.txt".into(),
+            status: FileStatus::Modified,
+            additions: 1,
+            deletions: 1,
+            lines: vec![DiffLine {
+                line_type: ChangeTag::Equal,
+                old_lineno: Some(1),
+                new_lineno: Some(1),
+                text: "let x = 1;\n".into(),
+            }],
+        };
+        let html = leptos::view! { <DiffView files=vec![file] /> }.to_html();
+        assert_eq!(
+            html.matches("let x = 1;").count(),
+            1,
+            "context line text should render exactly once"
+        );
+        assert_eq!(
+            html.matches("diff-cell diff-ctx").count(),
+            1,
+            "exactly one context cell should render"
+        );
+    }
+
+    #[test]
+    fn diff_view_removed_before_added() {
+        let html = leptos::view! { <DiffView files=vec![make_file_diff()] /> }.to_html();
+        let del_pos = html.find("let a = 1;").expect("deleted line should render");
+        let add_pos = html.find("let b = 2;").expect("added line should render");
+        assert!(
+            del_pos < add_pos,
+            "removed (red) line should appear above the added (green) line"
+        );
     }
 
     #[test]

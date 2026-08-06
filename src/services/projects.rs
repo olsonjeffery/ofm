@@ -1,4 +1,6 @@
+use crate::auth::AuthUser;
 use crate::db::schema::Project;
+use crate::services::access;
 use hiqlite::Client;
 use uuid::Uuid;
 
@@ -29,16 +31,16 @@ pub async fn create_project(
     get_project(client, id).await
 }
 
+/// Projects the user can access: those they own plus projects shared through
+/// the groups they belong to (a project's access set is its owner's groups'
+/// members; see spec/extra/auth-and-multi-user.md).
 pub async fn list_projects(
     client: &Client,
-    user_id: &Uuid,
+    user: &AuthUser,
 ) -> Result<Vec<Project>, hiqlite::Error> {
-    client
-        .query_map::<Project, _>(
-            "SELECT id, user_id, name, repo_folder_path, subproject_path, created_at FROM projects WHERE user_id = $1 ORDER BY created_at DESC",
-            hiqlite::params!(user_id.to_string()),
-        )
+    access::list_accessible_projects(client, user)
         .await
+        .map_err(|e| hiqlite::Error::new(e.to_string()))
 }
 
 pub async fn get_project(client: &Client, project_id: i64) -> Result<Project, hiqlite::Error> {
