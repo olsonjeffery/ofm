@@ -1031,9 +1031,17 @@ async fn test_webapp_commit_detail_page() {
         "commit summary should render"
     );
     assert!(body.contains("a.txt"), "changed file path should render");
-    assert!(body.contains("diff-grid"), "two-column diff should render");
-    assert!(body.contains("one\n"), "context line should render");
+    assert!(body.contains("diff-grid"), "diff should render");
+    assert_eq!(
+        body.matches("one\n").count(),
+        1,
+        "context line should render exactly once (no duplicate rendering)"
+    );
     assert!(body.contains("two\n"), "inserted line should render");
+    assert!(
+        body.contains("diff-add"),
+        "inserted line should be tinted green"
+    );
 }
 
 #[tokio::test]

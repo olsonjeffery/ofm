@@ -99,7 +99,7 @@ The workspace has a single member crate (`ofm` binary) defined inline.
 | url | 2 | URL parsing |
 | hex | 0.4 | Hex encoding |
 | gix | 0.86 | Pure-Rust git repository reading (commits, merge-base, trees, blobs) for the commit list & diff view |
-| similar | 3 | Line-diff classification (Equal/Delete/Insert) for two-column diffs |
+| similar | 3 | Line-diff classification (Equal/Delete/Insert) for stacked diffs |
 | hyper / hyper-util | 1 / 0.1 | Low-level HTTP client for the `/auth` reverse proxy (`src/server/proxy.rs`) |
 | bytes / http-body-util | 1 / 0.1 | Body buffering for the `/auth` reverse proxy |
 
@@ -223,14 +223,16 @@ diffs entirely server-side (no client-side JS polling; every GET re-renders).
 - **Per-commit page** (`src/webapp/pages/commit_detail.rs`, route
   `/webapp/projects/{project_id}/tasks/{task_id}/commits/{oid}` in
   `src/webapp/mod.rs`): header box (short OID, summary, author, email,
-  timestamp) plus the two-column diff. Bad/unresolvable OIDs render
+  timestamp) plus the stacked diff. Bad/unresolvable OIDs render
   "Commit not found." with a back link.
 - **DiffView** (`src/webapp/components/diff_view.rs`): renders each changed file
-  as a header (path, status, +adds/−dels) plus a two-column table. The
-  pre-aligned `FileDiff.lines` sequence from `similar::TextDiff` drives the
-  columns: `Equal`/`Delete` populate the old column, `Equal`/`Insert` the new
-  column, with blank cells on the opposite side. Old/new line numbers render in
-  gutters; `.diff-add`/`.diff-del` tint added/deleted cells.
+  as a header (path, status, +adds/−dels) plus a single-column stacked table.
+  Each pre-aligned `DiffLine` from `similar::TextDiff` becomes one full-width
+  row, in `git diff` order: context lines once with a light `diff-ctx`
+  background, removed `Delete` lines red immediately above the `Insert` lines
+  that replace them. A line-number gutter shows the side-appropriate single
+  number (old on context/removed, new on added); `.diff-add`/`.diff-del` tint
+  added/deleted rows.
 - **Handlers**: `task_detail_handler` fetches the commit list via
   `spawn_blocking` (`.ok().flatten()` → empty vec); `commit_detail_handler`
   resolves the OID (`resolve_oid`) then diffs it. Both live in
@@ -283,7 +285,7 @@ All webapp UI follows the Islands Architecture pattern:
 
 - **Breadcrumbs**: Shared breadcrumb navigation system. `BreadcrumbItem` data struct holds `title`, `icon`, and `path`. A `breadcrumb_registry` module centralizes canonical breadcrumb definitions (e.g., `all_projects()`, `project()`, `task()`, `chat()`, `commit()`, `settings()`). Settings pages additionally use `settings_section()` / `settings_sub_page()` to trail breadcrumbs down to the active section and sub-page (e.g. All Projects → Settings → Providers & Agents → Model Configurations). The `Breadcrumbs` Leptos component renders Bulma `<nav class="breadcrumb">` markup. Breadcrumbs flow from page handler -> `render_shell()` -> `ShellPage` -> `Navbar`, appearing immediately after the WS status indicator in the navbar-start div.
 - **CommitList** (`src/webapp/components/commit_list.rs`): commit-table `.box` for the task detail page (see *Git Commit List & Diff View*).
-- **DiffView** (`src/webapp/components/diff_view.rs`): two-column side-by-side diff renderer for the commit detail page (see *Git Commit List & Diff View*).
+- **DiffView** (`src/webapp/components/diff_view.rs`): single-column stacked diff renderer for the commit detail page (see *Git Commit List & Diff View*).
 - **SettingsDropdown** (`src/webapp/components/settings_dropdown.rs`): navbar split-button with both the label and arrow buttons toggling a one-level menu listing Providers & Agents, Import/Export, Account (the label no longer navigates directly). Replaced the former separate User Config and Settings navbar buttons.
 - **AgentDropdown** (`src/webapp/components/agent_dropdown.rs`): navbar dropdown showing the running-agent count, the live WebSocket connection status, and per-agent entries that link into their chat. Driven exclusively by server activity — it subscribes to the WebSocket **System** topic and re-fetches `GET /api/tasks/agent-status` on every `agent_status` broadcast (see *System topic & global agent status*). The menu also lists open-question tasks ("Needs your input", from `question_asked` events) and blocked tasks. Styling: a 15s pulse on the message-outline icon while ≥ 1 agent runs; cyan when ≥ 1 question task; `is-primary` when ≥ 1 blocked task (trumping all other rules).
 - **SettingsSidebar** (`src/webapp/components/settings_sidebar.rs`): section-local Bulma `.menu` sidebar. Defines the `SettingsSection`/`SettingsSubPage` enums and renders exactly one `is-active` link matching the active sub-page.

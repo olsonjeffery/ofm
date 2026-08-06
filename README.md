@@ -314,7 +314,7 @@ of `ofm`'s founding author
 - The task detail page is git-aware: it lists the task worktree's commits
 (since the merge-base with the base branch, oldest→newest, refreshed on every
 page load) and each commit opens a dedicated page with the changed-file list
-and a two-column source diff. See `src/services/commits.rs` and
+and a stacked source diff. See `src/services/commits.rs` and
 `src/webapp/pages/commit_detail.rs`.
 
 ## Contributing
