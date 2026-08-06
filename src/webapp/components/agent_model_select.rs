@@ -4,7 +4,7 @@ use leptos::prelude::*;
 pub fn AgentModelSelect() -> impl IntoView {
     view! {
         <div id="agent-model-select">
-            <p>"Configure the model and effort for each agent type."</p>
+            <p>"Configure the model and effort for each agent type. The model dropdown is populated from your provider configs (Rig and opencode)."</p>
             <table class="table is-fullwidth is-hoverable" id="agent-model-table">
                 <thead>
                     <tr>

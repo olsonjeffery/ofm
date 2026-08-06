@@ -10,14 +10,20 @@ pub fn Navbar(
     active_agents: Vec<ActiveAgent>,
 ) -> impl IntoView {
     let is_logged_in = user_json.is_some();
-    let username = user_json
+    let parsed_user = user_json
         .as_ref()
-        .and_then(|s| serde_json::from_str::<serde_json::Value>(s).ok())
+        .and_then(|s| serde_json::from_str::<serde_json::Value>(s).ok());
+    let username = parsed_user
+        .as_ref()
         .and_then(|v| {
             v.get("username")
                 .and_then(|u| u.as_str().map(|s| s.to_string()))
         })
         .unwrap_or_default();
+    let is_admin = parsed_user
+        .as_ref()
+        .and_then(|v| v.get("is_admin").and_then(|a| a.as_bool()))
+        .unwrap_or(false);
 
     view! {
         <nav class="navbar is-fixed-top" role="navigation" aria-label="main navigation">
@@ -39,6 +45,19 @@ pub fn Navbar(
                                 <span class="icon is-small"><i class="mdi mdi-account"></i></span>
                                 <span>{username}</span>
                             </span>
+                            {if is_admin {
+                                view! {
+                                    <span class="navbar-item">
+                                        <a class="button is-white is-small" href="/webapp/settings/admin/groups">
+                                            <span class="icon is-small"><i class="mdi mdi-account-group"></i></span>
+                                            <span>"Groups"</span>
+                                        </a>
+                                    </span>
+                                }
+                                    .into_any()
+                            } else {
+                                ().into_any()
+                            }}
                             <crate::webapp::components::settings_dropdown::SettingsDropdown />
                             <div class="navbar-item">
                                 <form action="/api/auth/logout" method="post" id="logout-form">
@@ -113,6 +132,31 @@ mod tests {
         assert!(html.contains("/webapp/settings/account"));
         assert!(html.contains("settings-dropdown-trigger"));
         assert!(!html.contains("User Config"));
+    }
+
+    #[test]
+    fn test_navbar_hides_groups_entry_for_non_admin() {
+        let user = serde_json::json!({ "username": "regular@example.com", "is_admin": false });
+        let user_json = Some(user.to_string());
+        let html =
+            leptos::view! { <Navbar user_json breadcrumbs=Vec::new() active_agents=Vec::new() /> }
+                .to_html();
+        assert!(html.contains("regular@example.com"));
+        assert!(
+            !html.contains("/webapp/settings/admin/groups"),
+            "non-admin must not see Groups"
+        );
+    }
+
+    #[test]
+    fn test_navbar_shows_groups_entry_for_admin() {
+        let user = serde_json::json!({ "username": "admin@localhost", "is_admin": true });
+        let user_json = Some(user.to_string());
+        let html =
+            leptos::view! { <Navbar user_json breadcrumbs=Vec::new() active_agents=Vec::new() /> }
+                .to_html();
+        assert!(html.contains("/webapp/settings/admin/groups"));
+        assert!(html.contains("mdi-account-group"));
     }
 
     #[test]

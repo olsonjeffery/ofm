@@ -43,12 +43,7 @@ async fn post_create_agent_run(
         "Starting agent run"
     );
 
-    let task = tasks::get_task(&state.db, task_id)
-        .await
-        .map_err(|_| ServerError::NotFound("Task not found".into()))?;
-    if task.user_id != auth.user_id {
-        return Err(ServerError::NotFound("Task not found".into()));
-    }
+    let task = super::tasks::authorized_task(&state, &auth, task_id, true).await?;
 
     let config_root = PathBuf::from(&state.config_root);
 
@@ -73,12 +68,7 @@ async fn reset_agent_runs(
     State(state): State<AppState>,
     Path(task_id): Path<i64>,
 ) -> Result<StatusCode, ServerError> {
-    let task = tasks::get_task(&state.db, task_id)
-        .await
-        .map_err(|_| ServerError::NotFound("Task not found".into()))?;
-    if task.user_id != auth.user_id {
-        return Err(ServerError::NotFound("Task not found".into()));
-    }
+    super::tasks::authorized_task(&state, &auth, task_id, true).await?;
 
     tracing::info!(task_id = %task_id, "Resetting agent runs for task");
 
@@ -169,23 +159,7 @@ async fn reset_agent_runs(
     };
     state.ws_bus.broadcast(&topic, msg).await;
 
-    let sys_topic = WsTopic {
-        kind: WsTopicKind::System,
-        id: TopicId(0),
-    };
-    state
-        .ws_bus
-        .broadcast(
-            &sys_topic,
-            ServerMessage::Event {
-                topic: sys_topic.clone(),
-                event_type: "agent_status".to_string(),
-                timestamp: chrono::Utc::now(),
-                payload: serde_json::json!({"action": "refresh"}),
-                html: None,
-            },
-        )
-        .await;
+    crate::orchestration::broadcast_agent_status(&state.ws_bus, "stopped").await;
 
     Ok(StatusCode::OK)
 }
@@ -195,12 +169,7 @@ async fn list_agent_runs(
     State(state): State<AppState>,
     Path(task_id): Path<i64>,
 ) -> Result<Json<Vec<TaskAgentRun>>, ServerError> {
-    let task = tasks::get_task(&state.db, task_id)
-        .await
-        .map_err(|_| ServerError::NotFound("Task not found".into()))?;
-    if task.user_id != auth.user_id {
-        return Err(ServerError::NotFound("Task not found".into()));
-    }
+    super::tasks::authorized_task(&state, &auth, task_id, false).await?;
 
     let runs = tasks::list_agent_runs_for_task(&state.db, task_id)
         .await

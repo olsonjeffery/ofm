@@ -25,9 +25,10 @@ ofm/
 │   ├── orchestration/   # State machine, guards, recovery, completion
 │   ├── providers/       # LlmProvider trait, opencode_sdk providers
 │   │   ├── opencode_sdk_provider.rs  # Pooled opencode server provider
-│   │   └── registry.rs               # Harness dispatch ("opencode")
+│   │   ├── rig_config.rs             # Rig provider config domain types (capture only)
+│   │   └── registry.rs               # Harness dispatch ("opencode", rig guard)
 │   ├── agents/          # Prompt builders (planning, impl, review, PR)
-│   ├── services/        # Auth, projects, tasks, settings, session, transcript, export_import, commits
+│   ├── services/        # Auth, projects, tasks, settings, session, transcript, export_import, commits, groups, access
 │   ├── archive/         # Task doc I/O, context prompt
 │   ├── worktree/        # Git worktree management
 │   └── rauthy/          # Local rauthy lifecycle (docker), PUB_URL/env build, endpoint re-hosting helpers
@@ -41,7 +42,8 @@ The workspace has a single member crate (`ofm` binary) defined inline.
 ## Database
 
 - **Engine**: [hiqlite](https://crates.io/crates/hiqlite) — async, Raft-capable embedded SQLite with built-in durability via WAL + auto-heal crash recovery. Single-node deployment eliminates the Mutex bottleneck in axum handlers.
-- **Schema**: 15+ tables defined via raw SQL DDL in `src/db/mod.rs`. Project and task IDs use `INTEGER PRIMARY KEY AUTOINCREMENT`; other UUIDs (users, sessions, conversations) are stored as `TEXT`. Booleans are `INTEGER` (0/1), JSON as `TEXT`, and timestamps as ISO 8601 `TEXT` strings.
+- **Schema**: 15+ tables defined via raw SQL DDL in `src/db/mod.rs`. Project and task IDs use `INTEGER PRIMARY KEY AUTOINCREMENT`; other UUIDs (users, sessions, conversations) are stored as `TEXT`. Booleans are `INTEGER` (0/1), JSON as `TEXT`, and timestamps as naive **UTC** `TEXT` strings in `"YYYY-MM-DD HH:MM:SS"` (no timezone marker).
+- **Timestamps contract**: All timestamps are stored as UTC. They are emitted on the wire as naive UTC — space-separated in WS payloads (`"YYYY-MM-DD HH:MM:SS"`) and `T`-separated in JSON via chrono serde (`"YYYY-MM-DDTHH:MM:SS"`). **All display conversion to the browser's local timezone/locale happens client-side** via the `OfmTime` helper in `src/webapp/shim/runtime.rs`: SSR components emit a machine-readable `data-utc="<RFC3339 UTC>"` attribute plus `data-utc-format` (`"pill"` | `"datetime"` | `"date"` | `"datetime_ymd"`) on every rendered timestamp, keeping the server-rendered UTC text as a no-JS fallback, and `OfmTime.apply()` rewrites `textContent` in the browser's zone on `DOMContentLoaded` (and after island fetches). The `utc_attr()` helper in `src/webapp/components/datetime.rs` produces the RFC 3339 UTC attribute value.
 - **Migration system**: A `_migrations` tracking table records which migrations have been applied. Each migration is a named SQL DDL statement; only unapplied migrations execute on startup.
 
 ### Tables
@@ -50,7 +52,8 @@ The workspace has a single member crate (`ofm` binary) defined inline.
 |-------|---------|
 | `users` | User accounts with OIDC auth |
 | `projects` | Project definitions (repo paths, monorepo subproject paths) |
-| `project_members` | Many-to-many user/project join table |
+| `groups` | User Group / Organization definitions (name, `is_org`, `is_oauth_scope`, owner, creator snapshot) |
+| `group_members` | Polymorphic membership (user OR subgroup) with a fixed `level` enum |
 | `tasks` | Task definitions with workflow state flags |
 | `conversations` | LLM conversation sessions (provider-agnostic via `provider_session_id`, renamed from `omp_session_id`) |
 | `task_agent_runs` | Agent execution tracking per task |
@@ -237,6 +240,23 @@ diffs entirely server-side (no client-side JS polling; every GET re-renders).
 
 The server maintains a WebSocket hub for live UI updates. Clients subscribe to per-task channels. Events (streaming deltas, agent-run status changes, task-blocked signals) are broadcast to subscribers in real time. Subscription management handles reconnection and scoped interest sets (only the tasks currently visible on screen).
 
+### System topic & global agent status
+
+Beyond the per-task `WsTopic`, a single **System** topic (`WsTopic { kind: System, id: 0 }`) carries global, user-agnostic agent-lifecycle signals. Every agent state transition publishes an `agent_status` event onto it through `orchestration::broadcast_agent_status` (`src/orchestration/mod.rs`):
+
+| Transition | Action | Where |
+|---|---|---|
+| Agent starting | `refresh` | `start_next_agent` |
+| Agent completed | `completed` | `completion_handler` |
+| Agent failed (unexpected session end) | `failed` | broadcast task cleanup (orchestration + `conversations.rs`) |
+| Agent start failure | `failed` | `start_next_agent` `start_turn` error path |
+| Stop Agent | `stopped` | `reset_agent_runs` (`agent_runs.rs`) |
+| Run re-activated by a chat message | `refresh` | `send_message` (`conversations.rs`) |
+| Question asked (agent paused) | `question` | broadcast event loop |
+| Run blocked (missing config) | `blocked` | `start_next_agent` |
+
+The navbar **AgentDropdown** (`src/webapp/components/agent_dropdown.rs`) subscribes to this topic on every page; on any `agent_status` event it re-fetches `GET /api/tasks/agent-status` and re-renders the button (agent count, pulse) and the menu (running agents, open questions, blocked tasks). A 30s poll re-syncs as a safety net in case a frame is dropped.
+
 ## Real-Time Chat
 
 The chat view (`/webapp/projects/{project_id}/tasks/{task_id}/chat`) provides a real-time conversation interface:
@@ -255,6 +275,7 @@ All webapp UI follows the Islands Architecture pattern:
 - The shell page is SSR-rendered via `leptos::ssr::render_to_string` from a plain axum handler.
 - Each functional UI unit ("island") is a Leptos `#[component]` rendered to an HTML fragment by its own axum endpoint (`/webapp/islands/{name}`).
 - A minimal inline JS runtime fetches islands and supports re-fetch via `[data-island-refresh]` buttons.
+- The same runtime script (`global_runtime_script` in `src/webapp/shim/runtime.rs`, loaded in `<head>` by `ShellPage`) exposes the `OfmTime` helper, which parses naive-UTC timestamp strings as UTC and formats them in the browser's locale/timezone. SSR components emit `data-utc`/`data-utc-format` attributes (see the *Database → Timestamps contract* note) — chat pills, conversation dates, task/project card dates, and the git commit list/detail dates (`commit_list.rs`, `commit_detail.rs`, `data-utc-format="datetime_ymd"`); `OfmTime.apply()` localizes them on `DOMContentLoaded` and after island fetches, so the client-side live-update paths (`chat.rs`, `task_detail.rs`) reuse the same formatting as page-load rendering.
 - Auth is enforced by the existing `AuthLayer` and per-handler `AuthUser` extractor.
 - Styling via Bulma CSS with MDI icons.
 
@@ -264,8 +285,9 @@ All webapp UI follows the Islands Architecture pattern:
 - **CommitList** (`src/webapp/components/commit_list.rs`): commit-table `.box` for the task detail page (see *Git Commit List & Diff View*).
 - **DiffView** (`src/webapp/components/diff_view.rs`): two-column side-by-side diff renderer for the commit detail page (see *Git Commit List & Diff View*).
 - **SettingsDropdown** (`src/webapp/components/settings_dropdown.rs`): navbar split-button with both the label and arrow buttons toggling a one-level menu listing Providers & Agents, Import/Export, Account (the label no longer navigates directly). Replaced the former separate User Config and Settings navbar buttons.
+- **AgentDropdown** (`src/webapp/components/agent_dropdown.rs`): navbar dropdown showing the running-agent count, the live WebSocket connection status, and per-agent entries that link into their chat. Driven exclusively by server activity — it subscribes to the WebSocket **System** topic and re-fetches `GET /api/tasks/agent-status` on every `agent_status` broadcast (see *System topic & global agent status*). The menu also lists open-question tasks ("Needs your input", from `question_asked` events) and blocked tasks. Styling: a 15s pulse on the message-outline icon while ≥ 1 agent runs; cyan when ≥ 1 question task; `is-primary` when ≥ 1 blocked task (trumping all other rules).
 - **SettingsSidebar** (`src/webapp/components/settings_sidebar.rs`): section-local Bulma `.menu` sidebar. Defines the `SettingsSection`/`SettingsSubPage` enums and renders exactly one `is-active` link matching the active sub-page.
-- **Settings pages** (`src/webapp/pages/settings/`): freestanding pages under `/webapp/settings/*`, each a sidebar + content pane. `providers_agents.rs` (Model Configurations landing + Agent Settings), `import_export.rs` (Export landing + Import), `account.rs` (User Config landing, reuses `OnboardingForm`, + API Keys). `/webapp/settings` is kept as an alias for the Providers & Agents landing. The old tab-switching JS in `pages/settings.rs` was split into per-sub-page scripts (each self-contained, rendered only with its pane).
+- **Settings pages** (`src/webapp/pages/settings/`): freestanding pages under `/webapp/settings/*`, each a sidebar + content pane. `providers_agents.rs` (Model Configurations landing + Agent Settings), `rig_providers.rs` (Rig-based Providers — a **capture-only** surface for per-vendor Rig provider configs under "Providers & Agents"; no execution), `import_export.rs` (Export landing + Import), `account.rs` (User Config landing, reuses `OnboardingForm`, + API Keys). `/webapp/settings` is kept as an alias for the Providers & Agents landing. The old tab-switching JS in `pages/settings.rs` was split into per-sub-page scripts (each self-contained, rendered only with its pane).
 
 ## Agent Prompt Pipeline
 
@@ -284,13 +306,44 @@ Configuration is loaded from YAML files with environment variable overlay:
 - `OFM_FOOTPRINT` (default `~/.ofm`) derives all data paths (DB, archive, config, rauthy)
 - `OFM_DB_PATH`, `OFM_ARCHIVE_ROOT`, `OFM_CONFIG` are eliminated in favor of footprint-derived paths
 
+## Groups & Access Control
+
+User Groups / Organizations are the unit of access control for user-owned
+resources. The `groups` and `group_members` tables are managed by
+`src/services/groups.rs` (create/update/delete groups, add/remove/change-level
+members, and recursive membership resolution with a cycle guard) and exposed to
+admins via `src/server/routes/groups.rs` (`/api/groups`, admin-only, plus
+`GET /api/groups/scopes-available` for the scope dropdown). A bootstrap-seeded
+`admins` group is created once per footprint by `db::ensure_admins_group`
+(`src/db/mod.rs`), owned by the current ofm admin with an `admin`-level
+membership.
+
+Authorization composes ownership + group membership in `src/services/access.rs`:
+`has_resource_access(requester, owner_id, min_level)` grants access when the
+requester is the owner, a server admin, or an effective member (at `min_level`
+or higher) of any group the owner belongs to — resource → group linkage is
+modeled as the owner's group membership, so no per-resource `group_id` columns
+are needed. It is wrapped per resource (`has_project_access`,
+`has_model_config_access`, `has_task_flow_access`, plus write variants) and
+threaded through the projects/settings/agent_configs/tasks/conversations/
+agent_runs routes, the webapp page handlers, and the agent-status feed
+(`get_running_agents` / `get_open_question_tasks` / `get_blocked_tasks`).
+
+OAuth scopes support membership-by-scope: `src/main.rs` parses the discovery
+document's optional `scopes_supported` into `OidcEndpoints.scopes_supported`,
+`handle_callback` (`src/services/auth.rs`) captures the granted `scope` claim
+from the access token/userinfo and unions it with `scopes_supported` onto the
+new `users.scopes` column, and `groups::is_member` folds in users whose scopes
+match a group flagged `is_oauth_scope`.
+
 ## Recurring Patterns
 
 - **snake_case** naming for all columns and Rust identifiers
 - **Custom error types** via `src/server/error.rs` — `AppError` enum with typed HTTP responses, replacing `Box<dyn Error>`
-- **`TEXT` storage** for UUIDs (users, sessions, conversations, etc.), timestamps, and JSON values; project/task IDs use `INTEGER` (SQLite convention)
+- **`TEXT` storage** for UUIDs (users, sessions, conversations, etc.), timestamps (naive UTC `"YYYY-MM-DD HH:MM:SS"`), and JSON values; project/task IDs use `INTEGER` (SQLite convention)
 - **`AuthLayer` Tower middleware** for request authentication (JWT via JWKS, API key hash lookup)
 - **`spawn_blocking`** for blocking I/O operations (PTY reads), sending events through `mpsc::Sender::blocking_send`
+- **Drop non-`Send` rows before awaits**: hiqlite `Row`s are not `Send`, so any query that feeds an access-check `.await` must be extracted to owned values first (see the two-pass loops in `src/services/tasks.rs`).
 
 ## Design Decisions
 
@@ -300,5 +353,5 @@ Configuration is loaded from YAML files with environment variable overlay:
 - **Raw SQL DDL over migration framework**: DDL is wrapped in a simple `_migrations` tracking table, keeping the migration system self-contained.
 - **WebSocket for live UI**: Real-time updates via WebSocket subscriptions instead of polling, enabling live agent-streaming and board state updates.
 - **Leptos Islands over SPA**: Server-side rendered islands reduce client JS bundle and simplify auth (SSR handlers share server-side auth context without a separate token refresh for the SPA shell).
-- **Single harness**: `opencode` is the built-in provider behind the `LlmProvider` trait abstraction, backed by the `opencode_sdk` submodule.
+- **Single harness**: `opencode` is the built-in provider behind the `LlmProvider` trait abstraction, backed by the `opencode_sdk` submodule. A second harness value, `"rig"` (`harness = "rig"` on `user_model_configs` and `agent_harness_configs`), marks configs captured by the **Rig-based Providers** settings surface (`/webapp/settings/providers-agents/rig-providers`, sidebar entry `SettingsSubPage::RigProviders`). Rig configs live as typed `RigProviderConfig` JSON files (`src/providers/rig_config.rs`) under `{config_root}/provider-configs/{uuid}.rig.json`; they are **capture-only** — `registry::resolve_provider` / `resolve_provider_for_user` refuse to resolve `"rig"` with a clear "not yet executable" guard until a future story (RIG 1) adds the Rig execution client.
 - **Footprint-derived paths**: `OFM_FOOTPRINT` is the single root for all data directories, eliminating the env-var explosion of `OFM_DB_PATH`, `OFM_ARCHIVE_ROOT`, `OFM_CONFIG`.

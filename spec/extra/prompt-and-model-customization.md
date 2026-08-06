@@ -9,9 +9,21 @@ makes both **configurable** — the *what an agent says* and the *what runs it*.
 > implemented** via the `agent_harness_configs` table, scope-precedence config
 > resolution (`src/providers/registry.rs`), and `LlmProvider` trait abstraction
 > (`src/providers/mod.rs`). The agent-level `model` and `effort` fields can be
-> set per scope (global/user/project/user-project). The prompt-override layer
-> (two-tier file loader, template engine, per-agent message composition) is
-> **not yet implemented**.
+> set per scope (global/user/project/user-project). A **Rig-based Providers**
+> surface under "Providers & Agents"
+> (`/webapp/settings/providers-agents/rig-providers`) captures per-vendor Rig
+> provider configs (Anthropic / OpenAI / OpenCode Go / OpenRouter /
+> OpenAI-compatible ± auth) into structured JSON files tracked by
+> `user_model_configs` with `harness = "rig"`; those configs are **not yet
+> executable** — execution is deferred to a future story (RIG 1). Capture-time
+> hardening (`src/providers/rig_config.rs`, `src/services/settings.rs`):
+> `base_url` must be an `http(s)` URL to a public host (loopback, link-local,
+> private, and cloud-metadata endpoints are rejected at save), provider config
+> files are written `0600` (owner-readable only — they may hold API keys), and
+> served configs mask the stored `api_key` (the real secret is never re-served;
+> a masked key submitted unchanged on edit preserves the stored key). The
+> prompt-override layer (two-tier file loader, template engine, per-agent
+> message composition) is **not yet implemented**.
 
 ## What it adds
 
@@ -192,12 +204,16 @@ when the user is unseeded, which the UI uses to show the connect-provider state.
 See
 [`../reference/server/routes/userAgentModelSettings.ts`](../reference/server/routes/userAgentModelSettings.ts).
 In the `ofm` Rust webapp, the settings UI lives at
-`/webapp/settings/providers-agents` (Model Configurations landing + Agent
-Settings sub-pages, `src/webapp/pages/settings/providers_agents.rs`) with a
+`/webapp/settings/providers-agents` (Model Configurations / Agent Settings /
+Rig-based Providers sub-pages,
+`src/webapp/pages/settings/providers_agents.rs` +
+`src/webapp/pages/settings/rig_providers.rs`) with a
 section-local `.menu` sidebar (`src/webapp/components/settings_sidebar.rs`).
-The settings tab (a "Agent Models" tab, one row per agent type) filters its
-provider dropdown to `connected-providers` and its model/effort dropdowns to the
-selected provider's `MODELS_FOR_UI`/`EFFORTS_FOR_UI`. Prompt overrides get their
+The settings tab (an "Agent Models" tab, one row per agent type) filters its
+config dropdown to the user's provider configs (Rig + opencode) and populates
+its model/effort dropdowns from the selected config's model listing
+("Model Configs implement Model Listing"), with a free-form "Other…" model
+fallback. Prompt overrides get their
 own settings surface backed by `GET/PUT/DELETE /api/settings/prompts[/:name]`
 (list with `isCustomized`, fetch content + default + variable allowlist + mtime,
 save with optimistic-concurrency `expectedMtime` 409 and unknown-variable 400,

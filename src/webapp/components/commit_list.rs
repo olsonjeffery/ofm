@@ -50,6 +50,9 @@ pub fn CommitList(data: CommitListData) -> impl IntoView {
                                 let message_href = href.clone();
                                 let short_oid = commit.short_oid.clone();
                                 let date = commit.authored_time.format("%Y-%m-%d %H:%M").to_string();
+                                let date_utc = crate::webapp::components::datetime::utc_attr(
+                                    &commit.authored_time.naive_utc(),
+                                );
                                 let author = commit.author_name.clone();
                                 view! {
                                     <tr>
@@ -63,7 +66,7 @@ pub fn CommitList(data: CommitListData) -> impl IntoView {
                                         </td>
                                         <td class="commit-message"><a href=message_href>{commit.summary.clone()}</a></td>
                                         <td>{author}</td>
-                                        <td class="commit-date">{date}</td>
+                                        <td class="commit-date" data-utc=date_utc data-utc-format="datetime_ymd">{date}</td>
                                         <td class="has-text-right">{commit.files_changed}</td>
                                     </tr>
                                 }
@@ -147,6 +150,10 @@ mod tests {
         assert!(
             html.contains(r#"href="/webapp/projects/1/tasks/2/commits/deadbeef""#),
             "row should link to the commit page"
+        );
+        assert!(
+            html.contains(r#"data-utc="2024-06-01T12:00:00Z" data-utc-format="datetime_ymd" class="commit-date""#),
+            "commit date should carry machine-readable UTC plus a localized display format"
         );
     }
 

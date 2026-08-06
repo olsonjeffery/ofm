@@ -63,6 +63,24 @@ or needed user intervention to get a coding agent back on-track
 basis
 - The [`opencode`][17] open-source, multi-provider capable coding agent harness
 is the built-in provider
+- **Rig-based Providers**: Settings → *Providers & Agents* → **Rig-based
+  Providers** (`/webapp/settings/providers-agents/rig-providers`) lets a user
+  capture provider configs for Anthropic, OpenAI (service), OpenCode Go,
+  OpenRouter, and OpenAI-compatible endpoints (with or without an auth header)
+  as structured JSON files. These configs can then be attached to a user's
+  per-agent model preferences in *Agent Settings* (the model dropdown is
+  populated from the provider configs' model listings — both Rig and opencode).
+  Config **capture only**: executing through Rig clients is a future story.
+- **Groups & Organizations**: admins can manage **User Groups** and
+  **Organizations** from Settings → *Admin* → **Groups & Organizations**
+  (`/webapp/settings/admin/groups`, also reachable from the navbar **Groups**
+  button). Groups gate access to shared Projects, Model Configurations, and Task
+  Flows: a resource owned by a group member is readable by the group's other
+  members and editable by contributors and above. Membership levels are
+  *read-only / contributor / maintainer / admin*; groups can contain subgroups
+  (groups-of-groups), and a group whose name matches an **OAuth scope**
+  (`is_oauth_scope`) derives membership from users' granted scopes. A built-in
+  `admins` group is seeded with the ofm admin as its owner and `admin` member.
 - The user _owns_ the local installations of the coding agent, so they can customize
 then with whatever skills, safeguards, etc are appropriate for the user case or
 organizational requirements; This avenue of customization provides a positive feedback

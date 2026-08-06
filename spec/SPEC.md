@@ -177,6 +177,26 @@ spawns `pty`s, maintains database state, and so on
    value); without a recorded re-bootstrap the login is refused. Previously
    issued rauthy sessions/tokens are invalidated.
 
+### Timestamps
+
+All timestamps are stored as naive **UTC** `TEXT` strings in `"YYYY-MM-DD HH:MM:SS"`
+(no timezone marker) and written via `chrono::Utc::now().naive_utc()`. They are
+emitted on the wire as naive UTC — space-separated in WebSocket payloads
+(`"YYYY-MM-DD HH:MM:SS"`) and `T`-separated in JSON via chrono serde
+(`"YYYY-MM-DDTHH:MM:SS"`). **Display conversion to the browser's local
+timezone/locale is done entirely on the frontend.** SSR components keep the
+server-rendered UTC text as a no-JS fallback and additionally emit a
+machine-readable `data-utc="<RFC3339 UTC>"` attribute plus a
+`data-utc-format` (`"pill"` | `"datetime"` | `"date"` | `"datetime_ymd"`) hint; the client-side
+`OfmTime` helper (`global_runtime_script` in `src/webapp/shim/runtime.rs`,
+`utc_attr()` in `src/webapp/components/datetime.rs`) parses the value as UTC
+and rewrites the element's text in the browser's zone on `DOMContentLoaded`
+and after island fetches. Live WebSocket-update paths (`src/webapp/pages/chat.rs`,
+`src/webapp/pages/task_detail.rs`) reuse the same `OfmTime` formatting so
+live values always agree with page-load rendering. Git commit timestamps
+(`src/webapp/components/commit_list.rs`, `src/webapp/pages/commit_detail.rs`)
+follow the same contract with `data-utc-format="datetime_ymd"`.
+
 ## How to build from this spec
 
 Point a coding agent at this file and say "build this." Then:
@@ -196,7 +216,7 @@ Point a coding agent at this file and say "build this." Then:
    `src/agents/pull_request.rs` (PR prompt).
     The web application lives at `src/webapp/` (Leptos SSR + islands). The settings
     UI lives at `src/webapp/pages/settings/` (per-section modules `providers_agents.rs`,
-    `import_export.rs`, `account.rs`) with a shared section-local sidebar in
+    `rig_providers.rs`, `import_export.rs`, `account.rs`) with a shared section-local sidebar in
     `src/webapp/components/settings_sidebar.rs` and a navbar split-button dropdown in
     `src/webapp/components/settings_dropdown.rs`.
     CRUD service logic lives at `src/services/` (auth, projects, tasks, settings, export_import).
@@ -264,9 +284,9 @@ Opinionated features. Each is independent; implement what you want.
 | **🚫 No** | [`extra/refinement-agent.md`](./extra/refinement-agent.md) | An extra agent that polishes the work between review and PR. |
 | **🚫 No** | [`extra/yolo-mode.md`](./extra/yolo-mode.md) | A single-agent alternative to the multi-step pipeline. |
 | **🚫 No** | [`extra/pr-comment-retrigger.md`](./extra/pr-comment-retrigger.md) | Re-run the PR agent automatically when a PR receives review comments (periodic PR polling). |
-| **⚠️ Partial** | [`extra/prompt-and-model-customization.md`](./extra/prompt-and-model-customization.md) | Harness-model config via `agent_harness_configs` and scope-precedence resolution is implemented (`src/providers/`); prompt overrides and template engine are not yet implemented. |
-| **✅ Yes** | [`extra/auth-and-multi-user.md`](./extra/auth-and-multi-user.md) | OAuth-integration, Accounts, API keys, project membership, admin, and role-driven behavior. Auth infrastructure (AuthLayer, JWKS, PKCE flow, OAuth callback, API keys, rauthy Docker lifecycle) is implemented at `src/auth/`, `src/services/auth.rs`, `src/server/routes/auth.rs`, `src/webapp/auth.rs`, `src/rauthy/`. Project-membership authorization, admin panel, and `is_technical` auto-advance remain from the reference. |
-| **✅ Yes** | [`extra/chat-ux.md`](./extra/chat-ux.md) | Real-time chat view (`src/webapp/pages/chat.rs`), conversation sidebar (`src/webapp/components/conversation_list.rs`), streaming message display (`src/webapp/components/message_stream.rs`), manual chat input (`src/webapp/components/chat_input.rs`), chat API endpoints (`src/server/routes/conversations.rs`), broadcast task in `post_create_agent_run` (`src/server/routes/agent_runs.rs`), orchestrator phase-skip (`src/orchestration/state_machine.rs`), task detail page Agents box with per-phase Run buttons and Stop Agent button (`src/webapp/pages/task_detail.rs`). **Task 204 additions:** Removed agent-type phases dropdown from `ChatInput`, bounded message timeline with overflow fixes, `question_asked` event rendering in message stream and inline JS. Manual conveniences (slash commands, file attachments, voice input, context-usage meter) are not yet implemented. |
+| **⚠️ Partial** | [`extra/prompt-and-model-customization.md`](./extra/prompt-and-model-customization.md) | Harness-model config via `agent_harness_configs` and scope-precedence resolution is implemented (`src/providers/`); a **Rig-based Providers** sub-page under "Providers & Agents" (`/webapp/settings/providers-agents/rig-providers`) captures per-vendor Rig provider configs as structured JSON files with `harness = "rig"` (execution deferred to a future story, RIG 1); prompt overrides and template engine are not yet implemented. |
+| **✅ Yes** | [`extra/auth-and-multi-user.md`](./extra/auth-and-multi-user.md) | OAuth-integration, Accounts, API keys, admin, and role-driven behavior. Auth infrastructure (AuthLayer, JWKS, PKCE flow, OAuth callback, API keys, rauthy Docker lifecycle) is implemented at `src/auth/`, `src/services/auth.rs`, `src/server/routes/auth.rs`, `src/webapp/auth.rs`, `src/rauthy/`. **User Groups / Organizations** are first-class: `groups` + `group_members` tables, a bootstrap-seeded `admins` group, OAuth scope capture + discovery (`users.scopes`), group-based gating of Projects / Model Configurations / Task Flows (`src/services/groups.rs`, `src/services/access.rs`, `src/server/routes/groups.rs`), and an admin **Groups & Organizations** settings sub-page. The reference's `project_members` join table is folded into groups and dropped; `is_technical` auto-advance remains from the reference. |
+| **✅ Yes** | [`extra/chat-ux.md`](./extra/chat-ux.md) | Real-time chat view (`src/webapp/pages/chat.rs`), conversation sidebar (`src/webapp/components/conversation_list.rs`), streaming message display (`src/webapp/components/message_stream.rs`), manual chat input (`src/webapp/components/chat_input.rs`), chat API endpoints (`src/server/routes/conversations.rs`), broadcast task in `post_create_agent_run` (`src/server/routes/agent_runs.rs`), orchestrator phase-skip (`src/orchestration/state_machine.rs`), task detail page Agents box with per-phase Run buttons and Stop Agent button (`src/webapp/pages/task_detail.rs`). **Task 204 additions:** Removed agent-type phases dropdown from `ChatInput`, bounded message timeline with overflow fixes, `question_asked` event rendering in message stream and inline JS. **Task 79 additions:** global navbar agent-status dropdown (`src/webapp/components/agent_dropdown.rs`) driven by System-topic `agent_status` broadcasts — running-agent count, open-question ("Needs your input") and blocked sections, cyan/primary trigger tinting, and a 15s pulse on the message icon; aggregate feed via `GET /api/tasks/agent-status` (`get_global_agent_status` in `src/services/tasks.rs`). Manual conveniences (slash commands, file attachments, voice input, context-usage meter) are not yet implemented. |
 | **✅ Yes** | [`extra/opencodeai-sdk.md`](./extra/opencodeid-sdk.md) | API surface and implementation following the example of the `@opencode-ai/sdk` npm package. |
 
 ## The reference implementation

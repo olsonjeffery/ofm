@@ -42,27 +42,43 @@ fn ensure_secret_file(
     Ok(())
 }
 
-type OidcDiscoveryResult = (String, String, Option<String>, Option<String>, String);
+struct ParsedDiscovery {
+    authorization_endpoint: String,
+    token_endpoint: String,
+    revocation_endpoint: Option<String>,
+    end_session_endpoint: Option<String>,
+    userinfo_endpoint: String,
+    scopes_supported: Vec<String>,
+}
 
 fn parse_oidc_discovery(
     disc: &serde_json::Value,
-) -> Result<OidcDiscoveryResult, Box<dyn std::error::Error>> {
-    Ok((
-        disc["authorization_endpoint"]
+) -> Result<ParsedDiscovery, Box<dyn std::error::Error>> {
+    let scopes_supported = disc["scopes_supported"]
+        .as_array()
+        .map(|arr| {
+            arr.iter()
+                .filter_map(|v| v.as_str().map(|s| s.to_string()))
+                .collect()
+        })
+        .unwrap_or_default();
+    Ok(ParsedDiscovery {
+        authorization_endpoint: disc["authorization_endpoint"]
             .as_str()
             .ok_or("missing authorization_endpoint")?
             .to_string(),
-        disc["token_endpoint"]
+        token_endpoint: disc["token_endpoint"]
             .as_str()
             .ok_or("missing token_endpoint")?
             .to_string(),
-        disc["revocation_endpoint"].as_str().map(|s| s.to_string()),
-        disc["end_session_endpoint"].as_str().map(|s| s.to_string()),
-        disc["userinfo_endpoint"]
+        revocation_endpoint: disc["revocation_endpoint"].as_str().map(|s| s.to_string()),
+        end_session_endpoint: disc["end_session_endpoint"].as_str().map(|s| s.to_string()),
+        userinfo_endpoint: disc["userinfo_endpoint"]
             .as_str()
             .ok_or("missing userinfo_endpoint")?
             .to_string(),
-    ))
+        scopes_supported,
+    })
 }
 
 #[tokio::main]
@@ -129,6 +145,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     let default_user_id = db::ensure_default_user(&client).await?;
     tracing::info!("Default user id: {}", default_user_id);
+
+    db::ensure_admins_group(&client).await?;
+    tracing::info!("Ensured built-in 'admins' group");
 
     let orphans = orchestration::recovery::recover_orphaned_runs(&client).await?;
     tracing::info!("Orphan recovery: {} agent runs swept to failed", orphans);
@@ -214,13 +233,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             .as_str()
             .ok_or("missing jwks_uri")?
             .to_string();
-        let (
-            authorization_endpoint,
-            token_endpoint,
-            revocation_endpoint,
-            end_session_endpoint,
-            userinfo_endpoint,
-        ) = parse_oidc_discovery(&disc)?;
+        let disc = parse_oidc_discovery(&disc)?;
         let public_base = cfg.pub_url.trim_end_matches('/').to_string();
         let redirect_uri = format!("{public_base}/api/auth/callback");
         let client_id = cfg.oidc_client_id.clone().unwrap_or_else(|| "ofm".into());
@@ -229,7 +242,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             "rauthy OIDC: pub_url={public_base}, rauthy PUB_URL={}, advertised issuer={issuer}; \
              browser authorization URL: {}",
             rauthy::pub_url_host_port(&cfg.pub_url),
-            rauthy::rehost_endpoint(&authorization_endpoint, &public_base),
+            rauthy::rehost_endpoint(&disc.authorization_endpoint, &public_base),
         );
 
         // The advertised `jwks_uri` is on the pub_url origin (the browser
@@ -256,6 +269,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             keys,
             issuer: issuer.clone(),
             client_id: client_id.clone(),
+            scopes_supported: disc.scopes_supported.clone(),
         };
         // Refresh signing keys directly at loopback (never through the public
         // origin / external reverse proxy); token verification still uses the
@@ -273,20 +287,26 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             // host + port). OFM's own server-side calls below go direct at
             // loopback, so they never depend on the public origin or the
             // external reverse proxy being reachable.
-            authorization_endpoint: rauthy::rehost_endpoint(&authorization_endpoint, &public_base),
-            token_endpoint: rauthy::rehost_endpoint(&token_endpoint, &direct_base),
-            end_session_endpoint: end_session_endpoint
+            authorization_endpoint: rauthy::rehost_endpoint(
+                &disc.authorization_endpoint,
+                &public_base,
+            ),
+            token_endpoint: rauthy::rehost_endpoint(&disc.token_endpoint, &direct_base),
+            end_session_endpoint: disc
+                .end_session_endpoint
                 .as_deref()
                 .map(|u| rauthy::rehost_endpoint(u, &public_base)),
-            revocation_endpoint: revocation_endpoint
+            revocation_endpoint: disc
+                .revocation_endpoint
                 .as_deref()
                 .map(|u| rauthy::rehost_endpoint(u, &direct_base)),
-            userinfo_endpoint: rauthy::rehost_endpoint(&userinfo_endpoint, &direct_base),
+            userinfo_endpoint: rauthy::rehost_endpoint(&disc.userinfo_endpoint, &direct_base),
             client_id,
             client_secret: cfg.oidc_client_secret.clone(),
             redirect_uri,
             jwks_cache: Some(auth_layer_rauthy.jwks_cache.clone()),
             jwks_issuer: auth_layer_rauthy.issuer_url.clone(),
+            scopes_supported: disc.scopes_supported,
         };
         (auth_layer_rauthy, Some(oidc_endpoints), Some(rp))
     } else {
@@ -314,13 +334,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             issuer_url.trim_end_matches('/')
         );
         let disc: serde_json::Value = reqwest::get(&discovery_url).await?.json().await?;
-        let (
-            authorization_endpoint,
-            token_endpoint,
-            revocation_endpoint,
-            end_session_endpoint,
-            userinfo_endpoint,
-        ) = parse_oidc_discovery(&disc)?;
+        let disc = parse_oidc_discovery(&disc)?;
         let redirect_uri = cfg.oidc_redirect_uri.clone().unwrap_or_else(|| {
             format!(
                 "{}/api/auth/callback",
@@ -331,16 +345,17 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             )
         });
         let oidc_provider = Some(server::state::OidcEndpoints {
-            authorization_endpoint,
-            token_endpoint,
-            end_session_endpoint,
-            revocation_endpoint,
-            userinfo_endpoint,
+            authorization_endpoint: disc.authorization_endpoint,
+            token_endpoint: disc.token_endpoint,
+            end_session_endpoint: disc.end_session_endpoint,
+            revocation_endpoint: disc.revocation_endpoint,
+            userinfo_endpoint: disc.userinfo_endpoint,
             client_id: cfg.oidc_client_id.clone().unwrap_or_default(),
             client_secret: cfg.oidc_client_secret.clone(),
             redirect_uri,
             jwks_cache: Some(auth_layer.jwks_cache.clone()),
             jwks_issuer: auth_layer.issuer_url.clone(),
+            scopes_supported: disc.scopes_supported,
         });
 
         (auth_layer, oidc_provider, None)
