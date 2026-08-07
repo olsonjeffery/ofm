@@ -18,6 +18,16 @@ const DEFAULT_REAP_INTERVAL: Duration = Duration::from_secs(60);
 /// Maximum servers allowed in the pool. `0` is treated as unbounded.
 const DEFAULT_MAX_SERVERS: usize = 0;
 
+/// Diagnostic snapshot of one pooled server, for System Status & Health.
+#[derive(Debug, Clone)]
+pub struct PoolEntryInfo {
+    pub user_id: Uuid,
+    pub pid: Option<u32>,
+    pub port: Option<u16>,
+    pub last_used_at: Option<Instant>,
+    pub rss_kb: Option<u64>,
+}
+
 /// A handle to a running opencode server in the pool.
 struct ServerEntry {
     /// Clone of the HTTP client — handed out to callers. The underlying
@@ -184,6 +194,25 @@ impl OpenCodeServerPool {
         if let Some(entry) = inner.get_mut(&user_id) {
             entry.last_used_at = Instant::now();
         }
+    }
+
+    /// Snapshot every pooled entry for the System Status & Health monitor:
+    /// per-user `pid`, `port`, last-use timestamp and RSS (via `/proc`).
+    pub async fn monitor_snapshot(&self) -> Vec<PoolEntryInfo> {
+        let inner = self.inner.lock().await;
+        inner
+            .iter()
+            .map(|(user_id, entry)| {
+                let pid = entry._server.pid();
+                PoolEntryInfo {
+                    user_id: *user_id,
+                    pid: Some(pid),
+                    port: Some(entry._server.port()),
+                    last_used_at: Some(entry.last_used_at),
+                    rss_kb: crate::services::system_health::process_rss_kb(pid),
+                }
+            })
+            .collect()
     }
 
     /// Reap idle entries (last_used_at older than `idle_timeout`). Called
@@ -433,6 +462,33 @@ mod tests {
                 "pooled child {pid_b} still alive after kill_all_sync"
             );
         }
+    }
+
+    #[tokio::test]
+    async fn test_monitor_snapshot_reports_inserted_entries() {
+        // The pool is a process-wide singleton, so the snapshot is asserted to
+        // *contain* our inserted entry (pid + port) rather than asserting a
+        // global emptiness that parallel tests would race on.
+        let pool = OpenCodeServerPool::instance();
+        let child = std::process::Command::new("true").spawn().unwrap();
+        let uid = Uuid::new_v4();
+        {
+            let entry = ServerEntry {
+                client: OpencodeClient::new("http://127.0.0.1:9999", None, false),
+                _server: crate::opencode_sdk::OpenCodeServer::test_dummy(child),
+                last_used_at: Instant::now(),
+            };
+            pool.inner.lock().await.insert(uid, entry);
+        }
+        let snapshot = pool.monitor_snapshot().await;
+        let mine = snapshot.iter().find(|e| e.user_id == uid);
+        assert!(mine.is_some(), "snapshot should include our inserted entry");
+        let mine = mine.unwrap();
+        assert!(mine.pid.is_some(), "spawned entries report their child PID");
+        assert!(mine.port.is_some(), "spawned entries report their port");
+        assert!(mine.last_used_at.is_some());
+        // Clean up the singleton so other tests never see our dummy entry.
+        pool.invalidate(uid).await;
     }
 
     #[test]

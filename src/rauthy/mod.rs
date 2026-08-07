@@ -17,7 +17,7 @@ const HEALTH_TIMEOUT: Duration = Duration::from_secs(120);
 ///
 /// Deliberately not `DefaultHasher` (stability is unspecified); this is a
 /// self-contained FNV-1a 64-bit hash.
-fn container_name(footprint: &str) -> String {
+pub fn container_name(footprint: &str) -> String {
     let mut hash: u64 = 0xcbf2_9ce4_8422_2325; // FNV-1a 64-bit offset basis
     for b in footprint.as_bytes() {
         hash ^= *b as u64;

@@ -241,7 +241,7 @@ async fn get_task(
         let doc = archive
             .read_task_doc(&doc_path)
             .map_err(|e| ServerError::Internal(e.to_string()))?;
-        let ctx = archive
+        let mut ctx = archive
             .build_context_prompt(
                 &state.footprint,
                 w.project_id,
@@ -251,6 +251,27 @@ async fn get_task(
                 std::process::id(),
             )
             .map_err(|e| ServerError::Internal(e.to_string()))?;
+
+        // System Status & Health context injection (gated on the
+        // `system-status` capability) so the task-detail preview matches what
+        // a capable agent sees in its turn context.
+        let can_use = services::system_health::user_can_use_system_health(&state.db, &auth)
+            .await
+            .map_err(|e| ServerError::Internal(e.to_string()))?;
+        if can_use {
+            let report = services::system_health::latest_report(&state.db)
+                .await
+                .map_err(|e| ServerError::Internal(e.to_string()))?;
+            let history = services::system_health::history_report(&state.db, None, 30)
+                .await
+                .map_err(|e| ServerError::Internal(e.to_string()))?;
+            let section = services::system_health::render_agent_section(&report, &history);
+            if !ctx.is_empty() {
+                ctx.push_str("\n\n---\n\n");
+            }
+            ctx.push_str(&section);
+        }
+
         (
             (!doc.is_empty()).then_some(doc),
             (!ctx.is_empty()).then_some(ctx),

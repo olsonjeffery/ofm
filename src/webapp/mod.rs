@@ -143,6 +143,7 @@ pub fn webapp_protected_routes() -> Router<AppState> {
             "/webapp/settings/admin/groups",
             get(settings_groups_handler),
         )
+        .route("/webapp/system", get(system_status_handler))
         .route("/webapp/islands/uptime", get(uptime_handler))
         .route("/webapp/islands/infocard", get(infocard_handler))
 }
@@ -404,6 +405,25 @@ async fn settings_groups_handler(auth: AuthUser, State(state): State<AppState>) 
         pages::settings::groups::render(SettingsSubPage::Groups),
     )
     .await
+}
+
+async fn system_status_handler(auth: AuthUser, State(state): State<AppState>) -> Html<String> {
+    let user_json = serde_json::to_string(&auth).unwrap_or_default();
+    let agents = active_agents(&state.db, &auth).await;
+    let report = services::system_health::latest_report(&state.db)
+        .await
+        .unwrap_or_default();
+    let markdown = services::system_health::render_markdown(&report);
+    let json = services::system_health::render_json(&report);
+    let can_use = services::system_health::user_can_use_system_health(&state.db, &auth)
+        .await
+        .unwrap_or(false);
+    let page = pages::system_status::render(markdown, json, can_use);
+    let breadcrumbs = vec![
+        breadcrumb_registry::all_projects(),
+        breadcrumb_registry::system_status(),
+    ];
+    Html(render_shell(&page, Some(user_json), breadcrumbs, agents))
 }
 
 async fn prompts_handler(

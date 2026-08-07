@@ -347,6 +347,57 @@ async fn test_webapp_dashboard_page() {
 }
 
 #[tokio::test]
+async fn test_webapp_system_status_page() {
+    let (state, auth_layer, _tmp) = make_state().await;
+    let db = state.db.clone();
+    // Seed a live row so the page has at least one status icon.
+    let entries = vec![ofm::services::system_health::HealthEntry {
+        category: "live",
+        resource: "live:opencode-pool".into(),
+        status: ofm::services::system_health::HealthStatus::Ok,
+        detail: "1 pooled opencode server(s)".into(),
+        metadata: serde_json::json!({"pid": 1234}),
+    }];
+    ofm::services::system_health::refresh_entries(&db, &entries)
+        .await
+        .unwrap();
+
+    let app = server::router(state, auth_layer);
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let addr = listener.local_addr().unwrap();
+    tokio::spawn(async move {
+        axum::serve(listener, app).await.unwrap();
+    });
+
+    let url = format!("http://{}/webapp/system", addr);
+    let client = reqwest::Client::new();
+    let resp = client.get(&url).send().await.unwrap();
+
+    assert_eq!(resp.status(), 200);
+    let body = resp.text().await.unwrap();
+    assert!(
+        body.contains("System Status"),
+        "page should render the System Status heading"
+    );
+    assert!(
+        body.contains("live:opencode-pool"),
+        "seeded live row should render"
+    );
+    assert!(
+        body.contains("data-utc"),
+        "timestamps should carry data-utc attributes"
+    );
+    assert!(
+        body.contains("running-services-count"),
+        "running services badge should be present"
+    );
+    assert!(
+        body.contains("mdi-heart-pulse"),
+        "page should use the heart-pulse icon"
+    );
+}
+
+#[tokio::test]
 async fn test_uptime_island_endpoint() {
     let (state, auth_layer, _tmp) = make_state().await;
     let app = server::router(state, auth_layer);

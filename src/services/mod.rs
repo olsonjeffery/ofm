@@ -9,5 +9,6 @@ pub mod projects;
 pub mod prompts;
 pub mod session;
 pub mod settings;
+pub mod system_health;
 pub mod tasks;
 pub mod transcript;

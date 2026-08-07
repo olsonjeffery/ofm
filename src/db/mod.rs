@@ -307,6 +307,19 @@ const MIGRATIONS: &[(&str, &str)] = &[
             (SELECT MIN(id) FROM prompts WHERE is_static = 1 GROUP BY static_key); \
          CREATE UNIQUE INDEX IF NOT EXISTS idx_prompts_static_key_unique ON prompts(static_key)",
     ),
+    (
+        "create_system_health_entry",
+        "CREATE TABLE IF NOT EXISTS system_health_entry (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            category TEXT NOT NULL,          -- 'dependency' | 'live'
+            resource TEXT NOT NULL,          -- stable key: 'bin:git', 'bin:opencode', 'live:opencode-pool', 'live:rauthy', 'live:hiqlite', 'live:gh', 'live:oauth'
+            status TEXT NOT NULL,            -- 'ok' | 'warn' | 'missing' | 'error' | 'unknown'
+            detail TEXT NOT NULL DEFAULT '',
+            metadata TEXT NOT NULL DEFAULT '{}',  -- heterogeneous JSON: version, path, install_method, pid, ram_kb, last_interaction, ...
+            created_at TEXT NOT NULL DEFAULT ''
+        );
+        CREATE INDEX IF NOT EXISTS idx_system_health_resource ON system_health_entry(resource, created_at)",
+    ),
 ];
 
 pub async fn run_migrations(client: &Client) -> Result<usize, Box<dyn std::error::Error>> {
@@ -440,6 +453,55 @@ pub async fn ensure_admins_group(client: &Client) -> Result<(), Box<dyn std::err
             .await?;
     }
 
+    Ok(())
+}
+
+/// Idempotent seed of the built-in `system-status` OAuth-scope group.
+/// Mirrors `ensure_admins_group`: creates the `groups` row named
+/// `"system-status"` (with `is_oauth_scope = 1`) if absent. Users whose
+/// `users.scopes` contains `system-status` are granted read-only membership by
+/// `groups::users_with_scope` (see `src/services/groups.rs:448`); admins have
+/// implicit access via `has_group_access`. The capability gates **agent-session
+/// injection of System Status & Health data** only (see
+/// `services::system_health::user_can_use_system_health`).
+pub async fn ensure_system_status_group(client: &Client) -> Result<(), Box<dyn std::error::Error>> {
+    let now = chrono::Utc::now().format("%Y-%m-%d %H:%M:%S").to_string();
+
+    let mut admin_rows = client
+        .query_raw(
+            "SELECT id, username FROM users WHERE is_admin = 1 ORDER BY created_at, id LIMIT 1",
+            hiqlite::params!(),
+        )
+        .await?;
+    let (admin_id, admin_username) = if let Some(row) = admin_rows.first_mut() {
+        (row.get::<String>("id"), row.get::<String>("username"))
+    } else {
+        tracing::warn!("ensure_system_status_group: no admin user found; skipping seed");
+        return Ok(());
+    };
+
+    let mut rows = client
+        .query_raw(
+            "SELECT id FROM groups WHERE name = 'system-status'",
+            hiqlite::params!(),
+        )
+        .await?;
+    if rows.first_mut().is_some() {
+        return Ok(());
+    }
+
+    client
+        .execute(
+            "INSERT INTO groups (id, name, is_org, is_oauth_scope, title, description, owner_id, created_by, created_at) \
+             VALUES ($1, 'system-status', 0, 1, 'System Status', 'Capability to use system status & health data in agent sessions', $2, $3, $4)",
+            hiqlite::params!(
+                Uuid::new_v4().to_string(),
+                admin_id,
+                admin_username,
+                now
+            ),
+        )
+        .await?;
     Ok(())
 }
 
@@ -636,6 +698,11 @@ mod tests {
                 .await
                 .unwrap();
         }
+        let static_key_migration = MIGRATIONS
+            .iter()
+            .find(|(name, _)| *name == "idx_prompts_static_key_unique")
+            .expect("static-key index migration must exist")
+            .1;
         let now = chrono::Utc::now().format("%Y-%m-%d %H:%M:%S").to_string();
         for key in ["planification", "implementation"] {
             for _ in 0..3 {
@@ -650,9 +717,10 @@ mod tests {
             }
         }
 
-        // The final migration dedupes to one row per static_key and creates the
-        // unique index; a further seed then inserts the remaining 4 templates.
-        client.batch(MIGRATIONS.last().unwrap().1).await.unwrap();
+        // The static-key migration dedupes to one row per static_key and
+        // creates the unique index; a further seed then inserts the remaining
+        // 4 templates.
+        client.batch(static_key_migration).await.unwrap();
         let inserted = ensure_static_prompts(&client).await.unwrap();
         assert_eq!(
             inserted, 4,

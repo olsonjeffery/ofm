@@ -393,6 +393,23 @@ pub struct AppSetting {
     pub value: String,
 }
 
+/// One row of the rolling `system_health_entry` log. The table is append-only:
+/// every refresh inserts fresh rows and prunes to the newest [`crate::services::system_health::MAX_ROWS_PER_PRUNE`].
+/// Latest-state-per-resource is `ORDER BY id DESC` deduped (see
+/// `services::system_health::latest_report`).
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct SystemHealthEntryDb {
+    pub id: i64,
+    pub category: String,
+    pub resource: String,
+    pub status: String,
+    pub detail: String,
+    /// Heterogeneous JSON: `version`, `path`, `install_method`, `pid`,
+    /// `ram_kb`, `last_interaction`, ...
+    pub metadata: String,
+    pub created_at: String,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct UserAgentModelSetting {
     pub user_id: Uuid,
@@ -841,6 +858,20 @@ impl From<&mut Row<'_>> for SessionDb {
             id_token: row.get("id_token"),
             access_token: row.get("access_token"),
             expires_at: row.get("expires_at"),
+            created_at: row.get("created_at"),
+        }
+    }
+}
+
+impl From<&mut Row<'_>> for SystemHealthEntryDb {
+    fn from(row: &mut Row<'_>) -> Self {
+        Self {
+            id: row.get::<i64>("id"),
+            category: row.get("category"),
+            resource: row.get("resource"),
+            status: row.get("status"),
+            detail: row.get("detail"),
+            metadata: row.get("metadata"),
             created_at: row.get("created_at"),
         }
     }

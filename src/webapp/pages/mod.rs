@@ -8,4 +8,5 @@ pub mod onboarding;
 pub mod prompt_detail;
 pub mod prompts;
 pub mod settings;
+pub mod system_status;
 pub mod task_detail;

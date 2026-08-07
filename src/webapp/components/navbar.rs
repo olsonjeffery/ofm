@@ -59,7 +59,8 @@ pub fn Navbar(
                                 ().into_any()
                             }}
                             <crate::webapp::components::library_dropdown::LibraryDropdown />
-                            <crate::webapp::components::settings_dropdown::SettingsDropdown />
+                            <crate::webapp::components::system_health_badge::SystemHealthBadge />
+                            <crate::webapp::components::settings_dropdown::SettingsDropdown is_admin={is_admin} />
                             <div class="navbar-item">
                                 <form action="/api/auth/logout" method="post" id="logout-form">
                                     <button type="submit" class="button is-primary is-light is-small">
@@ -193,5 +194,45 @@ mod tests {
         assert!(html.contains("mdi-message-outline"));
         assert!(html.contains("agent-dropdown"));
         assert!(html.contains("ws-status-entry"));
+    }
+
+    #[test]
+    fn test_navbar_hides_settings_system_item_for_non_admin() {
+        let user = serde_json::json!({ "username": "regular@example.com", "is_admin": false });
+        let user_json = Some(user.to_string());
+        let html =
+            leptos::view! { <Navbar user_json breadcrumbs=Vec::new() active_agents=Vec::new() /> }
+                .to_html();
+        assert!(
+            !html.contains("settings-system-item"),
+            "non-admin must not see the Settings-dropdown System item"
+        );
+        assert!(
+            html.contains("System Status"),
+            "the agent-dropdown System Status link is for all users"
+        );
+    }
+
+    #[test]
+    fn test_navbar_shows_settings_system_item_for_admin() {
+        let user = serde_json::json!({ "username": "admin@localhost", "is_admin": true });
+        let user_json = Some(user.to_string());
+        let html =
+            leptos::view! { <Navbar user_json breadcrumbs=Vec::new() active_agents=Vec::new() /> }
+                .to_html();
+        assert!(html.contains("settings-system-item"));
+        assert!(html.contains("href=\"/webapp/system\""));
+    }
+
+    #[test]
+    fn test_navbar_renders_system_health_badge() {
+        let user = serde_json::json!({ "username": "admin@localhost", "is_admin": true });
+        let user_json = Some(user.to_string());
+        let html =
+            leptos::view! { <Navbar user_json breadcrumbs=Vec::new() active_agents=Vec::new() /> }
+                .to_html();
+        assert!(html.contains("system-health-badge"));
+        assert!(html.contains("system-health-count"));
+        assert!(html.contains("mdi-heart-pulse"));
     }
 }

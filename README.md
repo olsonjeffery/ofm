@@ -260,6 +260,37 @@ environment variable if you wish for it to run on another port).
 > `OFM_PUB_URL` on an existing rauthy-enabled footprint re-bootstraps rauthy
 > automatically (see the rauthy note above).
 
+## System Status & Health
+
+`ofm` monitors the sub-systems it depends on and manages (see
+[`spec/extra/system-status-and-health.md`](spec/extra/system-status-and-health.md)):
+
+- **Startup dependency check**: on launch `ofm` probes its required binaries
+  in `PATH` (`git`, `opencode`, `bash`/`sh`, `npm`; `docker` only when
+  `OFM_RAUTHY_ENABLED`). Missing *required* tools abort startup with a report
+  and exit code 1; optional tools (`gh`, `rustup`/`cargo`, `playwright-cli`,
+  `rtk`) are reported but never block. Once the server is up, the full
+  report (dependencies + live sub-systems) prints to the console.
+- **System Status page**: `/webapp/system` (linked from the navbar agents
+  dropdown; admins also see it under the Settings dropdown) shows the
+  dependency check and live health — the opencode server pool, rauthy (or your
+  OIDC provider), the embedded hiqlite database, and `gh` auth — with status
+  icons, versions/paths, PIDs, RAM, and last-interaction timestamps. The navbar
+  badge shows the running-services count, updated live over WebSocket.
+- **`system-status` capability**: users whose account `scopes` include
+  `system-status` (a built-in OAuth-scope group) get System Status & Health
+  data injected into their agent-run context (`## System Health` section);
+  admins hold the capability implicitly. The page itself is visible to all
+  authenticated users.
+- **`ofm health` CLI**: `ofm health --global` reports machine-wide
+  ofm-descended resources; `ofm health --teardown <PID>` / `--do-teardown
+  <PID>` inspect/precisely clean up a specific instance (including leftovers
+  from a SIGKILLed run, tracked via the `{OFM_FOOTPRINT}/ofm.pid` marker);
+  `--global --do-teardown` eradicates everything ofm-descended. Exit codes:
+  `0` clean · `1` findings · `2` usage error · `3` teardown left survivors.
+  Teardown is strictly precise (exact PIDs, OFM-owned process groups, and
+  `ofm-rauthy-*` containers by name only).
+
 ## History & evolution
 
 ### The `bottega` method

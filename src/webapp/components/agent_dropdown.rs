@@ -73,6 +73,11 @@ pub fn AgentDropdown(active_agents: Vec<ActiveAgent>) -> impl IntoView {
                         </div>
                         <div id="agent-question-entries"></div>
                         <div id="agent-blocked-entries"></div>
+                        <hr class="dropdown-divider"/>
+                        <a class="dropdown-item" href="/webapp/system">
+                            <span class="icon is-small"><i class="mdi mdi-heart-pulse"></i></span>
+                            <span>"System Status"</span>
+                        </a>
                     </div>
                 </div>
             </div>

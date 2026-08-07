@@ -51,6 +51,29 @@ pub async fn broadcast_agent_status(ws_bus: &Arc<BroadcastBus>, action: &str) {
         .await;
 }
 
+/// Broadcast a `system_status` event on the System topic carrying the
+/// `running_services` count from the latest health report. The navbar
+/// SystemHealthBadge and the System Status page subscribe to this topic.
+pub async fn broadcast_system_status(ws_bus: &Arc<BroadcastBus>, summary: &serde_json::Value) {
+    let topic = system_topic();
+    let running = summary
+        .get("running_services")
+        .cloned()
+        .unwrap_or_else(|| serde_json::json!(0));
+    ws_bus
+        .broadcast(
+            &topic,
+            ServerMessage::Event {
+                topic: topic.clone(),
+                event_type: "system_status".to_string(),
+                timestamp: chrono::Utc::now(),
+                payload: serde_json::json!({ "running_services": running }),
+                html: None,
+            },
+        )
+        .await;
+}
+
 /// Broadcast a `task_updated` event on the task topic so open pages (task
 /// detail, chat) reload and reflect the new task state.
 pub(crate) async fn broadcast_task_updated(ws_bus: &Arc<BroadcastBus>, task: &Task) {
@@ -281,7 +304,7 @@ pub fn start_next_agent<'a>(
         let task_str = task.id.to_string();
         let doc_path = archive.task_doc_path(&task.project_id.to_string(), &task_str);
 
-        let context_prompt = archive
+        let mut context_prompt = archive
             .build_context_prompt(
                 footprint,
                 task.project_id,
@@ -292,6 +315,31 @@ pub fn start_next_agent<'a>(
             )
             .ok()
             .unwrap_or_default();
+
+        // System Status & Health context injection, gated on the `system-status`
+        // capability: the user (or an admin on their behalf) may use SS&H data
+        // in agent sessions.
+        if let Ok(user) = crate::services::auth::current_user(db, task.user_id).await {
+            let auth_user = crate::auth::AuthUser::from(user);
+            let can_use =
+                crate::services::system_health::user_can_use_system_health(db, &auth_user)
+                    .await
+                    .unwrap_or(false);
+            if can_use {
+                let report = crate::services::system_health::latest_report(db)
+                    .await
+                    .unwrap_or_default();
+                let history = crate::services::system_health::history_report(db, None, 30)
+                    .await
+                    .unwrap_or_default();
+                let section =
+                    crate::services::system_health::render_agent_section(&report, &history);
+                if !context_prompt.is_empty() {
+                    context_prompt.push_str("\n\n---\n\n");
+                }
+                context_prompt.push_str(&section);
+            }
+        }
 
         let prompt_text = {
             // Prompt Library resolution runs first: a designation for this

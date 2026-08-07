@@ -66,6 +66,7 @@ pub fn router(state: AppState, auth_layer: AuthLayer) -> Router {
             routes::agent_configs::provider_configs_router(),
         )
         .nest("/api/settings", routes::settings::settings_router())
+        .nest("/api/system", routes::system::system_router())
         .route("/ws", get(ws::ws_handler))
         .layer(DefaultBodyLimit::max(1024 * 100))
         .layer(auth_layer);

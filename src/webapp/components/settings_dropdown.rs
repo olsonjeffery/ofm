@@ -1,7 +1,7 @@
 use leptos::prelude::*;
 
 #[component]
-pub fn SettingsDropdown() -> impl IntoView {
+pub fn SettingsDropdown(is_admin: bool) -> impl IntoView {
     view! {
         <div class="navbar-item">
             <div class="dropdown" id="settings-dropdown">
@@ -40,6 +40,17 @@ pub fn SettingsDropdown() -> impl IntoView {
                             <span class="icon is-small"><i class="mdi mdi-account-cog"></i></span>
                             <span>"Account"</span>
                         </a>
+                        {if is_admin {
+                            view! {
+                                <a class="dropdown-item" id="settings-system-item" href="/webapp/system">
+                                    <span class="icon is-small"><i class="mdi mdi-heart-pulse"></i></span>
+                                    <span>"System"</span>
+                                </a>
+                            }
+                                .into_any()
+                        } else {
+                            ().into_any()
+                        }}
                     </div>
                 </div>
             </div>

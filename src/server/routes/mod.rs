@@ -7,4 +7,5 @@ pub mod groups;
 pub mod projects;
 pub mod prompts;
 pub mod settings;
+pub mod system;
 pub mod tasks;

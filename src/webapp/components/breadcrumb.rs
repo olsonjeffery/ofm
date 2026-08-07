@@ -99,6 +99,10 @@ pub mod breadcrumb_registry {
         BreadcrumbItem::new("Settings", "cog", "/webapp/settings")
     }
 
+    pub fn system_status() -> BreadcrumbItem {
+        BreadcrumbItem::new("System Status", "heart-pulse", "/webapp/system")
+    }
+
     pub fn settings_section(section: SettingsSection) -> BreadcrumbItem {
         let (title, icon, path) = match section {
             SettingsSection::ProvidersAgents => (
@@ -251,6 +255,14 @@ mod tests {
         assert_eq!(item.title, "Settings");
         assert_eq!(item.icon, "cog");
         assert_eq!(item.path, "/webapp/settings");
+    }
+
+    #[test]
+    fn test_registry_system_status() {
+        let item = breadcrumb_registry::system_status();
+        assert_eq!(item.title, "System Status");
+        assert_eq!(item.icon, "heart-pulse");
+        assert_eq!(item.path, "/webapp/system");
     }
 
     #[test]

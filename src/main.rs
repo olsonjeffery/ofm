@@ -6,12 +6,14 @@ use std::os::unix::fs::PermissionsExt;
 mod agents;
 mod archive;
 mod auth;
+mod cli;
 mod config;
 mod db;
 mod logging;
 
 mod opencode_sdk;
 mod orchestration;
+mod procscan;
 mod prompts;
 mod providers;
 mod rauthy;
@@ -84,6 +86,13 @@ fn parse_oidc_discovery(
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
+    // First CLI surface: `ofm health ...` runs as a standalone sub-command and
+    // never touches the server/DB.
+    let args: Vec<String> = std::env::args().skip(1).collect();
+    if args.first().map(String::as_str) == Some("health") {
+        std::process::exit(cli::run(args).await);
+    }
+
     let cfg = config::OfmConfig::load();
 
     let logging_config = cfg
@@ -92,10 +101,43 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .map(std::path::PathBuf::from);
     logging::init_with_config(logging_config.as_ref());
 
+    // Restart guard: refuse to start when another live instance owns this
+    // footprint, and precisely clean up leftover ofm-descended resources
+    // (opencode servers, shells, rauthy spawners) from a previous run.
+    let restart_guard = procscan::restart_guard(
+        &procscan::scan_classified(),
+        &cfg.footprint,
+        std::process::id(),
+        procscan::read_pid_file(&cfg.footprint),
+    );
+    match restart_guard {
+        procscan::RestartStatus::Blocked(live_pid) => {
+            tracing::error!(
+                "Another ofm instance (pid {live_pid}) already owns footprint {} — \
+                 refusing to start; run `ofm health --do-teardown {live_pid}` first.",
+                cfg.footprint
+            );
+            std::process::exit(1);
+        }
+        procscan::RestartStatus::Dirty(stragglers) => {
+            tracing::warn!(
+                "Leftover ofm resources from a previous run:\n{}",
+                procscan::render(&stragglers)
+            );
+            procscan::cleanup_stragglers(&stragglers).await;
+        }
+        procscan::RestartStatus::Clean => {}
+    }
+
     // DB setup
     std::fs::create_dir_all(&cfg.data_dir)?;
     #[cfg(unix)]
     std::fs::set_permissions(&cfg.data_dir, std::fs::Permissions::from_mode(0o700))?;
+
+    // Mark this instance as owning the footprint. The file is removed on clean
+    // shutdown and left behind on SIGKILL so `ofm health --teardown <PID>` can
+    // still attribute a dead instance to its footprint.
+    procscan::write_pid_file(&cfg.footprint, std::process::id() as i32)?;
 
     // If the hiqlite addresses have changed since the last run (e.g. upgrading
     // from a version that used port 0), reset the Raft logs so the cluster
@@ -150,11 +192,33 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     db::ensure_admins_group(&client).await?;
     tracing::info!("Ensured built-in 'admins' group");
 
+    db::ensure_system_status_group(&client).await?;
+    tracing::info!("Ensured built-in 'system-status' scope group");
+
     let static_prompts = db::ensure_static_prompts(&client).await?;
     tracing::info!("Static prompts ensured: {} seeded", static_prompts);
 
     let orphans = orchestration::recovery::recover_orphaned_runs(&client).await?;
     tracing::info!("Orphan recovery: {} agent runs swept to failed", orphans);
+
+    // Early blocking dependency check — crash decision only (nothing is
+    // persisted yet; the full report lands after the server is up). Missing
+    // *required* dependencies abort startup; optional tools are reported only.
+    let dep_report = services::system_health::dependency_check(&cfg).await;
+    let missing_required = dep_report
+        .iter()
+        .filter(|e| {
+            e.status == services::system_health::HealthStatus::Missing
+                && services::system_health::bin_required(&cfg, &e.resource)
+        })
+        .collect::<Vec<_>>();
+    if !missing_required.is_empty() {
+        eprintln!(
+            "ERROR: Missing required dependencies — aborting startup:\n{}",
+            services::system_health::render_markdown_deps_only(&dep_report)
+        );
+        std::process::exit(1);
+    }
 
     let pkce_store = Arc::new(Mutex::new(HashMap::new()));
 
@@ -203,6 +267,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         // `docker rm -f <container>` rather than leaking the container.
         let container_name = instance.container_name().to_string();
         _rauthy_instance = Some(instance);
+        services::system_health::set_rauthy_port(rp);
         rauthy::wait_until_healthy(rp, &container_name).await?;
         tracing::info!("rauthy is healthy");
 
@@ -453,6 +518,53 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         }
     });
 
+    // Full System Status & Health report now that every subsystem is up. The
+    // dependency report from the early check is persisted together with the
+    // first live snapshot, then printed to the console via `tracing::info!`.
+    let live = services::system_health::live_health_check(&state.db, &cfg).await;
+    let all_entries = dep_report.into_iter().chain(live).collect::<Vec<_>>();
+    services::system_health::refresh_entries(&state.db, &all_entries).await?;
+    let report = services::system_health::latest_report(&state.db)
+        .await
+        .unwrap_or_default();
+    tracing::info!(
+        "System Status & Health\n{}",
+        services::system_health::render_markdown(&report)
+    );
+
+    // Periodic live refresh + `system_status` broadcast. Re-probes every
+    // subsystem, persists fresh rows (pruning the rolling log), and pushes a
+    // `running_services` summary on the System topic so open pages and the
+    // navbar badge stay current.
+    let health_monitor = {
+        let db = state.db.clone();
+        let ws_bus = state.ws_bus.clone();
+        let cfg = state.config.clone();
+        tokio::spawn(async move {
+            let mut ticker = tokio::time::interval(std::time::Duration::from_millis(
+                services::system_health::DEFAULT_REFRESH_INTERVAL_MS,
+            ));
+            ticker.tick().await; // skip the immediate first tick
+            loop {
+                ticker.tick().await;
+                let live = services::system_health::live_health_check(&db, &cfg).await;
+                let persisted = services::system_health::refresh_entries(&db, &live)
+                    .await
+                    .is_ok();
+                if persisted {
+                    let report = services::system_health::latest_report(&db)
+                        .await
+                        .unwrap_or_default();
+                    orchestration::broadcast_system_status(
+                        &ws_bus,
+                        &services::system_health::render_json(&report),
+                    )
+                    .await;
+                }
+            }
+        })
+    };
+
     // Install signal handlers so that on Ctrl-C / SIGTERM we shut down any
     // spawned opencode subprocesses before the ofm process exits. Without
     // this, the child `opencode serve` processes outlive ofm and pile up as
@@ -490,6 +602,11 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         }
     }
 
+    // Stop the health monitor before the DB client shuts down so it never
+    // touches a closed client.
+    health_monitor.abort();
+    tracing::info!("System health monitor stopped");
+
     // Process-exit cleanup. Tear down the per-user opencode server pool —
     // each entry owns a child `opencode serve` subprocess that would
     // otherwise outlive ofm. Providers in `active_sessions` only hold
@@ -509,6 +626,11 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     // channel close. The providers themselves hold no subprocesses.
     state.active_sessions.lock().await.clear();
     tracing::info!("All provider sessions cleared. Exiting.");
+
+    // Clean shutdown of this instance: drop the footprint marker so a stale
+    // `ofm.pid` never trips the restart guard or mis-attributes a future
+    // `ofm health --teardown <PID>`.
+    procscan::remove_pid_file(&cfg.footprint);
 
     match client.shutdown().await {
         Ok(_) => tracing::info!("hiqlite client shutdown successful"),
