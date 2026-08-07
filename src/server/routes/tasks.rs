@@ -3,7 +3,6 @@ use crate::auth::AuthUser;
 use crate::db::schema::{ActiveAgent, GlobalAgentStatus, Project, Task};
 use crate::server::error::ServerError;
 use crate::server::state::AppState;
-use crate::server::ws::message::{ServerMessage, TopicId, WsTopic, WsTopicKind};
 use crate::services;
 use crate::worktree::{self, CreateWorktreeResult};
 use axum::{
@@ -326,7 +325,7 @@ async fn update_task(
         }
     }
 
-    broadcast_task_updated(&state, &task).await;
+    crate::orchestration::broadcast_task_updated(&state.ws_bus, &task).await;
 
     Ok(Json(task))
 }
@@ -398,25 +397,9 @@ pub async fn recreate_worktree_handler(
     .await
     .map_err(|e| ServerError::Internal(e.to_string()))?;
 
-    broadcast_task_updated(&state, &task).await;
+    crate::orchestration::broadcast_task_updated(&state.ws_bus, &task).await;
 
     Ok((StatusCode::OK, Json(result)))
-}
-
-/// Broadcast a `task_updated` event on the task topic so open pages reload.
-async fn broadcast_task_updated(state: &AppState, task: &Task) {
-    let topic = WsTopic {
-        kind: WsTopicKind::Task,
-        id: TopicId(task.id),
-    };
-    let msg = ServerMessage::Event {
-        topic: topic.clone(),
-        event_type: "task_updated".to_string(),
-        timestamp: chrono::Utc::now(),
-        payload: serde_json::to_value(task).unwrap_or_default(),
-        html: None,
-    };
-    state.ws_bus.broadcast(&topic, msg).await;
 }
 
 /// `POST /api/tasks/{id}/reset-cap` — zero `workflow_run_count` and clear
@@ -430,11 +413,7 @@ async fn reset_task_cap_handler(
     services::tasks::reset_task_cap(&state.db, id)
         .await
         .map_err(|e| ServerError::Internal(e.to_string()))?;
-
-    let task = services::tasks::get_task(&state.db, id)
-        .await
-        .map_err(|e| ServerError::Internal(e.to_string()))?;
-    broadcast_task_updated(&state, &task).await;
+    refetch_and_broadcast(&state, id).await?;
 
     Ok(StatusCode::OK)
 }
@@ -476,14 +455,21 @@ async fn reset_task_history_handler(
         .await
         .map_err(|e| ServerError::Internal(e.to_string()))?;
 
-    let task = services::tasks::get_task(&state.db, id)
-        .await
-        .map_err(|e| ServerError::Internal(e.to_string()))?;
-    broadcast_task_updated(&state, &task).await;
+    refetch_and_broadcast(&state, id).await?;
 
     crate::orchestration::broadcast_agent_status(&state.ws_bus, "stopped").await;
 
     Ok(StatusCode::OK)
+}
+
+/// Refetch the task and broadcast `task_updated` after a mutating handler so
+/// open pages reload and show the new state.
+async fn refetch_and_broadcast(state: &AppState, id: i64) -> Result<(), ServerError> {
+    let task = services::tasks::get_task(&state.db, id)
+        .await
+        .map_err(|e| ServerError::Internal(e.to_string()))?;
+    crate::orchestration::broadcast_task_updated(&state.ws_bus, &task).await;
+    Ok(())
 }
 
 /// `POST /api/tasks/{id}/duplicate` — create a *new* task whose archive doc is

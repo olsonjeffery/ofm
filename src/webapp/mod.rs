@@ -781,7 +781,7 @@ async fn chat_handler(
     ];
     let page_html = leptos::view! {
         <pages::chat::ChatPage
-            project_id=project_id
+            _project_id=project_id
             task_id
             task
             active_conversation_id=None
@@ -864,7 +864,7 @@ async fn chat_handler_with_conv(
     ];
     let page_html = leptos::view! {
     <pages::chat::ChatPage
-        project_id=project_id
+        _project_id=project_id
         task_id
         task
         active_conversation_id=Some(conversation_id)

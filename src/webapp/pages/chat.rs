@@ -232,46 +232,6 @@ document.addEventListener('DOMContentLoaded', function() {{
         document.body.appendChild(div);
         setTimeout(function() {{ div.remove(); }}, 5000);
     }}
-
-    // Recovery banner buttons
-    var projectId = document.getElementById('chat-layout')?.getAttribute('data-project-id');
-    var resetCapBtn = document.getElementById('reset-cap-btn');
-    if (resetCapBtn) {{
-        resetCapBtn.addEventListener('click', function() {{
-            apiCall('/api/tasks/' + taskId + '/reset-cap', {{ method: 'POST' }}).then(function(r) {{
-                if (r.ok) {{ window.location.reload(); }}
-                else {{ showMessage('Failed to reset cap'); }}
-            }});
-        }});
-    }}
-    var resetHistoryBtn = document.getElementById('reset-history-btn');
-    if (resetHistoryBtn) {{
-        resetHistoryBtn.addEventListener('click', function() {{
-            if (!confirm('This deletes all conversations for this task and resets its workflow state. Continue?')) return;
-            apiCall('/api/tasks/' + taskId + '/reset-history', {{ method: 'POST' }}).then(function(r) {{
-                if (r.ok) {{ window.location.reload(); }}
-                else {{ showMessage('Failed to reset history'); }}
-            }});
-        }});
-    }}
-    var duplicateBtn = document.getElementById('duplicate-task-btn');
-    if (duplicateBtn) {{
-        duplicateBtn.addEventListener('click', function() {{
-            apiCall('/api/tasks/' + taskId + '/duplicate', {{ method: 'POST' }}).then(function(r) {{
-                if (r.ok) {{
-                    r.json().then(function(body) {{
-                        if (body && body.id) {{
-                            window.location.href = '/webapp/projects/' + projectId + '/tasks/' + body.id;
-                        }} else {{
-                            showMessage('Failed to duplicate task');
-                        }}
-                    }}).catch(function() {{ showMessage('Failed to duplicate task'); }});
-                }} else {{
-                    showMessage('Failed to duplicate task');
-                }}
-            }});
-        }});
-    }}
 }});
 "###
     )
@@ -279,7 +239,7 @@ document.addEventListener('DOMContentLoaded', function() {{
 
 #[component]
 pub fn ChatPage(
-    project_id: i64,
+    _project_id: i64,
     task_id: i64,
     task: Task,
     active_conversation_id: Option<uuid::Uuid>,
@@ -310,7 +270,7 @@ pub fn ChatPage(
             <span class="icon is-small"><i class="mdi mdi-arrow-up-thick"></i></span>
         </div>
         <TaskRecoveryBanner task=task.clone() />
-        <div id="chat-layout" data-project-id={project_id.to_string()} style="display:flex;flex-direction:column;height:calc(100vh - 3.75rem);overflow:hidden">
+        <div id="chat-layout" style="display:flex;flex-direction:column;height:calc(100vh - 3.75rem);overflow:hidden">
             <div id="message-stream-container" style="flex:1;overflow-y:auto;overflow-x:hidden">
                 <MessageStream messages=initial_messages />
             </div>
@@ -368,7 +328,7 @@ mod tests {
         let task = make_task();
         let html = leptos::view! {
             <ChatPage
-                project_id=1
+                _project_id=1
                 task_id=1
                 task
                 active_conversation_id=None
@@ -430,7 +390,7 @@ mod tests {
         };
         let html = leptos::view! {
             <ChatPage
-                project_id=1
+                _project_id=1
                 task_id=1
                 task=make_task()
                 active_conversation_id=Some(conv_id)
@@ -465,7 +425,7 @@ mod tests {
         };
         let html = leptos::view! {
             <ChatPage
-                project_id=1
+                _project_id=1
                 task_id=1
                 task=make_task()
                 active_conversation_id=Some(conv_id)
@@ -501,7 +461,7 @@ mod tests {
         };
         let html = leptos::view! {
             <ChatPage
-                project_id=1
+                _project_id=1
                 task_id=1
                 task=make_task()
                 active_conversation_id=Some(conv_id)
@@ -524,7 +484,7 @@ mod tests {
         task.workflow_blocked = true;
         let html = leptos::view! {
             <ChatPage
-                project_id=1
+                _project_id=1
                 task_id=1
                 task
                 active_conversation_id=None
@@ -543,7 +503,7 @@ mod tests {
         assert!(html.contains("id=\"duplicate-task-btn\""));
         assert!(
             html.contains("data-project-id=\"1\""),
-            "chat layout should carry data-project-id for the duplicate handler"
+            "recovery banner should carry data-project-id for the duplicate handler"
         );
         assert!(html.contains("reset-cap"));
         assert!(html.contains("reset-history"));
@@ -554,7 +514,7 @@ mod tests {
     fn test_chat_page_omits_recovery_banner_for_healthy_task() {
         let html = leptos::view! {
             <ChatPage
-                project_id=1
+                _project_id=1
                 task_id=1
                 task=make_task()
                 active_conversation_id=None

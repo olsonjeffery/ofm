@@ -255,49 +255,6 @@ pub fn TaskDetailPage(
                     });
                 }
 
-                // Recovery: reset cap & unblock
-                var resetCapBtn=document.getElementById('reset-cap-btn');
-                if(resetCapBtn){
-                    resetCapBtn.addEventListener('click',function(){
-                        apiCall('/api/tasks/'+taskId+'/reset-cap',{method:'POST'}).then(function(r){
-                            if(r.ok){window.location.reload();}
-                            else{showMessage('Failed to reset cap');}
-                        });
-                    });
-                }
-
-                // Recovery: recreate with fresh history
-                var resetHistoryBtn=document.getElementById('reset-history-btn');
-                if(resetHistoryBtn){
-                    resetHistoryBtn.addEventListener('click',function(){
-                        if(!confirm('This deletes all conversations for this task and resets its workflow state. Continue?'))return;
-                        apiCall('/api/tasks/'+taskId+'/reset-history',{method:'POST'}).then(function(r){
-                            if(r.ok){window.location.reload();}
-                            else{showMessage('Failed to reset history');}
-                        });
-                    });
-                }
-
-                // Recovery: duplicate task
-                var duplicateBtn=document.getElementById('duplicate-task-btn');
-                if(duplicateBtn){
-                    duplicateBtn.addEventListener('click',function(){
-                        apiCall('/api/tasks/'+taskId+'/duplicate',{method:'POST'}).then(function(r){
-                            if(r.ok){
-                                r.json().then(function(body){
-                                    if(body&&body.id){
-                                        window.location.href='/webapp/projects/'+projectId+'/tasks/'+body.id;
-                                    }else{
-                                        showMessage('Failed to duplicate task');
-                                    }
-                                }).catch(function(){showMessage('Failed to duplicate task');});
-                            }else{
-                                showMessage('Failed to duplicate task');
-                            }
-                        });
-                    });
-                }
-
                 window.handleConversationClick=function(e){
                     var card=e.target.closest('[data-conversation-id]');
                     if(!card)return;

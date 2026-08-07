@@ -13,7 +13,7 @@ use uuid::Uuid;
 
 use crate::agents::{self, pull_request::PullRequestStatus};
 use crate::config::OfmConfig;
-use crate::db::schema::{AgentType, RunStatus};
+use crate::db::schema::{AgentType, RunStatus, Task};
 use crate::providers::registry;
 use crate::providers::types::{ProviderEvent, TurnInput};
 use crate::providers::LlmProvider;
@@ -45,6 +45,27 @@ pub async fn broadcast_agent_status(ws_bus: &Arc<BroadcastBus>, action: &str) {
                 event_type: "agent_status".to_string(),
                 timestamp: chrono::Utc::now(),
                 payload: serde_json::json!({"action": action}),
+                html: None,
+            },
+        )
+        .await;
+}
+
+/// Broadcast a `task_updated` event on the task topic so open pages (task
+/// detail, chat) reload and reflect the new task state.
+pub(crate) async fn broadcast_task_updated(ws_bus: &Arc<BroadcastBus>, task: &Task) {
+    let topic = WsTopic {
+        kind: WsTopicKind::Task,
+        id: TopicId(task.id),
+    };
+    ws_bus
+        .broadcast(
+            &topic,
+            ServerMessage::Event {
+                topic: topic.clone(),
+                event_type: "task_updated".to_string(),
+                timestamp: chrono::Utc::now(),
+                payload: serde_json::to_value(task).unwrap_or_default(),
                 html: None,
             },
         )
@@ -121,22 +142,7 @@ pub async fn completion_handler(
         // Surface the block live so open pages (task detail, chat) reload and
         // show the recovery banner without a manual refresh.
         if let Ok(task) = tasks::get_task(client, run.task_id).await {
-            let topic = WsTopic {
-                kind: WsTopicKind::Task,
-                id: TopicId(task.id),
-            };
-            ws_bus
-                .broadcast(
-                    &topic,
-                    ServerMessage::Event {
-                        topic: topic.clone(),
-                        event_type: "task_updated".to_string(),
-                        timestamp: chrono::Utc::now(),
-                        payload: serde_json::to_value(&task).unwrap_or_default(),
-                        html: None,
-                    },
-                )
-                .await;
+            broadcast_task_updated(ws_bus, &task).await;
         }
 
         return Ok(NextAction::Stop);
@@ -568,8 +574,7 @@ pub fn start_next_agent<'a>(
                                     // error event is still broadcast below and the transcript is
                                     // preserved. Mirrors `failLinkedAgentRunIfRunning` in the
                                     // reference implementation.
-                                    let is_error = matches!(event, ProviderEvent::Error { .. });
-                                    if is_error {
+                                    if matches!(event, ProviderEvent::Error { .. }) {
                                         let _ = crate::services::tasks::fail_linked_agent_run(
                                             &db, &conversation_id,
                                         )

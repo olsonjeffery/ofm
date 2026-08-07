@@ -7,8 +7,9 @@ use leptos::prelude::*;
 /// review agent. Renders only when a recovery action is actually needed, and
 /// offers Reset cap & unblock / Recreate with fresh history / Duplicate.
 ///
-/// The button wiring lives in the embedding page's `<script>` (task_detail.rs
-/// and chat.rs), which read `taskId`/`projectId` from the page DOM.
+/// Carries its own button wiring, reading `taskId`/`projectId` from its own
+/// `data-*` attributes so both embedding pages (task_detail.rs and chat.rs)
+/// need no page-level glue.
 #[component]
 pub fn TaskRecoveryBanner(task: Task) -> impl IntoView {
     let capped = task.workflow_run_count >= MAX_WORKFLOW_RUNS;
@@ -27,7 +28,7 @@ pub fn TaskRecoveryBanner(task: Task) -> impl IntoView {
     };
 
     view! {
-        <div id="task-recovery-banner" class="notification is-danger" style="margin-top:0.5rem">
+        <div id="task-recovery-banner" data-task-id={task.id.to_string()} data-project-id={task.project_id.to_string()} class="notification is-danger" style="margin-top:0.5rem">
             <div class="level is-mobile">
                 <div class="level-left">
                     <div>
@@ -54,9 +55,65 @@ pub fn TaskRecoveryBanner(task: Task) -> impl IntoView {
                 </div>
             </div>
         </div>
+        <script>{RECOVERY_JS}</script>
     }
     .into_any()
 }
+
+const RECOVERY_JS: &str = r#"(function(){
+    var banner=document.getElementById('task-recovery-banner');
+    if(!banner)return;
+    var taskId=banner.getAttribute('data-task-id');
+    var projectId=banner.getAttribute('data-project-id');
+    function showMessage(msg){
+        var existing=document.getElementById('recovery-message');
+        if(existing)existing.remove();
+        var div=document.createElement('div');
+        div.id='recovery-message';
+        div.className='notification is-warning';
+        div.style='position:fixed;top:4rem;right:1rem;z-index:9999;';
+        div.textContent=msg;
+        document.body.appendChild(div);
+        setTimeout(function(){div.remove();},5000);
+    }
+    var resetCapBtn=document.getElementById('reset-cap-btn');
+    if(resetCapBtn){
+        resetCapBtn.addEventListener('click',function(){
+            apiCall('/api/tasks/'+taskId+'/reset-cap',{method:'POST'}).then(function(r){
+                if(r.ok){window.location.reload();}
+                else{showMessage('Failed to reset cap');}
+            });
+        });
+    }
+    var resetHistoryBtn=document.getElementById('reset-history-btn');
+    if(resetHistoryBtn){
+        resetHistoryBtn.addEventListener('click',function(){
+            if(!confirm('This deletes all conversations for this task and resets its workflow state. Continue?'))return;
+            apiCall('/api/tasks/'+taskId+'/reset-history',{method:'POST'}).then(function(r){
+                if(r.ok){window.location.reload();}
+                else{showMessage('Failed to reset history');}
+            });
+        });
+    }
+    var duplicateBtn=document.getElementById('duplicate-task-btn');
+    if(duplicateBtn){
+        duplicateBtn.addEventListener('click',function(){
+            apiCall('/api/tasks/'+taskId+'/duplicate',{method:'POST'}).then(function(r){
+                if(r.ok){
+                    r.json().then(function(body){
+                        if(body&&body.id){
+                            window.location.href='/webapp/projects/'+projectId+'/tasks/'+body.id;
+                        }else{
+                            showMessage('Failed to duplicate task');
+                        }
+                    }).catch(function(){showMessage('Failed to duplicate task');});
+                }else{
+                    showMessage('Failed to duplicate task');
+                }
+            });
+        });
+    }
+})();"#;
 
 #[cfg(test)]
 mod tests {

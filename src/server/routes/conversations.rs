@@ -579,8 +579,7 @@ async fn spawn_broadcast_task(
                         // (status != running → no-op) instead of burning the iteration cap on a
                         // broken environment. Mirrors `failLinkedAgentRunIfRunning` in the
                         // reference implementation; the error event is still broadcast below.
-                        let is_error = matches!(event, ProviderEvent::Error { .. });
-                        if is_error {
+                        if matches!(event, ProviderEvent::Error { .. }) {
                             let _ = crate::services::tasks::fail_linked_agent_run(&db, &c_id).await;
                         }
 
