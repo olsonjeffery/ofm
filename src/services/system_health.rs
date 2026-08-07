@@ -959,12 +959,8 @@ pub fn render_markdown(entries: &[SystemHealthEntryDb]) -> String {
 
     let mut s = String::new();
     s.push_str("## Dependency Check\n\n");
-    s.push_str(&render_bullets(&deps));
-    s.push('\n');
     s.push_str(&render_status_table(&deps));
     s.push_str("\n## Live System Health\n\n");
-    s.push_str(&render_bullets(&live));
-    s.push('\n');
     s.push_str(&render_status_table(&live));
     s
 }
