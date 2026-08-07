@@ -24,6 +24,8 @@ pub fn CommitDetailPage(diff: Option<CommitDiff>, project_id: i64, task_id: i64)
         Some(commit) => {
             let short = crate::services::commits::short_oid(commit.oid);
             let date = commit.authored_time.format("%Y-%m-%d %H:%M").to_string();
+            let date_utc =
+                crate::webapp::components::datetime::utc_attr(&commit.authored_time.naive_utc());
             let file_count = commit.files.len();
             view! {
                 <section class="section">
@@ -44,7 +46,7 @@ pub fn CommitDetailPage(diff: Option<CommitDiff>, project_id: i64, task_id: i64)
                             <span class="icon is-small"><i class="mdi mdi-account"></i></span>
                             <span>{commit.author_name.clone()}</span>
                             <span class="commit-author-email">"<" {commit.author_email.clone()} ">"</span>
-                            <span class="commit-date"> {date}</span>
+                            <span class="commit-date" data-utc=date_utc data-utc-format="datetime_ymd"> {date}</span>
                         </p>
                         <p class="has-text-grey commit-file-count">
                             <span class="icon is-small"><i class="mdi mdi-file-document-outline"></i></span>
@@ -143,6 +145,10 @@ mod tests {
         assert!(html.contains("2024-06-01"));
         assert!(html.contains("src/lib.rs"));
         assert!(html.contains("mdi-file-document-outline"));
+        assert!(
+            html.contains(r#"data-utc="2024-06-01T12:00:00Z" data-utc-format="datetime_ymd" class="commit-date""#),
+            "commit date should carry machine-readable UTC plus a localized display format"
+        );
     }
 
     #[test]

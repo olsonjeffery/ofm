@@ -18,6 +18,7 @@ pub struct CreateProjectRequest {
     pub name: String,
     pub repo_folder_path: String,
     pub subproject_path: Option<String>,
+    pub tags: Option<Vec<String>>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -25,6 +26,7 @@ pub struct UpdateProjectRequest {
     pub name: Option<String>,
     pub repo_folder_path: Option<String>,
     pub subproject_path: Option<String>,
+    pub tags: Option<Vec<String>>,
 }
 
 pub fn projects_router() -> Router<AppState> {
@@ -56,6 +58,8 @@ pub async fn create_project(
             validate_subproject_path(trimmed)?;
         }
     }
+    let tags = body.tags.unwrap_or_default();
+    validate_tags(&tags)?;
     let project = services::projects::create_project(
         &state.db,
         &auth.user_id,
@@ -65,6 +69,7 @@ pub async fn create_project(
             .as_deref()
             .map(|s| s.trim())
             .filter(|s| !s.is_empty()),
+        &tags,
     )
     .await
     .map_err(|e| {
@@ -81,10 +86,34 @@ async fn list_projects(
     auth: AuthUser,
     State(state): State<AppState>,
 ) -> Result<Json<Vec<Project>>, ServerError> {
-    let projects = services::projects::list_projects(&state.db, &auth.user_id)
+    let projects = services::projects::list_projects(&state.db, &auth)
         .await
         .map_err(|e| ServerError::Internal(e.to_string()))?;
     Ok(Json(projects))
+}
+
+/// Fetch a project and verify `auth` may access it (`write=false` → read-only,
+/// `write=true` → contributor+). Returns 404 when the project is missing or not
+/// accessible, so callers never leak its existence.
+pub(crate) async fn authorized_project(
+    state: &AppState,
+    auth: &AuthUser,
+    project_id: i64,
+    write: bool,
+) -> Result<Project, ServerError> {
+    let project = services::projects::get_project(&state.db, project_id)
+        .await
+        .map_err(|_| ServerError::NotFound("Project not found".into()))?;
+    let has_access = if write {
+        services::access::has_project_write_access(&state.db, auth, &project).await
+    } else {
+        services::access::has_project_access(&state.db, auth, &project).await
+    }
+    .map_err(|e| ServerError::Internal(e.to_string()))?;
+    if !has_access {
+        return Err(ServerError::NotFound("Project not found".into()));
+    }
+    Ok(project)
 }
 
 async fn get_project(
@@ -92,12 +121,7 @@ async fn get_project(
     State(state): State<AppState>,
     Path(id): Path<i64>,
 ) -> Result<Json<Project>, ServerError> {
-    let project = services::projects::get_project(&state.db, id)
-        .await
-        .map_err(|_| ServerError::NotFound("Project not found".into()))?;
-    if project.user_id != auth.user_id {
-        return Err(ServerError::NotFound("Project not found".into()));
-    }
+    let project = authorized_project(&state, &auth, id, false).await?;
     Ok(Json(project))
 }
 
@@ -107,12 +131,7 @@ async fn update_project(
     Path(id): Path<i64>,
     Json(body): Json<UpdateProjectRequest>,
 ) -> Result<Json<Project>, ServerError> {
-    let existing = services::projects::get_project(&state.db, id)
-        .await
-        .map_err(|_| ServerError::NotFound("Project not found".into()))?;
-    if existing.user_id != auth.user_id {
-        return Err(ServerError::NotFound("Project not found".into()));
-    }
+    authorized_project(&state, &auth, id, true).await?;
     if body.name.as_deref().is_some_and(|n| n.trim().is_empty()) {
         return Err(ServerError::BadRequest("name must not be empty".into()));
     }
@@ -134,12 +153,16 @@ async fn update_project(
             validate_subproject_path(trimmed)?;
         }
     }
+    if let Some(ref tags) = body.tags {
+        validate_tags(tags)?;
+    }
     let project = services::projects::update_project(
         &state.db,
         id,
         body.name.as_deref().map(|s| s.trim()),
         body.repo_folder_path.as_deref().map(|s| s.trim()),
         body.subproject_path.as_deref(),
+        body.tags.clone(),
     )
     .await
     .map_err(|e| {
@@ -159,12 +182,7 @@ async fn delete_project(
     State(state): State<AppState>,
     Path(id): Path<i64>,
 ) -> Result<Json<serde_json::Value>, ServerError> {
-    let existing = services::projects::get_project(&state.db, id)
-        .await
-        .map_err(|_| ServerError::NotFound("Project not found".into()))?;
-    if existing.user_id != auth.user_id {
-        return Err(ServerError::NotFound("Project not found".into()));
-    }
+    authorized_project(&state, &auth, id, true).await?;
     let deleted = services::projects::delete_project(&state.db, id)
         .await
         .map_err(|e| ServerError::Internal(e.to_string()))?;
@@ -198,4 +216,15 @@ fn validate_repo_path(path: &str) -> Result<(), ServerError> {
 
 fn validate_subproject_path(path: &str) -> Result<(), ServerError> {
     validate_no_path_traversal(path, "subproject_path")
+}
+
+fn validate_tags(tags: &[String]) -> Result<(), ServerError> {
+    for tag in tags {
+        if !crate::prompts::validate_tag(tag) {
+            return Err(ServerError::BadRequest(format!(
+                "invalid tag '{tag}': must be a dash-based name (e.g. 'desktop-3d')"
+            )));
+        }
+    }
+    Ok(())
 }

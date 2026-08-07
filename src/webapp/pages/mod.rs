@@ -5,5 +5,7 @@ pub mod dashboard;
 pub mod home;
 pub mod login;
 pub mod onboarding;
+pub mod prompt_detail;
+pub mod prompts;
 pub mod settings;
 pub mod task_detail;

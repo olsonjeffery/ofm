@@ -9,6 +9,7 @@ pub mod logging;
 
 pub mod opencode_sdk;
 pub mod orchestration;
+pub mod prompts;
 pub mod providers;
 pub mod rauthy;
 pub mod server;

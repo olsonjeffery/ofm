@@ -61,8 +61,42 @@ or needed user intervention to get a coding agent back on-track
 
 - All prompts can be changed on a global, per-project and/or per-user
 basis
+- **Prompt Library**: the navbar **Library → Prompts** dropdown
+  (`/webapp/prompts`) opens a database-backed Prompt Library. Author **Prompt
+  Snippets** (a title + markdown content with `{{variable}}` tokens) and
+  **Composite Prompts** (ordered sequences of snippets/other composites, joined
+  with a `---` separator). Any snippet/composite can be **designated** to
+  replace the stock template for an agent phase (planification/implementation/
+  review/refinement/pr) at a **project** or **global** scope, and can be shared
+  with all users or kept private. The built-in `templates/*.md` prompts ship as
+  immutable **static** entries (view/duplicate, never edit). Nine standard
+  tokens are substituted at render time: `{{taskId}}`, `{{projectId}}`,
+  `{{taskDocPath}}`, `{{taskWorktreePath}}`, `{{taskWorktreeBranch}}`,
+  `{{projectDefaultBranch}}`, `{{projectName}}`, `{{taskName}}`, and
+  `{{tags}}` — the last resolving to the **project's tags** (editable on the
+  project board header and set at project creation). User-authored content is
+  validated non-destructively (unknown tokens / tag grammar flagged, never
+  saved).
 - The [`opencode`][17] open-source, multi-provider capable coding agent harness
 is the built-in provider
+- **Rig-based Providers**: Settings → *Providers & Agents* → **Rig-based
+  Providers** (`/webapp/settings/providers-agents/rig-providers`) lets a user
+  capture provider configs for Anthropic, OpenAI (service), OpenCode Go,
+  OpenRouter, and OpenAI-compatible endpoints (with or without an auth header)
+  as structured JSON files. These configs can then be attached to a user's
+  per-agent model preferences in *Agent Settings* (the model dropdown is
+  populated from the provider configs' model listings — both Rig and opencode).
+  Config **capture only**: executing through Rig clients is a future story.
+- **Groups & Organizations**: admins can manage **User Groups** and
+  **Organizations** from Settings → *Admin* → **Groups & Organizations**
+  (`/webapp/settings/admin/groups`, also reachable from the navbar **Groups**
+  button). Groups gate access to shared Projects, Model Configurations, and Task
+  Flows: a resource owned by a group member is readable by the group's other
+  members and editable by contributors and above. Membership levels are
+  *read-only / contributor / maintainer / admin*; groups can contain subgroups
+  (groups-of-groups), and a group whose name matches an **OAuth scope**
+  (`is_oauth_scope`) derives membership from users' granted scopes. A built-in
+  `admins` group is seeded with the ofm admin as its owner and `admin` member.
 - The user _owns_ the local installations of the coding agent, so they can customize
 then with whatever skills, safeguards, etc are appropriate for the user case or
 organizational requirements; This avenue of customization provides a positive feedback
@@ -296,7 +330,7 @@ of `ofm`'s founding author
 - The task detail page is git-aware: it lists the task worktree's commits
 (since the merge-base with the base branch, oldest→newest, refreshed on every
 page load) and each commit opens a dedicated page with the changed-file list
-and a two-column source diff. See `src/services/commits.rs` and
+and a stacked source diff. See `src/services/commits.rs` and
 `src/webapp/pages/commit_detail.rs`.
 
 ## Contributing

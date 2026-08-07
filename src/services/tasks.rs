@@ -1,11 +1,32 @@
 use std::collections::HashMap;
 
+use crate::auth::AuthUser;
 use crate::db::schema::{
-    ActiveAgent, AgentType, Conversation, ConversationWithRun, RunStatus, Task, TaskAgentRun,
-    Worktree,
+    ActiveAgent, AgentType, Conversation, ConversationWithRun, GlobalAgentStatus, GroupLevel,
+    RunStatus, Task, TaskAgentRun, TaskStatusSummary, Worktree,
 };
+use crate::services::access;
 use hiqlite::Client;
 use uuid::Uuid;
+
+fn db_err(e: crate::services::groups::GroupError) -> hiqlite::Error {
+    hiqlite::Error::new(e.to_string())
+}
+
+/// Whether `owner` (an optional resource owner) is accessible to `user` at
+/// read level. A missing owner row is treated as not accessible.
+async fn owner_accessible(
+    client: &Client,
+    user: &AuthUser,
+    owner: Option<Uuid>,
+) -> Result<bool, hiqlite::Error> {
+    match owner {
+        Some(uid) => access::has_resource_access(client, user, uid, GroupLevel::ReadOnly)
+            .await
+            .map_err(db_err),
+        None => Ok(false),
+    }
+}
 
 fn utc_now() -> String {
     chrono::Utc::now().format("%Y-%m-%d %H:%M:%S").to_string()
@@ -279,34 +300,206 @@ pub async fn get_running_agent_for_task(
     }
 }
 
+/// Running agents across projects the user can access (owned or shared via
+/// group membership).
 pub async fn get_running_agents(
     client: &Client,
-    user_id: &Uuid,
+    user: &AuthUser,
 ) -> Result<Vec<ActiveAgent>, hiqlite::Error> {
-    let rows = client
-        .query_raw(
-            "SELECT
-                tar.agent_type,
-                t.project_id,
-                p.name AS project_title,
-                t.id AS task_id,
-                t.title AS task_title,
-                c.id AS conversation_id,
-                c.name AS conversation_name
-            FROM task_agent_runs tar
-            JOIN tasks t ON t.id = tar.task_id
-            JOIN projects p ON p.id = t.project_id
-            LEFT JOIN conversations c ON c.id = tar.conversation_id
-            WHERE tar.status = 'running' AND t.user_id = $1
-            ORDER BY t.project_id, t.id",
-            hiqlite::params!(user_id.to_string()),
-        )
-        .await?;
-    let mut agents = Vec::with_capacity(rows.len());
-    for mut row in rows {
-        agents.push(ActiveAgent::from(&mut row));
+    // Extract all row data into owned values inside a block first (hiqlite
+    // `Row`s are not `Send`, so they cannot live across the access-check
+    // awaits below).
+    let pending = {
+        let rows = client
+            .query_raw(
+                "SELECT
+                    tar.agent_type,
+                    t.project_id,
+                    p.name AS project_title,
+                    t.id AS task_id,
+                    t.title AS task_title,
+                    t.user_id AS owner_user_id,
+                    c.id AS conversation_id,
+                    c.name AS conversation_name
+                FROM task_agent_runs tar
+                JOIN tasks t ON t.id = tar.task_id
+                JOIN projects p ON p.id = t.project_id
+                LEFT JOIN conversations c ON c.id = tar.conversation_id
+                WHERE tar.status = 'running'
+                ORDER BY t.project_id, t.id",
+                hiqlite::params!(),
+            )
+            .await?;
+        let mut pending: Vec<(ActiveAgent, Option<Uuid>)> = Vec::with_capacity(rows.len());
+        for mut row in rows {
+            let agent_type_str: String = row.get("agent_type");
+            let conversation_id: String = row.get("conversation_id");
+            let owner_id: String = row.get("owner_user_id");
+            pending.push((
+                ActiveAgent {
+                    agent_type: agent_type_str.parse().unwrap_or(AgentType::Implementation),
+                    project_id: row.get("project_id"),
+                    project_title: row.get("project_title"),
+                    task_id: row.get("task_id"),
+                    task_title: row.get("task_title"),
+                    conversation_id: Uuid::parse_str(&conversation_id).unwrap_or_default(),
+                    conversation_name: row.get("conversation_name"),
+                },
+                Uuid::parse_str(&owner_id).ok(),
+            ));
+        }
+        pending
+    };
+
+    let mut agents = Vec::with_capacity(pending.len());
+    for (agent, owner) in pending {
+        if owner_accessible(client, user, owner).await? {
+            agents.push(agent);
+        }
     }
     Ok(agents)
+}
+
+async fn task_summary(client: &Client, user: &AuthUser, task_id: i64) -> Option<TaskStatusSummary> {
+    // Extract into owned values inside a block so the (non-`Send`)
+    // `hiqlite::Row`s are dropped before the access-check await below.
+    let (summary, owner_id) = {
+        let mut rows = client
+            .query_raw(
+                "SELECT t.id AS task_id, t.project_id AS project_id, t.title AS task_title,
+                        t.user_id AS owner_user_id, p.name AS project_title
+                 FROM tasks t
+                 JOIN projects p ON p.id = t.project_id
+                 WHERE t.id = $1",
+                hiqlite::params!(task_id),
+            )
+            .await
+            .ok()?;
+        let row = rows.first_mut()?;
+        let owner_id: String = row.get("owner_user_id");
+        let summary = TaskStatusSummary::from(row);
+        (summary, owner_id)
+    };
+    let owner_id = Uuid::parse_str(&owner_id).ok()?;
+    let accessible = access::has_resource_access(client, user, owner_id, GroupLevel::ReadOnly)
+        .await
+        .ok()
+        .unwrap_or(false);
+    if !accessible {
+        return None;
+    }
+    Some(summary)
+}
+
+/// Tasks awaiting user input: a conversation whose newest persisted event is a
+/// `question_asked`. Question events pause the agent turn, so the task stays in
+/// a "needs your input" state until the user replies.
+pub async fn get_open_question_tasks(
+    client: &Client,
+    user: &AuthUser,
+) -> Result<Vec<TaskStatusSummary>, hiqlite::Error> {
+    let conv_rows = client
+        .query_raw(
+            "SELECT c.task_id AS task_id, c.provider_session_id AS session_id
+             FROM conversations c
+             JOIN tasks t ON t.id = c.task_id
+             WHERE c.provider_session_id IS NOT NULL
+               AND c.provider_session_id != ''",
+            hiqlite::params!(),
+        )
+        .await?;
+
+    let mut sessions = Vec::new();
+    for mut row in conv_rows {
+        sessions.push((row.get::<i64>("task_id"), row.get::<String>("session_id")));
+    }
+
+    let mut task_ids: Vec<i64> = Vec::new();
+    for (task_id, session_id) in sessions {
+        let mut msg_rows = client
+            .query_raw(
+                "SELECT entry_json FROM messages
+                 WHERE project_key = $1 AND session_id = $2
+                 ORDER BY seq DESC LIMIT 1",
+                hiqlite::params!(task_id, session_id),
+            )
+            .await?;
+        if let Some(msg_row) = msg_rows.first_mut() {
+            let entry: String = msg_row.get("entry_json");
+            let is_question = serde_json::from_str::<serde_json::Value>(&entry)
+                .ok()
+                .is_some_and(|v| v.get("type").and_then(|t| t.as_str()) == Some("question_asked"));
+            if is_question {
+                task_ids.push(task_id);
+            }
+        }
+    }
+
+    task_ids.sort_unstable();
+    task_ids.dedup();
+    let mut summaries = Vec::with_capacity(task_ids.len());
+    for id in task_ids {
+        if let Some(s) = task_summary(client, user, id).await {
+            summaries.push(s);
+        }
+    }
+    Ok(summaries)
+}
+
+/// Tasks the workflow cannot progress on: the server-only iteration-cap marker
+/// (`tasks.workflow_blocked`) or a run stuck in `blocked` (missing provider
+/// config). Scoped to tasks the user can access.
+pub async fn get_blocked_tasks(
+    client: &Client,
+    user: &AuthUser,
+) -> Result<Vec<TaskStatusSummary>, hiqlite::Error> {
+    let pending = {
+        let rows = client
+            .query_raw(
+                "SELECT DISTINCT t.id AS task_id, t.project_id AS project_id,
+                        t.title AS task_title, t.user_id AS owner_user_id, p.name AS project_title
+                 FROM tasks t
+                 JOIN projects p ON p.id = t.project_id
+                 WHERE (t.workflow_blocked = 1 OR EXISTS (
+                        SELECT 1 FROM task_agent_runs r WHERE r.task_id = t.id AND r.status = 'blocked'))
+                 ORDER BY t.id",
+                hiqlite::params!(),
+            )
+            .await?;
+        let mut pending: Vec<(TaskStatusSummary, Option<Uuid>)> = Vec::with_capacity(rows.len());
+        for mut row in rows {
+            let owner_id: String = row.get("owner_user_id");
+            pending.push((
+                TaskStatusSummary::from(&mut row),
+                Uuid::parse_str(&owner_id).ok(),
+            ));
+        }
+        pending
+    };
+
+    let mut tasks = Vec::with_capacity(pending.len());
+    for (summary, owner) in pending {
+        if owner_accessible(client, user, owner).await? {
+            tasks.push(summary);
+        }
+    }
+    Ok(tasks)
+}
+
+/// Aggregate agent status consumed by the navbar dropdown: currently running
+/// agents plus open-question and blocked tasks for the user.
+pub async fn get_global_agent_status(
+    client: &Client,
+    user: &AuthUser,
+) -> Result<GlobalAgentStatus, hiqlite::Error> {
+    let agents = get_running_agents(client, user).await?;
+    let questions = get_open_question_tasks(client, user).await?;
+    let blocked = get_blocked_tasks(client, user).await?;
+    Ok(GlobalAgentStatus {
+        agents,
+        questions,
+        blocked,
+    })
 }
 
 pub async fn list_agent_runs_for_task(
@@ -347,6 +540,32 @@ pub async fn mark_agent_run_failed(client: &Client, run_id: &Uuid) -> Result<(),
     set_agent_run_status(client, run_id, &RunStatus::Failed).await
 }
 
+/// Pre-mark a still-running agent run linked to `conversation_id` as failed the
+/// instant a mid-stream `ProviderEvent::Error` is seen, so the completion
+/// handler observes `status != running` and stops chaining instead of burning
+/// the iteration cap on a broken environment. Ports the reference
+/// implementation's `failLinkedAgentRunIfRunning` (see
+/// `spec/reference/server/services/conversation/startOpenCodeConversation.ts`).
+///
+/// The `status = 'running'` guard keeps it idempotent and prevents clobbering a
+/// `completed`/`failed` run. Returns whether a run was updated.
+pub async fn fail_linked_agent_run(
+    client: &Client,
+    conversation_id: &Uuid,
+) -> Result<bool, hiqlite::Error> {
+    let rows = client
+        .execute(
+            "UPDATE task_agent_runs SET status = $1 WHERE conversation_id = $2 AND status = $3",
+            hiqlite::params!(
+                RunStatus::Failed.to_string(),
+                conversation_id.to_string(),
+                RunStatus::Running.to_string()
+            ),
+        )
+        .await?;
+    Ok(rows > 0)
+}
+
 pub async fn sweep_running_agent_runs_to_failed(client: &Client) -> Result<usize, hiqlite::Error> {
     let now = utc_now();
     let rows = client
@@ -385,6 +604,62 @@ pub async fn mark_task_blocked(client: &Client, task_id: i64) -> Result<(), hiql
     Ok(())
 }
 
+/// Combined reset: zero the iteration counter and clear the server-only block
+/// marker in one action. Keeps history, worktree, and task id — "I want to keep
+/// this conversation and try again."
+pub async fn reset_task_cap(client: &Client, task_id: i64) -> Result<(), hiqlite::Error> {
+    client
+        .execute(
+            "UPDATE tasks SET workflow_run_count = 0, workflow_blocked = 0 WHERE id = $1",
+            hiqlite::params!(task_id),
+        )
+        .await?;
+    Ok(())
+}
+
+/// Reset with fresh history: delete the task's agent runs, conversations, and
+/// message transcripts, and reset every workflow flag and the run counter back
+/// to a pristine `pending`. Keeps task id, title, doc, and worktree — "this
+/// conversation is poisoned, start over on the same issue."
+///
+/// `messages` (`project_key = task id`) and `session_summaries` have no FK to
+/// `conversations`, so they must be deleted explicitly. `task_agent_runs`
+/// reference conversations with `ON DELETE SET NULL`, so runs are deleted
+/// before conversations.
+pub async fn reset_task_history(client: &Client, task_id: i64) -> Result<(), hiqlite::Error> {
+    client
+        .execute(
+            "DELETE FROM task_agent_runs WHERE task_id = $1",
+            hiqlite::params!(task_id),
+        )
+        .await?;
+    client
+        .execute(
+            "DELETE FROM messages WHERE project_key = $1",
+            hiqlite::params!(task_id),
+        )
+        .await?;
+    client
+        .execute(
+            "DELETE FROM session_summaries WHERE project_key = $1",
+            hiqlite::params!(task_id),
+        )
+        .await?;
+    client
+        .execute(
+            "DELETE FROM conversations WHERE task_id = $1",
+            hiqlite::params!(task_id),
+        )
+        .await?;
+    client
+        .execute(
+            "UPDATE tasks SET workflow_run_count = 0, workflow_blocked = 0, status = 'pending' WHERE id = $1",
+            hiqlite::params!(task_id),
+        )
+        .await?;
+    Ok(())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -414,7 +689,8 @@ mod tests {
 
     async fn seed_task(client: &Client) -> (i64, i64) {
         let user_id = db::ensure_default_user(client).await.unwrap();
-        let project = projects::create_project(client, &user_id, "test", "/tmp/test", None)
+        let repo_path = format!("/tmp/test-{}", Uuid::new_v4());
+        let project = projects::create_project(client, &user_id, "test", &repo_path, None, &[])
             .await
             .unwrap();
         let project_id = project.id;
@@ -422,6 +698,16 @@ mod tests {
             .await
             .unwrap();
         (project_id, task.id)
+    }
+
+    fn default_auth(user_id: Uuid) -> AuthUser {
+        AuthUser {
+            user_id,
+            username: "default".into(),
+            oidc_subject: None,
+            is_admin: true,
+            is_technical: true,
+        }
     }
 
     #[tokio::test]
@@ -433,6 +719,187 @@ mod tests {
 
         let task = get_task(&client, task_id).await.unwrap();
         assert!(task.workflow_blocked, "workflow_blocked");
+    }
+
+    #[tokio::test]
+    async fn test_reset_task_cap_zeroes_counter_and_clears_blocked() {
+        let (client, _tmp) = make_client().await;
+        let (_, task_id) = seed_task(&client).await;
+        client
+            .execute(
+                "UPDATE tasks SET workflow_run_count = 25, workflow_blocked = 1 WHERE id = $1",
+                hiqlite::params!(task_id),
+            )
+            .await
+            .unwrap();
+
+        reset_task_cap(&client, task_id).await.unwrap();
+
+        let task = get_task(&client, task_id).await.unwrap();
+        assert_eq!(task.workflow_run_count, 0);
+        assert!(!task.workflow_blocked);
+        assert_eq!(task.status, "pending", "reset-cap must not touch status");
+    }
+
+    async fn count_rows(client: &Client, table: &str, task_id: i64) -> i64 {
+        let sql = format!("SELECT COUNT(*) AS c FROM {table} WHERE task_id = $1");
+        let mut rows = client
+            .query_raw(sql, hiqlite::params!(task_id))
+            .await
+            .unwrap();
+        rows.first_mut().map(|r| r.get::<i64>("c")).unwrap_or(0)
+    }
+
+    async fn count_messages_for_task(client: &Client, task_id: i64) -> i64 {
+        let mut rows = client
+            .query_raw(
+                "SELECT COUNT(*) AS c FROM messages WHERE project_key = $1",
+                hiqlite::params!(task_id),
+            )
+            .await
+            .unwrap();
+        rows.first_mut().map(|r| r.get::<i64>("c")).unwrap_or(0)
+    }
+
+    #[tokio::test]
+    async fn test_reset_task_history_deletes_artifacts_and_resets_flags() {
+        let (client, _tmp) = make_client().await;
+        let (_, task_id) = seed_task(&client).await;
+
+        let conv_id = seed_running_run(&client, task_id, &AgentType::Implementation).await;
+        let session_id = format!("sess-{conv_id}");
+        seed_message(
+            &client,
+            task_id,
+            &session_id,
+            serde_json::json!({"type": "text", "text": "hello"}),
+        )
+        .await;
+        client
+            .execute(
+                "INSERT INTO session_summaries (project_key, session_id, mtime, summary_json) VALUES ($1, $2, $3, $4)",
+                hiqlite::params!(task_id, session_id, "2024-06-01 12:00:00", "{}"),
+            )
+            .await
+            .unwrap();
+        client
+            .execute(
+                "UPDATE tasks SET workflow_run_count = 10, workflow_blocked = 1, status = 'in_progress' WHERE id = $1",
+                hiqlite::params!(task_id),
+            )
+            .await
+            .unwrap();
+
+        reset_task_history(&client, task_id).await.unwrap();
+
+        assert_eq!(
+            count_rows(&client, "task_agent_runs", task_id).await,
+            0,
+            "agent runs deleted"
+        );
+        assert_eq!(
+            count_rows(&client, "conversations", task_id).await,
+            0,
+            "conversations deleted"
+        );
+        assert_eq!(
+            count_messages_for_task(&client, task_id).await,
+            0,
+            "messages deleted"
+        );
+        let mut summaries = client
+            .query_raw(
+                "SELECT COUNT(*) AS c FROM session_summaries WHERE project_key = $1",
+                hiqlite::params!(task_id),
+            )
+            .await
+            .unwrap();
+        let summary_count: i64 = summaries.first_mut().map(|r| r.get("c")).unwrap_or(0);
+        assert_eq!(summary_count, 0, "session summaries deleted");
+
+        let task = get_task(&client, task_id).await.unwrap();
+        assert_eq!(task.workflow_run_count, 0);
+        assert!(!task.workflow_blocked);
+        assert_eq!(task.status, "pending");
+        assert_eq!(task.title, "test task", "title preserved");
+    }
+
+    #[tokio::test]
+    async fn test_reset_task_history_no_conversations_resets_cleanly() {
+        let (client, _tmp) = make_client().await;
+        let (_, task_id) = seed_task(&client).await;
+        client
+            .execute(
+                "UPDATE tasks SET workflow_run_count = 5, workflow_blocked = 1, status = 'in_review' WHERE id = $1",
+                hiqlite::params!(task_id),
+            )
+            .await
+            .unwrap();
+
+        reset_task_history(&client, task_id).await.unwrap();
+
+        let task = get_task(&client, task_id).await.unwrap();
+        assert_eq!(task.workflow_run_count, 0);
+        assert!(!task.workflow_blocked);
+        assert_eq!(task.status, "pending");
+    }
+
+    #[tokio::test]
+    async fn test_fail_linked_agent_run_marks_running_failed() {
+        let (client, _tmp) = make_client().await;
+        let (_, task_id) = seed_task(&client).await;
+        let conv_id = seed_running_run(&client, task_id, &AgentType::Implementation).await;
+
+        let updated = fail_linked_agent_run(&client, &conv_id).await.unwrap();
+        assert!(updated, "a running run should be marked failed");
+
+        let run = get_agent_run_by_conversation(&client, &conv_id)
+            .await
+            .unwrap();
+        assert_eq!(run.status, RunStatus::Failed);
+    }
+
+    #[tokio::test]
+    async fn test_fail_linked_agent_run_noop_on_completed() {
+        let (client, _tmp) = make_client().await;
+        let (_, task_id) = seed_task(&client).await;
+        let conv_id = seed_running_run(&client, task_id, &AgentType::Implementation).await;
+        let run = get_agent_run_by_conversation(&client, &conv_id)
+            .await
+            .unwrap();
+        mark_agent_run_completed(&client, &run.id).await.unwrap();
+
+        let updated = fail_linked_agent_run(&client, &conv_id).await.unwrap();
+        assert!(!updated, "completed run must not be clobbered");
+
+        let run = get_agent_run_by_conversation(&client, &conv_id)
+            .await
+            .unwrap();
+        assert_eq!(run.status, RunStatus::Completed);
+    }
+
+    #[tokio::test]
+    async fn test_fail_linked_agent_run_noop_without_running_run() {
+        let (client, _tmp) = make_client().await;
+        let (_, task_id) = seed_task(&client).await;
+        let conv_id = Uuid::new_v4();
+
+        let updated = fail_linked_agent_run(&client, &conv_id).await.unwrap();
+        assert!(!updated);
+
+        // A completed run linked to the conversation is untouched too.
+        let completed_conv = seed_running_run(&client, task_id, &AgentType::Review).await;
+        let run = get_agent_run_by_conversation(&client, &completed_conv)
+            .await
+            .unwrap();
+        mark_agent_run_failed(&client, &run.id).await.unwrap();
+        let updated = fail_linked_agent_run(&client, &completed_conv)
+            .await
+            .unwrap();
+        assert!(
+            !updated,
+            "already-failed run must not be reported as updated"
+        );
     }
 
     #[tokio::test]
@@ -448,5 +915,197 @@ mod tests {
             "created_at should not be the default epoch"
         );
         assert!(task.created_at > epoch, "created_at should be after epoch");
+    }
+
+    async fn seed_running_run(client: &Client, task_id: i64, agent_type: &AgentType) -> Uuid {
+        let conv_id = Uuid::new_v4();
+        let now = utc_now();
+        client
+            .execute(
+                "INSERT INTO conversations (id, task_id, provider_session_id, model, effort, created_at, updated_at) VALUES ($1, $2, $3, $4, $5, $6, $7)",
+                hiqlite::params!(conv_id.to_string(), task_id, format!("sess-{conv_id}"), "gpt-4", "balanced", &now, &now),
+            )
+            .await
+            .unwrap();
+        client
+            .execute(
+                "INSERT INTO task_agent_runs (id, task_id, agent_type, status, conversation_id, created_at) VALUES ($1, $2, $3, $4, $5, $6)",
+                hiqlite::params!(Uuid::new_v4().to_string(), task_id, agent_type.to_string(), RunStatus::Running.to_string(), conv_id.to_string(), &now),
+            )
+            .await
+            .unwrap();
+        conv_id
+    }
+
+    async fn seed_message(
+        client: &Client,
+        task_id: i64,
+        session_id: &str,
+        entry_json: serde_json::Value,
+    ) {
+        client
+            .execute(
+                "INSERT INTO messages (project_key, session_id, seq, entry_json, timestamp)
+                 VALUES ($1, $2, (SELECT COALESCE(MAX(seq), 0) + 1 FROM messages WHERE project_key = $1 AND session_id = $2), $3, $4)",
+                hiqlite::params!(task_id, session_id, entry_json.to_string(), utc_now()),
+            )
+            .await
+            .unwrap();
+    }
+
+    #[tokio::test]
+    async fn test_get_global_agent_status_includes_running() {
+        let (client, _tmp) = make_client().await;
+        let user_id = db::ensure_default_user(&client).await.unwrap();
+        let (_, task_id) = seed_task(&client).await;
+        seed_running_run(&client, task_id, &AgentType::Implementation).await;
+
+        let auth = default_auth(user_id);
+        let status = get_global_agent_status(&client, &auth).await.unwrap();
+        assert_eq!(status.agents.len(), 1);
+        assert_eq!(status.agents[0].task_id, task_id);
+        assert_eq!(status.agents[0].agent_type, AgentType::Implementation);
+        assert!(status.questions.is_empty());
+        assert!(status.blocked.is_empty());
+    }
+
+    #[tokio::test]
+    async fn test_get_open_question_tasks_detects_unanswered_question() {
+        let (client, _tmp) = make_client().await;
+        let user_id = db::ensure_default_user(&client).await.unwrap();
+        let (_, task_id) = seed_task(&client).await;
+        let session_id = format!("sess-q-{task_id}");
+        let now = utc_now();
+        client
+            .execute(
+                "INSERT INTO conversations (id, task_id, provider_session_id, model, effort, created_at, updated_at) VALUES ($1, $2, $3, $4, $5, $6, $7)",
+                hiqlite::params!(Uuid::new_v4().to_string(), task_id, session_id.clone(), "gpt-4", "balanced", &now, &now),
+            )
+            .await
+            .unwrap();
+        seed_message(
+            &client,
+            task_id,
+            &session_id,
+            serde_json::json!({
+                "type": "question_asked",
+                "session_id": session_id,
+                "questions": [{"question": "Which model?", "options": []}],
+                "timestamp": "2024-01-01T00:00:00"
+            }),
+        )
+        .await;
+
+        let auth = default_auth(user_id);
+        let questions = get_open_question_tasks(&client, &auth).await.unwrap();
+        assert_eq!(questions.len(), 1);
+        assert_eq!(questions[0].task_id, task_id);
+    }
+
+    #[tokio::test]
+    async fn test_get_open_question_tasks_ignores_answered_question() {
+        let (client, _tmp) = make_client().await;
+        let user_id = db::ensure_default_user(&client).await.unwrap();
+        let (_, task_id) = seed_task(&client).await;
+        let session_id = format!("sess-answered-{task_id}");
+        let now = utc_now();
+        client
+            .execute(
+                "INSERT INTO conversations (id, task_id, provider_session_id, model, effort, created_at, updated_at) VALUES ($1, $2, $3, $4, $5, $6, $7)",
+                hiqlite::params!(Uuid::new_v4().to_string(), task_id, session_id.clone(), "gpt-4", "balanced", &now, &now),
+            )
+            .await
+            .unwrap();
+        seed_message(
+            &client,
+            task_id,
+            &session_id,
+            serde_json::json!({"type": "question_asked", "session_id": session_id, "questions": [], "timestamp": "2024-01-01T00:00:00"}),
+        )
+        .await;
+        // A later user_text answers it — the last message is no longer a question.
+        seed_message(
+            &client,
+            task_id,
+            &session_id,
+            serde_json::json!({"type": "user_text", "text": "use gpt-4", "timestamp": "2024-01-01T00:01:00"}),
+        )
+        .await;
+
+        let auth = default_auth(user_id);
+        let questions = get_open_question_tasks(&client, &auth).await.unwrap();
+        assert!(
+            questions.is_empty(),
+            "an answered question must not surface as an open question"
+        );
+    }
+
+    #[tokio::test]
+    async fn test_get_blocked_tasks_detects_workflow_blocked_and_blocked_runs() {
+        let (client, _tmp) = make_client().await;
+        let user_id = db::ensure_default_user(&client).await.unwrap();
+        let (_, blocked_task) = seed_task(&client).await;
+        let (_, blocked_run_task) = seed_task(&client).await;
+        let (_, clean_task) = seed_task(&client).await;
+
+        mark_task_blocked(&client, blocked_task).await.unwrap();
+        let now = utc_now();
+        client
+            .execute(
+                "INSERT INTO task_agent_runs (id, task_id, agent_type, status, created_at) VALUES ($1, $2, $3, $4, $5)",
+                hiqlite::params!(Uuid::new_v4().to_string(), blocked_run_task, AgentType::Implementation.to_string(), RunStatus::Blocked.to_string(), &now),
+            )
+            .await
+            .unwrap();
+
+        let auth = default_auth(user_id);
+        let blocked = get_blocked_tasks(&client, &auth).await.unwrap();
+        let ids: Vec<i64> = blocked.iter().map(|s| s.task_id).collect();
+        assert!(ids.contains(&blocked_task), "workflow_blocked task");
+        assert!(ids.contains(&blocked_run_task), "task with a blocked run");
+        assert!(!ids.contains(&clean_task), "clean task must not be blocked");
+    }
+
+    #[tokio::test]
+    async fn test_get_global_agent_status_scopes_to_user() {
+        let (client, _tmp) = make_client().await;
+        let user_id = db::ensure_default_user(&client).await.unwrap();
+        let (_, task_id) = seed_task(&client).await;
+
+        // Another user's running run must not leak into this user's status.
+        let other_user = Uuid::new_v4();
+        let now = utc_now();
+        client
+            .execute(
+                "INSERT INTO users (id, username, is_admin, is_active, created_at) VALUES ($1, $2, 0, 1, $3)",
+                hiqlite::params!(other_user.to_string(), "other-user", &now),
+            )
+            .await
+            .unwrap();
+        client
+            .execute(
+                "UPDATE tasks SET user_id = $1 WHERE id = $2",
+                hiqlite::params!(other_user.to_string(), task_id),
+            )
+            .await
+            .unwrap();
+        let _conv_id = seed_running_run(&client, task_id, &AgentType::Review).await;
+
+        // A non-admin viewer with no shared group must not see the other
+        // user's running agent.
+        let viewer = AuthUser {
+            user_id: Uuid::new_v4(),
+            username: "viewer".into(),
+            oidc_subject: None,
+            is_admin: false,
+            is_technical: false,
+        };
+        let status = get_global_agent_status(&client, &viewer).await.unwrap();
+        assert!(status.agents.is_empty(), "other user's agents excluded");
+
+        // The admin still sees everything.
+        let admin = default_auth(user_id);
+        let status = get_global_agent_status(&client, &admin).await.unwrap();
+        assert_eq!(status.agents.len(), 1, "admin sees all agents");
     }
 }

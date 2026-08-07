@@ -1,4 +1,5 @@
 use crate::db::schema::{AgentType, Task};
+use crate::webapp::components::datetime::utc_attr;
 use leptos::prelude::*;
 
 #[derive(Clone)]
@@ -30,6 +31,7 @@ fn phase_color(at: &AgentType) -> &'static str {
 #[component]
 pub fn TaskCard(data: TaskCardData) -> impl IntoView {
     let created = data.task.created_at.format("%Y-%m-%d").to_string();
+    let created_utc = utc_attr(&data.task.created_at);
     view! {
         <a href={format!("/webapp/projects/{}/tasks/{}", data.task.project_id, data.task.id)} class="card" style="display:block" data-task-id={data.task.id.to_string()}>
             <div class="card-header">
@@ -52,12 +54,20 @@ pub fn TaskCard(data: TaskCardData) -> impl IntoView {
                                 </span>
                             }
                         }).collect::<Vec<_>>()}
+                        {data.task.workflow_blocked.then(|| {
+                            view! {
+                                <span class="tag is-danger is-light is-size-7 ml-1" title="Task is blocked by the review agent or the iteration cap">
+                                    <span class="icon is-small"><i class="mdi mdi-alert"></i></span>
+                                    <span>"Blocked"</span>
+                                </span>
+                            }
+                        })}
                     </div>
                 </div>
             </div>
             <div class="card-footer">
                 <div class="card-footer-item" style="justify-content:flex-start;border-right:none">
-                    <small class="has-text-grey">{created}</small>
+                    <small class="has-text-grey" data-utc={created_utc} data-utc-format="date">{created}</small>
                 </div>
                 <div class="card-footer-item" style="justify-content:flex-end">
                     <button
@@ -114,6 +124,8 @@ mod tests {
         let html = leptos::view! { <TaskCard data /> }.to_html();
         assert!(html.contains("Test Task"));
         assert!(html.contains("2024-06-01"));
+        assert!(html.contains(r#"data-utc="2024-06-01T12:00:00Z""#));
+        assert!(html.contains(r#"data-utc-format="date""#));
         assert!(html.contains(r#"class="card""#));
         assert!(html.contains("card-header-title"));
         assert!(html.contains("card-footer"));
@@ -183,5 +195,23 @@ mod tests {
         assert!(html.contains("card-number-pill"));
         assert!(html.contains("#1"));
         assert!(html.contains("card-header-title"));
+    }
+
+    #[test]
+    fn test_task_card_blocked_indicator() {
+        let mut data = make_data("in_progress", vec![], None);
+        data.task.workflow_blocked = true;
+        let html = leptos::view! { <TaskCard data /> }.to_html();
+        assert!(html.contains("Blocked"));
+        assert!(html.contains("is-danger is-light is-size-7"));
+        assert!(html.contains("mdi-alert"));
+    }
+
+    #[test]
+    fn test_task_card_no_blocked_indicator_when_healthy() {
+        let data = make_data("pending", vec![], None);
+        let html = leptos::view! { <TaskCard data /> }.to_html();
+        assert!(!html.contains("Blocked"));
+        assert!(!html.contains("mdi-alert"));
     }
 }

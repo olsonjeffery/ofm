@@ -5,6 +5,7 @@ use crate::services::commits::CommitSummary;
 use crate::webapp::components::commit_list::{CommitList, CommitListData};
 use crate::webapp::components::conversation_list::ConversationList;
 use crate::webapp::components::markdown_viewer::MarkdownViewer;
+use crate::webapp::components::task_recovery::TaskRecoveryBanner;
 
 fn status_label(status: &str) -> &'static str {
     match status {
@@ -66,6 +67,8 @@ pub fn TaskDetailPage(
                     </button>
                 </div>
             </div>
+
+            <TaskRecoveryBanner task=task.clone() />
 
             {worktree_missing.then(|| {
                 view! {
@@ -273,11 +276,11 @@ pub fn TaskDetailPage(
                                 var convId=msg.payload.conversation_id;
                                 var dateEl=document.querySelector('.conversation-date[data-conv-id="'+convId+'"]');
                                 if(dateEl){
-                                    var now=new Date();
-                                    var months=['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
-                                    var h=now.getHours().toString().padStart(2,'0');
-                                    var m=now.getMinutes().toString().padStart(2,'0');
-                                    dateEl.textContent=months[now.getMonth()]+' '+now.getDate()+', '+h+':'+m;
+                                    var ts=msg.payload.timestamp;
+                                    if(ts&&window.OfmTime){
+                                        dateEl.setAttribute('data-utc',ts);
+                                        dateEl.textContent=window.OfmTime.format(ts,'datetime');
+                                    }
                                     dateEl.classList.remove('is-pulsed');
                                     void dateEl.offsetWidth;
                                     dateEl.classList.add('is-pulsed');
@@ -512,6 +515,64 @@ mod tests {
             .to_html();
         assert!(!html.contains("id=\"recreate-worktree-btn\""));
         assert!(!html.contains("worktree-missing-banner"));
+    }
+
+    #[test]
+    fn test_task_detail_renders_recovery_banner_when_blocked() {
+        let mut task = make_task();
+        task.workflow_blocked = true;
+        let html = leptos::view! { <TaskDetailPage task doc_content=None conversations=vec![] commits=vec![] worktree_missing=false /> }
+            .to_html();
+        assert!(html.contains("id=\"task-recovery-banner\""));
+        assert!(html.contains("Task is blocked"));
+        assert!(html.contains("Agent runs: 1/25"));
+        assert!(html.contains("id=\"reset-cap-btn\""));
+        assert!(html.contains("id=\"reset-history-btn\""));
+        assert!(html.contains("id=\"duplicate-task-btn\""));
+        assert!(html.contains("Reset cap &amp; unblock"));
+        assert!(html.contains("Recreate with fresh history"));
+        assert!(html.contains("Duplicate task"));
+    }
+
+    #[test]
+    fn test_task_detail_renders_recovery_banner_at_cap() {
+        let mut task = make_task();
+        task.workflow_run_count = 25;
+        let html = leptos::view! { <TaskDetailPage task doc_content=None conversations=vec![] commits=vec![] worktree_missing=false /> }
+            .to_html();
+        assert!(html.contains("id=\"task-recovery-banner\""));
+        assert!(html.contains("hit the max agent-run cap"));
+    }
+
+    #[test]
+    fn test_task_detail_omits_recovery_banner_when_healthy() {
+        let html = leptos::view! { <TaskDetailPage task=make_task() doc_content=None conversations=vec![] commits=vec![] worktree_missing=false /> }
+            .to_html();
+        assert!(
+            !html.contains("task-recovery-banner"),
+            "banner element must be absent for a healthy task"
+        );
+        assert!(
+            !html.contains("Task is blocked"),
+            "banner body must be absent for a healthy task"
+        );
+    }
+
+    #[test]
+    fn test_task_detail_recovery_js_targets_endpoints() {
+        let mut task = make_task();
+        task.workflow_blocked = true;
+        let html = leptos::view! { <TaskDetailPage task doc_content=None conversations=vec![] commits=vec![] worktree_missing=false /> }
+            .to_html();
+        assert!(html.contains("/api/tasks/'+taskId+'/reset-cap"));
+        assert!(html.contains("/api/tasks/'+taskId+'/reset-history"));
+        assert!(html.contains("/api/tasks/'+taskId+'/duplicate"));
+        assert!(html.contains(
+            "This deletes all conversations for this task and resets its workflow state. Continue?"
+        ));
+        assert!(
+            html.contains("window.location.href='/webapp/projects/'+projectId+'/tasks/'+body.id")
+        );
     }
 
     #[test]

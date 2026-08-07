@@ -189,6 +189,20 @@ when the stream ends:
   chain.
 - A user Stop writes status `failed` *before* the stream ends → handler sees
   `failed` → no chain.
+- A **mid-stream provider/model error** also writes `failed` up front: the
+  broadcast loop pre-marks the still-running agent run `failed` the instant a
+  `ProviderEvent::Error` is seen (`fail_linked_agent_run` in
+  `src/services/tasks.rs`, wired into both broadcast loops —
+  `src/orchestration/mod.rs` and `src/server/routes/conversations.rs`). This
+  ports the reference implementation's `failLinkedAgentRunIfRunning()`
+  (`spec/reference/server/services/conversation/startOpenCodeConversation.ts`),
+  and keeps the "no `isError` parameter" rule intact — the handler still only
+  reads DB state. The stream runs to `Done`, the completion handler sees
+  `status != running` → **no chain**, so a broken environment (bad provider
+  credentials, model errors) can no longer burn the whole iteration cap in an
+  Impl⇄Review auto-advance loop. The error is still broadcast and the
+  transcript is preserved — the user can resume the conversation or start a
+  manual run.
 - A catastrophic harness crash also leaves status `running` → treated as
   "completed" → chains to the next agent, which reads the synthetic error
   message left in the transcript and decides whether to retry. Failures heal
@@ -232,6 +246,49 @@ and the obvious "pass success/failure into the handler" design is the wrong one.
   [`reference/server/services/agentRunner.ts`](../reference/server/services/agentRunner.ts).
 - Re-triggering the loop from a GitHub PR comment is an extra:
   [`pr-comment-retrigger.md`](../extra/pr-comment-retrigger.md).
+
+### Recovery endpoints
+
+When the cap auto-blocks a task (`workflow_blocked`) or the counter is spent,
+the workflow is a dead end until the user intervenes. Three user-triggered
+actions on a task provide recovery; all are `POST` under
+`/api/tasks/:taskId/`, require write access, and broadcast a `task_updated`
+event on the task topic afterward so open pages reload (wired at
+`src/webapp/pages/task_detail.rs`):
+
+- **`/reset-cap`** — zero `workflow_run_count` and clear `workflow_blocked` in
+  one action. Keeps history, worktree, task id. "Keep this conversation and
+  try again."
+- **`/reset-history`** — abort in-flight turns, delete the task's agent runs,
+  conversations, and message transcripts, and reset every workflow flag, the
+  run counter, and `status` to a fresh `pending`. Keeps task id, title, doc,
+  and worktree. "This conversation is poisoned, start over on the same issue."
+- **`/duplicate`** — create a *new* task whose archive doc is a copy of the
+  source doc, with a fresh worktree and zero counters/flags/conversations.
+  Original untouched. Returns 201 with the new task. "Spin up a clean instance
+  of the issue."
+
+Handlers live in `src/server/routes/tasks.rs`; the services
+(`reset_task_cap`, `reset_task_history`) and the error-pre-mark helper
+(`fail_linked_agent_run`) live in `src/services/tasks.rs`.
+
+### Blocked/cap UX
+
+A blocked or capped task is surfaced in the UI:
+
+- **Task detail / chat pages** render a `notification is-danger` recovery
+  banner (`src/webapp/components/task_recovery.rs`) when
+  `workflow_blocked` or `workflow_run_count >= MAX_WORKFLOW_RUNS`, explaining
+  the cause, showing an `Agent runs: n/25` tag, and offering the three buttons
+  above.
+- **Board cards** (`src/webapp/components/task_card.rs`) show a "Blocked" tag.
+- **Manual run 409s** are distinguished in the run-button JS
+  (`src/webapp/components/conversation_list.rs`): a `max iterations reached`
+  body shows "This task hit the max agent-run cap. Reset the cap from the task
+  page." instead of "Agent already running".
+- **Cap auto-block** broadcasts a `task_updated` event live from
+  `completion_handler` (`src/orchestration/mod.rs`), so open pages show the
+  banner without a manual reload.
 
 ## What `startAgentRun` is responsible for
 
@@ -294,6 +351,16 @@ The direct harness integration that step calls is in [`opencode.md`](../extra/ha
 - [x] Orphan-run recovery on startup. See `src/orchestration/recovery.rs`.
 - [x] `POST /tasks/:taskId/agent-runs` plus a list endpoint.
       See `src/server/routes/agent_runs.rs`.
+- [x] Error → `failed` pre-marking in both broadcast loops (halts the
+      runaway loop on a broken environment). See `src/services/tasks.rs`
+      (`fail_linked_agent_run`), `src/orchestration/mod.rs`,
+      `src/server/routes/conversations.rs`.
+- [x] Recovery endpoints `POST /tasks/:taskId/reset-cap`, `reset-history`,
+      `duplicate`, plus the blocked/cap banner, board "Blocked" tag, and the
+      friendlier 409 message. See `src/server/routes/tasks.rs`,
+      `src/webapp/components/task_recovery.rs`,
+      `src/webapp/components/task_card.rs`,
+      `src/webapp/components/conversation_list.rs`.
 
 ## Reference map
 

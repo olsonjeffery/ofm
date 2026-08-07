@@ -1,6 +1,8 @@
 pub mod config;
 pub mod opencode_sdk_provider;
 pub mod registry;
+pub mod rig_config;
+pub mod rig_models;
 pub mod types;
 
 use async_trait::async_trait;

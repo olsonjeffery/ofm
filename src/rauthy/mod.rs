@@ -378,6 +378,12 @@ fn client_allowed_origin(pub_url: &str) -> Option<String> {
 /// logout targets must match where `ofm` is actually reachable, so they use
 /// the configured `pub_url` (trimmed of trailing slash) rather than a
 /// hardcoded `localhost`/`127.0.0.1`.
+///
+/// FIXME: follow-up enhancement — register a custom rauthy `Scope` record for
+/// each admin-created `is_oauth_scope` group at spawn so admin-created scopes
+/// appear in the embedded provider's `scopes_supported` discovery field. For
+/// now, admin-entered scope names + discovery `scopes_supported` cover both the
+/// embedded and external providers.
 fn build_client_config(pub_url: &str) -> serde_json::Value {
     let redirect_uri = client_redirect_uri(pub_url);
     let mut client = serde_json::json!({

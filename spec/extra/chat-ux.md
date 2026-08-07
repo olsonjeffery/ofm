@@ -288,6 +288,49 @@ Tool cards (`.message-tool`) now display tool name, input, and result in a singl
 
 The `.tool-section-label` CSS class styles the "Input:" / "Result:" labels at 0.85em with muted color.
 
+## Navbar agent status dropdown (global live agent feed)
+
+The navbar **AgentDropdown** (`src/webapp/components/agent_dropdown.rs`) is the
+single global view of agent activity, present on **every** page. It is driven
+exclusively by server activity, never by local client-side events:
+
+- The component subscribes to the WebSocket **System** topic
+  (`WsTopic { kind: System, id: 0 }`), which every agent state transition
+  publishes an `agent_status` event onto:
+  - **Agent start** — `start_next_agent` broadcasts `refresh`
+  - **Agent completed** — `completion_handler` broadcasts `completed`
+  - **Agent failed** (unexpected session end) — the broadcast task cleanup in
+    `src/orchestration/mod.rs` and `src/server/routes/conversations.rs`
+    broadcasts `failed`
+  - **Agent start failure** — `start_next_agent`'s `start_turn` error path
+  - **Stop Agent** — `reset_agent_runs` broadcasts `stopped`
+  - **Run re-activated by a chat message** — `send_message` broadcasts
+    `refresh`
+  - **Question asked** (agent paused waiting for input) — the broadcast event
+    loop broadcasts `question`
+  - **Run blocked** (missing provider config) — `start_next_agent` broadcasts
+    `blocked`
+- On any `agent_status` event (and on page load / WS reconnect), the dropdown
+  re-fetches `GET /api/tasks/agent-status` and re-renders:
+  - **Button**: running-agent count; a 15-second pulse on the message-outline
+    icon while ≥ 1 agent runs.
+  - **Menu**: the live WebSocket connection status, one entry per running agent
+    (linking to its chat), a "Needs your input" section listing open-question
+    tasks, and a "Blocked" section listing blocked tasks.
+  - **Styling**: the whole trigger is tinted `--bulma-cyan` when ≥ 1 open
+    question task, and `is-primary` when ≥ 1 blocked task — blocked **trumps**
+    every other rule.
+- A 30-second re-sync poll guards against a dropped frame; server broadcasts
+  remain the source of truth.
+
+**Open-question detection** (`get_open_question_tasks` in
+`src/services/tasks.rs`): a task has an open question when a conversation's
+newest persisted message is a `question_asked` event — i.e. the agent paused and
+the user has not yet replied.
+
+**Blocked detection** (`get_blocked_tasks`): tasks with `workflow_blocked = 1`
+(the server-only iteration-cap marker) or with a run stuck in `blocked` status.
+
 ## Boundaries (not in this spec)
 
 - The conversation runtime that these hook into — streaming, transcript

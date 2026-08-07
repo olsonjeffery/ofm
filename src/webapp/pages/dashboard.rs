@@ -44,6 +44,12 @@ pub fn DashboardPage(
                             <input name="subproject_path" class="input" type="text" placeholder="subdir" />
                         </div>
                     </div>
+                    <div class="field">
+                        <label class="label">"Tags (optional, comma-separated dash-based names)"</label>
+                        <div class="control">
+                            <input name="tags" class="input" type="text" placeholder="desktop-3d, graphics" />
+                        </div>
+                    </div>
                     <div class="field is-grouped is-grouped-right">
                         <div class="control">
                             <button type="submit" class="button is-small is-success">"Create Project"</button>
@@ -87,10 +93,12 @@ pub fn DashboardPage(
                 var createForm=document.getElementById('create-project-form');
                 if(createForm)createForm.addEventListener('submit',function(ev){
                     ev.preventDefault();
+                    var tagsEl=createForm.querySelector('[name=tags]');
                     var data={
                         name: createForm.querySelector('[name=name]').value,
                         repo_folder_path: createForm.querySelector('[name=repo_folder_path]').value,
-                        subproject_path: createForm.querySelector('[name=subproject_path]').value || null
+                        subproject_path: createForm.querySelector('[name=subproject_path]').value || null,
+                        tags: tagsEl?tagsEl.value.split(',').map(function(s){return s.trim();}).filter(function(s){return s!=='';}):[]
                     };
                     apiCall('/api/projects',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(data)})
                         .then(function(r){if(r.ok)window.location.reload();});
@@ -170,6 +178,7 @@ mod tests {
             name: "Alpha".into(),
             repo_folder_path: "/tmp/alpha".into(),
             subproject_path: None,
+            tags: vec![],
             created_at: chrono::NaiveDateTime::parse_from_str(
                 "2024-01-15 10:00:00",
                 "%Y-%m-%d %H:%M:%S",

@@ -358,7 +358,16 @@ inherits the same event loop infrastructure. Notable characteristics:
 - **SDK-backed transport** — the `opencode_sdk` submodule manages subprocess
   lifecycle, HTTP communication, and typed event subscriptions
 - **Models list** — fetched from `client.config.providers()` (backed by
-  `GET /config/providers`)
+  `GET /config/providers`). This is the "Model Configs implement Model
+  Listing" hook: `registry::get_models_for_config`
+  (`src/providers/registry.rs`) routes an opencode config's model list here,
+  and the Agent Settings model dropdown (`AGENT_MODELS_JS` in
+  `src/webapp/pages/settings/providers_agents.rs`) consumes it via
+  `GET /api/provider-configs/models?config_ref={name}`. Rig configs feed the
+  **same** dropdown from `GET /api/settings/rig-providers/{id}/models`; that
+  endpoint is backed by a **live fetch** of the provider's model-listing API
+  (`src/providers/rig_models.rs`, cached back into `config.models` on
+  success), so both provider families surface identically.
 - **Turn resume** — fully supported by extracting the last user message from
   the transcript and re-prompting the same session
 
