@@ -475,6 +475,113 @@ async fn test_settings_agent_models_rw() {
 }
 
 #[tokio::test]
+async fn test_settings_rig_provider_models_live_fetch() {
+    use ofm::db::schema::UserModelConfig;
+    use ofm::providers::rig_config::{ModelListMode, RigProviderConfig, RigVendor};
+
+    // Tests point the rig provider at a loopback mock upstream; the production
+    // SSRF guard rejects loopback hosts, so opt out for this run.
+    std::env::set_var("OFM_RIG_MODELS_ALLOW_LOOPBACK", "1");
+
+    let (state, auth_layer, api_key, _tmp) = make_state_with_auth().await;
+    let db = state.db.clone();
+    let user_id = state.default_user_id;
+
+    // Mock upstream serving a canned model list at GET /models.
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let addr = listener.local_addr().unwrap();
+    tokio::spawn(async move {
+        axum::serve(
+            listener,
+            axum::Router::new().route(
+                "/models",
+                axum::routing::get(|| async {
+                    axum::Json(serde_json::json!({
+                        "data": [{ "id": "m-a" }, { "id": "m-b" }]
+                    }))
+                }),
+            ),
+        )
+        .await
+        .unwrap();
+    });
+
+    let base_url = spawn_app(state, auth_layer).await;
+    let client = reqwest::Client::new();
+
+    // Insert a rig row directly: the capture API rejects loopback base_urls,
+    // so a direct insert is required to point at the mock.
+    let cfg = RigProviderConfig {
+        name: "live-provider".into(),
+        vendor: RigVendor::OpenAiCompatible,
+        base_url: Some(format!("http://{addr}")),
+        api_key: Some("sk-test".into()),
+        model_list_mode: ModelListMode::OpenApiList,
+        models: vec![],
+    };
+    let id = uuid::Uuid::new_v4();
+    let now = chrono::Utc::now().naive_utc().to_string();
+    db.execute(
+        "INSERT INTO user_model_configs (id, user_id, name, config_body, harness, created_at, updated_at) \
+         VALUES ($1, $2, $3, $4, $5, $6, $7)",
+        hiqlite::params!(
+            id.to_string(),
+            user_id.to_string(),
+            "live-provider",
+            serde_json::to_string(&cfg).unwrap(),
+            "rig",
+            &now,
+            &now
+        ),
+    )
+    .await
+    .unwrap();
+
+    // The models endpoint live-fetches from the mock upstream.
+    let resp = client
+        .get(format!("{base_url}/api/settings/rig-providers/{id}/models"))
+        .header("Authorization", format!("Bearer {api_key}"))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(resp.status(), 200);
+    let models: Vec<String> = resp.json().await.unwrap();
+    assert_eq!(models, vec!["m-a", "m-b"]);
+
+    // The fetched list is cached back onto the row's config_body.
+    let row: UserModelConfig = db
+        .query_map_one(
+            "SELECT id, user_id, name, config_body, harness, created_at, updated_at \
+             FROM user_model_configs WHERE id = $1",
+            hiqlite::params!(id.to_string()),
+        )
+        .await
+        .unwrap();
+    let stored: RigProviderConfig = serde_json::from_str(&row.config_body).unwrap();
+    assert_eq!(stored.models, vec!["m-a", "m-b"]);
+
+    // Failure case: point the config at an unused port. The cached list is
+    // returned rather than a 5xx.
+    let mut dead_cfg = stored.clone();
+    dead_cfg.base_url = Some("http://127.0.0.1:1".into());
+    db.execute(
+        "UPDATE user_model_configs SET config_body = $1 WHERE id = $2",
+        hiqlite::params!(serde_json::to_string(&dead_cfg).unwrap(), id.to_string()),
+    )
+    .await
+    .unwrap();
+    let resp = client
+        .get(format!("{base_url}/api/settings/rig-providers/{id}/models"))
+        .header("Authorization", format!("Bearer {api_key}"))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(resp.status(), 200);
+    let models: Vec<String> = resp.json().await.unwrap();
+    assert_eq!(models, vec!["m-a", "m-b"]);
+}
+
+#[tokio::test]
 async fn test_settings_requires_auth() {
     let (state, auth_layer, _api_key, _tmp) = make_state_with_auth().await;
     let base_url = spawn_app(state, auth_layer).await;

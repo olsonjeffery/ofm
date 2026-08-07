@@ -147,7 +147,7 @@ following configuration is required:
 | `OIDC_ISSUER_URL` | Yes | The issuer URL (e.g. `https://auth.example.com/realms/myorg`). The server fetches `/.well-known/openid-configuration` from this root. |
 | `OIDC_CLIENT_ID` | Yes | The OAuth client ID registered with the provider. |
 | `OIDC_CLIENT_SECRET` | Yes | The client secret for server-side code exchange at the token endpoint. |
-| `OIDC_SCOPES` | No | Space-separated scopes (default: `openid profile email`). |
+| `OIDC_SCOPES` | No | Legacy, **not implemented as a config knob** — ofm instead captures the granted `scope` from the access token/userinfo at login and unions it with the discovery document's `scopes_supported` (see [OAuth scope support](#oauth-scope-support)). The requested scopes are fixed to `openid profile email` in the authorization URL. |
 | `OIDC_ADMIN_CLAIM` | No | A JSON-path claim for auto-detecting admin users on first login (e.g. `realm_access.roles` containing `admin`). If absent, the first user to log in is auto-granted admin. |
 | `OM_PRINT_BASE_URL` | Yes | The public base URL of this ofm instance (for constructing the redirect URI sent to the provider: `{base_url}/webapp/auth/callback`). |
 
@@ -368,9 +368,10 @@ Key differences from the reference:
 4. If found, UPDATE `last_login`.
 5. Return the local `id` and attributes to set up the session.
 
-The `project_members` join table is unchanged from the reference — it remains
-a many-to-many `(project_id, user_id)` join, unique on the pair,
-cascade-deleted with either parent.
+The reference's `project_members` join table is **not carried over** — it is
+folded into the groups mechanism and dropped (`drop_project_members` migration).
+Project-level access is now modeled as the owner's group membership; see
+[Groups / Organizations (access control)](#groups--organizations-access-control).
 
 ## Per-user API keys
 
@@ -596,28 +597,111 @@ routes mount behind `authenticate_token, require_admin` (`/api/admin/*`).
 Responses use a **safe user shape** — `api_key_hash` is never serialized out of
 any endpoint.
 
-## Project-membership authorization
+## Groups / Organizations (access control)
 
-This section is preserved from the reference with minimal changes. The single
-chokepoint is `has_project_access(project_id, user_id)` — it returns true if
-the user is an admin **or** a member of the project. The companion helpers
-(`get_all_projects`, `get_project`, `update_project`, `delete_project`) take
-the admin-vs-member fork once so callers don't repeat it.
+ofm models resource access as **group membership**. Two tables are introduced
+(see `src/db/mod.rs` migrations, `src/db/schema.rs`), and the reference's
+`project_members` join table is **folded into the groups mechanism and dropped**
+(`drop_project_members` migration):
 
-What this means concretely:
+```sql
+CREATE TABLE groups (
+  id TEXT PRIMARY KEY,
+  name TEXT NOT NULL UNIQUE,            -- "admins", "engineering", or an OAuth scope name
+  is_org INTEGER NOT NULL DEFAULT 0,    -- ug_or_org_flag (0=user group, 1=organization)
+  is_oauth_scope INTEGER NOT NULL DEFAULT 0, -- membership derived from OAuth scopes
+  title TEXT NOT NULL DEFAULT '',
+  description TEXT NOT NULL DEFAULT '',
+  owner_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  created_by TEXT NOT NULL DEFAULT '',  -- creator preferred_name snapshot
+  created_at TEXT NOT NULL DEFAULT ''
+);
 
-- **Project creation registers the owner as a member atomically.** Insert the
-  project row and the `project_members` row in one transaction. Forget this and
-  the creator instantly loses access to their own project.
-- **List endpoints are filtered by membership**, not "all rows": queries JOIN
-  through `project_members` on the requesting `user_id`. Admins get the
-  unfiltered admin set.
-- **Every task/agent-run route re-checks `has_project_access`** after resolving
-  the task's project, returning 403 (or 404) on failure.
-- **WebSocket actions are authorized the same way.** Before acting on a
-  `claude-command` / abort / resume, the dispatcher walks
-  conversation → task → project and calls `has_project_access`; unauthorized
-  actions are dropped with a log line.
+CREATE TABLE group_members (            -- polymorphic: user OR subgroup
+  id TEXT PRIMARY KEY,
+  group_id TEXT NOT NULL REFERENCES groups(id) ON DELETE CASCADE,
+  user_id TEXT REFERENCES users(id) ON DELETE CASCADE,
+  member_group_id TEXT REFERENCES groups(id) ON DELETE CASCADE,
+  level TEXT NOT NULL DEFAULT 'read-only', -- read-only | contributor | maintainer | admin
+  created_at TEXT NOT NULL DEFAULT '',
+  CHECK ( (user_id IS NOT NULL) OR (member_group_id IS NOT NULL) ),
+  UNIQUE(group_id, user_id),
+  UNIQUE(group_id, member_group_id)
+);
+```
+
+- **Membership levels** are the fixed enum `read-only`, `contributor`,
+  `maintainer`, `admin` (validated in the service layer; SQLite has no native
+  enum). The group **owner** and server admins (`is_admin`) hold `admin`
+  implicitly.
+- **Groups-of-groups.** A `group_members` row references either a `user_id` or
+  a `member_group_id` (subgroup roll-up). Membership resolution is recursive
+  with a cycle guard; a subgroup's members are capped at the subgroup's own
+  membership level in the parent, and the effective level is the highest across
+  all paths plus implicit owner/admin.
+- **`admins` bootstrap seed.** `db::ensure_admins_group` runs at startup
+  (idempotently, once per footprint) and creates the built-in `admins` group
+  whose owner and initial `admin`-level member is the current ofm admin (the
+  `default` user seeded by `ensure_default_user`, re-pointed to the first
+  `is_admin=1` user). This makes the previously-unimplemented
+  "admin@localhost bootstrap" intent concrete.
+- **API.** Admin-only surface under `/api/groups` (`src/server/routes/groups.rs`,
+  service in `src/services/groups.rs`): list/create groups, get/update/delete a
+  group, add/remove/change-level members (user or subgroup), and
+  `GET /api/groups/scopes-available` for the create-group scope dropdown.
+  Creation-time choices — the **User Group vs Organization type** (one-time,
+  permanent) and the **`is_oauth_scope` toggle** (group name matches an OAuth
+  scope) — are enforced only at create time.
+
+### OAuth scope support
+
+Two behaviors from the original request are implemented:
+
+1. **Group-name-as-scope**: a group created with `is_oauth_scope=1` whose name
+   is an OAuth scope. Its effective membership is derived from OAuth scopes
+   rather than explicit rows.
+2. **Membership-by-scope at access-check time**: when evaluating membership of a
+   flagged group, users whose captured scopes contain the group's name are
+   folded in at `read-only` level.
+
+Because the discovery `scopes_supported` field is optional, ofm uses a hybrid:
+it reads `scopes_supported` from the provider's discovery document when present
+(`OidcEndpoints.scopes_supported`, populated in `src/main.rs`), captures the
+live `scope` claim from the access token / userinfo at each login
+(`capture_user_scopes` in `src/services/auth.rs`), and stores the union on the
+new `users.scopes` column so membership-by-scope can be evaluated offline.
+Admins can also type arbitrary scope names in the create-group UI.
+
+### Resource → group linkage
+
+Each user-owned resource (Projects, Model Configurations, Task Flows) has **no**
+`group_id` column — the linkage is modeled as **the owner's group membership**:
+a project owned by user U is accessible to the members of U's groups.
+
+- **Read** requires effective membership at `read-only` or higher in a group
+  the owner belongs to.
+- **Write** (update/delete, task creation, agent-run controls) requires
+  `contributor` or higher.
+- **Server admins** implicitly hold `admin` everywhere; **owners** always have
+  full access to their own resources.
+
+The central chokepoint is `has_resource_access` in `src/services/access.rs`,
+wrapped per resource as `has_project_access` / `has_model_config_access` /
+`has_task_flow_access` (and write variants). These are threaded through the
+projects, settings (model configs), agent_configs, tasks, conversations and
+agent_runs routes, the webapp page handlers, and the agent-status feed
+(`get_running_agents` / `get_open_question_tasks` / `get_blocked_tasks` in
+`src/services/tasks.rs`), so group-shared resources are visible in listings and
+the navbar dropdown while remaining gated.
+
+### Admin UI
+
+The settings **Admin → Groups & Organizations** sub-page
+(`src/webapp/pages/settings/groups.rs`, route `/webapp/settings/admin/groups`,
+admin-only) provides group CRUD, the creation-time type/scope toggles with the
+"permanent" hint, and a member editor (add/remove users, add subgroups, change
+levels). Admins reach it from a navbar **Groups** button or the settings
+sidebar; the bootstrap `admins` group is flagged and non-deletable in the UI.
 
 ## The `is_technical` role and its one behavioral effect
 
@@ -757,9 +841,12 @@ become per-user / membership-gated:
 | Token refresh (`/api/auth/refresh`) | `src/server/routes/auth.rs` (refresh handler), `src/services/auth.rs` |
 | Logout (token revocation, session clear) | `src/server/routes/auth.rs` (logout handler), `src/services/auth.rs` |
 | API-key mint/hash/resolve | `src/auth/api_key.rs`, `src/server/routes/auth.rs` |
-| `has_project_access` + access-scoped project helpers | `reference/server/services/projectService.ts` (retained from reference) |
-| Schema (users, project_members, oidc_sub, api_key_hash) | `src/db/schema.rs`, `src/db/mod.rs` |
-| Owner-membership on create, membership-filtered queries | `reference/server/database/db.ts` (retained from reference) |
+| Groups/Org service (create/list/update/delete, members, resolve, access) | `src/services/groups.rs`, `src/services/access.rs` |
+| Groups/Org admin API (`/api/groups`, `scopes-available`) | `src/server/routes/groups.rs` |
+| OAuth scope capture (`users.scopes`) + discovery `scopes_supported` | `src/services/auth.rs` (`capture_user_scopes`), `src/auth/jwks.rs`, `src/main.rs` (`parse_oidc_discovery`), `src/server/state.rs` (`OidcEndpoints`) |
+| `has_project_access` + access-scoped project helpers | `src/services/access.rs` |
+| Schema (users, groups, group_members; `project_members` dropped) | `src/db/schema.rs`, `src/db/mod.rs` |
+| `admins` group bootstrap seed | `src/db/mod.rs` (`ensure_admins_group`), `src/main.rs` |
 | Non-technical auto-advance after planning | `reference/server/services/conversation/agentRunLifecycle.ts` (retained from reference) |
 | Non-technical planning prompt selection | `reference/server/constants/agentPrompts.ts`, `reference/server/services/agentRunner.ts` (retained from reference) |
 | WebSocket per-action access checks | `reference/server/websocket/dispatch.ts` (retained from reference) |

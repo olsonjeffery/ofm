@@ -18,7 +18,7 @@ use leptos::prelude::*;
 use uuid::Uuid;
 
 use crate::auth::AuthUser;
-use crate::db::schema::ActiveAgent;
+use crate::db::schema::{ActiveAgent, Project, Task};
 use crate::server::error::ServerError;
 use crate::server::state::AppState;
 use crate::services;
@@ -28,10 +28,48 @@ use crate::webapp::components::project_card::TaskCounts;
 use crate::webapp::components::settings_sidebar::{SettingsSection, SettingsSubPage};
 use crate::webapp::components::task_card::TaskCardData;
 
-async fn active_agents(db: &hiqlite::Client, user_id: &Uuid) -> Vec<ActiveAgent> {
-    services::tasks::get_running_agents(db, user_id)
+async fn active_agents(db: &hiqlite::Client, auth: &AuthUser) -> Vec<ActiveAgent> {
+    services::tasks::get_running_agents(db, auth)
         .await
         .unwrap_or_default()
+}
+
+/// Fetch a project and verify `auth` may read it (owner or group member).
+/// Returns 404 when missing or inaccessible.
+async fn require_project(
+    state: &AppState,
+    auth: &AuthUser,
+    project_id: i64,
+) -> Result<Project, ServerError> {
+    let project = services::projects::get_project(&state.db, project_id)
+        .await
+        .map_err(|_| ServerError::NotFound("Project not found".into()))?;
+    let has_access = services::access::has_project_access(&state.db, auth, &project)
+        .await
+        .map_err(|e| ServerError::Internal(e.to_string()))?;
+    if !has_access {
+        return Err(ServerError::NotFound("Project not found".into()));
+    }
+    Ok(project)
+}
+
+/// Fetch a task and verify `auth` may read it (owner or group member). Returns
+/// 404 when missing or inaccessible.
+async fn require_task(
+    state: &AppState,
+    auth: &AuthUser,
+    task_id: i64,
+) -> Result<Task, ServerError> {
+    let task = services::tasks::get_task(&state.db, task_id)
+        .await
+        .map_err(|_| ServerError::NotFound("Task not found".into()))?;
+    let has_access = services::access::has_task_flow_access(&state.db, auth, &task)
+        .await
+        .map_err(|e| ServerError::Internal(e.to_string()))?;
+    if !has_access {
+        return Err(ServerError::NotFound("Task not found".into()));
+    }
+    Ok(task)
 }
 
 pub fn webapp_routes() -> Router<AppState> {
@@ -60,8 +98,10 @@ pub fn webapp_protected_routes() -> Router<AppState> {
             "/webapp/projects/{project_id}/tasks/{task_id}/commits/{oid}",
             get(commit_detail_handler),
         )
+        .route("/webapp/prompts", get(prompts_handler))
+        .route("/webapp/prompts/{id}", get(prompt_detail_handler))
         .route("/webapp/onboarding", get(onboarding_handler))
-        .route("/webapp/settings", get(settings_handler))
+        .route("/webapp/settings", get(settings_providers_handler))
         .route(
             "/webapp/settings/providers-agents",
             get(settings_providers_handler),
@@ -73,6 +113,10 @@ pub fn webapp_protected_routes() -> Router<AppState> {
         .route(
             "/webapp/settings/providers-agents/agent-settings",
             get(settings_agent_settings_handler),
+        )
+        .route(
+            "/webapp/settings/providers-agents/rig-providers",
+            get(settings_rig_providers_handler),
         )
         .route(
             "/webapp/settings/import-export",
@@ -94,6 +138,10 @@ pub fn webapp_protected_routes() -> Router<AppState> {
         .route(
             "/webapp/settings/account/api-keys",
             get(settings_api_keys_handler),
+        )
+        .route(
+            "/webapp/settings/admin/groups",
+            get(settings_groups_handler),
         )
         .route("/webapp/islands/uptime", get(uptime_handler))
         .route("/webapp/islands/infocard", get(infocard_handler))
@@ -157,7 +205,7 @@ async fn callback_handler(
 
 async fn onboarding_handler(State(state): State<AppState>, auth: AuthUser) -> Html<String> {
     let user_json = serde_json::to_string(&auth).unwrap_or_default();
-    let agents = active_agents(&state.db, &auth.user_id).await;
+    let agents = active_agents(&state.db, &auth).await;
 
     let user = match crate::services::auth::current_user(&state.db, auth.user_id).await {
         Ok(u) => u,
@@ -211,7 +259,7 @@ async fn render_settings(
     body: String,
 ) -> Html<String> {
     let user_json = serde_json::to_string(auth).unwrap_or_default();
-    let agents = active_agents(&state.db, &auth.user_id).await;
+    let agents = active_agents(&state.db, auth).await;
     let breadcrumbs = vec![
         breadcrumb_registry::all_projects(),
         breadcrumb_registry::settings(),
@@ -219,17 +267,6 @@ async fn render_settings(
         breadcrumb_registry::settings_sub_page(sub_page),
     ];
     Html(render_shell(&body, Some(user_json), breadcrumbs, agents))
-}
-
-async fn settings_handler(auth: AuthUser, State(state): State<AppState>) -> Html<String> {
-    render_settings(
-        &state,
-        &auth,
-        SettingsSection::ProvidersAgents,
-        SettingsSubPage::ModelConfig,
-        pages::settings::providers_agents::render(SettingsSubPage::ModelConfig),
-    )
-    .await
 }
 
 async fn settings_providers_handler(auth: AuthUser, State(state): State<AppState>) -> Html<String> {
@@ -253,6 +290,20 @@ async fn settings_agent_settings_handler(
         SettingsSection::ProvidersAgents,
         SettingsSubPage::AgentSettings,
         pages::settings::providers_agents::render(SettingsSubPage::AgentSettings),
+    )
+    .await
+}
+
+async fn settings_rig_providers_handler(
+    auth: AuthUser,
+    State(state): State<AppState>,
+) -> Html<String> {
+    render_settings(
+        &state,
+        &auth,
+        SettingsSection::ProvidersAgents,
+        SettingsSubPage::RigProviders,
+        pages::settings::rig_providers::render(SettingsSubPage::RigProviders),
     )
     .await
 }
@@ -336,13 +387,142 @@ async fn settings_api_keys_handler(auth: AuthUser, State(state): State<AppState>
     .await
 }
 
+async fn settings_groups_handler(auth: AuthUser, State(state): State<AppState>) -> Html<String> {
+    if !auth.is_admin {
+        return Html(render_shell(
+            r#"<script>window.location.href='/webapp';</script>"#,
+            Some(serde_json::to_string(&auth).unwrap_or_default()),
+            Vec::new(),
+            Vec::new(),
+        ));
+    }
+    render_settings(
+        &state,
+        &auth,
+        SettingsSection::Admin,
+        SettingsSubPage::Groups,
+        pages::settings::groups::render(SettingsSubPage::Groups),
+    )
+    .await
+}
+
+async fn prompts_handler(
+    auth: AuthUser,
+    State(state): State<AppState>,
+) -> Result<Html<String>, ServerError> {
+    let user_json = serde_json::to_string(&auth).unwrap_or_default();
+    let agents = active_agents(&state.db, &auth).await;
+    let prompts = services::prompts::list_prompts(&state.db, &auth.user_id)
+        .await
+        .map_err(|e| ServerError::Internal(e.to_string()))?;
+
+    let mut composition_summaries = std::collections::HashMap::new();
+    for prompt in &prompts {
+        if prompt.kind == crate::db::schema::PromptKind::Composite {
+            if let Ok(children) = services::prompts::get_children(&state.db, &prompt.id).await {
+                let snippets = children
+                    .iter()
+                    .filter(|c| c.kind == crate::db::schema::PromptKind::Snippet)
+                    .count();
+                let composites = children.len().saturating_sub(snippets);
+                let mut parts = Vec::new();
+                if snippets > 0 {
+                    parts.push(format!(
+                        "{snippets} snippet{}",
+                        if snippets == 1 { "" } else { "s" }
+                    ));
+                }
+                if composites > 0 {
+                    parts.push(format!(
+                        "{composites} composite{}",
+                        if composites == 1 { "" } else { "s" }
+                    ));
+                }
+                composition_summaries.insert(prompt.id, parts.join(" + "));
+            }
+        }
+    }
+
+    let page_html = leptos::view! {
+        <pages::prompts::PromptsPage
+            prompts
+            user_id=auth.user_id
+            composition_summaries
+        />
+    }
+    .to_html();
+    let breadcrumbs = vec![
+        breadcrumb_registry::all_projects(),
+        breadcrumb_registry::prompts(),
+    ];
+    Ok(Html(render_shell(
+        &page_html,
+        Some(user_json),
+        breadcrumbs,
+        agents,
+    )))
+}
+
+async fn prompt_detail_handler(
+    auth: AuthUser,
+    State(state): State<AppState>,
+    Path(id): Path<Uuid>,
+) -> Result<Html<String>, ServerError> {
+    let user_json = serde_json::to_string(&auth).unwrap_or_default();
+    let agents = active_agents(&state.db, &auth).await;
+    let prompt = services::prompts::get_prompt(&state.db, &id)
+        .await
+        .map_err(|e| ServerError::NotFound(e.to_string()))?;
+    if !services::prompts::prompt_visible(&prompt, &auth.user_id) {
+        return Err(ServerError::NotFound("Prompt not found".into()));
+    }
+    let children = services::prompts::get_children(&state.db, &id)
+        .await
+        .unwrap_or_default();
+    let library = services::prompts::list_prompts(&state.db, &auth.user_id)
+        .await
+        .unwrap_or_default();
+    let assignments = services::prompts::list_assignments_for_prompt(&state.db, &id)
+        .await
+        .unwrap_or_default();
+    let project_options: Vec<(i64, String)> = services::projects::list_projects(&state.db, &auth)
+        .await
+        .unwrap_or_default()
+        .into_iter()
+        .map(|p| (p.id, p.name))
+        .collect();
+
+    let breadcrumbs = vec![
+        breadcrumb_registry::all_projects(),
+        breadcrumb_registry::prompts(),
+        breadcrumb_registry::prompt(&prompt.title, prompt.id),
+    ];
+    let page_html = leptos::view! {
+        <pages::prompt_detail::PromptDetailPage
+            prompt
+            children
+            library
+            assignments
+            project_options
+            user_id=auth.user_id
+        />
+    }
+    .to_html();
+    Ok(Html(render_shell(
+        &page_html,
+        Some(user_json),
+        breadcrumbs,
+        agents,
+    )))
+}
+
 async fn dashboard_handler(
     auth: AuthUser,
     State(state): State<AppState>,
 ) -> Result<Html<String>, ServerError> {
     let user_json = serde_json::to_string(&auth).unwrap_or_default();
-    let agents = active_agents(&state.db, &auth.user_id).await;
-    let projects = services::projects::list_projects(&state.db, &auth.user_id)
+    let agents = active_agents(&state.db, &auth).await;
+    let projects = services::projects::list_projects(&state.db, &auth)
         .await
         .map_err(|e| ServerError::Internal(e.to_string()))?;
     let task_counts = compute_task_counts(&state.db, &projects).await;
@@ -363,13 +543,8 @@ async fn board_handler(
     Path(project_id): Path<i64>,
 ) -> Result<Html<String>, ServerError> {
     let user_json = serde_json::to_string(&auth).unwrap_or_default();
-    let agents = active_agents(&state.db, &auth.user_id).await;
-    let project = services::projects::get_project(&state.db, project_id)
-        .await
-        .map_err(|_| ServerError::NotFound("Project not found".into()))?;
-    if project.user_id != auth.user_id {
-        return Err(ServerError::NotFound("Project not found".into()));
-    }
+    let agents = active_agents(&state.db, &auth).await;
+    let project = require_project(&state, &auth, project_id).await?;
     let tasks = services::tasks::list_tasks(&state.db, project_id)
         .await
         .map_err(|e| ServerError::Internal(e.to_string()))?;
@@ -410,19 +585,12 @@ async fn task_detail_handler(
     Path((project_id, task_id)): Path<(i64, i64)>,
 ) -> Result<Html<String>, ServerError> {
     let user_json = serde_json::to_string(&auth).unwrap_or_default();
-    let agents = active_agents(&state.db, &auth.user_id).await;
+    let agents = active_agents(&state.db, &auth).await;
 
-    let project = services::projects::get_project(&state.db, project_id)
-        .await
-        .map_err(|_| ServerError::NotFound("Project not found".into()))?;
-    if project.user_id != auth.user_id {
-        return Err(ServerError::NotFound("Project not found".into()));
-    }
+    let project = require_project(&state, &auth, project_id).await?;
 
-    let task = services::tasks::get_task(&state.db, task_id)
-        .await
-        .map_err(|_| ServerError::NotFound("Task not found".into()))?;
-    if task.user_id != auth.user_id || task.project_id != project_id {
+    let task = require_task(&state, &auth, task_id).await?;
+    if task.project_id != project_id {
         return Err(ServerError::NotFound("Task not found".into()));
     }
 
@@ -489,19 +657,12 @@ async fn commit_detail_handler(
     Path((project_id, task_id, oid)): Path<(i64, i64, String)>,
 ) -> Result<Html<String>, ServerError> {
     let user_json = serde_json::to_string(&auth).unwrap_or_default();
-    let agents = active_agents(&state.db, &auth.user_id).await;
+    let agents = active_agents(&state.db, &auth).await;
 
-    let project = services::projects::get_project(&state.db, project_id)
-        .await
-        .map_err(|_| ServerError::NotFound("Project not found".into()))?;
-    if project.user_id != auth.user_id {
-        return Err(ServerError::NotFound("Project not found".into()));
-    }
+    let project = require_project(&state, &auth, project_id).await?;
 
-    let task = services::tasks::get_task(&state.db, task_id)
-        .await
-        .map_err(|_| ServerError::NotFound("Task not found".into()))?;
-    if task.user_id != auth.user_id || task.project_id != project_id {
+    let task = require_task(&state, &auth, task_id).await?;
+    if task.project_id != project_id {
         return Err(ServerError::NotFound("Task not found".into()));
     }
 
@@ -592,16 +753,9 @@ async fn chat_handler(
     State(state): State<AppState>,
     Path((project_id, task_id)): Path<(i64, i64)>,
 ) -> Result<Html<String>, ServerError> {
-    let project = services::projects::get_project(&state.db, project_id)
-        .await
-        .map_err(|_| ServerError::NotFound("Project not found".into()))?;
-    if project.user_id != auth.user_id {
-        return Err(ServerError::NotFound("Project not found".into()));
-    }
+    let project = require_project(&state, &auth, project_id).await?;
 
-    let task = services::tasks::get_task(&state.db, task_id)
-        .await
-        .map_err(|_| ServerError::NotFound("Task not found".into()))?;
+    let task = require_task(&state, &auth, task_id).await?;
 
     let conversations = services::tasks::list_conversations_for_task(&state.db, task_id)
         .await
@@ -618,7 +772,7 @@ async fn chat_handler(
     }
 
     let user_json = serde_json::to_string(&auth).unwrap_or_default();
-    let agents = active_agents(&state.db, &auth.user_id).await;
+    let agents = active_agents(&state.db, &auth).await;
     let breadcrumbs = vec![
         breadcrumb_registry::all_projects(),
         breadcrumb_registry::project(&project.name, project.id),
@@ -627,8 +781,9 @@ async fn chat_handler(
     ];
     let page_html = leptos::view! {
         <pages::chat::ChatPage
-            _project_id=project_id
+            project_id=project_id
             task_id
+            task
             active_conversation_id=None
             initial_messages=Vec::new()
             conversation_name=None
@@ -652,18 +807,11 @@ async fn chat_handler_with_conv(
     Path((project_id, task_id, conversation_id)): Path<(i64, i64, uuid::Uuid)>,
 ) -> Result<Html<String>, ServerError> {
     let user_json = serde_json::to_string(&auth).unwrap_or_default();
-    let agents = active_agents(&state.db, &auth.user_id).await;
+    let agents = active_agents(&state.db, &auth).await;
 
-    let project = services::projects::get_project(&state.db, project_id)
-        .await
-        .map_err(|_| ServerError::NotFound("Project not found".into()))?;
-    if project.user_id != auth.user_id {
-        return Err(ServerError::NotFound("Project not found".into()));
-    }
+    let project = require_project(&state, &auth, project_id).await?;
 
-    let task = services::tasks::get_task(&state.db, task_id)
-        .await
-        .map_err(|_| ServerError::NotFound("Task not found".into()))?;
+    let task = require_task(&state, &auth, task_id).await?;
 
     let conv = session::resume_session(&state.db, conversation_id)
         .await
@@ -716,8 +864,9 @@ async fn chat_handler_with_conv(
     ];
     let page_html = leptos::view! {
     <pages::chat::ChatPage
-        _project_id=project_id
+        project_id=project_id
         task_id
+        task
         active_conversation_id=Some(conversation_id)
         initial_messages=messages
         conversation_name=Some(conv_name)

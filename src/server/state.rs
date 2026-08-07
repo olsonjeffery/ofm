@@ -50,6 +50,9 @@ pub struct OidcEndpoints {
     pub redirect_uri: String,
     pub jwks_cache: SharedJwksCache,
     pub jwks_issuer: Option<String>,
+    /// Scopes the provider advertises as supported in its discovery document
+    /// (optional field; empty when the provider omits it).
+    pub scopes_supported: Vec<String>,
 }
 
 pub struct PkceEntry {

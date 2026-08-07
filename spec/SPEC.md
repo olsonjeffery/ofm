@@ -32,9 +32,14 @@ the `ofm` application. A typescript `reference/` application is kept in
 this directory, for reference during the implementation of [`ofm`][1]. The
 Rust codebase's foundational layer (DB schema, CRUD API, worktree management,
 OpenCode provider integration (via `opencode_sdk`), task archive, orchestration state machine,
-agent prompt builders) is now implemented at `src/`. The orchestration loop
+agent prompt builders, and the database-backed Prompt Library with its Prompt Builder UI) is
+now implemented at `src/`. The orchestration loop
 completion handler, state machine transitions, and agent prompt builders for
-planning, implementation, review, and PR are implemented. The full
+planning, implementation, review, and PR are implemented. A designated
+library prompt (project-scoped or global per `agent_type`) replaces the stock
+template in `start_next_agent` (`src/orchestration/mod.rs`), with the template
+builders retained as the fallback path. Global designations are admin-only
+while project designations require write access to the target project. The full
 implementation/review agent loop wiring (chaining through the completion
 handler) is partially wired; the reference is retained for the remaining
 end-to-end lifecycle details.
@@ -177,6 +182,26 @@ spawns `pty`s, maintains database state, and so on
    value); without a recorded re-bootstrap the login is refused. Previously
    issued rauthy sessions/tokens are invalidated.
 
+### Timestamps
+
+All timestamps are stored as naive **UTC** `TEXT` strings in `"YYYY-MM-DD HH:MM:SS"`
+(no timezone marker) and written via `chrono::Utc::now().naive_utc()`. They are
+emitted on the wire as naive UTC — space-separated in WebSocket payloads
+(`"YYYY-MM-DD HH:MM:SS"`) and `T`-separated in JSON via chrono serde
+(`"YYYY-MM-DDTHH:MM:SS"`). **Display conversion to the browser's local
+timezone/locale is done entirely on the frontend.** SSR components keep the
+server-rendered UTC text as a no-JS fallback and additionally emit a
+machine-readable `data-utc="<RFC3339 UTC>"` attribute plus a
+`data-utc-format` (`"pill"` | `"datetime"` | `"date"` | `"datetime_ymd"`) hint; the client-side
+`OfmTime` helper (`global_runtime_script` in `src/webapp/shim/runtime.rs`,
+`utc_attr()` in `src/webapp/components/datetime.rs`) parses the value as UTC
+and rewrites the element's text in the browser's zone on `DOMContentLoaded`
+and after island fetches. Live WebSocket-update paths (`src/webapp/pages/chat.rs`,
+`src/webapp/pages/task_detail.rs`) reuse the same `OfmTime` formatting so
+live values always agree with page-load rendering. Git commit timestamps
+(`src/webapp/components/commit_list.rs`, `src/webapp/pages/commit_detail.rs`)
+follow the same contract with `data-utc-format="datetime_ymd"`.
+
 ## How to build from this spec
 
 Point a coding agent at this file and say "build this." Then:
@@ -196,7 +221,7 @@ Point a coding agent at this file and say "build this." Then:
    `src/agents/pull_request.rs` (PR prompt).
     The web application lives at `src/webapp/` (Leptos SSR + islands). The settings
     UI lives at `src/webapp/pages/settings/` (per-section modules `providers_agents.rs`,
-    `import_export.rs`, `account.rs`) with a shared section-local sidebar in
+    `rig_providers.rs`, `import_export.rs`, `account.rs`) with a shared section-local sidebar in
     `src/webapp/components/settings_sidebar.rs` and a navbar split-button dropdown in
     `src/webapp/components/settings_dropdown.rs`.
     CRUD service logic lives at `src/services/` (auth, projects, tasks, settings, export_import).
@@ -245,7 +270,7 @@ Implement all of these for a minimal working tool. Read them in this order.
 
 | Reviewed/Updated for `ofm`? | Spec | What it covers |
 |---|---|---|
-| **✅ Yes** | [`core/orchestration-loop.md`](./core/orchestration-loop.md) | **The engine.** The state machine that drives plan → (implement ⇄ review) → PR: agent runs, chaining, the iteration cap, blocking, and how each step decides the next. Start here. |
+| **✅ Yes** | [`core/orchestration-loop.md`](./core/orchestration-loop.md) | **The engine.** The state machine that drives plan → (implement ⇄ review) → PR: agent runs, chaining, the iteration cap, blocking, and how each step decides the next. Start here. **Task 112 additions:** provider/model errors pre-mark the run `failed` so a broken environment halts the auto-advance loop instead of burning the iteration cap; three recovery endpoints (`POST /api/tasks/:id/reset-cap`, `reset-history`, `duplicate`) plus a blocked/cap recovery banner on the task detail + chat pages, a "Blocked" tag on board cards, and a friendlier 409 message when the cap is hit. |
 | **✅ Yes** |  [`core/task-and-workspace.md`](./core/task-and-workspace.md) | The unit of work: a markdown document plus an isolated git worktree. Lifecycle, and where the doc lives so it survives the PR merge. Deliberately silent on how the doc is authored. |
 | **✅ Yes** | (content moved to [`extra/harnesses/opencode.md`](./extra/harnesses/opencode.md)) | The direct OpenCode integration: spawning via `std::process::Command`, the HTTP+SSE protocol, per-turn input, the streaming runtime, transcript persistence, session management, `opencode.json` passthrough, and orphan recovery. See also the provider abstraction at `src/providers/` (`LlmProvider` trait, `OpenCodeSdkProvider`, config resolution). |
 | **✅ Yes** | [`core/planning-agent.md`](./core/planning-agent.md) | The agent that turns a prompt + task doc into a structured implementation plan written back into the doc. |
@@ -260,13 +285,13 @@ Opinionated features. Each is independent; implement what you want.
 |---|---|---|
 | **✅ Yes** | [`extra/harnesses/opencode.md`](./extra/harnesses/opencode.md) | OpenCode integration: SDK-backed subprocess lifecycle, event mapping, transcript mirroring, credential delegation, and capabilities. |
  | **✅ Yes** | [`extra/harnesses/opencode.md`](./extra/harnesses/opencode.md) | OpenCode SDK-backed provider integration: SDK-driven subprocess lifecycle, event mapping, credential delegation via `opencode.json`, session lifecycle. **Task 204 additions:** `provider_session_id` rename (provider-agnostic), `resume_turn` implementation for `OpenCodeSdkProvider`, `question.asked` event handling (mid-turn question → pause SSE → user reply → resume), `SessionStart` event persistence to DB, lazy provider recreation on restart. |
-| **✅ Yes** | [`extra/kanban-board.md`](./extra/kanban-board.md) | The opinionated projects/tasks board and 4-screen UI for authoring tasks. **Task 144 additions:** task detail page now renders a commit-list table (worktree commits since the merge-base with the base branch, oldest→newest, server-side on every load) and each commit links to a dedicated page with the changed-file list and a two-column diff — see [`core/task-and-workspace.md`](./core/task-and-workspace.md) and `src/services/commits.rs`. |
+| **✅ Yes** | [`extra/kanban-board.md`](./extra/kanban-board.md) | The opinionated projects/tasks board and 4-screen UI for authoring tasks. **Task 144 additions:** task detail page now renders a commit-list table (worktree commits since the merge-base with the base branch, oldest→newest, server-side on every load) and each commit links to a dedicated page with the changed-file list and a stacked (unified) diff — see [`core/task-and-workspace.md`](./core/task-and-workspace.md) and `src/services/commits.rs`. |
 | **🚫 No** | [`extra/refinement-agent.md`](./extra/refinement-agent.md) | An extra agent that polishes the work between review and PR. |
 | **🚫 No** | [`extra/yolo-mode.md`](./extra/yolo-mode.md) | A single-agent alternative to the multi-step pipeline. |
 | **🚫 No** | [`extra/pr-comment-retrigger.md`](./extra/pr-comment-retrigger.md) | Re-run the PR agent automatically when a PR receives review comments (periodic PR polling). |
-| **⚠️ Partial** | [`extra/prompt-and-model-customization.md`](./extra/prompt-and-model-customization.md) | Harness-model config via `agent_harness_configs` and scope-precedence resolution is implemented (`src/providers/`); prompt overrides and template engine are not yet implemented. |
-| **✅ Yes** | [`extra/auth-and-multi-user.md`](./extra/auth-and-multi-user.md) | OAuth-integration, Accounts, API keys, project membership, admin, and role-driven behavior. Auth infrastructure (AuthLayer, JWKS, PKCE flow, OAuth callback, API keys, rauthy Docker lifecycle) is implemented at `src/auth/`, `src/services/auth.rs`, `src/server/routes/auth.rs`, `src/webapp/auth.rs`, `src/rauthy/`. Project-membership authorization, admin panel, and `is_technical` auto-advance remain from the reference. |
-| **✅ Yes** | [`extra/chat-ux.md`](./extra/chat-ux.md) | Real-time chat view (`src/webapp/pages/chat.rs`), conversation sidebar (`src/webapp/components/conversation_list.rs`), streaming message display (`src/webapp/components/message_stream.rs`), manual chat input (`src/webapp/components/chat_input.rs`), chat API endpoints (`src/server/routes/conversations.rs`), broadcast task in `post_create_agent_run` (`src/server/routes/agent_runs.rs`), orchestrator phase-skip (`src/orchestration/state_machine.rs`), task detail page Agents box with per-phase Run buttons and Stop Agent button (`src/webapp/pages/task_detail.rs`). **Task 204 additions:** Removed agent-type phases dropdown from `ChatInput`, bounded message timeline with overflow fixes, `question_asked` event rendering in message stream and inline JS. Manual conveniences (slash commands, file attachments, voice input, context-usage meter) are not yet implemented. |
+| **✅ Implemented** | [`extra/prompt-and-model-customization.md`](./extra/prompt-and-model-customization.md) | Harness-model config via `agent_harness_configs` and scope-precedence resolution is implemented (`src/providers/`); a **Rig-based Providers** sub-page under "Providers & Agents" (`/webapp/settings/providers-agents/rig-providers`) captures per-vendor Rig provider configs as structured JSON files with `harness = "rig"` (execution deferred to a future story, RIG 1). The prompt-override layer is now the **database-backed Prompt Library**: `prompts`/`prompt_children`/`prompt_assignments` tables, the `src/prompts/` render engine, `src/services/prompts.rs`, the `Library → Prompts` UI (`/webapp/prompts`, `/webapp/prompts/{id}`), and designation via `POST /api/prompts/{id}/assignments` consumed in `src/orchestration/mod.rs`. The file-based loader (`/api/settings/prompts`) is superseded. |
+| **✅ Yes** | [`extra/auth-and-multi-user.md`](./extra/auth-and-multi-user.md) | OAuth-integration, Accounts, API keys, admin, and role-driven behavior. Auth infrastructure (AuthLayer, JWKS, PKCE flow, OAuth callback, API keys, rauthy Docker lifecycle) is implemented at `src/auth/`, `src/services/auth.rs`, `src/server/routes/auth.rs`, `src/webapp/auth.rs`, `src/rauthy/`. **User Groups / Organizations** are first-class: `groups` + `group_members` tables, a bootstrap-seeded `admins` group, OAuth scope capture + discovery (`users.scopes`), group-based gating of Projects / Model Configurations / Task Flows (`src/services/groups.rs`, `src/services/access.rs`, `src/server/routes/groups.rs`), and an admin **Groups & Organizations** settings sub-page. The reference's `project_members` join table is folded into groups and dropped; `is_technical` auto-advance remains from the reference. |
+| **✅ Yes** | [`extra/chat-ux.md`](./extra/chat-ux.md) | Real-time chat view (`src/webapp/pages/chat.rs`), conversation sidebar (`src/webapp/components/conversation_list.rs`), streaming message display (`src/webapp/components/message_stream.rs`), manual chat input (`src/webapp/components/chat_input.rs`), chat API endpoints (`src/server/routes/conversations.rs`), broadcast task in `post_create_agent_run` (`src/server/routes/agent_runs.rs`), orchestrator phase-skip (`src/orchestration/state_machine.rs`), task detail page Agents box with per-phase Run buttons and Stop Agent button (`src/webapp/pages/task_detail.rs`). **Task 204 additions:** Removed agent-type phases dropdown from `ChatInput`, bounded message timeline with overflow fixes, `question_asked` event rendering in message stream and inline JS. **Task 79 additions:** global navbar agent-status dropdown (`src/webapp/components/agent_dropdown.rs`) driven by System-topic `agent_status` broadcasts — running-agent count, open-question ("Needs your input") and blocked sections, cyan/primary trigger tinting, and a 15s pulse on the message icon; aggregate feed via `GET /api/tasks/agent-status` (`get_global_agent_status` in `src/services/tasks.rs`). Manual conveniences (slash commands, file attachments, voice input, context-usage meter) are not yet implemented. |
 | **✅ Yes** | [`extra/opencodeai-sdk.md`](./extra/opencodeid-sdk.md) | API surface and implementation following the example of the `@opencode-ai/sdk` npm package. |
 
 ## The reference implementation

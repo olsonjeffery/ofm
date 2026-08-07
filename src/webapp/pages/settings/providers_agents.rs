@@ -7,6 +7,10 @@ use crate::webapp::components::settings_sidebar::{
 };
 
 pub fn render(active: SettingsSubPage) -> String {
+    if active == SettingsSubPage::RigProviders {
+        return super::rig_providers::render(active);
+    }
+
     let sidebar = leptos::view! {
         <SettingsSidebar section=SettingsSection::ProvidersAgents active />
     }
@@ -189,11 +193,75 @@ document.addEventListener('DOMContentLoaded', function() {
 
 const AGENT_MODELS_JS: &str = r#"
 window.__ACCESS_TOKEN__ = '';
+window.__MODEL_CACHE__ = {};
 
 function escapeHtml(str) {
     var div = document.createElement('div');
-    div.appendChild(document.createTextNode(str));
+    div.appendChild(document.createTextNode(str == null ? '' : str));
     return div.innerHTML;
+}
+
+function configById(opencodeConfigs, rigConfigs, id) {
+    for (var i = 0; i < opencodeConfigs.length; i++) {
+        if (opencodeConfigs[i].harness === 'opencode' && opencodeConfigs[i].id === id) {
+            return { id: id, name: opencodeConfigs[i].name, harness: 'opencode' };
+        }
+    }
+    for (var j = 0; j < rigConfigs.length; j++) {
+        if (rigConfigs[j].id === id) return { id: id, name: rigConfigs[j].name, harness: 'rig' };
+    }
+    return null;
+}
+
+function parseModelsResponse(r) {
+    return r.json().catch(function() { return null; }).then(function(data) {
+        if (r.ok) {
+            return { models: Array.isArray(data) ? data : [], error: null };
+        }
+        return { models: [], error: (data && data.error) || ('HTTP ' + r.status) };
+    });
+}
+
+function fetchModels(config, cb) {
+    if (window.__MODEL_CACHE__[config.id]) {
+        cb(window.__MODEL_CACHE__[config.id], null);
+        return;
+    }
+    var url = config.harness === 'rig'
+        ? '/api/settings/rig-providers/' + config.id + '/models'
+        : '/api/provider-configs/models?config_ref=' + encodeURIComponent(config.id + '.json');
+    apiCall(url)
+        .then(parseModelsResponse)
+        .then(function(res) {
+            window.__MODEL_CACHE__[config.id] = res.models;
+            cb(res.models, res.error);
+        })
+        .catch(function(err) {
+            cb([], (err && err.message) || String(err));
+        });
+}
+
+function showModelsError(pickerEl, msg) {
+    var existing = pickerEl.querySelector('.model-list-error');
+    if (!msg) {
+        if (existing) existing.remove();
+        return;
+    }
+    if (!existing) {
+        existing = document.createElement('p');
+        existing.className = 'help is-danger model-list-error';
+        pickerEl.appendChild(existing);
+    }
+    existing.textContent = 'Could not load models for this provider: ' + msg;
+}
+
+function modelOptionsHtml(models) {
+    var opts = '<option value="">-- Select model --</option>';
+    models.forEach(function(m) {
+        opts += '<option value="' + escapeHtml(m) + '">' + escapeHtml(m) + '</option>';
+    });
+    opts += '<option value="__custom__">Other (type a model id)…</option>';
+    return opts;
 }
 
 document.addEventListener('DOMContentLoaded', function() {
@@ -205,28 +273,42 @@ function loadAgentModels() {
     if (!tbody) return;
     Promise.all([
         apiCall('/api/settings/agent-models').then(function(r) { return r.json(); }),
-        apiCall('/api/settings/config-body').then(function(r) { return r.json(); })
+        apiCall('/api/settings/config-body').then(function(r) { return r.json(); }),
+        apiCall('/api/settings/rig-providers').then(function(r) { return r.json(); })
     ])
     .then(function(results) {
         var data = results[0];
-        var configs = results[1];
+        var opencodeConfigs = results[1] || [];
+        var rigConfigs = results[2] || [];
+        window.__CONFIGS__ = opencodeConfigs;
+        window.__RIG_CONFIGS__ = rigConfigs;
         var agents = ['planification', 'implementation', 'refinement', 'review', 'pr', 'yolo', 'conversation_title'];
         var html = '';
         agents.forEach(function(agent) {
             var setting = data[agent] || {};
-            html += '<tr>';
+            html += '<tr data-agent="' + agent + '">';
             html += '<td>' + agent + '</td>';
             html += '<td>';
-            html += '<select class="select" data-agent="' + agent + '" data-model-config="true">';
+            html += '<select class="select" data-model-config="true">';
             html += '<option value="">-- Select config --</option>';
-            configs.forEach(function(cfg) {
+            opencodeConfigs.forEach(function(cfg) {
+                if (cfg.harness !== 'opencode') return;
                 var selected = (cfg.id === setting.model_config_id) ? ' selected' : '';
-                html += '<option value="' + cfg.id + '"' + selected + '>' + escapeHtml(cfg.name) + '</option>';
+                html += '<option value="' + cfg.id + '"' + selected + '>' + escapeHtml(cfg.name) + ' (opencode)</option>';
+            });
+            rigConfigs.forEach(function(cfg) {
+                var selected = (cfg.id === setting.model_config_id) ? ' selected' : '';
+                html += '<option value="' + cfg.id + '"' + selected + '>' + escapeHtml(cfg.name) + ' (rig)</option>';
             });
             html += '</select>';
-            html += '<div style="margin-top:0.3rem"><input type="text" class="input" data-agent="' + agent + '" data-model-name="true" value="' + (setting.model || '') + '" placeholder="model name (e.g. gpt-4)"/></div>';
+            html += '<div class="model-picker" style="margin-top:0.3rem">';
+            html += '<select class="select" data-model-name="true" style="width:100%">';
+            html += modelOptionsHtml([]);
+            html += '</select>';
+            html += '<input type="text" class="input" data-model-custom="true" placeholder="custom model id" style="display:none;margin-top:0.3rem"/>';
+            html += '</div>';
             html += '</td>';
-            html += '<td><select class="select" data-agent="' + agent + '">';
+            html += '<td><select class="select" data-effort="true">';
             ['auto', 'low', 'medium', 'high'].forEach(function(eff) {
                 var selected = (setting.effort === eff) ? ' selected' : '';
                 html += '<option value="' + eff + '"' + selected + '>' + eff + '</option>';
@@ -235,6 +317,31 @@ function loadAgentModels() {
             html += '</tr>';
         });
         tbody.innerHTML = html;
+
+        agents.forEach(function(agent) {
+            var setting = data[agent] || {};
+            var cfgId = setting.model_config_id;
+            if (!cfgId) return;
+            var config = configById(opencodeConfigs, rigConfigs, cfgId);
+            if (!config) return;
+            var tr = tbody.querySelector('tr[data-agent="' + agent + '"]');
+            if (!tr) return;
+            var modelSelect = tr.querySelector('select[data-model-name="true"]');
+            var customInput = tr.querySelector('input[data-model-custom="true"]');
+            fetchModels(config, function(models, error) {
+                modelSelect.innerHTML = modelOptionsHtml(models);
+                showModelsError(modelSelect.parentElement, error);
+                if (setting.model) {
+                    if (models.indexOf(setting.model) !== -1) {
+                        modelSelect.value = setting.model;
+                    } else {
+                        modelSelect.value = '__custom__';
+                        customInput.value = setting.model;
+                        customInput.style.display = '';
+                    }
+                }
+            });
+        });
     })
     .catch(function(err) {
         tbody.innerHTML = '<tr><td colspan="3" class="has-text-danger">Failed to load: ' + err + '</td></tr>';
@@ -242,22 +349,63 @@ function loadAgentModels() {
 }
 
 document.addEventListener('DOMContentLoaded', function() {
+    var tbody = document.getElementById('agent-model-tbody');
+    if (tbody) {
+        tbody.addEventListener('change', function(ev) {
+            var t = ev.target;
+            if (t.matches('select[data-model-config="true"]')) {
+                var modelSelect = t.parentElement.querySelector('select[data-model-name="true"]');
+                var customInput = t.parentElement.querySelector('input[data-model-custom="true"]');
+                modelSelect.innerHTML = modelOptionsHtml([]);
+                showModelsError(modelSelect.parentElement, null);
+                customInput.value = '';
+                customInput.style.display = 'none';
+                if (!t.value) return;
+                var config = configById(
+                    (window.__CONFIGS__ || []),
+                    (window.__RIG_CONFIGS__ || []),
+                    t.value
+                );
+                if (!config) return;
+                fetchModels(config, function(models, error) {
+                    modelSelect.innerHTML = modelOptionsHtml(models);
+                    showModelsError(modelSelect.parentElement, error);
+                });
+            } else if (t.matches('select[data-model-name="true"]')) {
+                var customInput = t.parentElement.querySelector('input[data-model-custom="true"]');
+                if (t.value === '__custom__') {
+                    customInput.style.display = '';
+                } else {
+                    customInput.style.display = 'none';
+                    customInput.value = '';
+                }
+            }
+        });
+    }
+});
+
+document.addEventListener('DOMContentLoaded', function() {
     var btn = document.getElementById('btn-save-agent-models');
     if (btn) {
         btn.addEventListener('click', function() {
             var models = {};
-            document.querySelectorAll('select[data-model-config="true"]').forEach(function(select) {
-                var agent = select.dataset.agent;
+            document.querySelectorAll('tbody#agent-model-tbody select[data-model-config="true"]').forEach(function(select) {
+                var agent = select.closest('tr').dataset.agent;
                 if (!models[agent]) models[agent] = {};
                 models[agent].model_config_id = select.value || null;
             });
-            document.querySelectorAll('input[data-model-name="true"]').forEach(function(input) {
-                var agent = input.dataset.agent;
+            document.querySelectorAll('tbody#agent-model-tbody select[data-model-name="true"]').forEach(function(select) {
+                var agent = select.closest('tr').dataset.agent;
                 if (!models[agent]) models[agent] = {};
-                models[agent].model = input.value || null;
+                var customInput = select.parentElement.querySelector('input[data-model-custom="true"]');
+                if (customInput && customInput.style.display !== 'none' && customInput.value.trim()) {
+                    models[agent].model = customInput.value.trim();
+                } else {
+                    models[agent].model = (select.value && select.value !== '__custom__') ? select.value : null;
+                }
             });
-            document.querySelectorAll('tbody#agent-model-tbody td select:not([data-model-config])').forEach(function(select) {
-                var agent = select.dataset.agent;
+            document.querySelectorAll('tbody#agent-model-tbody select[data-effort="true"]').forEach(function(select) {
+                var agent = select.closest('tr').dataset.agent;
                 if (!models[agent]) models[agent] = {};
                 models[agent].effort = select.value;
             });
@@ -267,7 +415,7 @@ document.addEventListener('DOMContentLoaded', function() {
                 body: JSON.stringify(models)
             })
             .then(function(r) {
-                if (!r.ok) throw new Error('Failed to save');
+                if (!r.ok) return r.json().then(function(j) { throw new Error(j.error || 'Failed to save'); });
                 return r.json();
             })
             .then(function() {
@@ -306,5 +454,14 @@ mod tests {
         assert!(html.contains("loadAgentModels"));
         assert!(html.contains("function escapeHtml(str)"));
         assert!(!html.contains("config-list"));
+    }
+
+    #[test]
+    fn test_providers_agents_delegates_rig_providers() {
+        let html = render(SettingsSubPage::RigProviders);
+        assert!(html.contains("menu"));
+        assert!(html.contains("Rig-based Providers"));
+        assert!(html.contains("rig-provider-list"));
+        assert!(html.contains("btn-add-rig-provider"));
     }
 }

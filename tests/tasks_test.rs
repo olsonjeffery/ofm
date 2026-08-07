@@ -44,11 +44,17 @@ async fn setup_app() -> TestApp {
     db::run_migrations(&client).await.unwrap();
     let user_id = db::ensure_default_user(&client).await.unwrap();
 
-    let project_id =
-        ofm::services::projects::create_project(&client, &user_id, "test-project", &git_path, None)
-            .await
-            .unwrap()
-            .id;
+    let project_id = ofm::services::projects::create_project(
+        &client,
+        &user_id,
+        "test-project",
+        &git_path,
+        None,
+        &[],
+    )
+    .await
+    .unwrap()
+    .id;
 
     let auth_layer = AuthLayer::disabled(
         client.clone(),
@@ -149,11 +155,17 @@ async fn setup_app_with_git() -> TestApp {
     db::run_migrations(&client).await.unwrap();
     let user_id = db::ensure_default_user(&client).await.unwrap();
 
-    let project_id =
-        ofm::services::projects::create_project(&client, &user_id, "test-project", &git_path, None)
-            .await
-            .unwrap()
-            .id;
+    let project_id = ofm::services::projects::create_project(
+        &client,
+        &user_id,
+        "test-project",
+        &git_path,
+        None,
+        &[],
+    )
+    .await
+    .unwrap()
+    .id;
 
     let app_archive_root = archive_root.clone();
     let auth_layer = AuthLayer::disabled(
@@ -657,4 +669,360 @@ async fn test_delete_task_not_found() {
         .unwrap();
 
     assert_eq!(resp.status(), 404);
+}
+
+async fn create_task_via_api(app: &TestApp, title: &str, doc: &str) -> i64 {
+    let resp = client()
+        .post(format!("{}/api/tasks", app.addr))
+        .json(&serde_json::json!({
+            "project_id": app.project_id,
+            "title": title,
+            "original_request": doc,
+        }))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(resp.status(), 201);
+    resp.json::<serde_json::Value>().await.unwrap()["id"]
+        .as_i64()
+        .unwrap()
+}
+
+async fn count_task_rows(app: &TestApp, table: &str, task_id: i64) -> i64 {
+    let sql = format!("SELECT COUNT(*) AS c FROM {table} WHERE task_id = $1");
+    let mut rows = app
+        .db
+        .query_raw(sql, hiqlite::params!(task_id))
+        .await
+        .unwrap();
+    rows.first_mut().map(|r| r.get("c")).unwrap_or(0)
+}
+
+async fn count_message_rows(app: &TestApp, task_id: i64) -> i64 {
+    let mut rows = app
+        .db
+        .query_raw(
+            "SELECT COUNT(*) AS c FROM messages WHERE project_key = $1",
+            hiqlite::params!(task_id),
+        )
+        .await
+        .unwrap();
+    rows.first_mut().map(|r| r.get("c")).unwrap_or(0)
+}
+
+#[tokio::test]
+async fn test_reset_cap_clears_counter_and_block() {
+    let app = setup_app_with_git().await;
+    let task_id = create_task_via_api(&app, "cap task", "req").await;
+
+    app.db
+        .execute(
+            "UPDATE tasks SET workflow_run_count = 25, workflow_blocked = 1 WHERE id = $1",
+            hiqlite::params!(task_id),
+        )
+        .await
+        .unwrap();
+
+    let resp = client()
+        .post(format!("{}/api/tasks/{}/reset-cap", app.addr, task_id))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(resp.status(), 200);
+
+    let task = ofm::services::tasks::get_task(&app.db, task_id)
+        .await
+        .unwrap();
+    assert_eq!(task.workflow_run_count, 0);
+    assert!(!task.workflow_blocked);
+    assert_eq!(task.status, "pending", "reset-cap leaves status untouched");
+}
+
+#[tokio::test]
+async fn test_reset_history_clears_conversations_runs_messages_and_flags() {
+    let app = setup_app_with_git().await;
+    let task_id = create_task_via_api(&app, "history task", "req").await;
+
+    let started = ofm::services::session::start_session(
+        &app.db,
+        task_id,
+        "model",
+        "balanced",
+        ofm::db::schema::AgentType::Implementation,
+    )
+    .await
+    .unwrap();
+    ofm::services::transcript::persist_event(
+        &app.db,
+        &ofm::providers::types::ProviderEvent::Text {
+            text: "hello".into(),
+            timestamp: chrono::Utc::now().naive_utc(),
+        },
+        &started.session_id,
+        task_id,
+    )
+    .await
+    .unwrap();
+    app.db
+        .execute(
+            "UPDATE tasks SET workflow_run_count = 12, workflow_blocked = 1, status = 'in_progress' WHERE id = $1",
+            hiqlite::params!(task_id),
+        )
+        .await
+        .unwrap();
+
+    let resp = client()
+        .post(format!("{}/api/tasks/{}/reset-history", app.addr, task_id))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(resp.status(), 200);
+
+    assert_eq!(count_task_rows(&app, "conversations", task_id).await, 0);
+    assert_eq!(count_task_rows(&app, "task_agent_runs", task_id).await, 0);
+    assert_eq!(count_message_rows(&app, task_id).await, 0);
+
+    let task = ofm::services::tasks::get_task(&app.db, task_id)
+        .await
+        .unwrap();
+    assert_eq!(task.workflow_run_count, 0);
+    assert!(!task.workflow_blocked);
+    assert_eq!(task.status, "pending");
+    assert_eq!(task.title, "history task", "title preserved");
+}
+
+#[tokio::test]
+async fn test_reset_history_on_task_without_conversations_succeeds() {
+    let app = setup_app_with_git().await;
+    let task_id = create_task_via_api(&app, "no conv task", "req").await;
+    app.db
+        .execute(
+            "UPDATE tasks SET workflow_blocked = 1 WHERE id = $1",
+            hiqlite::params!(task_id),
+        )
+        .await
+        .unwrap();
+
+    let resp = client()
+        .post(format!("{}/api/tasks/{}/reset-history", app.addr, task_id))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(resp.status(), 200);
+
+    let task = ofm::services::tasks::get_task(&app.db, task_id)
+        .await
+        .unwrap();
+    assert_eq!(task.workflow_run_count, 0);
+    assert!(!task.workflow_blocked);
+}
+
+#[tokio::test]
+async fn test_duplicate_task_copies_doc_and_starts_fresh() {
+    let app = setup_app_with_git().await;
+    let task_id = create_task_via_api(&app, "original", "Original doc body").await;
+
+    // Give the original a conversation + running run so the copy provably
+    // starts clean and the original stays untouched.
+    let started = ofm::services::session::start_session(
+        &app.db,
+        task_id,
+        "model",
+        "balanced",
+        ofm::db::schema::AgentType::Implementation,
+    )
+    .await
+    .unwrap();
+    ofm::services::transcript::persist_event(
+        &app.db,
+        &ofm::providers::types::ProviderEvent::Text {
+            text: "hi".into(),
+            timestamp: chrono::Utc::now().naive_utc(),
+        },
+        &started.session_id,
+        task_id,
+    )
+    .await
+    .unwrap();
+
+    let resp = client()
+        .post(format!("{}/api/tasks/{}/duplicate", app.addr, task_id))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(resp.status(), 201);
+    let new_task: serde_json::Value = resp.json().await.unwrap();
+    let new_id = new_task["id"].as_i64().unwrap();
+    assert_ne!(new_id, task_id, "duplicate must create a new task id");
+    assert_eq!(new_task["title"], "original (copy)");
+    assert_eq!(new_task["status"], "pending");
+    assert_eq!(new_task["workflow_run_count"], 0);
+    assert_eq!(new_task["workflow_blocked"], false);
+
+    // Doc copied into the archive for the new task.
+    let new_wt = ofm::services::tasks::get_worktree_by_task(&app.db, new_id)
+        .await
+        .unwrap();
+    let doc_path = std::path::PathBuf::from(&app.archive_root)
+        .join("projects")
+        .join(new_wt.project_id.to_string())
+        .join("tasks")
+        .join(format!("task-{}.md", new_wt.task_id));
+    assert_eq!(
+        std::fs::read_to_string(&doc_path).unwrap(),
+        "Original doc body"
+    );
+    assert!(
+        std::path::Path::new(&new_wt.worktree_path).exists(),
+        "duplicate must have a fresh worktree"
+    );
+
+    // Fresh task starts with zero conversations/runs.
+    assert_eq!(count_task_rows(&app, "conversations", new_id).await, 0);
+    assert_eq!(count_task_rows(&app, "task_agent_runs", new_id).await, 0);
+    assert_eq!(count_message_rows(&app, new_id).await, 0);
+
+    // Original untouched.
+    let orig = ofm::services::tasks::get_task(&app.db, task_id)
+        .await
+        .unwrap();
+    assert_eq!(orig.title, "original");
+    assert_eq!(orig.status, "pending");
+    assert_eq!(count_task_rows(&app, "conversations", task_id).await, 1);
+    assert_eq!(count_task_rows(&app, "task_agent_runs", task_id).await, 1);
+}
+
+struct ForeignTaskApp {
+    addr: String,
+    _handle: tokio::task::JoinHandle<()>,
+    foreign_task_id: i64,
+    _db_dir: TempDir,
+}
+
+/// An app whose authenticated user is a **non-admin** viewer with no access to
+/// a task owned by another user, so ownership rejection can be exercised.
+async fn setup_app_with_foreign_task() -> ForeignTaskApp {
+    let db_dir = TempDir::new().unwrap();
+    let config = hiqlite::NodeConfig {
+        node_id: 1,
+        nodes: vec![hiqlite::Node {
+            id: 1,
+            addr_raft: "127.0.0.1:0".into(),
+            addr_api: "127.0.0.1:0".into(),
+        }],
+        data_dir: db_dir.path().to_str().unwrap().to_string().into(),
+        secret_raft: "test-raft-secret-123".into(),
+        secret_api: "test-api-secret-123".into(),
+        ..Default::default()
+    };
+    let client = hiqlite::start_node(config).await.unwrap();
+    client.wait_until_healthy_db().await;
+    db::run_migrations(&client).await.unwrap();
+
+    let owner = uuid::Uuid::new_v4();
+    let viewer = uuid::Uuid::new_v4();
+    let now = "2024-06-01 12:00:00";
+    client
+        .execute(
+            "INSERT INTO users (id, username, is_admin, is_active, created_at) VALUES ($1, $2, 0, 1, $3)",
+            hiqlite::params!(owner.to_string(), "owner", now),
+        )
+        .await
+        .unwrap();
+    client
+        .execute(
+            "INSERT INTO users (id, username, is_admin, is_active, created_at) VALUES ($1, $2, 0, 1, $3)",
+            hiqlite::params!(viewer.to_string(), "viewer", now),
+        )
+        .await
+        .unwrap();
+
+    let project_id = ofm::services::projects::create_project(
+        &client,
+        &owner,
+        "owner-project",
+        &format!("/tmp/foreign-repo-{}", uuid::Uuid::new_v4()),
+        None,
+        &[],
+    )
+    .await
+    .unwrap()
+    .id;
+
+    let foreign_task_id =
+        ofm::services::tasks::create_task(&client, project_id, &owner, "foreign task", "pending")
+            .await
+            .unwrap()
+            .id;
+
+    let auth_layer = AuthLayer::disabled(
+        client.clone(),
+        b"test".to_vec(),
+        cookie::Key::generate(),
+        viewer,
+    );
+    let state = AppState {
+        cfg_port: 0,
+        rauthy_port: None,
+        db: client.clone(),
+        default_user_id: viewer,
+        footprint: db_dir.path().to_str().unwrap().to_string(),
+        archive_root: "storage/".into(),
+        config_root: db_dir.path().to_str().unwrap().to_string(),
+        active_sessions: Arc::new(Mutex::new(HashMap::<String, Box<dyn LlmProvider>>::new())),
+        oidc_provider: None,
+        pkce_store: Arc::new(Mutex::new(HashMap::new())),
+        cookie_key: cookie::Key::generate(),
+        api_key_pepper: b"test_pepper".to_vec(),
+        ws_bus: BroadcastBus::new(),
+        config: OfmConfig::default(),
+    };
+
+    let app = server::router(state, auth_layer);
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let addr = format!("http://{}", listener.local_addr().unwrap());
+    let handle = tokio::spawn(async move {
+        axum::serve(listener, app).await.unwrap();
+    });
+
+    ForeignTaskApp {
+        addr,
+        _handle: handle,
+        foreign_task_id,
+        _db_dir: db_dir,
+    }
+}
+
+#[tokio::test]
+async fn test_recovery_endpoints_reject_foreign_task() {
+    let app = setup_app_with_foreign_task().await;
+
+    for ep in ["reset-cap", "reset-history", "duplicate"] {
+        let resp = client()
+            .post(format!(
+                "{}/api/tasks/{}/{}",
+                app.addr, app.foreign_task_id, ep
+            ))
+            .send()
+            .await
+            .unwrap();
+        assert_eq!(
+            resp.status(),
+            404,
+            "{ep} should 404 for a task owned by another user"
+        );
+    }
+}
+
+#[tokio::test]
+async fn test_recovery_endpoints_reject_missing_task() {
+    let app = setup_app().await;
+    for ep in ["reset-cap", "reset-history", "duplicate"] {
+        let resp = client()
+            .post(format!("{}/api/tasks/{}/{}", app.addr, 99999, ep))
+            .send()
+            .await
+            .unwrap();
+        assert_eq!(resp.status(), 404, "{ep} should 404 for a missing task");
+    }
 }

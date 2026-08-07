@@ -51,6 +51,35 @@ pub fn BoardPage(project: Project, tasks: Vec<TaskCardData>) -> impl IntoView {
                 </div>
             </div>
 
+            <div class="box" style="padding:0.75rem">
+                <div class="level is-mobile">
+                    <div class="level-left">
+                        <div class="tags" id="project-tags-pills">
+                            {project.tags.iter().map(|t| view! { <span class="tag is-info is-light">{t.clone()}</span> }).collect::<Vec<_>>()}
+                        </div>
+                    </div>
+                    <div class="level-right">
+                        <div class="field has-addons">
+                            <div class="control">
+                                <input
+                                    id="project-tags-input"
+                                    class="input is-small"
+                                    type="text"
+                                    placeholder="desktop-3d, graphics"
+                                    value={project.tags.join(", ")}
+                                />
+                            </div>
+                            <div class="control">
+                                <button id="save-project-tags-btn" class="button is-small is-primary">
+                                    <span class="icon is-small"><i class="mdi mdi-content-save"></i></span>
+                                    <span>"Save Tags"</span>
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
             <div id="new-task-form" class="box is-hidden">
                 <form id="create-task-form">
                     <div class="field">
@@ -115,6 +144,14 @@ pub fn BoardPage(project: Project, tasks: Vec<TaskCardData>) -> impl IntoView {
                         original_request: createForm.querySelector('[name=original_request]').value
                     };
                     apiCall('/api/tasks',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(data)})
+                        .then(function(r){if(r.ok)window.location.reload();});
+                });
+                // Project tags editor
+                var saveTagsBtn=document.getElementById('save-project-tags-btn');
+                if(saveTagsBtn)saveTagsBtn.addEventListener('click',function(){
+                    var projectId=parseInt(window.location.pathname.split('/').pop(),10);
+                    var tags=document.getElementById('project-tags-input').value.split(',').map(function(s){return s.trim();}).filter(function(s){return s!=='';});
+                    apiCall('/api/projects/'+projectId,{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify({tags:tags})})
                         .then(function(r){if(r.ok)window.location.reload();});
                 });
                 // Drag-and-drop task cards via dragula
@@ -189,6 +226,7 @@ mod tests {
             name: "Test Project".into(),
             repo_folder_path: "/tmp/repo".into(),
             subproject_path: None,
+            tags: vec!["desktop-3d".into()],
             created_at: NaiveDateTime::parse_from_str("2024-01-15 10:00:00", "%Y-%m-%d %H:%M:%S")
                 .unwrap(),
         }
